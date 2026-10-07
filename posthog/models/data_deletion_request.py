@@ -351,7 +351,6 @@ class DataDeletionRequest(CreatedMetaFields, UUIDModel):
     # Metadata
     notes = models.TextField(blank=True, default="")
     created_by_staff = models.BooleanField(null=True, blank=True, help_text="Was this created by instance operator.")
-    created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     criteria_updated_by = models.ForeignKey(
         "posthog.User",

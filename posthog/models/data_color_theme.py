@@ -11,7 +11,8 @@ class DataColorTheme(RootTeamMixin, CreatedMetaFields, models.Model):
 
     name = field_access_control(models.CharField(max_length=100), "project", "admin")
     colors = field_access_control(models.JSONField(default=list), "project", "admin")
-    created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)  # type: ignore[assignment]  # this column is nullable, unlike the CreatedMetaFields one
+    # nosemgrep: created-at-uses-created-meta-mixin -- this column is nullable, unlike the one in the mixin
+    created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)  # type: ignore[assignment]
     deleted = models.BooleanField(blank=True, null=True)
 
     def __str__(self):

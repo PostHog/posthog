@@ -49761,7 +49761,7 @@ export namespace Schemas {
          * @nullable
          */
       last_called_at?: string | null;
-      created_at?: string;
+      readonly created_at: string;
       /** @nullable */
       readonly created_by: number | null;
       /** False for the current version; true for reconstructed historical versions. */
@@ -74192,7 +74192,7 @@ export namespace Schemas {
       readonly id: number;
       /** @maxLength 400 */
       name: string;
-      created_at?: string;
+      readonly created_at: string;
       readonly feature_flag_key: string;
       /** Variants for the web experiment. Example:
        *
@@ -83647,7 +83647,7 @@ export namespace Schemas {
       readonly id?: number;
       /** @maxLength 400 */
       name?: string;
-      created_at?: string;
+      readonly created_at?: string;
       readonly feature_flag_key?: string;
       /** Variants for the web experiment. Example:
        *

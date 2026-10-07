@@ -27,6 +27,7 @@ from posthog.models.organization_notification_lock import OrganizationMemberNoti
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.utils import backdate_created_at
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
@@ -232,8 +233,8 @@ def _make_feature_flags(team: Team, other_team: Team, digest: Digest) -> list[st
     FeatureFlag.objects.create(team=team, key="exp-flag", name="Feature Flag for Experiment checkout")
     FeatureFlag.objects.create(team=team, key="survey-flag", name="Targeting flag for survey NPS")
     FeatureFlag.objects.create(team=other_team, key="other-flag", name="Other team's flag")
-    FeatureFlag.objects.create(
-        team=team, key="old-flag", name="Old flag", created_at=digest.period_start - timedelta(days=1)
+    backdate_created_at(
+        FeatureFlag.objects.create(team=team, key="old-flag", name="Old flag"), digest.period_start - timedelta(days=1)
     )
     return ["New flag"]
 

@@ -26,6 +26,7 @@ class FileSystem(CreatedMetaFields, models.Model):
     href = models.TextField(null=True, blank=True)
     shortcut = models.BooleanField(null=True, blank=True)
     meta = models.JSONField(default=dict, null=True, blank=True)
+    # nosemgrep: created-at-uses-created-meta-mixin -- a row copies created_at from the object it represents
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     # Product surface this row belongs to (e.g. "web", "desktop"). NULL == DEFAULT_SURFACE.
     surface = models.CharField(max_length=100, null=True, blank=True)

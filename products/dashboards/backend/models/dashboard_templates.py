@@ -30,7 +30,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin, CreatedMetaFields):
     tiles = models.JSONField(blank=True, null=True)
     variables = models.JSONField(null=True, blank=True)
     tags: ArrayField = ArrayField(models.CharField(max_length=255), blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)  # type: ignore[assignment]  # this column is nullable, unlike the CreatedMetaFields one
+    # nosemgrep: created-at-uses-created-meta-mixin -- this column is nullable, unlike the one in the mixin
+    created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)  # type: ignore[assignment]
     deleted = models.BooleanField(blank=True, null=True)
     image_url = models.CharField(max_length=8201, null=True, blank=True)
     scope = models.CharField(max_length=24, choices=Scope, null=True, blank=True)

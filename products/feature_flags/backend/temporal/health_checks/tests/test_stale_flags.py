@@ -16,6 +16,7 @@ from posthog.clickhouse.query_tagging import Product
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.models.team import Team
+from posthog.models.utils import backdate_created_at
 from posthog.tasks.health_checks import evaluate_health_check_for_team
 from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded
@@ -53,9 +54,11 @@ def constant_and_called() -> dict[str, Any]:
 
 
 class TestStaleFlagsDetect(BaseTest):
-    def _create_flag(self, key: str, **kwargs: Any) -> FeatureFlag:
+    def _create_flag(self, key: str, team: Team | None = None, **kwargs: Any) -> FeatureFlag:
         kwargs.setdefault("active", True)
-        return FeatureFlag.objects.create(team=self.team, key=key, created_by=self.user, **kwargs)
+        created_at = kwargs.pop("created_at", None)
+        flag = FeatureFlag.objects.create(team=team or self.team, key=key, created_by=self.user, **kwargs)
+        return backdate_created_at(flag, created_at) if created_at else flag
 
     def _detect(self, team_ids: list[int] | None = None) -> dict[int, list]:
         return StaleFeatureFlagsCheck().detect(team_ids or [self.team.id])
@@ -488,9 +491,7 @@ class TestStaleFlagsDetect(BaseTest):
         other_project_team = Team.objects.create(organization=self.organization)
         # The scan covers the projects that own candidate flags, so the other project needs one
         # of its own before the gate it stores is read at all.
-        their_flag = FeatureFlag.objects.create(
-            team=other_project_team, key="their-own-flag", created_by=self.user, active=True, **stale_by_config()
-        )
+        their_flag = self._create_flag("their-own-flag", team=other_project_team, **stale_by_config())
         Team.objects.filter(pk=other_project_team.pk).update(
             session_recording_linked_flag={"id": flag.id, "key": flag.key}
         )
@@ -655,13 +656,15 @@ class TestStaleFlagsDetect(BaseTest):
 
     def test_other_config_formats_are_skipped_without_failing_the_batch(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
-        unsupported = FeatureFlag.objects.create(
-            team=other_team,
-            key="v2-flag",
-            created_by=self.user,
-            active=True,
-            created_at=timezone.now() - timedelta(days=60),
-            filters={"version": 2, **FULL_ROLLOUT_FILTERS},
+        unsupported = backdate_created_at(
+            FeatureFlag.objects.create(
+                team=other_team,
+                key="v2-flag",
+                created_by=self.user,
+                active=True,
+                filters={"version": 2, **FULL_ROLLOUT_FILTERS},
+            ),
+            timezone.now() - timedelta(days=60),
         )
         not_an_object = FeatureFlag.objects.create(
             team=other_team,
@@ -670,11 +673,9 @@ class TestStaleFlagsDetect(BaseTest):
             active=True,
             **{**stale_by_usage(), "filters": ["version"]},
         )
-        called = FeatureFlag.objects.create(
+        called = self._create_flag(
+            "v2-called",
             team=other_team,
-            key="v2-called",
-            created_by=self.user,
-            active=True,
             **{**constant_and_called(), "filters": {"version": 2, **FULL_ROLLOUT_FILTERS}},
         )
         self._create_flag("v1-stale", **stale_by_usage())
@@ -701,11 +702,13 @@ class TestStaleFlagsDetect(BaseTest):
                 team=self.team,
                 key=f"bulk-stale-{index}",
                 active=True,
-                created_at=timezone.now() - timedelta(days=60),
                 filters=FULL_ROLLOUT_FILTERS,
                 created_by=self.user,
             )
             for index in range(20)
+        )
+        FeatureFlag.objects.filter(team=self.team, key__startswith="bulk-stale-").update(
+            created_at=timezone.now() - timedelta(days=60)
         )
         other_team = Team.objects.create(organization=self.organization, name="other")
         FeatureFlag.objects.create(

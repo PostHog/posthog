@@ -260,7 +260,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, CreatedMetaFields, models.Model
     pending_version = models.IntegerField(blank=True, null=True)
     count = models.IntegerField(blank=True, null=True)
 
-    created_at = models.DateTimeField(default=timezone.now, blank=True, null=True)  # type: ignore[assignment]  # this column is nullable, unlike the CreatedMetaFields one
+    # nosemgrep: created-at-uses-created-meta-mixin -- this column is nullable, unlike the one in the mixin
+    created_at = models.DateTimeField(default=timezone.now, blank=True, null=True)  # type: ignore[assignment]
 
     is_calculating = models.BooleanField(default=False)
     last_calculation = models.DateTimeField(blank=True, null=True)

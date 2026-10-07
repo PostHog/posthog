@@ -508,10 +508,10 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             team=self.team,
             key="stale-flag",
             active=True,
-            created_at=timezone.now() - timedelta(days=60),
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
             created_by=self.user,
         )
+        await FeatureFlag.objects.filter(pk=stale_flag.pk).aupdate(created_at=timezone.now() - timedelta(days=60))
         # Active: freshly created, no usage data yet
         await FeatureFlag.objects.acreate(team=self.team, key="fresh-flag", active=True, created_by=self.user)
 

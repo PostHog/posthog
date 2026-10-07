@@ -1027,7 +1027,6 @@ class CIMDVerificationToken(CreatedMetaFields, models.Model):
     cimd_url: models.URLField = models.URLField(max_length=2048, null=True, blank=True)
     mask_value: models.CharField = models.CharField(max_length=11, editable=False, null=True)
     secure_value: models.CharField = models.CharField(unique=True, max_length=300, editable=False)
-    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     last_used_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
     class Meta:

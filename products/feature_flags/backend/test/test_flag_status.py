@@ -7,6 +7,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.utils import backdate_created_at
+
 from products.feature_flags.backend.flag_status import (
     FeatureFlagStatus,
     FeatureFlagStatusChecker,
@@ -22,13 +24,15 @@ class TestFilterFlagsByActiveParam(BaseTest):
         self.enabled = FeatureFlag.objects.create(team=self.team, key="enabled", active=True, created_by=self.user)
         self.disabled = FeatureFlag.objects.create(team=self.team, key="disabled", active=False, created_by=self.user)
         # Config-based stale: 30+ days old, no usage data, fully rolled out to 100%
-        self.stale = FeatureFlag.objects.create(
-            team=self.team,
-            key="stale",
-            active=True,
-            created_at=timezone.now() - timedelta(days=60),
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-            created_by=self.user,
+        self.stale = backdate_created_at(
+            FeatureFlag.objects.create(
+                team=self.team,
+                key="stale",
+                active=True,
+                filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+                created_by=self.user,
+            ),
+            timezone.now() - timedelta(days=60),
         )
         # Usage-based stale: active but not evaluated in 30+ days
         self.stale_by_usage = FeatureFlag.objects.create(
@@ -40,29 +44,33 @@ class TestFilterFlagsByActiveParam(BaseTest):
             created_by=self.user,
         )
         # Multivariate stale: one variant at 100% plus a fully rolled out release condition
-        self.stale_multivariate = FeatureFlag.objects.create(
-            team=self.team,
-            key="stale-multivariate",
-            active=True,
-            created_at=timezone.now() - timedelta(days=60),
-            filters={
-                "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-            },
-            created_by=self.user,
+        self.stale_multivariate = backdate_created_at(
+            FeatureFlag.objects.create(
+                team=self.team,
+                key="stale-multivariate",
+                active=True,
+                filters={
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                },
+                created_by=self.user,
+            ),
+            timezone.now() - timedelta(days=60),
         )
         # Empty-variants stale: a present-but-empty multivariate block routes through the boolean
         # branch (both the SQL filter's jsonb_array_length(variants)=0 and the checker's has_variants).
-        self.stale_empty_variants = FeatureFlag.objects.create(
-            team=self.team,
-            key="stale-empty-variants",
-            active=True,
-            created_at=timezone.now() - timedelta(days=60),
-            filters={
-                "multivariate": {"variants": []},
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-            },
-            created_by=self.user,
+        self.stale_empty_variants = backdate_created_at(
+            FeatureFlag.objects.create(
+                team=self.team,
+                key="stale-empty-variants",
+                active=True,
+                filters={
+                    "multivariate": {"variants": []},
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                },
+                created_by=self.user,
+            ),
+            timezone.now() - timedelta(days=60),
         )
 
     def _filter(self, value):
@@ -226,7 +234,10 @@ class TestFilterFlagsByActiveParam(BaseTest):
     def test_stale_filter_agrees_with_status_checker(
         self, key: str, flag_kwargs: dict[str, Any], expected_stale: bool
     ) -> None:
-        FeatureFlag.objects.create(team=self.team, key=key, created_by=self.user, **flag_kwargs)
+        fields = {name: value for name, value in flag_kwargs.items() if name != "created_at"}
+        flag = FeatureFlag.objects.create(team=self.team, key=key, created_by=self.user, **fields)
+        if "created_at" in flag_kwargs:
+            backdate_created_at(flag, flag_kwargs["created_at"])
 
         filter_stale = self._filter("STALE")
         assert filter_stale == self._checker_stale()
@@ -249,13 +260,15 @@ class TestFilterFlagsByActiveParam(BaseTest):
         assert "called-ten-days-ago" in stale_keys(stale_threshold=timezone.now() - timedelta(days=5))
 
     def test_stale_filter_survives_a_legacy_scalar_groups_value(self) -> None:
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="scalar-groups",
-            active=True,
-            created_at=timezone.now() - timedelta(days=60),
-            filters={"groups": "all"},
-            created_by=self.user,
+        backdate_created_at(
+            FeatureFlag.objects.create(
+                team=self.team,
+                key="scalar-groups",
+                active=True,
+                filters={"groups": "all"},
+                created_by=self.user,
+            ),
+            timezone.now() - timedelta(days=60),
         )
 
         # Without the guard `jsonb_array_elements` raises, and the error aborts the statement for
@@ -275,11 +288,13 @@ class TestFilterFlagsByActiveParam(BaseTest):
                 team=self.team,
                 key=f"bulk-stale-{index}",
                 active=True,
-                created_at=timezone.now() - timedelta(days=60),
                 filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
                 created_by=self.user,
             )
             for index in range(20)
+        )
+        FeatureFlag.objects.filter(team=self.team, key__startswith="bulk-stale-").update(
+            created_at=timezone.now() - timedelta(days=60)
         )
 
         with self.assertNumQueries(1):

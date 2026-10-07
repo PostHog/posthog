@@ -43,20 +43,33 @@ class CreatedMetaFields(models.Model):
         abstract = True
 
 
-class IsolatedProductCreatedMetaFields(models.Model):
+class IsolatedProductCreatedMetaFields(CreatedMetaFields):
     """`CreatedMetaFields` for models without a database foreign key to `posthog_user`.
 
-    Use it for models in a product database, where a foreign key cannot cross databases,
-    and for new tables in the main database, where creating the constraint locks the hot `posthog_user` table.
+    Use it for every new table in the main database, because creating the constraint locks the hot `posthog_user` table.
+    Models on a product database use neither mixin, because Django cannot relate models across databases.
     """
 
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
-    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         abstract = True
+
+
+_CreatedModel = TypeVar("_CreatedModel", bound=CreatedMetaFields)
+
+
+def backdate_created_at(instance: _CreatedModel, created_at: datetime.datetime) -> _CreatedModel:
+    """Give a saved row an older `created_at`.
+
+    `auto_now_add` replaces any `created_at` passed on create, so demo data and tests that need an older row set it here.
+    The queryset update skips save signals and leaves the rest of the row as it is.
+    """
+    type(instance)._base_manager.filter(pk=instance.pk).update(created_at=created_at)
+    instance.created_at = created_at
+    return instance
 
 
 class UpdatedMetaFields(models.Model):

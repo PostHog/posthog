@@ -8,7 +8,6 @@ from django.db import DatabaseError, models
 from django.db.models import Func, IntegerField, Q, QuerySet
 from django.db.models.fields.json import KeyTransform
 from django.http import HttpRequest
-from django.utils import timezone
 
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER
 from posthog.migration_helpers import deprecate_field
@@ -166,7 +165,6 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
     rollout_percentage = deprecate_field(models.IntegerField(null=True, blank=True))
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(null=True, auto_now=True)
     deleted = models.BooleanField(default=False)
     active = models.BooleanField(default=True)

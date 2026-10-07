@@ -278,6 +278,10 @@ records the decrease. See `products/architecture.md` § Wiring couplings.
   and the rule is `products/architecture.md` § Facades: The Public Interface.
 - Declare every relation field that crosses a product boundary with
   `related_name="+"` — the reverse-accessor ratchet blocks new unsealed ones.
+- Give a new main-database model `created_by` and `created_at` through
+  `IsolatedProductCreatedMetaFields` (`posthog/models/utils.py`). It sets
+  `related_name="+"` and `db_constraint=False`, so the migration takes no lock on
+  `posthog_user`. Semgrep blocks hand-written copies; see `products/README.md`.
 - Do not register a signal receiver on another boundary's sender; use the moves
   in "Signal coupling" above.
 - Keep contract files pure (no Django/DRF imports in `facade/contracts.py` or `facade/enums.py`). A choices enum there is a `LabeledStrEnum` / `LabeledIntEnum` from `posthog/enums.py`.

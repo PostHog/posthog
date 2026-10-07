@@ -250,7 +250,6 @@ class Channel(TeamScopedRootMixin, IsolatedProductCreatedMetaFields):
         help_text="Archive inactive tasks in this channel after this many days. Null disables automatic archiving.",
     )
     deleted = models.BooleanField(default=False)
-    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -2079,7 +2078,6 @@ class ChannelInstructions(TeamScopedRootMixin, IsolatedProductCreatedMetaFields)
     is_latest = models.BooleanField(default=True)
     deleted = models.BooleanField(default=False)
 
-    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -2220,7 +2218,6 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin, IsolatedProductCreatedMetaFi
     # it and a reactivation flow can clear it. Null for a normal owner pause. See loop_lifecycle.py.
     disabled_reason = models.CharField(max_length=64, null=True, blank=True)
     deleted = models.BooleanField(default=False)
-    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -3663,7 +3660,6 @@ class TaskArtifact(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDMo
     # endpoint sets it, for an export it rendered itself. Plain id, not an FK: exports live in
     # another product and expire on their own TTL; delivery treats a dangling id as no link.
     export_asset_id = models.BigIntegerField(null=True, blank=True)
-    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

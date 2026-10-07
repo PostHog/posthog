@@ -26,6 +26,7 @@ from django.utils import timezone
 
 from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization
+from posthog.models.utils import backdate_created_at
 
 from products.access_control.backend.facade.mcp_access import mcp_access_denial
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -379,14 +380,16 @@ def _backdate_updated_at(flag: FeatureFlag) -> None:
 def seed_stale_full_rollout_flag(context: CustomPromptSandboxContext) -> dict[str, Any]:
     """A configuration-stale boolean flag: one 100% condition, no property filters, never called, 90 days old."""
     _require_claude_runtime(context)
-    flag = FeatureFlag.objects.create(
-        team_id=context.team_id,
-        key=STALE_FULL_ROLLOUT_FLAG_KEY,
-        name="Sunset widget rollout",
-        created_by_id=context.user_id,
-        active=True,
-        created_at=datetime.now(UTC) - timedelta(days=90),
-        filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+    flag = backdate_created_at(
+        FeatureFlag.objects.create(
+            team_id=context.team_id,
+            key=STALE_FULL_ROLLOUT_FLAG_KEY,
+            name="Sunset widget rollout",
+            created_by_id=context.user_id,
+            active=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        ),
+        datetime.now(UTC) - timedelta(days=90),
     )
     _backdate_updated_at(flag)
     return {
@@ -436,15 +439,17 @@ def seed_recently_updated_flag(context: CustomPromptSandboxContext) -> dict[str,
 def seed_stale_partial_rollout_flag(context: CustomPromptSandboxContext) -> dict[str, Any]:
     """A usage-stale flag stuck at a 40% rollout — a candidate no agent may edit code for."""
     _require_claude_runtime(context)
-    flag = FeatureFlag.objects.create(
-        team_id=context.team_id,
-        key=STALE_PARTIAL_ROLLOUT_FLAG_KEY,
-        name="Beta search ranking",
-        created_by_id=context.user_id,
-        active=True,
-        created_at=datetime.now(UTC) - timedelta(days=120),
-        last_called_at=datetime.now(UTC) - timedelta(days=60),
-        filters={"groups": [{"properties": [], "rollout_percentage": 40}]},
+    flag = backdate_created_at(
+        FeatureFlag.objects.create(
+            team_id=context.team_id,
+            key=STALE_PARTIAL_ROLLOUT_FLAG_KEY,
+            name="Beta search ranking",
+            created_by_id=context.user_id,
+            active=True,
+            last_called_at=datetime.now(UTC) - timedelta(days=60),
+            filters={"groups": [{"properties": [], "rollout_percentage": 40}]},
+        ),
+        datetime.now(UTC) - timedelta(days=120),
     )
     _backdate_updated_at(flag)
     return {

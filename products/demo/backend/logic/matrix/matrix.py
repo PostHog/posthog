@@ -14,7 +14,7 @@ import mimesis.random
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.models import Team, User
-from posthog.models.utils import UUIDT, uuid7
+from posthog.models.utils import UUIDT, backdate_created_at, uuid7
 
 from products.demo.backend.logic.matrix.randomization import PropertiesProvider
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -269,13 +269,16 @@ class Matrix(ABC):
     def set_project_up(self, team: Team, user: User):
         """Project setup, such as relevant insights, dashboards, feature flags, etc."""
         team.name = self.PRODUCT_NAME
-        FeatureFlag.objects.create(
-            team=team,
-            key="hog",
-            name="Breaking the fourth wall: PostHog's Hog flag.",
-            filters={"groups": [{"variant": None, "properties": [], "rollout_percentage": 100}]},
-            created_by=user,
-            created_at=dt.datetime.fromtimestamp(0),  # Epoch
+        backdate_created_at(
+            FeatureFlag.objects.create(
+                team=team,
+                key="hog",
+                name="Breaking the fourth wall: PostHog's Hog flag.",
+                filters={"groups": [{"variant": None, "properties": [], "rollout_percentage": 100}]},
+                created_by=user,
+                # Epoch
+            ),
+            dt.datetime.fromtimestamp(0),
         )
 
     def simulate(self):

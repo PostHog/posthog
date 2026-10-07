@@ -129,6 +129,8 @@ backend_files:
             Use types from facade/enums.py where applicable.
             Avoid ForeignKeys to models outside this app; if needed,
             disallow reverse relations with related_name='+'.
+            On the main database, inherit IsolatedProductCreatedMetaFields from
+            posthog.models.utils for created_by and created_at.
             """
 
             import uuid

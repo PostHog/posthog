@@ -43,7 +43,6 @@ class ProjectSecretAPIKey(ModelActivityMixin, CreatedMetaFields, models.Model):
         editable=False,
     )
 
-    created_at = models.DateTimeField(default=timezone.now)
     last_used_at = models.DateTimeField(null=True, blank=True)
     last_rolled_at = models.DateTimeField(null=True, blank=True)
 

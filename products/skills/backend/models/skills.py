@@ -92,7 +92,6 @@ class LLMSkill(CreatedMetaFields, UUIDModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
-    created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     # Digest of the *rendered* SKILL.md (frontmatter + body), not of `body` alone: the manifest

@@ -1,0 +1,75 @@
+rules:
+    - id: created-by-uses-created-meta-mixin
+      message: >-
+          Do not declare `created_by` on a model by hand. Inherit it from a mixin in
+          `posthog/models/utils.py`, which also adds `created_at`.
+          Use `IsolatedProductCreatedMetaFields` for a new table, because creating the
+          constraint locks the hot `posthog_user` table. Use `CreatedMetaFields` only
+          for an existing table that already has the constraint. A model on a product
+          database uses neither, because Django cannot relate models across databases.
+          Both mixins set `related_name="+"`, so `User` gets no reverse accessor. If the
+          model needs a different `on_delete`, `null` or index, keep the field and add
+          `# nosemgrep: created-by-uses-created-meta-mixin` with the reason.
+      severity: ERROR
+      languages: [python]
+      paths:
+          include:
+              - '**/models.py'
+              - '**/models/**'
+              - '**/model.py'
+          exclude:
+              # The mixins themselves declare the field.
+              - 'posthog/models/utils.py'
+              - '**/migrations/**'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/*_test.py'
+              - '**/test_*.py'
+              - '**/conftest*.py'
+      patterns:
+          - pattern-inside: |
+                class $MODEL(...):
+                    ...
+          - pattern-either:
+                - pattern: created_by = $M.ForeignKey(...)
+                - pattern: created_by = ForeignKey(...)
+                - pattern: 'created_by: $T = $M.ForeignKey(...)'
+                - pattern: 'created_by: $T = ForeignKey(...)'
+
+    - id: created-at-uses-created-meta-mixin
+      message: >-
+          This model inherits `created_at` from `CreatedMetaFields` or
+          `IsolatedProductCreatedMetaFields`. Remove the override, so the column uses
+          `auto_now_add=True` like the rest. `auto_now_add` replaces a `created_at`
+          passed on create, so demo data and tests that need an older row call
+          `backdate_created_at` from `posthog/models/utils.py` after creating it. If the
+          column must differ, for example because it is nullable or because production
+          code sets it on create, keep the override and add
+          `# nosemgrep: created-at-uses-created-meta-mixin` with the reason.
+      severity: ERROR
+      languages: [python]
+      paths:
+          include:
+              - '**/models.py'
+              - '**/models/**'
+              - '**/model.py'
+          exclude:
+              - 'posthog/models/utils.py'
+              - '**/migrations/**'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/*_test.py'
+              - '**/test_*.py'
+              - '**/conftest*.py'
+      patterns:
+          - pattern-inside: |
+                class $MODEL(..., $MIXIN, ...):
+                    ...
+          - metavariable-regex:
+                metavariable: $MIXIN
+                regex: ^(CreatedMetaFields|IsolatedProductCreatedMetaFields)$
+          - pattern-either:
+                - pattern: created_at = $M.DateTimeField(...)
+                - pattern: created_at = DateTimeField(...)
+                - pattern: 'created_at: $T = $M.DateTimeField(...)'
+                - pattern: 'created_at: $T = DateTimeField(...)'

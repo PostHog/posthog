@@ -21,7 +21,8 @@ class Annotation(ModelActivityMixin, CreatedMetaFields, models.Model):
         GITHUB = "GIT", "GitHub"
 
     content = models.CharField(max_length=8192, null=True, blank=True)
-    created_at = models.DateTimeField(default=timezone.now, null=True)  # type: ignore[assignment]  # this column is nullable, unlike the CreatedMetaFields one
+    # nosemgrep: created-at-uses-created-meta-mixin -- this column is nullable, unlike the one in the mixin
+    created_at = models.DateTimeField(default=timezone.now, null=True)  # type: ignore[assignment]
     updated_at = models.DateTimeField(auto_now=True)
     dashboard_item = models.ForeignKey(
         "product_analytics.Insight", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"

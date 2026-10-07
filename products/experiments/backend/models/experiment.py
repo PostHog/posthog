@@ -81,7 +81,6 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
 
     start_date = models.DateTimeField(null=True, blank=True)
     end_date = models.DateTimeField(null=True, blank=True)
-    created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     # Optimistic-concurrency token: bumped on every user-facing update so stale
     # clients can be detected. Null (pre-backfill rows) is treated as 0.
@@ -389,7 +388,6 @@ class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, CreatedMetaFields, mo
     # This is then replicated across flags for experiments in the holdout
     filters = models.JSONField(default=list)
 
-    created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -420,7 +418,6 @@ class ExperimentSavedMetric(Taggable, ModelActivityMixin, RootTeamMixin, Created
     # has things like if this metric was migrated from a legacy metric
     metadata = models.JSONField(null=True, blank=True, default=dict)
 
-    created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

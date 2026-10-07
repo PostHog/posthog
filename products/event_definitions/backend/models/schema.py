@@ -32,7 +32,6 @@ class SchemaPropertyGroup(CreatedMetaFields, UUIDTModel):
     project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True, related_name="+")
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True)
-    created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

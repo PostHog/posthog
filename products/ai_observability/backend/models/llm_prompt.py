@@ -58,7 +58,6 @@ class LLMPrompt(CreatedMetaFields, UUIDModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
-    created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     deleted = models.BooleanField(default=False)
@@ -98,7 +97,6 @@ class LLMPromptLabel(ModelActivityMixin, IsolatedProductCreatedMetaFields, UUIDM
     # constraint locks the parent table during migration.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
 
-    created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
 

@@ -81,7 +81,6 @@ class Canvas(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     # real version and this field stops mattering.
     legacy_code = models.TextField(null=True, blank=True)
 
-    created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     deleted = models.BooleanField(default=False)
 
@@ -139,8 +138,6 @@ class CanvasSourceVersion(TeamScopedRootMixin, IsolatedProductCreatedMetaFields,
     # version, but never the canvas head, so its build can't go live. Promoting
     # clears the flag; after that the version is indistinguishable from a publish.
     draft = models.BooleanField(default=False)
-
-    created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = "posthog_canvas_source_version"

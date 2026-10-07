@@ -51,6 +51,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.event.util import create_event
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning import ProvisioningConfig
+from posthog.models.utils import backdate_created_at
 from posthog.scopes import UNPRIVILEGED_SCOPES
 from posthog.storage import object_storage
 
@@ -944,7 +945,7 @@ class HedgeboxMatrix(Matrix):
             )
 
         try:
-            FeatureFlag.objects.create(
+            file_previews_flag = FeatureFlag.objects.create(
                 team=team,
                 key=FLAG_FILE_PREVIEWS,
                 name="File previews (ticket #2137). Work-in-progress, so only visible internally at the moment",
@@ -968,8 +969,8 @@ class HedgeboxMatrix(Matrix):
                     ]
                 },
                 created_by=user,
-                created_at=self.now - dt.timedelta(days=15),
             )
+            backdate_created_at(file_previews_flag, self.now - dt.timedelta(days=15))
 
             # Experiment feature flags
             onboarding_flag = create_experiment_flag(
@@ -1167,8 +1168,8 @@ class HedgeboxMatrix(Matrix):
             end_date=self.onboarding_experiment_end,
             conclusion="won",
             conclusion_comment="The red variant demonstrated a 15% improvement in activation rate with statistical significance. Rolling out to all users.",
-            created_at=onboarding_flag.created_at,
         )
+        backdate_created_at(legacy_experiment, onboarding_flag.created_at)
 
         # Link ONLY legacy shared metrics to legacy experiment as secondary
         ExperimentToSavedMetric.objects.create(
@@ -1188,7 +1189,7 @@ class HedgeboxMatrix(Matrix):
 
         # Pricing page redesign (inconclusive) — uses high-volume pageview→signup funnel
         pricing_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
-        Experiment.objects.create(
+        pricing_page_experiment = Experiment.objects.create(
             team=team,
             name="Pricing page redesign",
             description="Testing a simplified pricing page layout to improve signup conversion from the pricing page.",
@@ -1227,12 +1228,12 @@ class HedgeboxMatrix(Matrix):
             end_date=self.pricing_experiment_end,
             conclusion="inconclusive",
             conclusion_comment="No statistically significant difference detected between the control and test variants after the full run. Needs a larger sample size or bolder design change.",
-            created_at=pricing_flag.created_at,
         )
+        backdate_created_at(pricing_page_experiment, pricing_flag.created_at)
 
         # File sharing incentive (lost) — uses upload→download funnel and upload mean
         sharing_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
-        Experiment.objects.create(
+        file_sharing_experiment = Experiment.objects.create(
             team=team,
             name="File sharing incentive",
             description="Testing whether a sharing prompt after upload increases file engagement and downloads.",
@@ -1271,12 +1272,12 @@ class HedgeboxMatrix(Matrix):
             end_date=self.sharing_experiment_end,
             conclusion="lost",
             conclusion_comment="The sharing prompt annoyed users and led to fewer uploads overall. The test variant performed significantly worse than control.",
-            created_at=sharing_flag.created_at,
         )
+        backdate_created_at(file_sharing_experiment, sharing_flag.created_at)
 
         # Upgrade prompt experiment (running, recently started) — uses high-volume events
         upgrade_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
-        Experiment.objects.create(
+        upgrade_prompt_experiment = Experiment.objects.create(
             team=team,
             name="Upgrade prompt experiment",
             description="Testing different prompt styles to increase user engagement and file activity.",
@@ -1313,12 +1314,12 @@ class HedgeboxMatrix(Matrix):
             },
             start_date=self.upgrade_prompt_experiment_start,
             end_date=None,
-            created_at=upgrade_prompt_flag.created_at,
         )
+        backdate_created_at(upgrade_prompt_experiment, upgrade_prompt_flag.created_at)
 
         # Retention nudge (draft - not yet started)
         retention_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
-        Experiment.objects.create(
+        retention_nudge_experiment = Experiment.objects.create(
             team=team,
             name="Retention nudge",
             description="Planning to test email and in-app nudges for users who haven't logged in for 3+ days.",
@@ -1355,12 +1356,12 @@ class HedgeboxMatrix(Matrix):
             },
             start_date=None,
             end_date=None,
-            created_at=retention_nudge_flag.created_at,
         )
+        backdate_created_at(retention_nudge_experiment, retention_nudge_flag.created_at)
 
         # Team collaboration boost (stopped early) — uses high-volume events
         team_collab_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
-        Experiment.objects.create(
+        collaboration_experiment = Experiment.objects.create(
             team=team,
             name="Team collaboration boost",
             description="Testing a team activity feed to encourage more file uploads and engagement.",
@@ -1399,14 +1400,14 @@ class HedgeboxMatrix(Matrix):
             end_date=self.team_collab_experiment_end,
             conclusion="stopped_early",
             conclusion_comment="Stopped early due to a bug in the activity feed causing excessive notifications. Need to fix the notification throttling before re-running.",
-            created_at=team_collab_flag.created_at,
         )
+        backdate_created_at(collaboration_experiment, team_collab_flag.created_at)
 
         # Bias warning demo (running) — intentionally configured to trigger the
         # multi-variant exclusion bias warning: 90/10 uneven split, default EXCLUDE
         # handling, and ~2% of users exposed to multiple variants over time.
         bias_warning_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
-        Experiment.objects.create(
+        uneven_split_experiment = Experiment.objects.create(
             team=team,
             name="Bias warning demo: uneven split with multi-variant",
             description="Demo experiment intentionally configured to trigger the multi-variant exclusion bias warning (90/10 split, ~2% of users exposed to multiple variants).",
@@ -1443,8 +1444,8 @@ class HedgeboxMatrix(Matrix):
             },
             start_date=self.bias_warning_experiment_start,
             end_date=None,
-            created_at=bias_warning_flag.created_at,
         )
+        backdate_created_at(uneven_split_experiment, bias_warning_flag.created_at)
 
         # Endpoints
         try:
@@ -1748,8 +1749,8 @@ class HedgeboxMatrix(Matrix):
             scheduling_config={"timeseries": True},
             start_date=start_date,
             end_date=None,
-            created_at=flag.created_at,
         )
+        backdate_created_at(new_experiment, flag.created_at)
 
         # Link ONLY new format shared metrics to new experiment as secondary
         for metric in [new_shared_funnel, new_shared_mean, new_shared_ratio, new_shared_retention]:

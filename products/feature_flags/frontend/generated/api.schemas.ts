@@ -1562,7 +1562,7 @@ export interface FeatureFlagVersionResponseApi {
      * @nullable
      */
     last_called_at?: string | null
-    created_at?: string
+    readonly created_at: string
     /** @nullable */
     readonly created_by: number | null
     /** False for the current version; true for reconstructed historical versions. */

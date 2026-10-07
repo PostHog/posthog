@@ -1,7 +1,8 @@
-# Test cases for created-by-uses-created-meta-mixin.
+# Test cases for created-by-uses-created-meta-mixin and created-at-uses-created-meta-mixin.
 # ruff: noqa
 from django.db import models
 from django.db.models import ForeignKey
+from django.utils import timezone
 
 from posthog.models.utils import CreatedMetaFields, IsolatedProductCreatedMetaFields, UUIDModel
 
@@ -48,3 +49,25 @@ class DifferentDeleteBehavior(UUIDModel):
 class OtherUserField(UUIDModel):
     # ok: created-by-uses-created-meta-mixin
     last_modified_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True)
+
+
+class OverridesCreatedAt(CreatedMetaFields, UUIDModel):
+    # ruleid: created-at-uses-created-meta-mixin
+    created_at = models.DateTimeField(default=timezone.now)
+
+
+class OverridesCreatedAtOnIsolated(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
+    # ruleid: created-at-uses-created-meta-mixin
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
+
+
+class NullableCreatedAt(CreatedMetaFields, UUIDModel):
+    # ok: created-at-uses-created-meta-mixin
+    created_at = models.DateTimeField(  # nosemgrep: created-at-uses-created-meta-mixin
+        auto_now_add=True, null=True
+    )
+
+
+class OwnCreatedAtWithoutMixin(UUIDModel):
+    # ok: created-at-uses-created-meta-mixin
+    created_at = models.DateTimeField(auto_now_add=True)
