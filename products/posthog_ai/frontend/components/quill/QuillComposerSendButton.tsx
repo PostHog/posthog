@@ -1,23 +1,18 @@
-import { useValues } from 'kea'
 import { forwardRef } from 'react'
 
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill-primitives'
-
-import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { useComposerContext } from '../composer/Composer'
 
 export const QuillComposerSendButton = forwardRef<HTMLSpanElement, { 'data-attr'?: string }>(
     function QuillComposerSendButton({ 'data-attr': dataAttr }, ref): JSX.Element {
         const { sendDisabledReason, loading, stopLoading, showStop, onStop } = useComposerContext()
-        const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
-        const size = todayRailEnabled && phoneLayout ? 'icon-lg' : 'icon'
         const button = showStop ? (
             <Button
                 type="button"
                 variant="destructive"
-                size={size}
+                size="icon-lg"
                 aria-label="Stop"
                 loading={stopLoading}
                 onClick={() => onStop?.()}
@@ -28,12 +23,12 @@ export const QuillComposerSendButton = forwardRef<HTMLSpanElement, { 'data-attr'
         ) : (
             <Button
                 type="submit"
+                elevated
                 variant="primary"
-                size={size}
+                size="icon-lg"
                 aria-label="Send message"
                 loading={loading}
                 disabled={!!sendDisabledReason}
-                className="rounded-xs"
                 data-attr={dataAttr}
             >
                 <IconArrowRight className="-rotate-90" />

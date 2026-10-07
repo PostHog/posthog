@@ -219,6 +219,35 @@ Numeric increases do not imply better quality unless that meaning is established
 
 ## Reading payload availability
 
+### MCP access
+
+The `llma-offline-experiment-*` and `llma-offline-scorer-history` MCP tools expose
+these reads and the create/upload/complete/fail lifecycle behind the same
+`ai-observability-offline-evaluations` flag. Lifecycle tools record externally
+computed results; they do not execute evaluators. Scorer configuration remains on
+the existing `llma-score-definition-*` tools, with `version-list` and `version-get`
+for immutable version discovery. Version tools use the existing scorer permissions.
+
+Read tools remain available to SQL-first consumers because their curated responses
+preserve scorer access controls, immutable configs, and full-run aggregation rules.
+Pagination preserves `count`, `next_cursor`, and shared `scorer_versions`. MCP list
+tools default to 20 rows. Metadata reads require `evaluation:read`; score reads and
+scorer filters also require `llm_analytics:read`. Ingestion uses
+`offline_evaluation_ingestion:write` and does not confer read access.
+
+The item/result `payload-get` tools use generated handlers and return the full stored
+JSON object in `data`, with the API's availability metadata. Unavailable payloads
+return `data: null`. These reads are not paginated; agents should inspect summaries
+and item metadata first, then fetch payloads only for relevant cases. Large payloads
+can consume substantial context or be truncated by the client. Payloads and other
+user-authored records are wrapped as untrusted reference data.
+
+The published `analyzing-offline-evaluations` skill describes comparable cohorts,
+coverage-aware interpretation, case drill-down, and result publication. The legacy
+event-backed experiment-items endpoint is not exposed by these tools.
+
+### Availability states
+
 Items and results expose their own `payload_state` and `payload_expires_at`.
 Payload detail responses include `available` and `data`, preserving omitted properties, empty objects, and explicit JSON null values.
 `not_provided` means the caller omitted the payload; `expired` means it was removed while its owner was retained.

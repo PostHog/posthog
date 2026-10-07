@@ -334,6 +334,7 @@ class DeltaWriter:
                 governor_max_row_group_mb=adm.max_row_group_mb,
                 governor_rewrite_total_mb=adm.rewrite_total_mb,
                 governor_rewrite_files=adm.rewrite_files,
+                governor_columns=adm.columns,
                 governor_reserved_slots=adm.reserved_slots,
                 governor_wait_ms=adm.wait_ms,
                 governor_wait_timed_out=adm.wait_timed_out,

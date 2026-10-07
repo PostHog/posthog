@@ -6,8 +6,8 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
+import { Composer } from 'products/posthog_ai/frontend/api/composer'
 import {
-    Composer,
     DEFAULT_SUGGESTIONS_DATA,
     type SuggestionItem,
     Suggestions,

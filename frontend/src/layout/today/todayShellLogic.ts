@@ -45,6 +45,11 @@ const RAIL_PANE_HOME: Record<Exclude<TodayRailPane, 'more'>, () => string> = {
     tools: () => urls.tools(),
 }
 
+/** The page a rail pane opens, or undefined for panes without a page of their own. */
+export function railPaneHref(pane: TodayRailPane): string | undefined {
+    return pane === 'more' ? undefined : RAIL_PANE_HOME[pane]()
+}
+
 const PHONE_PAGE_LIMIT = 50
 
 export interface TodayPhonePage {
@@ -101,7 +106,9 @@ export interface todayShellLogicValues {
     leftNavWidth: number
     mobileSidebarOpen: boolean
     onAiPage: boolean
+    phoneCanGoBack: boolean
     phoneHeaderHidden: boolean
+    phoneHeaderShown: boolean
     phoneLayout: boolean
     phonePages: TodayPhonePage[]
     pickedPane: TodayRailPane | null
@@ -182,6 +189,8 @@ export interface todayShellLogicMeta {
             todayRailEnabled: boolean,
             phoneLayout: boolean
         ) => boolean
+        phoneHeaderShown: (todayRailEnabled: boolean, phoneLayout: boolean, phoneHeaderHidden: boolean) => boolean
+        phoneCanGoBack: (phonePages: TodayPhonePage[]) => boolean
     }
 }
 
@@ -285,6 +294,13 @@ export const todayShellLogic = kea<todayShellLogicType>([
                 phoneLayout: boolean
             ): boolean => todayRailEnabled && phoneLayout && onAiPage && !!searchParams.task,
         ],
+        // The phone header shows the scene title, so the scene title row leaves it out.
+        phoneHeaderShown: [
+            (s) => [s.todayRailEnabled, s.phoneLayout, s.phoneHeaderHidden],
+            (todayRailEnabled: boolean, phoneLayout: boolean, phoneHeaderHidden: boolean): boolean =>
+                todayRailEnabled && phoneLayout && !phoneHeaderHidden,
+        ],
+        phoneCanGoBack: [(s) => [s.phonePages], (phonePages: TodayPhonePage[]): boolean => phonePages.length > 1],
     }),
     subscriptions(({ actions }) => ({
         mobileLayout: () => actions.setMobileSidebarOpen(false),
@@ -324,8 +340,9 @@ export const todayShellLogic = kea<todayShellLogicType>([
         pickPane: ({ pane }) => {
             // pinned: analytics event name and property. Renaming them breaks dashboards.
             posthog.capture('today rail pane picked', { pane, phone_layout: values.phoneLayout })
-            if (pane !== 'more') {
-                router.actions.push(RAIL_PANE_HOME[pane]())
+            const href = railPaneHref(pane)
+            if (href) {
+                router.actions.push(href)
             }
             if (values.mobileLayout) {
                 actions.setMobileSidebarOpen(true)

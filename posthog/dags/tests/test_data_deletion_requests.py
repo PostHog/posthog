@@ -30,9 +30,12 @@ from posthog.dags.data_deletion_requests import (
     HogQLEventRemovalContext,
     PersonRemovalContext,
     PropertyRemovalTarget,
+    _cleaned_select_list,
+    _presence_params,
     _property_removal_where,
     _refuse_property_removal_unsweepable,
     _ShardStaging,
+    _target_presence_clause,
     auto_approve_deletion_requests_job,
     auto_approve_deletion_requests_schedule,
     cleanup_property_removal_staging,
@@ -1027,6 +1030,39 @@ def test_auto_approve_schedule_launches_a_run_on_tick():
 # ---------------------------------------------------------------------------
 
 PROP_TEAM_ID = 88888
+
+
+def test_property_removal_cleaning_uses_unversioned_pool_udf() -> None:
+    client = Mock(spec=Client)
+    client.execute.return_value = [
+        ("properties", "String"),
+        ("person_properties", "String"),
+        ("inserted_at", "Nullable(DateTime64(6, 'UTC'))"),
+        ("_timestamp", "DateTime"),
+    ]
+    request = DeletionRequestContext(
+        request_id=str(uuid4()),
+        team_id=PROP_TEAM_ID,
+        start_time=datetime.now() - timedelta(days=1),
+        end_time=datetime.now(),
+        events=["$pageview"],
+        properties=["$ip"],
+        person_properties=["email"],
+    )
+
+    cleaned = _cleaned_select_list(
+        client,
+        request,
+        PropertyRemovalTarget(table="sharded_events", shard=1, json_schema=False),
+        [],
+        "2026-10-05 13:03:36.419459",
+    )
+
+    assert "CAST(JSONDropKeysPool(properties, %(keys)s) AS String) AS `properties`" in cleaned.expressions
+    assert (
+        "CAST(JSONDropKeysPool(person_properties, %(person_keys)s) AS String) AS `person_properties`"
+        in cleaned.expressions
+    )
 
 
 def _insert_events_with_properties(events: list[tuple], client: Client) -> None:
@@ -2985,6 +3021,37 @@ def test_native_property_removal_gate_checks_retained_copies(
     cluster.any_host_by_role.side_effect = execute_query
     with pytest.raises(dagster.Failure, match="cannot be deleted") if refuses else nullcontext():
         _refuse_property_removal_unsweepable(cluster, [EVENTS_JSON], request, marker)
+
+
+@pytest.mark.parametrize(
+    "properties,person_properties,stored_properties,present",
+    [
+        ([], ["email"], '{"$unparseable_properties":"malformed $set email"}', True),
+        ([], ["email"], '{"other":"value"}', False),
+    ],
+)
+def test_json_target_presence_clause_sees_quarantine_on_person_only_requests(
+    properties: list[str], person_properties: list[str], stored_properties: str, present: bool
+) -> None:
+    # A copy that kept quarantined raw properties would pass this check and be reinserted past the
+    # marker, where the final verification no longer looks.
+    request = _property_removal_ctx(properties=properties, person_properties=person_properties)
+    target = PropertyRemovalTarget(table=EVENTS_JSON.data_table, shard=1, json_schema=True)
+    clause = _target_presence_clause(request, target, [])
+    [[matched]] = sync_execute(
+        f"""WITH rows AS (
+            SELECT CAST(%(properties)s, %(event_type)s) AS properties,
+                CAST('{{}}', %(person_type)s) AS person_properties,
+                CAST('{{}}', 'JSON(max_dynamic_paths=32)') AS temporary_properties
+        ) SELECT countIf({clause}) FROM rows""",
+        {
+            **_presence_params(request),
+            "properties": stored_properties,
+            "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
+            "person_type": PERSON_PROPERTIES_JSON_TYPE(),
+        },
+    )
+    assert bool(matched) is present
 
 
 def test_property_removal_where_scopes_to_events_by_default():

@@ -811,7 +811,7 @@ class HogQLQueryExecutor:
         return self.select_query, self._prompt_jev_tables
 
     def _prepare_execution(self, *, embedded_select: bool = False) -> _PreparedExecution:
-        self.context.referenced_saved_query_ids.clear()
+        self.context.clear_reads()
         self._parse_query()
 
         if embedded_select:
@@ -909,7 +909,7 @@ class HogQLQueryExecutor:
                 has_joins="JOIN" in self.clickhouse_sql,
                 has_json_operations="JSONExtract" in self.clickhouse_sql or "JSONHas" in self.clickhouse_sql,
                 hogql_features=hogql_features,
-                saved_query_ids=sorted(self.context.referenced_saved_query_ids) or None,
+                **self.context.read_tags(),
                 plan_fingerprint=plan_fingerprint,
                 timings=timings_dict,
                 modifiers=(

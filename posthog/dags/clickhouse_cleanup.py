@@ -35,7 +35,6 @@ from posthog.clickhouse.cleanup_snapshots import (
     CLEANUP_REVIVED_PERSONS_TABLE,
     CLEANUP_SNAPSHOT_TABLES,
 )
-from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner, MutationWaiter, NodeRole
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.clickhouse.workload import Workload
@@ -426,12 +425,6 @@ class SnapshotDictionary(Dictionary):
             GROUP BY {self.key_columns}
         """
 
-    @property
-    def credentials(self) -> ClickHouseCredentials:
-        # The source reads as the low-privilege dict_reader user, which falls back to the default
-        # user's credentials where dict_reader is not provisioned.
-        return get_clickhouse_creds(ClickHouseUser.DICT_READER)
-
     def staged(self) -> StagedDictionary:
         # A staged copy is a static object. The revival checkpoints exclude keys by reloading this
         # dictionary so its source query re-runs against the live exclusion table, and a reload
@@ -728,9 +721,8 @@ def recheck_revived_persons(name: str) -> dagster.OpDefinition:
 
     The checkpoints sit at phase boundaries rather than inside the mutation, because a mutation
     over an unpartitioned table runs long and re-checking mid-flight cannot retract work already
-    applied. A person revived inside that window has already lost its distinct id rows;
-    reset_deleted_person_distinct_ids and the sync_person_distinct_ids workflow republish them
-    from Postgres.
+    applied. A person revived inside that window has already lost its distinct id rows; find and
+    restore them with `manage.py person_divergence scan swept` and `repair`.
     """
 
     @dagster.op(name=name)

@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { ComponentProps } from 'react'
+import { ComponentPropsWithoutRef, forwardRef } from 'react'
 
 import { IconSearch, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
-import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { Button, Separator, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { Logomark } from 'lib/brand'
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
@@ -14,13 +14,12 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import { TODAY_RAIL_ITEMS } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
-import { TODAY_RAIL_WIDTH, todayShellLogic } from './todayShellLogic'
+import { TODAY_RAIL_WIDTH, railPaneHref, todayShellLogic } from './todayShellLogic'
 
-function RailUtility({
-    label,
-    children,
-    ...props
-}: { label: string; children: JSX.Element } & ComponentProps<typeof Button>): JSX.Element {
+const RailUtility = forwardRef<
+    HTMLButtonElement,
+    { label: string; children: JSX.Element } & ComponentPropsWithoutRef<typeof Button>
+>(function RailUtility({ label, children, ...props }, ref): JSX.Element {
     return (
         <Tooltip>
             <TooltipTrigger
@@ -28,10 +27,11 @@ function RailUtility({
                 render={
                     <Button
                         variant="default"
-                        size="icon-lg"
+                        size="icon"
                         aria-label={label}
-                        className="relative text-muted-foreground [&_svg]:size-5"
+                        className="relative size-10 rounded-md text-muted-foreground hover:text-foreground [&_svg]:size-5"
                         {...props}
+                        ref={ref}
                     />
                 }
             >
@@ -40,7 +40,7 @@ function RailUtility({
             <TooltipContent side="right">{label}</TooltipContent>
         </Tooltip>
     )
-}
+})
 
 export function TodayRail(): JSX.Element {
     const { activePane, sidebarVisible } = useValues(todayShellLogic)
@@ -52,12 +52,16 @@ export function TodayRail(): JSX.Element {
     return (
         <nav
             aria-label="Main"
-            className="flex shrink-0 flex-col items-center gap-3 border-r border-[var(--border)] px-1 pt-1.5 pb-2"
+            className="flex shrink-0 flex-col items-center gap-3 border-r border-[var(--border)] pb-3"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: TODAY_RAIL_WIDTH }}
         >
-            <div className="mb-1 flex size-9 items-center justify-center" aria-hidden>
-                <Logomark className="h-auto w-6" />
+            {/* h-12 matches QuillSceneHeader, so the line under the logo meets the pane header's bottom border. */}
+            <div className="-mb-1 flex h-12 w-full shrink-0 flex-col items-center" aria-hidden>
+                <div className="flex flex-1 items-center">
+                    <Logomark className="h-auto w-6" />
+                </div>
+                <Separator />
             </div>
             {TODAY_RAIL_ITEMS.map(({ pane, label, icon }) => (
                 <TodayRailTile
@@ -65,6 +69,7 @@ export function TodayRail(): JSX.Element {
                     label={label}
                     icon={icon}
                     active={activePane === pane}
+                    to={railPaneHref(pane)}
                     onClick={() => pickPane(pane)}
                     dataAttr={`today-rail-${pane}`}
                 />

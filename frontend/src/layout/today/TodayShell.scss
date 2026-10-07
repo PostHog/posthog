@@ -96,19 +96,6 @@
     }
 }
 
-.TodayPhoneHeader__title {
-    opacity: 0;
-    transition:
-        opacity 200ms var(--today-ease),
-        transform 200ms var(--today-ease);
-    transform: translateY(4px);
-
-    .TodayPhoneHeader[data-scrolled='true'] & {
-        opacity: 1;
-        transform: none;
-    }
-}
-
 .TodayShell--phone {
     display: contents;
 }
@@ -183,8 +170,7 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     .TodayShell__scrim,
     .TodayShell__drawer,
     .TodayShell__page,
-    .TodayPhoneHeader,
-    .TodayPhoneHeader__title {
+    .TodayPhoneHeader {
         transition: none;
     }
 }
@@ -201,7 +187,7 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     flex: 1 1 auto;
     flex-direction: column;
     min-height: 0;
-    padding: 12px 12px 0;
+    padding: 8px 8px 0;
 }
 
 .TodayPane__filters {

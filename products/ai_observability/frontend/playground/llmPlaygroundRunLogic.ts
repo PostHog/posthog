@@ -16,6 +16,7 @@ import type { LLMProviderKey } from '../settings/llmProviderKeysLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import { llmPlaygroundPromptsLogic, type Message, type PromptConfig } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
+import { isMessageSendable, toProviderMessages } from './playgroundMessageMapping'
 import { resolveProviderKeyForPrompt } from './playgroundModelMatching'
 import { extractVariablesFromTexts, getVariableValue, substituteVariables } from './playgroundTemplating'
 
@@ -98,15 +99,6 @@ export function describeError(err: unknown, fallbackMessage: string): { message:
     return {
         message: (err instanceof Error && err.message) || fallbackMessage,
     }
-}
-
-function formatToolCalls(toolCalls: AggregatedToolCall[]): string {
-    if (toolCalls.length === 0) {
-        return ''
-    }
-    return toolCalls
-        .map((tc) => JSON.stringify({ id: tc.id, name: tc.name, arguments: tc.arguments }, null, 2))
-        .join('\n\n')
 }
 
 function normalizeUsageFromStreamChunk(data: Record<string, unknown>): UsageSummary {
@@ -321,7 +313,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                 .map((prompt: PromptConfig, index: number) => ({
                     prompt,
                     index,
-                    messagesToSend: prompt.messages.filter((m) => m.content.trim()),
+                    messagesToSend: prompt.messages.filter(isMessageSendable),
                 }))
                 .filter((item: { messagesToSend: Message[] }) => item.messagesToSend.length > 0)
 
@@ -337,6 +329,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                 runnablePrompts.flatMap(({ prompt, messagesToSend }) => [
                     prompt.systemPrompt,
                     ...messagesToSend.map((m) => m.content),
+                    ...messagesToSend.flatMap((m) => m.toolCalls?.map((toolCall) => toolCall.arguments) ?? []),
                 ])
             )
             const runUnfilledVariables = runVariables.filter((name) => !getVariableValue(values.variableValues, name))
@@ -372,6 +365,14 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                         (m: Message): Message => ({
                             ...m,
                             content: substituteVariables(m.content, values.variableValues),
+                            ...(m.toolCalls?.length
+                                ? {
+                                      toolCalls: m.toolCalls.map((toolCall) => ({
+                                          ...toolCall,
+                                          arguments: substituteVariables(toolCall.arguments, values.variableValues),
+                                      })),
+                                  }
+                                : {}),
                         })
                     )
                     const liveItemId = uuid()
@@ -443,9 +444,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
 
                         const requestData: Record<string, unknown> = {
                             system: resolvedSystemPrompt,
-                            messages: resolvedMessages
-                                .filter((m: Message) => m.role === 'user' || m.role === 'assistant')
-                                .map((m: Message) => ({ role: m.role, content: m.content })),
+                            messages: toProviderMessages(resolvedMessages),
                             model: selectedModel.id,
                             provider: selectedModelProvider,
                             thinking: prompt.thinking,
@@ -486,10 +485,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                                             ttftMs = firstTokenTime - startTime
                                         }
                                         toolCalls = appendToolCallChunk(toolCalls, data)
-                                        const toolCallsText = formatToolCalls(toolCalls)
-                                        const separator = responseText.trim() && toolCallsText ? '\n\n' : ''
                                         actions.updateComparisonItem(liveItemId, {
-                                            response: responseText + separator + toolCallsText,
                                             toolCalls,
                                             ttftMs,
                                         })
@@ -579,11 +575,6 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                         }
                     }
 
-                    const toolCallsText = formatToolCalls(toolCalls)
-                    if (toolCallsText) {
-                        const separator = responseText.trim() ? '\n\n' : ''
-                        responseText += separator + toolCallsText
-                    }
                     upsertLiveItem()
 
                     posthog.capture('llma playground prompt completed', {

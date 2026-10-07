@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.models.external_data_destination import 
     ExternalDataDestination,
     ExternalDataSchemaDestination,
     ExternalDataSourceDestination,
+    get_or_create_warehouse_destination,
     resolve_destinations,
 )
 from products.warehouse_sources.backend.models.external_data_job import (
@@ -113,6 +114,7 @@ __all__ = [
     "get_latest_run_if_exists",
     "latest_completed_job_prefetch",
     "get_or_create_datawarehouse_credential",
+    "get_or_create_warehouse_destination",
     "clickhouse_column_to_dwh_column",
     "clickhouse_columns_to_dwh_columns",
     "motherduck_column_to_dwh_column",

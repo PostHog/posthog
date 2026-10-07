@@ -10,6 +10,7 @@ import { ReleaseStageTag } from 'lib/components/ReleaseStageTag/ReleaseStageTag'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { QuillSceneHeader } from './QuillSceneHeader'
@@ -50,13 +51,17 @@ export function QuillSceneTitleSection({
     const { activeSceneId } = useValues(sceneLogic)
     const { showDescription } = useValues(sceneLayoutLogic)
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
+    const { phoneHeaderShown } = useValues(todayShellLogic)
+    // The phone header shows the title, so this row keeps only the actions. A new resource keeps its name field.
+    const titleInPhoneHeader = phoneHeaderShown && !forceEdit
     const releaseStageSceneId = sceneId ?? activeSceneId
     const releaseStageProduct = useMemo(
         () => releaseStageProductForScene(releaseStageSceneId, name),
         [releaseStageSceneId, name]
     )
     const hasDescription = description != null && (description || canEdit)
-    const descriptionShown = hasDescription && (descriptionAlwaysVisible || showDescription || forceEdit)
+    const descriptionShown =
+        hasDescription && (descriptionAlwaysVisible || (showDescription && !titleInPhoneHeader) || forceEdit)
 
     return (
         <>
@@ -64,16 +69,18 @@ export function QuillSceneTitleSection({
                 className={cn(
                     'z-30 bg-[var(--scene-layout-background)] @2xl/main-content:sticky -top-[calc(var(--spacing)*4)]',
                     !noPadding && '-mx-4 -mt-4',
+                    titleInPhoneHeader && 'hidden has-[>div>*]:flex',
                     className
                 )}
                 back={
-                    forceBackTo || breadcrumbs.length > 2 ? (
+                    !titleInPhoneHeader && (forceBackTo || breadcrumbs.length > 2) ? (
                         <SceneBreadcrumbBackButton forceBackTo={forceBackTo} />
                     ) : undefined
                 }
-                icon={name !== null ? sceneResourceIcon(resourceType) : undefined}
+                icon={name !== null && !titleInPhoneHeader ? sceneResourceIcon(resourceType) : undefined}
                 title={
-                    name !== null && (
+                    name !== null &&
+                    !titleInPhoneHeader && (
                         <QuillSceneName
                             name={name}
                             isLoading={isLoading}
