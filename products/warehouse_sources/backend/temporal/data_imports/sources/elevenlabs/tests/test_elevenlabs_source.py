@@ -14,6 +14,7 @@ class TestElevenLabsSchemas:
             ("conversations", True, False),
             ("agents", False, False),
             ("voices", False, False),
+            ("triage_tickets", False, False),
         ]
     )
     def test_schema_sync_capabilities(self, endpoint: str, incremental: bool, append: bool) -> None:
@@ -35,7 +36,7 @@ class TestElevenLabsSchemas:
     def test_documented_tables_render_for_public_docs(self) -> None:
         # lists_tables_without_credentials must stay on so the posthog.com Supported tables section renders.
         tables = ElevenLabsSource().get_documented_tables()
-        assert {t["name"] for t in tables} == {"history", "conversations", "agents", "voices"}
+        assert {t["name"] for t in tables} == {"history", "conversations", "agents", "voices", "triage_tickets"}
 
 
 class TestElevenLabsNonRetryableErrors:

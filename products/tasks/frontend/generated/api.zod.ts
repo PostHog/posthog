@@ -3753,11 +3753,15 @@ export const TasksMeConfigTaskDefaultsCreateBody = /* @__PURE__ */ zod
         start_in_plan_mode: zod
             .boolean()
             .optional()
-            .describe('When true, new tasks start in plan mode: the agent makes a plan and waits for approval.'),
+            .describe(
+                'When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it.'
+            ),
         auto_publish_cloud_runs: zod
             .boolean()
             .optional()
-            .describe('When true, a cloud run that changes code always opens a draft pull request.'),
+            .describe(
+                'When true, a cloud run that changes code always opens a draft pull request. Null when you never set it.'
+            ),
     })
     .describe("A partial update of the requesting user's task defaults. Fields left out keep their stored value.")
 

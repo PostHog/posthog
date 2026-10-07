@@ -402,6 +402,7 @@ const canvasList = (): ToolBase<ReturnType<typeof CanvasListSchema>, Schemas.Pag
                 kind: params.kind,
                 limit: params.limit,
                 offset: params.offset,
+                ordering: params.ordering,
                 search: params.search,
             },
         })

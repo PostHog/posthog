@@ -4,6 +4,7 @@ import {
     SourceData,
     Sources,
     customState,
+    devStackState,
     imageState,
     pinState,
     releaseBadge,
@@ -24,6 +25,34 @@ const image: CustomImage = {
 }
 
 describe('infrastructure rollout evidence', () => {
+    it.each([
+        ['current', 'ok', 'ok', 0, 'current'],
+        ['previous', 'ok', 'ok', 0, 'waiting'],
+        [null, 'ok', 'ok', 0, 'unknown'],
+        ['current', 'error', 'ok', 0, 'unknown'],
+        ['current', 'ok', 'error', 0, 'unknown'],
+        ['current', 'ok', 'ok', 300_000, 'unknown'],
+    ] as const)(
+        'compares the baked base %s with fresh VM evidence (%s, %s, %s)',
+        (base, devStatus, vmStatus, age, expected) => {
+            const observed_at = new Date(Date.now() - age).toISOString()
+            expect(
+                devStackState({
+                    dev_stack: {
+                        status: devStatus,
+                        observed_at,
+                        data: {
+                            name: 'example',
+                            base_image_reference: base,
+                            workflow_url: 'https://example.com/workflow',
+                        },
+                    },
+                    vm: { status: vmStatus, observed_at, data: { name: 'vm', reference: 'current', platforms: [] } },
+                })
+            ).toEqual(expected)
+        }
+    )
+
     it.each([
         ['matching', ['1.1.0', '1.1.0'], 'ok', 0, 'Latest release', 'success'],
         ['different', ['1.0.0', '1.0.0'], 'ok', 0, 'Different release', 'warning'],

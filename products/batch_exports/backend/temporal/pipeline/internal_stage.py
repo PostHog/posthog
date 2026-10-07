@@ -642,7 +642,7 @@ async def _get_query(
         filters_str = ""
         if filters is not None and len(filters) > 0:
             filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
-                filters, team_id=team_id, values=extra_query_parameters, native_events_source=native_source
+                filters, team_id=team_id, values=extra_query_parameters
             )
 
         if native_source:

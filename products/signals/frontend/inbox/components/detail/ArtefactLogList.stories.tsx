@@ -108,6 +108,18 @@ export const Narrow: Story = {
 /** A check's whole life in the log: scheduled, run, stopped, and retired without a verdict. */
 const checkLifecycleArtefacts = [
     {
+        id: 'check-inconclusive',
+        type: 'check_result',
+        created_at: '2026-10-27T10:00:00Z',
+        content: {
+            check_id: 'check-d',
+            kind: 'metric_threshold',
+            title: 'Export failures stay below the goal',
+            outcome: 'inconclusive',
+            explanation: 'The measurement window cannot fit before expiry.',
+        },
+    },
+    {
         id: 'check-expired',
         type: 'check_expired',
         created_at: '2026-10-27T09:00:00Z',

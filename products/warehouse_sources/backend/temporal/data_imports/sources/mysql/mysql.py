@@ -20,7 +20,7 @@ import time
 import socket
 import datetime
 import collections
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from typing import Any, TypeVar
 
@@ -31,6 +31,8 @@ import pyarrow as pa
 import pymysql
 import structlog
 import pymysql.converters
+from pymysql.charset import charset_by_id
+from pymysql.connections import MySQLResult
 from pymysql.constants import CLIENT, CR, FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
@@ -84,6 +86,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     IncrementalFieldFilter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import (
+    KeysetPage,
     KeysetResumeState,
     iter_keyset_pages,
     keyset_last_key,
@@ -116,6 +119,12 @@ _QUERY_BUILDER = SelectQueryBuilder(quoter=_IDENTIFIER_QUOTER)
 # net_write_timeout / net_read_timeout — PyMySQL and MySQL both take seconds.
 STATEMENT_TIMEOUT_SECONDS = 600  # 10 mins
 
+# Client-side PyMySQL read_timeout for a connection that reads metadata: schema discovery and the
+# setup work before the first row. Without it a server that stops answering holds the caller for
+# as long as the socket stays open. Schema discovery must also end before the 10 minute
+# `start_to_close_timeout` of its Temporal activity.
+METADATA_READ_TIMEOUT_SECONDS = 300
+
 # pymysql error code for "Lost connection to MySQL server during query" — the
 # symptom we see when the optimizer picks a bad plan (full scan + filesort) and
 # the filesort preparation exceeds a middlebox / server-side query timeout
@@ -138,6 +147,13 @@ _OUT_OF_SORT_MEMORY_CODE = 1038
 # incremental-field index lets MySQL read rows in index order and skip the
 # filesort entirely, so the same FORCE INDEX fallback resolves it.
 _QUERY_EXECUTION_TIME_EXCEEDED_CODE = 3024
+
+# pymysql error code for MariaDB's "Query execution was interrupted (max_statement_time
+# exceeded)" — MariaDB's own `max_statement_time` session/global cap, the same bad plan
+# (full scan + filesort over the incremental field) seen from a fourth side. It's MariaDB's
+# equivalent of MySQL's `max_execution_time` (3024) above, so the same FORCE INDEX fallback
+# resolves it.
+_MAX_STATEMENT_TIME_EXCEEDED_CODE = 1969
 
 # Raised in place of the raw pymysql 2013 when a lost-connection bad plan can't be dodged by the
 # FORCE INDEX fallback because the incremental field has no usable index. The un-indexed full-table
@@ -332,7 +348,7 @@ def _is_bad_plan_error(e: pymysql.err.OperationalError) -> bool:
     """Return True if the error is a symptom of MySQL filesorting the incremental
     `ORDER BY` instead of using an index — recoverable via the FORCE INDEX fallback.
 
-    Matches three codes, all signalling the optimizer picked a full scan + filesort
+    Matches four codes, all signalling the optimizer picked a full scan + filesort
     over the incremental field:
 
     - `2013` (lost connection during query): the filesort preparation outran a
@@ -341,13 +357,21 @@ def _is_bad_plan_error(e: pymysql.err.OperationalError) -> bool:
       `sort_buffer_size`.
     - `3024` (query execution was interrupted): the server's own `max_execution_time`
       cap killed the query before the filesort could finish.
+    - `1969` (query execution was interrupted): MariaDB's own `max_statement_time`
+      cap killed the query before the filesort could finish — MariaDB's equivalent
+      of 3024.
 
     Forcing the incremental-field index makes MySQL read rows in index order and
-    skip the filesort, resolving all three. Other `OperationalError`s (access denied,
+    skip the filesort, resolving all four. Other `OperationalError`s (access denied,
     table missing, etc.) should propagate untouched.
     """
     code = e.args[0] if e.args else None
-    return code in (_LOST_CONNECTION_DURING_QUERY_CODE, _OUT_OF_SORT_MEMORY_CODE, _QUERY_EXECUTION_TIME_EXCEEDED_CODE)
+    return code in (
+        _LOST_CONNECTION_DURING_QUERY_CODE,
+        _OUT_OF_SORT_MEMORY_CODE,
+        _QUERY_EXECUTION_TIME_EXCEEDED_CODE,
+        _MAX_STATEMENT_TIME_EXCEEDED_CODE,
+    )
 
 
 # Number of times `connect` will open a fresh pymysql connection before giving up. Matches the
@@ -697,7 +721,82 @@ def _reconnect_pinned(connection: pymysql.Connection, team_id: int | None) -> No
     connection.connect(sock=_pinned_socket(connection.host, connection.port, connection.connect_timeout, team_id))
 
 
-class _TLSRequiredConnection(pymysql.Connection):
+# Numbers and temporals always arrive as ASCII text, so pymysql's ASCII decode is safe for them.
+_ASCII_FIELD_TYPES = frozenset(
+    {
+        FIELD_TYPE.DECIMAL,
+        FIELD_TYPE.TINY,
+        FIELD_TYPE.SHORT,
+        FIELD_TYPE.LONG,
+        FIELD_TYPE.FLOAT,
+        FIELD_TYPE.DOUBLE,
+        FIELD_TYPE.NULL,
+        FIELD_TYPE.TIMESTAMP,
+        FIELD_TYPE.LONGLONG,
+        FIELD_TYPE.INT24,
+        FIELD_TYPE.DATE,
+        FIELD_TYPE.TIME,
+        FIELD_TYPE.DATETIME,
+        FIELD_TYPE.YEAR,
+        FIELD_TYPE.NEWDATE,
+        FIELD_TYPE.NEWDECIMAL,
+    }
+)
+
+_BINARY_CHARSET_ID = 63
+
+
+def _field_encoding(charset_id: int, connection_encoding: str) -> str | None:
+    """Python codec for a column's values, or None to keep binary values as bytes."""
+    if charset_id == _BINARY_CHARSET_ID:
+        return None
+    try:
+        return charset_by_id(charset_id).encoding
+    except KeyError:
+        return connection_encoding
+
+
+class _FieldCharsetResult(MySQLResult):
+    """A result that decodes string-like columns by the charset the server reports for them.
+
+    pymysql decodes every column outside its own text types as ASCII. Some MySQL-compatible
+    servers send ENUM and SET values under their own type codes, and newer servers add types
+    pymysql predates, so one non-ASCII value in such a column fails the whole read.
+    """
+
+    def _get_descriptions(self) -> None:
+        super()._get_descriptions()  # type: ignore[misc]
+        connection_encoding = self.connection.encoding
+        for index, field in enumerate(self.fields):  # type: ignore[attr-defined]
+            encoding, converter = self.converters[index]  # type: ignore[attr-defined]
+            if encoding == "ascii" and field.type_code not in _ASCII_FIELD_TYPES:
+                self.converters[index] = (_field_encoding(field.charsetnr, connection_encoding), converter)  # type: ignore[attr-defined]
+
+
+class _SourceConnection(pymysql.Connection):
+    """A pymysql connection that reads every result through `_FieldCharsetResult`."""
+
+    def _read_query_result(self, unbuffered: bool = False) -> int:
+        # Mirrors `pymysql.Connection._read_query_result` (1.1.1) with the result class swapped.
+        self._result = None
+        if unbuffered:
+            try:
+                result = _FieldCharsetResult(self)
+                result.init_unbuffered_query()
+            except BaseException:
+                result.unbuffered_active = False  # type: ignore[attr-defined]
+                result.connection = None
+                raise
+        else:
+            result = _FieldCharsetResult(self)
+            result.read()
+        self._result = result
+        if result.server_status is not None:
+            self.server_status = result.server_status
+        return result.affected_rows
+
+
+class _TLSRequiredConnection(_SourceConnection):
     """A connection that refuses to authenticate when the server offers no TLS.
 
     pymysql wraps the socket only when the server advertises the TLS capability, and that check
@@ -722,7 +821,7 @@ def _new_connection(kwargs: dict[str, Any], **extra: Any) -> pymysql.Connection:
     """Build the connection, refusing plaintext when this source verifies the certificate."""
     if kwargs.get("ssl_verify_cert"):
         return _TLSRequiredConnection(**kwargs, **extra)
-    return pymysql.connect(**kwargs, **extra)
+    return _SourceConnection(**kwargs, **extra)
 
 
 def _open_pymysql_connection(kwargs: dict[str, Any], team_id: int | None) -> pymysql.Connection:
@@ -764,6 +863,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any], team_id: int | None) -
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
                 or _is_transient_tiproxy_unavailable(e)
+                or _is_transient_no_available_tidb_instances(e)
                 or _is_transient_too_many_connections(e)
                 or _is_transient_cant_create_thread(e)
             ):
@@ -831,6 +931,21 @@ def _is_transient_tiproxy_unavailable(e: BaseException) -> bool:
     if not isinstance(e, pymysql.err.OperationalError):
         return False
     return _TIPROXY_UNAVAILABLE_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
+# A TiDB-fronting gateway's own ER_UNKNOWN_ERROR (1105) wording for the same "no backend reachable"
+# condition as the TiProxy case above, just phrased differently — the gateway found zero TiDB
+# instances to route to (a scale-down, rolling restart, or momentary control-plane blip) rather
+# than failing to reach one it knew about. Same proxy-layer pattern: a fresh attempt recovers once
+# a TiDB instance is available again. The message carries no host/port, so match it in full.
+_TIDB_NO_AVAILABLE_INSTANCES_TOKEN = "No available TiDB instances, please make sure TiDB is available"
+
+
+def _is_transient_no_available_tidb_instances(e: BaseException) -> bool:
+    """Return True if a TiDB-fronting gateway reported zero reachable TiDB instances."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    return _TIDB_NO_AVAILABLE_INSTANCES_TOKEN in " ".join(str(arg) for arg in e.args)
 
 
 def _is_transient_metadata_query_reset(e: BaseException) -> bool:
@@ -1078,7 +1193,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         self,
         config: MySQLSourceConfig,
         *,
-        read_timeout: int | None = None,
+        read_timeout: int | None = METADATA_READ_TIMEOUT_SECONDS,
         autocommit: bool = False,
         team_id: int | None = None,
     ) -> Iterator[pymysql.Connection]:
@@ -1088,6 +1203,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         MySQL-wide conventions: safe date/datetime converters, and a
         PlanetScale workload hint injected automatically when the host
         resolves to a `*.psdb.cloud` address. Callers vary two things —
+        metadata work keeps the default `METADATA_READ_TIMEOUT_SECONDS`,
         the streaming path sets `read_timeout=STATEMENT_TIMEOUT_SECONDS`
         so multi-GB filesorts don't drop on middlebox timeouts before the
         first rows are ready, and the keyset path sets `autocommit` so each
@@ -1814,7 +1930,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     arrow_schema = projection.table.to_arrow_schema()
                     plan_checked = False
 
-                    def _run_page(page_sql: SafeSQL) -> pa.Table | None:
+                    def _run_page(page_sql: SafeSQL) -> KeysetPage | None:
                         nonlocal plan_checked
                         with connection.cursor() as cursor:
                             # Check the first page that actually seeks — page 1 has no `pk >`
@@ -1828,8 +1944,10 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                             rows = cursor.fetchall()
                             if not rows:
                                 return None
-                            column_names = [column[0] for column in cursor.description or []]
-                            return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                            return KeysetPage(columns=[column[0] for column in cursor.description or []], rows=rows)
+
+                    def _to_table(column_names: list[str], rows: list[Sequence[Any]]) -> pa.Table:
+                        return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
                     def _checkpoint(last_key: Any) -> None:
                         manager.save_state(keyset_state((last_key,)))
@@ -1841,6 +1959,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         keyset_column=keyset_column,
                         chunk_size=chunk_size,
                         run_page=_run_page,
+                        to_table=_to_table,
                         initial_last_value=initial_last_value,
                         checkpoint=_checkpoint,
                         enabled_columns=projection.enabled_columns,
@@ -2002,9 +2121,9 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     )
                     # A lost connection here recurs every run: with no usable index the incremental
                     # sort is unavoidable and re-times-out. Re-raise it as a deterministic error so
-                    # the schema is paused with guidance instead of looping. Out-of-sort-memory (1038)
-                    # and query-execution-time-exceeded (3024) already carry their own stable, locale-
-                    # independent codes, so leave those raw.
+                    # the schema is paused with guidance instead of looping. Out-of-sort-memory (1038),
+                    # query-execution-time-exceeded (3024), and MariaDB's max_statement_time-exceeded
+                    # (1969) already carry their own stable, locale-independent codes, so leave those raw.
                     if e.args and e.args[0] == _LOST_CONNECTION_DURING_QUERY_CODE:
                         raise MySQLUnavoidableFilesortError() from e
                     raise

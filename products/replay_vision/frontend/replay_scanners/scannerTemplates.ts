@@ -152,7 +152,6 @@ export function newScanner(templateKey?: string | null, teamName?: string | null
         updated_at: dayjs().toISOString(),
         created_by: null,
         estimated_monthly_observations: null,
-        feedback_themes: null,
         // The server writes this on the first save.
         prompt_question: '',
         estimated_monthly_credits: null,

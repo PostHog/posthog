@@ -2,7 +2,7 @@
 //
 // PULL model: this script reads the engineering_analytics product's repo_overview
 // endpoint (the same curated layer that backs its MCP tools and UI) ONCE for the
-// last 7 days — every headline ships with its equal-length previous-window twin,
+// last 7 complete UTC days — every headline ships with its equal-length previous-window twin,
 // so one call carries the whole week-over-week table — and relays it to Slack. It
 // asks for headlines only (include_series=false; the chart series exist for the
 // UI) and does NOT re-derive any metric from the GitHub API — the product owns
@@ -10,11 +10,14 @@
 //
 //   GHA cron ──> GET /api/projects/:id/engineering_analytics/repo_overview/ ──> Slack
 //
-// One native-table message (Block Kit `table`), six rows, each with its WoW delta:
+// One native-table message (Block Kit `table`), one row per metric, each with its WoW delta:
 //   - CI minutes: billable (self-hosted) compute minutes across the whole bill,
 //     master and scheduled runs included.
 //   - └ merge queue: the slice of CI minutes spent on merge-queue batch branches
 //     (trunk-merge/**) — broken out so queue-settings changes get their own delta.
+//   - └ Depot CI: the slice of CI minutes that ran on the Depot CI engine. Depot does not count
+//     these against the contract's GitHub Actions minutes, so a move to Depot CI lowers the
+//     contract rows below without lowering this one.
 //   - min / merged PR: the same bill divided by the week's merged-PR count (bots
 //     included — the merge population that triggered the spend).
 //   - est. Depot $: the product's tier-laddered estimate of that spend.
@@ -22,11 +25,17 @@
 //     upstream. Falls back to the coarse open→merge median (draft + ready fused, and
 //     labelled as such) when the draft/ready transitions aren't synced.
 //   - re-run cycles: runs with run_attempt > 1 — the waste driver behind minutes.
+//   - Depot runner min, all repos: the minutes Depot billed for GitHub Actions jobs in the whole
+//     organization, read from Depot's usage API. Depot counts these against the contract. Depot CI
+//     minutes are not part of that count. A sentence under the table says when the contract
+//     minutes run out at the reported week's rate. Both are left out when the API cannot be read.
 //
 // Data caveat: the runs/jobs warehouse tables are webhook-fed and do not backfill
 // a missed window, so a webhook outage undercounts the count-based rows (minutes,
 // $, re-runs) and the WoW delta absorbs the hole. The PR-snapshot rows (merge
 // count, cycle-time median) are robust to gaps.
+
+import { pathToFileURL } from 'node:url'
 
 const HOST = (process.env.POSTHOG_HOST || 'https://us.posthog.com').replace(/\/$/, '')
 const PROJECT_ID = process.env.POSTHOG_PROJECT_ID || ''
@@ -45,7 +54,104 @@ const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || ''
 const GITHUB_WORKFLOW_REF = process.env.GITHUB_WORKFLOW_REF || ''
 const GITHUB_REF_NAME = process.env.GITHUB_REF_NAME || 'master'
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+// The Depot contract terms come from repository variables, so a renewal needs no code change.
+const DEPOT_TOKEN = process.env.DEPOT_TOKEN || ''
+const DEPOT_CONTRACT_MINUTES = Number(process.env.DEPOT_CONTRACT_MINUTES || 0)
+const DEPOT_CONTRACT_START = process.env.DEPOT_CONTRACT_START || ''
+const DEPOT_CONTRACT_END = process.env.DEPOT_CONTRACT_END || ''
+
+const DAY_MS = 24 * 60 * 60 * 1000
+const WEEK_MS = 7 * DAY_MS
+
+// Minutes Depot billed for GitHub Actions jobs in every repository of the organization. Depot counts
+// these minutes against the contract, and its billing page shows their sum from the contract start.
+async function depotBilledMinutes(startAt, endAt) {
+    const res = await fetch('https://api.depot.dev/depot.core.v1.UsageService/GetUsage', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Connect-Protocol-Version': '1',
+            Authorization: `Bearer ${DEPOT_TOKEN}`,
+        },
+        body: JSON.stringify({ startAt: startAt.toISOString(), endAt: endAt.toISOString() }),
+        signal: AbortSignal.timeout(60_000),
+    })
+    if (!res.ok) {
+        // The response body stays out of the message, because the message goes to the public Actions log.
+        throw new Error(`Depot GetUsage -> ${res.status}`)
+    }
+    const usage = await res.json()
+    // Protobuf JSON omits empty repeated fields.
+    const jobs = usage?.githubActionsJobs ?? []
+    if (!usage || typeof usage !== 'object' || Array.isArray(usage) || !Array.isArray(jobs)) {
+        throw new Error('Depot GetUsage returned invalid usage')
+    }
+    return jobs.reduce((sum, repo) => {
+        // Protobuf JSON omits scalar fields at their zero default.
+        const minutes = repo?.total?.minutesBilled ?? 0
+        if (!repo?.total || !Number.isFinite(minutes) || minutes < 0 || !Number.isFinite(sum + minutes)) {
+            throw new Error('Depot GetUsage returned invalid billed minutes')
+        }
+        return sum + minutes
+    }, 0)
+}
+
+// Contract usage through the end of the reported week, or null when it cannot be read. The digest
+// still posts without it, because the CI table does not depend on Depot's API.
+async function depotContractUsage(weekStart, weekEnd) {
+    const contractStart = new Date(`${DEPOT_CONTRACT_START}T00:00:00Z`)
+    const contractEnd = new Date(`${DEPOT_CONTRACT_END}T00:00:00Z`)
+    if (
+        !DEPOT_TOKEN ||
+        !Number.isFinite(DEPOT_CONTRACT_MINUTES) ||
+        DEPOT_CONTRACT_MINUTES <= 0 ||
+        !Number.isFinite(contractStart.getTime()) ||
+        !Number.isFinite(contractEnd.getTime()) ||
+        isoDay(contractStart) !== DEPOT_CONTRACT_START ||
+        isoDay(contractEnd) !== DEPOT_CONTRACT_END ||
+        contractStart >= weekEnd ||
+        contractEnd <= weekEnd
+    ) {
+        console.warn('Depot token or active contract terms missing or invalid. Skipping the contract rows.')
+        return null
+    }
+    try {
+        const [used, lastWeek, priorWeek] = await Promise.all([
+            depotBilledMinutes(contractStart, weekEnd),
+            depotBilledMinutes(weekStart, weekEnd),
+            depotBilledMinutes(new Date(weekStart.getTime() - WEEK_MS), weekStart),
+        ])
+        return { used, lastWeek, priorWeek, contractEnd }
+    } catch {
+        // Fetch and parse errors can include response data in the public Actions log.
+        console.warn('Depot usage unavailable. Skipping the contract rows.')
+        return null
+    }
+}
+
+function isoDay(date) {
+    return date.toISOString().slice(0, 10)
+}
+
+function contractSummary(contract, weekEnd) {
+    const used = `Depot contract: ${fmtMinutes(contract.used)} of ${fmtMinutes(DEPOT_CONTRACT_MINUTES)} GitHub Actions minutes used through ${isoDay(new Date(weekEnd.getTime() - DAY_MS))}. Depot CI minutes are not counted here.`
+    const remaining = DEPOT_CONTRACT_MINUTES - contract.used
+    if (remaining <= 0) {
+        return `${used} The contract minutes are used up.`
+    }
+    if (!(contract.lastWeek > 0)) {
+        return used
+    }
+    const remainingDays = remaining / (contract.lastWeek / 7)
+    const daysLeft = (contract.contractEnd.getTime() - weekEnd.getTime()) / DAY_MS
+    const contractEnd = isoDay(contract.contractEnd)
+    const daysShort = Math.round(daysLeft - remainingDays)
+    if (daysShort <= 0) {
+        return `${used} At last week's rate they last until the contract ends on ${contractEnd}.`
+    }
+    const runOut = new Date(weekEnd.getTime() + remainingDays * DAY_MS)
+    return `${used} At last week's rate they run out around ${isoDay(runOut)}, ${daysShort} days before the contract ends on ${contractEnd}.`
+}
 
 async function api(action, params = {}) {
     const url = new URL(`${HOST}/api/projects/${PROJECT_ID}/engineering_analytics/${action}/`)
@@ -153,6 +259,10 @@ function cell(text) {
     return { type: 'raw_text', text }
 }
 
+function metricRow(metric, curValue, prevValue, format) {
+    return [cell(metric), cell(format(curValue)), cell(format(prevValue)), cell(fmtDelta(curValue, prevValue))]
+}
+
 // One table row per metric, added only when both windows carry the value, so a
 // not-yet-synced jobs source (null cost fields) or an old backend (no merged_pr_count)
 // degrades to fewer rows instead of a broken message.
@@ -162,12 +272,13 @@ function tableRows(overview) {
         if (curValue == null || prevValue == null) {
             return
         }
-        rows.push([cell(metric), cell(format(curValue)), cell(format(prevValue)), cell(fmtDelta(curValue, prevValue))])
+        rows.push(metricRow(metric, curValue, prevValue, format))
     }
     // Null-propagating so `add`'s missing-value guard stays the only degradation path.
     const perPr = (minutes, merges) => (minutes != null && merges ? minutes / merges : null)
     add('CI minutes', overview.billable_minutes, overview.billable_minutes_prev, fmtMinutes)
     add('└ merge queue', overview.merge_queue_billable_minutes, overview.merge_queue_billable_minutes_prev, fmtMinutes)
+    add('└ Depot CI', overview.depot_ci_billable_minutes, overview.depot_ci_billable_minutes_prev, fmtMinutes)
     add(
         'min / merged PR',
         perPr(overview.billable_minutes, overview.merged_pr_count),
@@ -191,16 +302,40 @@ function tableRows(overview) {
     return rows
 }
 
-function buildBlocks(now, rows) {
-    const dateLabel = now.toISOString().slice(0, 10)
+// Actions logs are public, so dry runs use placeholders for Depot's billing data.
+function depotDigest(contract, weekEnd) {
+    const metric = 'Depot runner min, all repos'
+    if (DRY_RUN) {
+        return {
+            row: [cell(metric), ...Array(3).fill(cell('hidden in dry runs'))],
+            summary: 'Depot contract line hidden in dry runs.',
+        }
+    }
+    return {
+        row: metricRow(metric, contract.lastWeek, contract.priorWeek, fmtMinutes),
+        summary: contractSummary(contract, weekEnd),
+    }
+}
+
+function buildBlocks(weekStart, weekEnd, rows, depotSummary) {
+    const lastDay = new Date(weekEnd.getTime() - DAY_MS)
     const blocks = [
-        { type: 'section', text: { type: 'mrkdwn', text: `*Weekly CI — ${dateLabel}* _(vs prior week)_` } },
+        {
+            type: 'section',
+            text: {
+                type: 'mrkdwn',
+                text: `*Weekly CI, ${isoDay(weekStart)} to ${isoDay(lastDay)} UTC* _(vs prior week)_`,
+            },
+        },
         {
             type: 'table',
             column_settings: [{ align: 'left' }, { align: 'right' }, { align: 'right' }, { align: 'right' }],
             rows: [[cell('metric'), cell('last week'), cell('prior week'), cell('Δ')], ...rows],
         },
     ]
+    if (depotSummary) {
+        blocks.push({ type: 'section', text: { type: 'mrkdwn', text: depotSummary } })
+    }
     const workflowPath = GITHUB_WORKFLOW_REF.split('@')[0].replace(`${GITHUB_REPOSITORY}/`, '')
     if (GITHUB_REPOSITORY && workflowPath) {
         const editUrl = `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/edit/${GITHUB_REF_NAME}/${workflowPath}`
@@ -226,20 +361,25 @@ async function postToSlack(blocks) {
     }
 }
 
-async function main() {
+export async function main() {
     if (!PROJECT_ID || !API_KEY) {
         // No-op (don't fail the scheduled run) until the project + read key are wired.
         console.warn('POSTHOG_PROJECT_ID / POSTHOG_API_KEY not set — skipping digest. Wire them to enable.')
         return
     }
-    const now = new Date()
-    const thisFrom = new Date(now.getTime() - WEEK_MS).toISOString()
+    // The window ends at the last UTC midnight instead of at run time. The Depot job-attempts table
+    // syncs on a schedule and a job that is still running has no duration, so a window that ends at
+    // run time under-counts its last hours. Whole UTC days also match the days on Depot's usage page,
+    // which lets a reader reconcile the minutes against it.
+    const weekEnd = new Date()
+    weekEnd.setUTCHours(0, 0, 0, 0)
+    const weekStart = new Date(weekEnd.getTime() - WEEK_MS)
     // One headline-only call: the endpoint bakes every metric's equal-length previous-window
     // twin (prev = [date_from - 7d, date_from)) and the merged-PR counts into the same scans,
     // so the rows share windows exactly without a second call.
     const overview = await apiWithRetry('repo_overview', {
-        date_from: thisFrom,
-        date_to: now.toISOString(),
+        date_from: weekStart.toISOString(),
+        date_to: weekEnd.toISOString(),
         include_series: 'false',
     })
     const rows = tableRows(overview)
@@ -248,7 +388,12 @@ async function main() {
         // breakage is visible instead of posting an empty table.
         throw new Error('repo_overview returned no usable metrics — not posting. Check the connected source.')
     }
-    const blocks = buildBlocks(now, rows)
+    const contract = await depotContractUsage(weekStart, weekEnd)
+    const depot = contract && depotDigest(contract, weekEnd)
+    if (depot) {
+        rows.push(depot.row)
+    }
+    const blocks = buildBlocks(weekStart, weekEnd, rows, depot?.summary)
     if (DRY_RUN) {
         console.info(JSON.stringify(blocks, null, 2))
         return
@@ -261,7 +406,9 @@ async function main() {
     console.info(`Posted weekly CI digest to ${SLACK_CHANNEL}.`)
 }
 
-main().catch((err) => {
-    console.error(err)
-    process.exit(1)
-})
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    main().catch((err) => {
+        console.error(err)
+        process.exit(1)
+    })
+}

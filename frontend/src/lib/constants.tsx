@@ -210,12 +210,12 @@ export const FEATURE_FLAGS = {
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
     GATEWAY_PERSONAL_API_KEY: 'gateway-personal-api-key', // owner: #team-platform-features
-    HEATMAPS_CAPTURE_ALLOWLIST_NOTICE: 'heatmaps-capture-allowlist-notice', // owner: #team-web-analytics, gates the pre-enforcement notice about heatmap capture URL rules
     HEATMAPS_CLICKMAP_DISCRIMINATORS: 'heatmaps-clickmap-discriminators', // owner: #team-web-analytics
     HEATMAPS_CLICKMAP_PAGINATION: 'heatmaps-clickmap-pagination', // owner: #team-web-analytics
     HEATMAPS_COHORT_FILTER: 'heatmaps-cohort-filter', // owner: #team-web-analytics
     HEATMAPS_CREATION_FLOW: 'heatmaps-creation-flow', // owner: #team-web-analytics, gates the guided heatmap creation wizard at /heatmaps/new
     HEATMAPS_EVENT_FILTER: 'heatmaps-event-filter', // owner: #team-web-analytics
+    HEATMAPS_PRICING_NOTICE: 'heatmaps-capture-allowlist-notice', // owner: #team-web-analytics, gates the heatmaps pricing change notice
     HEATMAPS_SCREENSHOT_PREWARM: 'heatmaps-screenshot-prewarm', // owner: #team-web-analytics, pre-renders the screenshot while entering a URL in the wizard
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: #team-web-analytics
     MEMBERS_CAN_USE_PERSONAL_API_KEYS: 'members-can-use-personal-api-keys', // owner: @yasen-posthog #team-platform-features
@@ -227,6 +227,7 @@ export const FEATURE_FLAGS = {
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     REPLAY_PLAYER_PERSON_SESSIONS_TAB: 'replay-player-person-sessions-tab', // owner: @ksvat #team-replay
     REPLAY_SETTINGS_HELP: 'replay-settings-help', // owner: @veryayskiy #team-replay
+    SCOUT_TRIALS: 'scout-trials', // owner: #team-self-driving, gates new trial and judging requests; saved results remain readable
     SCOUTS_MODEL_CONFIG: 'scouts-model-config', // owner: #team-self-driving, gates the per-scout model pin in the inbox scout settings (also checked server-side)
     SCOUTS_SUGGESTIONS_UI: 'scouts-suggestions-ui', // owner: #team-self-driving, gates the pre-computed scout suggestions strip on the inbox scouts tab (the producer is the separate signals-scout-suggestions flag)
     SELF_DRIVING_FREE_TRIAL: 'self-driving-free-trial', // owner: #team-self-driving, the org is on a Self-driving free trial: reports only, no pull requests (also checked server-side)
@@ -239,8 +240,9 @@ export const FEATURE_FLAGS = {
     SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: #team-analytics-platform
     SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-web-analytics
     SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES: 'web-analytics-pre-aggregated-tables', // owner: @lricoy #team-web-analytics
-    SIGNALS_EXPECTED_IMPACT_DISPLAY: 'signals-expected-impact', // owner: #team-self-driving, person-level display gate for proposed impact graphs and actions
+    SIGNALS_EXPECTED_IMPACT_DISPLAY: 'signals-expected-impact', // owner: #team-self-driving, person-level display gate for metric follow-up graphs and actions
     SIGNALS_PR_REFUNDS: 'signals-pr-refunds', // owner: #team-self-driving, gates the inbox PR refund flow (also checked server-side)
+    SIGNALS_REPORT_CHECKS_REPLACE: 'signals-report-checks-replace', // owner: #team-self-driving
     SIGNALS_REPORT_METRICS: 'signals-report-metrics', // owner: #team-self-driving, gates the live impact metrics on inbox report rows and the report detail, and the snapshot refresh calls they make
     STARTUP_PROGRAM_INTENT: 'startup-program-intent', // owner: @pawel-cebula #team-billing
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
@@ -290,6 +292,7 @@ export const FEATURE_FLAGS = {
     CONDENSED_FILTER_BAR: 'condensed_filter_bar', // owner: @jordanm-posthog #team-web-analytics
     CREATE_FORM_TOOL: 'phai-create-form-tool', // owner: @kappa90 #team-posthog-ai
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-customer-analytics
+    CROSS_PROJECT_DASHBOARDS: 'cross-project-dashboards', // owner: #team-platform-features
     CUSTOM_FACET_PINNING: 'custom-facet-pinning', // owner: #team-logs — gates pinning custom facets to the logs/tracing facet rails
     CUSTOMER_ANALYTICS: 'customer-analytics-roadmap', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_ANALYTICS_ACCOUNT_SCENE: 'customer-analytics-account-scene', // owner: @arthurdedeus #team-customer-analytics
@@ -347,6 +350,7 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_EARLY_EXIT: 'feature-flag-early-exit', // owner: @gustavo #team-feature-flags
     FEATURE_FLAG_NOTIFICATIONS: 'feature-flag-notifications', // owner: @reecejones #team-platform-features
     FEATURE_FLAG_REQUEST_USAGE: 'feature-flag-request-usage', // owner: #team-feature-flags
+    FEATURE_FLAG_RULES_V2_EDITOR: 'feature-flag-rules-v2-editor', // owner: @andehen #team-feature-flags, entry points of the rules v2 flag editor
     FIELD_NOTES: 'field-notes', // owner: @adamleithp
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
@@ -355,7 +359,6 @@ export const FEATURE_FLAGS = {
     GITHUB_WORKFLOW_TRIGGERS: 'github-workflow-triggers', // owner: #team-workflows-cdp
     GROUP_PROFILE_EXPERIMENT: 'group-profile-experiment', // owner: @arthurdedeus #team-customer-analytics
     HEALTH_ASK_AI: 'health-ask-ai', // owner: @jordanm-posthog #team-web-analytics, gates the "Ask PostHog AI" buttons on the Health overview
-    HIDE_EVENTS_IN_QUERY_BUILDERS: 'hide-events-in-query-builders', // owner: #team-feature-flags, kill switch for hiding events marked hidden_in_query_builders from insight/cohort/destination pickers
     HOGQL_WAREHOUSE_ACCESS_CONTROL: 'hogql-warehouse-access-control', // owner: @a-lider #team-platform-features, gates per-object access control for warehouse tables and views
     IDENTITY_MATCHING: 'identity-matching', // owner: @fercgomes #team-growth, gates new identity matching scene on marketing analytics
     INBOX_GET_IT_MERGED: 'inbox-get-it-merged', // owner: #team-self-driving, gates the Get it merged action in the report Ask AI menu
@@ -367,10 +370,10 @@ export const FEATURE_FLAGS = {
     INSIGHT_DRAG_TO_ZOOM: 'insight-drag-to-zoom', // owner: @sampennington #team-product-analytics, gates x-axis drag-to-zoom on insight charts (trends today, SQL to follow)
     INSIGHT_EXPORT_NUDGE: 'insight-export-nudge', // owner: #team-analytics-platform multivariate=control,test, nudges people who just exported an insight toward a recurring subscription
     INSIGHT_SUBSCRIBE_PROMINENT_BUTTON: 'insight-subscribe-prominent-button', // owner: @mattp #team-analytics-platform multivariate=control,test
+    INTERNAL_FEEDBACK_WIDGET: 'internal-feedback-widget', // owner: @adamleithp, gates the staff UI feedback bar that posts to Slack
+    JEV_CHART_AUTODETECTION: 'jev-chart-autodetection', // owner: #team-data-tools
     JS_SNIPPET_VERSIONING: 'js-snippet-versioning', // owner: #team-client-libraries
     LEGACY_OAUTH_RECONNECT_WARNING: 'legacy-oauth-reconnect-warning', // owner: @jabahamondes #team-web-analytics — kill-switch for the retiring-OAuth-app reconnect banner
-    LINKS: 'links', // owner: @marconlp #team-link (team doesn't exist for now, maybe will come back in the future)
-    LIVE_DEBUGGER: 'live-debugger', // owner: @marcecoll
     LIVE_EVENTS_RICH_FILTERS: 'live-events-rich-filters', // owner: @jordanm-posthog #team-web-analytics
     LIVESTREAM_HOGQL: 'livestream-hogql', // owner: @benjackwhite #team-replay, swaps livestream service calls for HogQL queries
     LLM_ANALYTICS_CATEGORICAL_EVALS: 'llm-analytics-categorical-evaluations', // owner: #team-ai-observability
@@ -403,16 +406,19 @@ export const FEATURE_FLAGS = {
     MARKETING_ANALYTICS_AMAZON_ADS: 'marketing-analytics-amazon-ads', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_APPLE_ADS: 'marketing-analytics-apple-ads', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_ATTRIBUTION: 'marketing-analytics-attribution', // owner: @jabahamondes #team-web-analytics — gates the legacy Attribution explorer tab; the new dashboard ignores it
+    MARKETING_ANALYTICS_CONVERSION_RECORDINGS: 'marketing-analytics-conversion-recordings', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_COSTS_PRECOMPUTATION: 'marketing-analytics-costs-precomputation', // owner: @jabahamondes #team-web-analytics — gates reading the native cost precompute table
     MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN: 'marketing-analytics-extended-drill-down', // owner: @jabahamondes  #team-web-analytics
     MARKETING_ANALYTICS_MCP: 'marketing-analytics-mcp', // owner: @jabahamondes #team-web-analytics — gates MCP tool exposure (read-only marketing-analytics tools)
     MARKETING_ANALYTICS_MULTI_TOUCH_ATTRIBUTION: 'marketing-analytics-multi-touch-attribution', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_NEW_DASHBOARD: 'new-marketing-analytics-dashboard', // owner: @jabahamondes #team-web-analytics — gates the redesigned dashboard and all of its sections
     MARKETING_ANALYTICS_OPENAI_ADS: 'marketing-analytics-openai-ads', // owner: @jabahamondes #team-web-analytics
+    MARKETING_ANALYTICS_ORGANIC_KEYWORDS: 'marketing-analytics-organic-keywords', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_RETENTION: 'marketing-analytics-retention', // owner: @jabahamondes #team-web-analytics — gates the legacy Retention explorer tab; the new dashboard ignores it
     MARKETING_ANALYTICS_RETURN_METRICS: 'marketing-analytics-return-metrics', // owner: @jabahamondes #team-web-analytics — gates the ROAS column
     MARKETING_ANALYTICS_ROKT_ADS: 'marketing-analytics-rokt-ads', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_SETUP: 'marketing-analytics-setup', // owner: @jabahamondes #team-web-analytics — gates the Setup tab and its setup_plan / apply_setup_ops endpoints
+    MARKETING_ANALYTICS_TWITTER_ADS: 'marketing-analytics-twitter-ads', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_UTM_AUDIT: 'marketing-analytics-utm-audit', // owner: @jabahamondes  #team-web-analytics
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai
     MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing
@@ -424,10 +430,12 @@ export const FEATURE_FLAGS = {
     MEMBER_BILLING_USAGE_SPEND_READ_ACCESS: 'member-billing-usage-spend-read-access', // owner: @pawelcebula #team-billing, grants members read-only access to billing usage/spend tabs; owner-only-billing takes precedence
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     METRICS: 'metrics', // owner: #team-apm (@jonmcwest, @frankh)
+    METRICS_DASHBOARD_CONTROLS: 'metrics-dashboard-controls', // owner: #team-apm — shows each dashboard filter only for the tiles it changes, and adds the metric label filter
     METRICS_DASHBOARD_PANELS: 'metrics-dashboard-panels', // owner: #team-apm — gates the stat/gauge/bargauge/table panel picker entries
     METRICS_ERROR_OVERLAYS: 'metrics-error-overlays', // owner: #team-apm — gates the error-spike overlay PoC on metrics charts
-    METRICS_FUNDAMENTALS: 'metrics-fundamentals', // owner: #team-apm (@jonmcwest, @frankh), gates the Fundamentals tab and the explain API behind it, which check the metrics viewer's own reductions
+    METRICS_INSIGHT_BUILDER: 'metrics-insight-builder', // owner: #team-apm — offers Metrics in the new insight menu and the metrics builder in insight edit mode
     ML_INFERENCE_DECISIONS: 'ml-inference-decisions', // owner: #team-ai-research, gates the decisions playground; the API checks the same flag server side
+    NEW_COMMAND_K_SEARCH: 'new-command-k-search', // owner: @adamleithp #team-platform-ux, gates the Command K search with smart filters
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
     NOTEBOOK_GENERATED_WIDGETS: 'notebook-generated-widgets', // owner: #team-data-tools
@@ -507,12 +515,7 @@ export const FEATURE_FLAGS = {
     REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT: 'replay-recommended-recordings-filter-experiment', // owner: @arnohillen #team-replay multivariate=control,test
     REPLAY_TRIGGERS_V2: 'replay-triggers-v2', // owner: #team-replay
     REPLAY_UI_REDESIGN_2026: 'replay-ui-redesign-2026', // owner: #team-replay, New UI layout for replay
-    REPLAY_VISION_ANALYSIS_NUDGE: 'replay-vision-analysis-nudge', // owner: #team-replay, in-player nudge offering an AI-drafted scanner after analyzing several recordings
-    REPLAY_VISION_CALIBRATION_ACTIVATION: 'replay-vision-calibration-activation', // owner: #team-replay multivariate=control,badge,prompt, points a never-rated scanner at its Calibration tab
-    REPLAY_VISION_CALIBRATION_FEEDBACK_PROMPT: 'replay-vision-calibration-feedback-prompt', // owner: #team-replay multivariate=control,test, asks what the scanner should have concluded on a thumbs down
-    REPLAY_VISION_CALIBRATION_TEST_NUDGE: 'replay-vision-calibration-test-nudge', // owner: #team-replay multivariate=control,test, prompts the user to test a recommendation before applying it
     REPLAY_VISION_HOME_REDESIGN_EXPERIMENT: 'replay-vision-home-redesign-experiment', // owner: #team-replay multivariate=control,test — gate on === 'test'; a truthy check turns on for control too
-    REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT: 'replay-vision-model-tier-naming-experiment', // owner: #team-replay multivariate=control,test,lite-standard-pro
     REVAMPED_PY_NOTEBOOKS: 'revamped-py-notebooks', // owner: #team-data-tools
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
     REVIEW_HOG: 'review-hog', // owner: #team-devex, gates the Code review menu entry, scene, and API access
@@ -554,6 +557,7 @@ export const FEATURE_FLAGS = {
     TAXONOMIC_FILTER_SEARCH_INTENT: 'taxonomic-filter-search-intent', // owner: @pauldambra multivariate=control,banner,promote, classifies a picker search with the decision model. Every arm promotes the predicted group on the All tab; only banner also suggests the right tab
     TEXT_CARD_WORD_ART: 'text-card-word-art', // owner: @jonmcwest, gates the word art insert button in dashboard text cards
     TODAY_RAIL_NAV: 'today-rail-nav', // owner: @k11kirky, replaces the left navigation with a rail (Home, Spaces, Library, Tools) and makes the Today briefing the homepage
+    TODAY_REPORT_JEV: 'today-report-jev', // owner: @puemos, asks the decision model to label the problem, cause and fix in a Today report, to mark the numbers a source states, and to pick the code excerpt a finding describes
     TOOLBAR_PAID_HEATMAPS: 'toolbar-paid-heatmaps', // owner: #team-web-analytics
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
     TRACING_AI_EVENTS: 'tracing-ai-events', // owner: #team-apm — shows a trace's LLM analytics events inline in the trace drawer waterfall
@@ -572,12 +576,11 @@ export const FEATURE_FLAGS = {
     TRAFFIC_TYPE_VIRTUAL_PROPERTIES: 'traffic-type-virtual-properties', // owner: #team-web-analytics
     UI_CUSTOMIZATION: 'ui-customization-enabled', // owner: @fercgomes #team-self-driving, gates sidebar/homepage UI customization
     UNIFIED_APM_PRODUCT: 'unified-apm-product', // owner: #team-apm (@jonmcwest, @frankh), gates the shared APM product backing logs, tracing, and metrics
-    USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
     UX_HIDE_PROJECT_NOTICE: 'ux-hide-project-notice', // owner: #team-platform-ux, hides the project notice banner across all scenes
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
-    VISION_ENTRYPOINT_ERROR_TRACKING: 'vision-entrypoint-error-tracking', // owner: #team-replay, cross-sell entry point from the error tracking issue recording tab
     VISION_ENTRYPOINT_EXPERIMENTS: 'vision-entrypoint-experiments', // owner: #team-replay, cross-sell entry points from experiments
     VISION_ENTRYPOINT_REPLAY_FILTERS: 'vision-entrypoint-replay-filters', // owner: #team-replay, cross-sell entry point from the replay filters panel
+    VISION_EXPERIMENT_SCANNER: 'experiment-scanner', // owner: #team-replay, experiment scanners overall: the type in the scanner editor, creating one from experiments, and the variants tab
     VISION_GOAL_FLOW_V2: 'vision-goal-flow-v2', // owner: #team-replay multivariate=control,test — gate on === 'test'; a truthy check turns on for control too
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
     WAREHOUSE_MULTI_DESTINATION: 'warehouse-multi-destination', // owner: #team-warehouse-sources
@@ -632,7 +635,7 @@ export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
 // The Today rail swaps out the whole navigation, so stories that render the app opt in to it explicitly.
 export const STORYBOOK_FEATURE_FLAGS = Object.values(FEATURE_FLAGS).filter(
-    (flag) => flag !== FEATURE_FLAGS.TODAY_RAIL_NAV
+    (flag) => flag !== FEATURE_FLAGS.TODAY_RAIL_NAV && flag !== FEATURE_FLAGS.INTERNAL_FEEDBACK_WIDGET
 )
 
 export const INSIGHT_VISUAL_ORDER = {
@@ -645,6 +648,7 @@ export const INSIGHT_VISUAL_ORDER = {
     lifecycle: 60,
     calendarHeatmap: 70,
     sql: 80,
+    metrics: 85,
     hog: 90,
 }
 
@@ -757,6 +761,8 @@ export const LOGS_ALERT_FIRING_EVENT_ID = '$logs_alert_firing'
 export const LOGS_ALERT_RESOLVED_EVENT_ID = '$logs_alert_resolved'
 export const LOGS_ALERT_AUTO_DISABLED_EVENT_ID = '$logs_alert_auto_disabled'
 export const LOGS_ALERT_ERRORED_EVENT_ID = '$logs_alert_errored'
+export const LOGS_ALERT_INCIDENT_OPENED_EVENT_ID = '$logs_alert_incident_opened'
+export const LOGS_ALERT_INCIDENT_CLOSED_EVENT_ID = '$logs_alert_incident_closed'
 
 export const COHORT_PERSONS_QUERY_LIMIT = 10000
 

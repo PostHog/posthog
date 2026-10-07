@@ -379,6 +379,9 @@ class TestCSPMiddleware(APIBaseTest):
         assert f"https://live.{region}.posthog.com" in connect_src
         assert f"https://webhooks.{region}.posthog.com" in connect_src
         assert f"https://{region}.i.posthog.com/decide/" in connect_src
+        assert f"https://{region}.i.posthog.com/i/v0/e/" in connect_src
+        # The bare origin would admit every endpoint on the ingestion host, not only the paths the app calls.
+        assert f"https://{region}.i.posthog.com" not in connect_src
         assert f"https://agent-proxy.{region}.posthog.com" in connect_src
         # Allowing the other region would hide a request that crossed regions by mistake.
         assert not any(other_region in (urlsplit(source).hostname or "").split(".") for source in connect_src)
@@ -460,7 +463,6 @@ class TestAppCspHeaderName(SimpleTestCase):
             ("shared_dashboard", "/shared_dashboard/abc123"),
             ("shared", "/shared/abc123"),
             ("embedded", "/embedded/abc123"),
-            ("interview", "/interview/abc123"),
             ("exporter_with_token", "/exporter/abc123"),
             ("exporter_render", "/exporter"),
             ("render_query", "/render_query"),

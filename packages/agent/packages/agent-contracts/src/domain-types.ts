@@ -1050,10 +1050,14 @@ export interface RankingScoreArtefact extends SignalReportArtefactBase {
   content: RankingScoreContent;
 }
 
-/** One outcome head. `readable` is false when the head has no holdout AUC yet. */
+/**
+ * One outcome head. `readable` is false when the head has no holdout AUC yet.
+ * `lift` is the probability over the head's base rate, or null when the model saved no base rate.
+ */
 export interface RankingHead {
   name: string;
   probability: number;
+  lift: number | null;
   readable: boolean;
 }
 
@@ -1063,7 +1067,7 @@ export interface RankingModelResult {
   roles: string[];
   status: "scored" | "skipped";
   skip_reason: string | null;
-  /** Highest probability first. */
+  /** Highest lift first. Heads without a lift come last, highest probability first. */
   heads: RankingHead[];
 }
 

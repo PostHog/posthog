@@ -38,6 +38,7 @@ from posthog.schema import (
     RefreshType,
 )
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog.api.mixins import PydanticModelMixin
@@ -832,6 +833,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 debug=debug,
                 headers=deprecation_headers,
                 pagination=pagination,
+                limit_context=strategy.materialized_limit_context,
             )
 
             if self._is_cache_stale(result, materialized_at):
@@ -843,6 +845,7 @@ class EndpointExecutionService(PydanticModelMixin):
                     debug=debug,
                     headers=deprecation_headers,
                     pagination=pagination,
+                    limit_context=strategy.materialized_limit_context,
                 )
 
             if isinstance(result.data, dict):
@@ -1042,6 +1045,7 @@ class EndpointExecutionService(PydanticModelMixin):
         debug: bool = False,
         headers: dict[str, str] | None = None,
         pagination: EndpointPagination | None = None,
+        limit_context: LimitContext | None = None,
     ) -> Response:
         """Shared query execution logic."""
         merged_data = self.get_model(query_request_data, QueryRequest)
@@ -1057,6 +1061,7 @@ class EndpointExecutionService(PydanticModelMixin):
             self.team,
             query,
             variables_override=variables_override,
+            limit_context=limit_context,
             execution_mode=execution_mode,
             query_id=client_query_id,
             user=cast(User, self.request.user),

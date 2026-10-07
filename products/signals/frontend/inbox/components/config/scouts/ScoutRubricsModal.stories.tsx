@@ -6,6 +6,7 @@ import { mswDecorator } from '~/mocks/browser'
 
 import type { ScoutRubricDocumentApi, ScoutRubricSaveApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { scoutRubricReferenceFixture } from './scoutRubricFixtures'
 import { ScoutRubricsModal } from './ScoutRubricsModal'
 
 const DOCUMENT: ScoutRubricDocumentApi = {
@@ -34,6 +35,8 @@ const DOCUMENT: ScoutRubricDocumentApi = {
         },
     ],
     generation: null,
+    reference_context: null,
+    reference_generation_id: null,
 }
 
 const GENERATION: NonNullable<ScoutRubricDocumentApi['generation']> = {
@@ -45,6 +48,7 @@ const GENERATION: NonNullable<ScoutRubricDocumentApi['generation']> = {
     task_id: 'example-task',
     task_run_id: 'example-run',
     error: null,
+    reference_context: scoutRubricReferenceFixture,
     summary: 'The scout compares activity across time windows. These criteria check the scope of that comparison.',
     suggestions: [
         {
@@ -105,7 +109,17 @@ const meta: Meta<typeof ScoutRubricsModal> = {
             put: {
                 [RUBRICS_URL]: async ({ request }) => {
                     const data = (await request.json()) as ScoutRubricSaveApi
-                    return [200, { ...DOCUMENT, ...data, revision: 1 }]
+                    return [
+                        200,
+                        {
+                            ...DOCUMENT,
+                            ...data,
+                            revision: 1,
+                            reference_context: data.adopt_generation_id ? scoutRubricReferenceFixture : null,
+                            reference_generation_id: data.adopt_generation_id ?? null,
+                            generation: GENERATION,
+                        },
+                    ]
                 },
             },
             post: {
@@ -150,6 +164,32 @@ export const EditingSuggestion: Story = {
         await userEvent.click(await modal.findByLabelText('Edit Compare equivalent time windows'))
         await userEvent.type(await modal.findByLabelText('Description'), ' Include the same weekdays in each period.')
     },
+}
+
+export const ReferenceWithoutSuggestions: Story = {
+    decorators: [
+        mswDecorator({
+            get: { [RUBRICS_URL]: () => [200, { ...DOCUMENT, generation: { ...GENERATION, suggestions: [] } }] },
+        }),
+    ],
+}
+
+export const SavedReference: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                [RUBRICS_URL]: () => [
+                    200,
+                    {
+                        ...DOCUMENT,
+                        revision: 1,
+                        reference_context: scoutRubricReferenceFixture,
+                        reference_generation_id: GENERATION.id,
+                    },
+                ],
+            },
+        }),
+    ],
 }
 
 export const DetailsExpanded: Story = {

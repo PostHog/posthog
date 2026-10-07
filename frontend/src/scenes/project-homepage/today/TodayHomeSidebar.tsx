@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconHome, IconPlus } from '@posthog/icons'
-import { Button, Skeleton } from '@posthog/quill'
+import { Button, MenuLabel, Skeleton } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -85,9 +85,11 @@ export function TodayHomeSidebar(): JSX.Element {
     return (
         <div className="TodayPane" data-quill>
             <Button
-                variant="primary"
+                elevated
+                variant="outline"
                 size="lg"
-                className="w-full"
+                className="mb-1 w-full"
+                nativeButton={false}
                 render={<LinkPrimitive to={urls.taskNewSession()} />}
                 data-attr="today-new-chat"
             >
@@ -95,7 +97,6 @@ export function TodayHomeSidebar(): JSX.Element {
                 New session
             </Button>
             <div className="TodayPane__scroll">
-                <div className="TodayPane__heading Today__label">Today</div>
                 <div className="TodaySidebar__list">
                     <TodayNavItem
                         title="Home"
@@ -106,12 +107,15 @@ export function TodayHomeSidebar(): JSX.Element {
                         current={reportId === null}
                         dataAttr="today-nav-home"
                     />
+                    {(loading || showPersonalBriefing || reports.length > 0) && (
+                        <MenuLabel className="mt-3">{showPersonalBriefing ? 'Your briefing' : 'Reports'}</MenuLabel>
+                    )}
                     {showPersonalBriefing ? (
                         <PersonalBriefingNavItems />
                     ) : loading ? (
                         <>
-                            <Skeleton className="h-12" />
-                            <Skeleton className="h-12" />
+                            <Skeleton className="h-13" />
+                            <Skeleton className="h-13" />
                         </>
                     ) : (
                         reports.map((report) => (

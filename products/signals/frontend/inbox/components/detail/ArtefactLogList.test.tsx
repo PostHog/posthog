@@ -40,6 +40,22 @@ describe('ArtefactLogList', () => {
         expect(screen.getByText('The root cause moved to the ingestion path.')).toBeInTheDocument()
     })
 
+    it('labels an inconclusive check result and explains why', () => {
+        render(
+            <ArtefactLogList
+                reportId="report-1"
+                artefacts={[
+                    makeArtefact(
+                        { outcome: 'inconclusive', explanation: 'The measurement window cannot fit before expiry.' },
+                        'check_result'
+                    ),
+                ]}
+            />
+        )
+        expect(screen.getByText('Inconclusive')).toBeInTheDocument()
+        expect(screen.getByText('The measurement window cannot fit before expiry.')).toBeInTheDocument()
+    })
+
     it('links the selected predecessors when a replacement starts', () => {
         const oldPr = 'https://github.com/example/repo/pull/1'
         render(

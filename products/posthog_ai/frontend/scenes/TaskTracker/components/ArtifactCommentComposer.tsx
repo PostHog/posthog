@@ -18,6 +18,7 @@ export function ArtifactCommentComposer({
     quote,
     autoFocus = false,
     rows = 2,
+    showShortcut = true,
     dataAttr,
 }: {
     value: string
@@ -35,6 +36,7 @@ export function ArtifactCommentComposer({
     quote?: string
     autoFocus?: boolean
     rows?: number
+    showShortcut?: boolean
     dataAttr: string
 }): JSX.Element {
     const submit = (): void => {
@@ -80,10 +82,12 @@ export function ArtifactCommentComposer({
                 data-attr={`${dataAttr}-input`}
             />
             <div className="flex items-center justify-end gap-2">
-                <KbdGroup className="mr-auto text-muted-foreground" aria-label="Keyboard shortcut to send">
-                    <Kbd>{isMac() ? '⌘' : 'Ctrl'}</Kbd>
-                    <Kbd>Enter</Kbd>
-                </KbdGroup>
+                {showShortcut && (
+                    <KbdGroup className="mr-auto text-muted-foreground" aria-label="Keyboard shortcut to send">
+                        <Kbd>{isMac() ? '⌘' : 'Ctrl'}</Kbd>
+                        <Kbd>Enter</Kbd>
+                    </KbdGroup>
+                )}
                 {onCancel && (
                     <Button
                         type="button"

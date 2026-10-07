@@ -6,6 +6,8 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.rollbar import (
     KEYSET_PAGE_SIZE,
+    TOKEN_REJECTED_MESSAGE,
+    UNREACHABLE_MESSAGE,
     RollbarResumeConfig,
     _extract_items,
     _to_int,
@@ -77,10 +79,11 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
         [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
+            (200, (True, None)),
+            (401, (False, TOKEN_REJECTED_MESSAGE)),
+            (403, (False, TOKEN_REJECTED_MESSAGE)),
+            (429, (False, UNREACHABLE_MESSAGE)),
+            (500, (False, UNREACHABLE_MESSAGE)),
         ],
     )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.rollbar.make_tracked_session")
@@ -89,12 +92,12 @@ class TestValidateCredentials:
         response.status_code = status_code
         mock_session.return_value.get.return_value = response
 
-        assert validate_credentials("token") is expected
+        assert validate_credentials("token") == expected
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.rollbar.make_tracked_session")
     def test_validate_credentials_swallows_exceptions(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("token") is False
+        assert validate_credentials("token") == (False, UNREACHABLE_MESSAGE)
 
 
 class TestGetRowsPagePagination:

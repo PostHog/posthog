@@ -325,7 +325,7 @@ def validate_update_request(
             data.query.model_dump() if data.query is not None else (endpoint.get_version().query if endpoint else None)
         )
         if effective_query is not None:
-            can_materialize, reason = can_materialize_query(effective_query)
+            can_materialize, reason = can_materialize_query(effective_query, team)
             if not can_materialize:
                 raise ValidationError(f"Cannot materialize endpoint. Reason: {reason}")
 

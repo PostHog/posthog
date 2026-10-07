@@ -114,9 +114,24 @@ def _delta_table_identity(delta_table: deltalake.DeltaTable, table_ref: "DeltaTa
 
 
 def _committed_version(stats: Any) -> int | None:
-    """The table version a deltalite ``UpsertStats`` reports, or None from a double without one."""
-    version = getattr(stats, "version", None)
+    """The table version a deltalite ``UpsertStats`` reports, or None when it cannot be read."""
+    try:
+        version = getattr(stats, "version", None)
+    except Exception:  # noqa: BLE001 - stats are read after the write has committed
+        return None
     return version if isinstance(version, int) else None
+
+
+def _committed_file_count_change(stats: Any) -> int | None:
+    """Files a deltalite commit added minus files it removed, or None when the stats cannot say."""
+    try:
+        added = getattr(stats, "files_added", None)
+        removed = getattr(stats, "files_removed", None)
+    except Exception:  # noqa: BLE001 - stats are read after the write has committed
+        return None
+    if not isinstance(added, int) or not isinstance(removed, int):
+        return None
+    return added - removed
 
 
 def _commit_metadata_layouts(commit: dict[str, Any]) -> list[dict[str, Any]]:
@@ -182,6 +197,14 @@ class DeltaWriter:
     def __init__(self, table: "DeltaTableRef") -> None:
         self._table = table
         self._logger = table.logger
+        self._deltalite_file_count_change: int | None = None
+
+    @property
+    def deltalite_file_count_change(self) -> int | None:
+        """The change in the table's file count from the deltalite commit of the last `write`, or
+        None when deltalite did not commit that write. The handle `write` returns is one commit
+        behind after a deltalite commit, so this is what its file list is off by."""
+        return self._deltalite_file_count_change
 
     async def _dedupe_incremental_batch(
         self, data: pa.Table, primary_keys: Sequence[Any], use_partitioning: bool
@@ -260,9 +283,10 @@ class DeltaWriter:
             # Capacity planning: size this upsert's knobs to a fixed per-upsert slice of pod memory,
             # so all MAX_CONCURRENT_ACTIVITIES upserts on this process are guaranteed to fit. deltalite
             # always writes — the governor never falls back to the delta-rs MERGE for capacity, because
-            # the MERGE is the *more* memory-hungry path. A source too big for its slice just runs at
-            # mpp=1 (governor logs a capacity_exceeded ops signal). The existing files the merge can
-            # rewrite are sized from the handle's add actions, so this costs no object-store request.
+            # the MERGE is the *more* memory-hungry path. A source too big for its slice just runs with
+            # the smallest plan (governor logs a capacity_exceeded ops signal). The shape of the files
+            # the merge can rewrite comes from the handle's add actions, so this costs no object-store
+            # request.
             governor = get_governor()
             rewrite = (
                 await asyncio.to_thread(
@@ -308,6 +332,7 @@ class DeltaWriter:
         # here: that costs a log listing per batch, and most batches never read the handle's version
         # or file list again. The ref refreshes it on the next `get_delta_table` call instead.
         self._table.note_deltalite_commit(_committed_version(stats))
+        self._deltalite_file_count_change = _committed_file_count_change(stats)
 
         # NOTHING past this point may raise into the caller: an exception here would leave
         # `deltalite_wrote` unset and either fail/retry the sync or re-run the delta-rs MERGE on top of
@@ -323,16 +348,27 @@ class DeltaWriter:
                 duration_ms=round(duration_s * 1000),
                 governor_mode=adm.mode,
                 governor_predicted_peak_mb=adm.predicted_peak_mb,
-                governor_observed_delta_mb=adm.observed_delta_mb,
+                governor_predicted_inuse_mb=adm.estimate.inuse_mb if adm.estimate else None,
+                governor_reader_mb=adm.estimate.reader_mb if adm.estimate else None,
+                governor_writer_mb=adm.estimate.writer_mb if adm.estimate else None,
                 governor_budget_mb=adm.budget_mb,
                 governor_capacity_exceeded=adm.capacity_exceeded,
                 governor_mpp=adm.planned_mpp,
-                governor_rewrite_mb=adm.rewrite_mb,
+                governor_mpf=adm.planned_mpf,
+                governor_max_row_group_mb=adm.max_row_group_mb,
                 governor_rewrite_total_mb=adm.rewrite_total_mb,
                 governor_rewrite_files=adm.rewrite_files,
+                governor_columns=adm.columns,
                 governor_reserved_slots=adm.reserved_slots,
                 governor_wait_ms=adm.wait_ms,
                 governor_wait_timed_out=adm.wait_timed_out,
+                # Process-wide RSS while this upsert ran; filter on max_concurrent_upserts == 1 for
+                # a clean per-upsert signal.
+                governor_peak_rss_mb=adm.rss.peak_mb if adm.rss else None,
+                governor_rss_delta_mb=adm.rss.delta_mb if adm.rss else None,
+                governor_rss_samples=adm.rss.samples if adm.rss else None,
+                governor_concurrent_upserts=adm.concurrent_upserts,
+                governor_max_concurrent_upserts=adm.rss.max_concurrent if adm.rss else None,
                 **_deltalite_write_stats(stats),
             )
             DELTALITE_WRITE_TOTAL.labels(outcome="written").inc()
@@ -359,6 +395,7 @@ class DeltaWriter:
         # share we can actually attribute.
         report_phase("merge")
         report_buffer_bytes(data.nbytes)
+        self._deltalite_file_count_change = None
 
         # Guard against delta-rs aborting the worker on misaligned decimal buffers (see
         # realign_decimal_buffers). Sub-tables derived below via filter()/take() are
@@ -370,7 +407,11 @@ class DeltaWriter:
         # nullability that matches its data (see relax_batch_nullability).
         data = relax_batch_nullability(data)
 
-        delta_table = await self._table.get_delta_table()
+        # A write that overwrites the table gives the same result with or without a table there, so
+        # a probe that the caller made through the same ref a moment ago is enough. Any other write
+        # looks again: a table that another writer created since then must be appended to, not
+        # replaced.
+        delta_table = await self._table.get_delta_table(allow_known_missing=should_overwrite_table)
 
         if delta_table:
             delta_table = await evolve_delta_schema(delta_table, data.schema)
@@ -569,6 +610,7 @@ class DeltaWriter:
                     mode="ignore",
                     configuration=DELTA_TABLE_PROPERTIES,
                 )
+                self._table.adopt_created_table(delta_table)
 
             if mode == "append":
                 # Each batch of a full_refresh (or first incremental sync) infers its own decimal
@@ -626,6 +668,7 @@ class DeltaWriter:
                     mode="ignore",
                     configuration=DELTA_TABLE_PROPERTIES,
                 )
+                self._table.adopt_created_table(delta_table)
             else:
                 # An append re-casts each source column to its stored type, same as a merge. A decimal
                 # column that outgrew decimal128 arrives here as text (decimal256 renders to string),

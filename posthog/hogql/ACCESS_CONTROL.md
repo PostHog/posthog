@@ -179,6 +179,7 @@ Hides sensitive event, person, and group properties (e.g. `email`) from query re
 Rules live in the `PropertyAccessControl` model (`products/access_control/backend/models/property_access_control.py`).
 
 Property access control is a paid feature, available on the Scale and Enterprise plans: it needs the `PROPERTY_ACCESS_CONTROL` entitlement, and without it resolution short-circuits to no restrictions.
+Rules that target a role also need the `ROLE_BASED_ACCESS` entitlement. Without it the resolver loads no roles for the user, so role rules are skipped.
 
 ### Enforcement: masking, not errors
 
