@@ -525,7 +525,7 @@ OctopusDeploy fail:stall-budget
 Okendo fail:rate-limit-budget,timeout
 Okta fail:rate-limit-budget,timeout
 Omni fail:rate-limit-budget,timeout
-Omnisend fail:rate-limit-budget,timeout
+Omnisend fail:rate-limit-budget,stall-budget
 Oncehub fail:rate-limit-budget,timeout
 OneHundredMs fail:rate-limit-budget,stall-budget
 OnePassword fail:rate-limit-budget,timeout
