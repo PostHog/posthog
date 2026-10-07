@@ -23,6 +23,7 @@ from posthog.hogql.errors import (
 from posthog.errors import (
     CHQueryErrorCorruptedParquetMetadata,
     CHQueryErrorIllegalTypeOfArgument,
+    CHQueryErrorQueryWasCancelled,
     CHQueryErrorS3FileChangedDuringRead,
 )
 from posthog.event_usage import EventSource
@@ -165,10 +166,54 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertEqual(run_kwargs["user"], self.user)
         self.assertEqual(run_kwargs["analytics_props"], {"source": EventSource.MCP})
 
+    @parameterized.expand(
+        [
+            (
+                "statement_timeout",
+                None,
+                "timeout",
+                "Tool failed: MaxToolTransientError: Reading the taxonomy timed out. This can happen on large projects. You may retry this operation once without changes.",
+            ),
+            (
+                "query_memory_limit",
+                ClickHouseQueryMemoryLimitExceeded("private backend detail"),
+                "memory_limit",
+                "Tool failed: MaxToolFatalError: Reading the schema ran out of memory. This tool does not support date filters. Use execute-sql with a short, explicit date range for a targeted lookup.",
+            ),
+            (
+                "cluster_memory_limit",
+                ClickHouseClusterMemoryLimitExceeded("private backend detail"),
+                "rate_limited",
+                "Tool failed: MaxToolTransientError: We're under heavy load right now and couldn't finish this query. Please try again in a few minutes. You may retry this operation once without changes.",
+            ),
+            (
+                "cancelled",
+                CHQueryErrorQueryWasCancelled("private backend detail", code=394),
+                None,
+                "The tool raised an internal error. Do not immediately retry the tool call.",
+            ),
+            (
+                "unknown",
+                RuntimeError("private backend detail"),
+                None,
+                "The tool raised an internal error. Do not immediately retry the tool call.",
+            ),
+        ]
+    )
+    @patch("products.posthog_ai.backend.api.mcp_tools.capture_exception")
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
-    def test_read_taxonomy_timeout_preserves_recovery_advice(self, mock_runner_cls: Mock) -> None:
-        error = OperationalError("canceling statement due to statement timeout")
-        error.__cause__ = QueryCanceled()
+    def test_read_taxonomy_errors_preserve_recovery_advice(
+        self,
+        _name: str,
+        error: Exception | None,
+        error_type: str | None,
+        content: str,
+        mock_runner_cls: Mock,
+        mock_capture: Mock,
+    ) -> None:
+        if error is None:
+            error = OperationalError("canceling statement due to statement timeout")
+            error.__cause__ = QueryCanceled()
         mock_runner_cls.return_value.run.side_effect = error
 
         response = self.client.post(
@@ -178,14 +223,13 @@ class TestMCPToolsAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {
-                "success": False,
-                "content": "Tool failed: MaxToolTransientError: Reading the taxonomy timed out. This can happen on large projects. You may retry this operation once without changes.",
-                "error_type": "timeout",
-            },
-        )
+        expected = {"success": False, "content": content}
+        if error_type is not None:
+            expected["error_type"] = error_type
+        else:
+            self.assertEqual(mock_capture.call_args.args, (error,))
+        self.assertEqual(response.json(), expected)
+        mock_runner_cls.return_value.run.assert_called_once()
 
     @parameterized.expand(
         [
