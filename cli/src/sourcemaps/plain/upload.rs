@@ -6,7 +6,7 @@ use std::{
     time::Instant,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde_json::json;
 use tracing::{debug, info, warn};
@@ -56,6 +56,11 @@ pub struct Args {
     /// [default: false]
     #[arg(long, default_value = "false")]
     pub delete_after: bool,
+
+    /// Use bundler-provided debug IDs known to be available to the application at runtime.
+    /// Pairs without a chunk ID or debug ID are skipped with a warning in this mode.
+    #[arg(long)]
+    pub native_debug_ids: bool,
 
     /// The maximum number of chunks to upload in a single batch
     #[arg(long, default_value = "50")]
@@ -122,7 +127,7 @@ pub fn upload_pairs(
         );
     }
 
-    pairs = select_uploadable_pairs(pairs);
+    pairs = select_uploadable_pairs(pairs, args.native_debug_ids)?;
 
     // Fingerprinting re-serializes and hashes every pair, which is not free for large
     // maps - skip it when nothing gets cleaned up.
@@ -279,16 +284,25 @@ pub fn upload_pairs(
     Ok(())
 }
 
-/// Native-debug-ID bundlers can emit runtime or manifest pairs without IDs. Detect native mode
-/// from an ID carried by a source file (the runtime source of truth), then skip pairs that cannot
-/// be matched to runtime frames. Builds with no source-carried native IDs remain strict, so
-/// `sourcemap upload` still catches builds that forgot injection entirely.
-fn select_uploadable_pairs(pairs: Vec<SourcePair>) -> Vec<SourcePair> {
-    let has_native_debug_ids = pairs
-        .iter()
-        .any(|pair| !pair.has_chunk_id() && pair.source.get_debug_id().is_some());
+/// Native-debug-ID bundlers can emit runtime or manifest pairs without IDs. The caller must opt
+/// in because a `debugId` comment alone does not prove that the application exposes the ID at
+/// runtime: webpack, Rollup, and Vite can emit the metadata without a runtime `_debugIds` map.
+/// Builds using PostHog-injected chunk IDs remain strict by default.
+fn select_uploadable_pairs(
+    pairs: Vec<SourcePair>,
+    native_debug_ids: bool,
+) -> Result<Vec<SourcePair>> {
+    let has_native_debug_ids = pairs.iter().any(|pair| pair.get_debug_id().is_some());
+    if !native_debug_ids {
+        if has_native_debug_ids && pairs.iter().any(|pair| !pair.has_chunk_id()) {
+            bail!(
+                "Native debug IDs found without --native-debug-ids. Pass the flag only when the bundler exposes those IDs to the application at runtime"
+            );
+        }
+        return Ok(pairs);
+    }
     if !has_native_debug_ids {
-        return pairs;
+        bail!("--native-debug-ids was passed, but no native debug IDs were found");
     }
 
     let (uploadable, skipped): (Vec<_>, Vec<_>) = pairs
@@ -319,7 +333,7 @@ fn select_uploadable_pairs(pairs: Vec<SourcePair>) -> Vec<SourcePair> {
             );
         }
     }
-    uploadable
+    Ok(uploadable)
 }
 
 /// Build the upload payloads for `pairs`, at most one per chunk id. Event mode derives the id
@@ -852,7 +866,8 @@ mod tests {
         let runtime = std::fs::read_to_string(&runtime_path).unwrap();
         let runtime_map = std::fs::read_to_string(&runtime_map_path).unwrap();
 
-        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()));
+        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()), true)
+            .expect("Native debug IDs were explicitly enabled");
         assert_eq!(pairs.len(), 1);
         let uploads = prepare_uploads(pairs, ReleaseMode::Event)
             .expect("Failed to prepare native debug ID upload");
@@ -908,7 +923,33 @@ mod tests {
     }
 
     #[test]
-    fn sourcemap_only_debug_ids_do_not_enable_native_mode() {
+    fn native_debug_ids_require_explicit_opt_in() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let debug_id = "11111111-2222-4333-8444-555555555555";
+        let (source_path, map_path) = write_pair(dir.path(), "webpack");
+        std::fs::write(
+            source_path,
+            format!(
+                "console.log(1);\n//# debugId={debug_id}\n//# sourceMappingURL=webpack.js.map\n"
+            ),
+        )
+        .expect("Failed to add a source debug ID");
+        std::fs::write(
+            map_path,
+            format!(
+                r#"{{"version":3,"sources":["app.ts"],"mappings":"AAAA","debugId":"{debug_id}"}}"#
+            ),
+        )
+        .expect("Failed to add a map debug ID");
+
+        let error = select_uploadable_pairs(read_dir_pairs(dir.path()), false)
+            .expect_err("Static bundler debug IDs must not imply runtime support");
+
+        assert!(format!("{error:#}").contains("--native-debug-ids"));
+    }
+
+    #[test]
+    fn native_debug_id_mode_accepts_map_only_ids_and_skips_unidentified_pairs() {
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let (_, map_path) = write_pair(dir.path(), "mapped");
         std::fs::write(
@@ -918,15 +959,22 @@ mod tests {
         .expect("Failed to add a map-only debug ID");
         write_pair(dir.path(), "missing");
 
-        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()));
-        assert_eq!(pairs.len(), 2);
-        let error = prepare_uploads(pairs, ReleaseMode::Event)
-            .expect_err("A map-only debug ID must not make a partially instrumented build lenient");
+        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()), true)
+            .expect("The caller asserted native runtime support");
+        assert_eq!(pairs.len(), 1);
+        prepare_uploads(pairs, ReleaseMode::Event)
+            .expect("The pair carrying the native debug ID should upload");
+    }
 
-        assert!(
-            format!("{error:#}").contains("Chunk ID or debug ID not found"),
-            "{error:#}"
-        );
+    #[test]
+    fn native_debug_id_mode_requires_a_native_debug_id() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        write_pair(dir.path(), "app");
+
+        let error = select_uploadable_pairs(read_dir_pairs(dir.path()), true)
+            .expect_err("An incorrectly enabled native mode must not silently upload nothing");
+
+        assert!(format!("{error:#}").contains("no native debug IDs were found"));
     }
 
     #[test]
@@ -934,7 +982,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         write_pair(dir.path(), "app");
 
-        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()));
+        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()), false)
+            .expect("No native debug IDs need opting in");
         assert_eq!(pairs.len(), 1);
         let error = prepare_uploads(pairs, ReleaseMode::Event)
             .expect_err("Uninstrumented builds must still fail");
