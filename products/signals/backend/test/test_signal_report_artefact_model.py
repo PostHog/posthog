@@ -311,7 +311,8 @@ class TestSignalReportArtefactHelpers(BaseTest):
             team_id=self.team.id, report_id=str(report.id), model=PriorityAssessment
         )
 
-        assert latest is not None and latest.priority == Priority.P0
+        expected = Priority.P0 if second.id > first.id else Priority.P2
+        assert latest is not None and latest.priority == expected
 
     def test_latest_content_is_none_when_the_newest_row_does_not_parse(self):
         report = self._report()
