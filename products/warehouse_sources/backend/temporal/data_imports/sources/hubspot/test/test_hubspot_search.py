@@ -469,7 +469,17 @@ def _setup_search_post(responses: list[Any]) -> tuple[Callable[..., Any], list[d
 
 
 class TestGetRowsViaSearch:
-    def test_single_window_single_page_no_associations(self) -> None:
+    @pytest.fixture(autouse=True)
+    def _stub_association_backfill(self):
+        # Most endpoints carry associations, so the search path also issues v4 batch-reads on the
+        # mocked session. Stub them by default; tests that check associations patch over this.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._batch_read_associations",
+            return_value={},
+        ):
+            yield
+
+    def test_single_window_single_page(self) -> None:
         manager = _make_manager()
         logger = MagicMock()
         rows = [_result("1", 1_799_000_000_000), _result("2", 1_799_500_000_000)]
@@ -1100,17 +1110,22 @@ class TestGetRowsViaSearch:
 
         refresh.assert_called_once()
 
-    def test_backfills_associations_for_contacts(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint,cursor_prop,expected_associations",
+        [
+            ("contacts", "lastmodifieddate", {"deals", "tickets", "quotes"}),
+            ("deals", "hs_lastmodifieddate", {"contacts", "companies"}),
+            ("meetings", "hs_lastmodifieddate", {"contacts", "companies", "deals", "tickets"}),
+            ("calls", "hs_lastmodifieddate", {"contacts", "companies", "deals", "tickets"}),
+        ],
+    )
+    def test_backfills_associations_as_columns(
+        self, endpoint: str, cursor_prop: str, expected_associations: set[str]
+    ) -> None:
         manager = _make_manager()
         logger = MagicMock()
-        # One page of contacts with an id placed inside the valid sync window.
         side_effect, _ = _setup_search_post(
-            [
-                _make_response(
-                    200,
-                    _search_page([_result("1", _RECENT_SEED_MS + 10_000, cursor_prop="lastmodifieddate")]),
-                )
-            ]
+            [_make_response(200, _search_page([_result("1", _RECENT_SEED_MS + 10_000, cursor_prop=cursor_prop)]))]
         )
 
         with (
@@ -1123,11 +1138,11 @@ class TestGetRowsViaSearch:
                 return_value={"1": [{"id": "9", "type": "t"}]},
             ) as mock_batch,
         ):
-            list(
+            tables = list(
                 get_rows_via_search(
                     api_key="k",
                     refresh_token="r",
-                    endpoint="contacts",
+                    endpoint=endpoint,
                     logger=logger,
                     resumable_source_manager=manager,
                     db_incremental_field_last_value=_RECENT_SEED_ISO,
@@ -1137,43 +1152,10 @@ class TestGetRowsViaSearch:
                 )
             )
 
-        # One call per association type configured on contacts (deals, tickets, quotes)
-        assoc_types_called = {c.kwargs["to_entity_plural"] for c in mock_batch.call_args_list}
-        assert assoc_types_called == {"deals", "tickets", "quotes"}
-        from_types = {c.kwargs["from_entity_plural"] for c in mock_batch.call_args_list}
-        assert from_types == {"contacts"}
-        # Ids are passed through as strings
+        assert {c.kwargs["to_entity_plural"] for c in mock_batch.call_args_list} == expected_associations
+        assert {c.kwargs["from_entity_plural"] for c in mock_batch.call_args_list} == {endpoint}
         assert mock_batch.call_args_list[0].kwargs["ids"] == ["1"]
-
-    def test_no_association_backfill_for_deals(self) -> None:
-        manager = _make_manager()
-        logger = MagicMock()
-        side_effect, _ = _setup_search_post([_make_response(200, _search_page([_result("1", 1_799_000_000_000)]))])
-
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
-                new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
-            ),
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._batch_read_associations"
-            ) as mock_batch,
-        ):
-            list(
-                get_rows_via_search(
-                    api_key="k",
-                    refresh_token="r",
-                    endpoint="deals",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                    db_incremental_field_last_value=_RECENT_SEED_ISO,
-                    include_custom_props=False,
-                    now_ms=_FIXED_NOW_MS,
-                    api_version=HUBSPOT_API_VERSION_V3,
-                )
-            )
-
-        mock_batch.assert_not_called()
+        assert expected_associations <= set(tables[0].column_names)
 
     def test_contacts_uses_lastmodifieddate_cursor(self) -> None:
         manager = _make_manager()
@@ -1313,6 +1295,7 @@ class TestGetRowsFullRefresh:
         # Two calls: the constructed initial URL and the next_url from paging.
         assert len(captured_urls) == 2
         assert captured_urls[1] == "https://api.hubapi.com/page2"
+        assert "associations=contacts,companies" in captured_urls[0]
 
     def test_resume_from_next_url(self) -> None:
         from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot import get_rows

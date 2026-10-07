@@ -280,6 +280,10 @@ class HubspotEndpointConfig:
     discover_all_properties: bool = False
 
 
+# Associations point from the object with a few links to the object with many. An engagement or a
+# deal names the handful of records it belongs to. Companies and contacts do not list every
+# engagement they ever had, because those rows would grow without limit. Each association type
+# costs one v4 batch-read call per search page on incremental syncs.
 HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
     "contacts": HubspotEndpointConfig(
         name="contacts",
@@ -300,7 +304,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
     "deals": HubspotEndpointConfig(
         name="deals",
         path="/crm/v3/objects/deals",
-        associations=[],
+        associations=["contacts", "companies"],
         partition_key="createdate",
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
@@ -308,7 +312,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
     "tickets": HubspotEndpointConfig(
         name="tickets",
         path="/crm/v3/objects/tickets",
-        associations=[],
+        associations=["contacts", "companies"],
         partition_key="createdate",
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
@@ -316,7 +320,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
     "quotes": HubspotEndpointConfig(
         name="quotes",
         path="/crm/v3/objects/quotes",
-        associations=[],
+        associations=["contacts", "companies"],
         partition_key="hs_createdate",
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
@@ -324,7 +328,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
     "emails": HubspotEndpointConfig(
         name="emails",
         path="/crm/v3/objects/emails",
-        associations=[],
+        associations=["contacts", "companies", "deals", "tickets"],
         partition_key="hs_timestamp",
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
@@ -332,7 +336,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
     "meetings": HubspotEndpointConfig(
         name="meetings",
         path="/crm/v3/objects/meetings",
-        associations=[],
+        associations=["contacts", "companies", "deals", "tickets"],
         partition_key="hs_timestamp",
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
@@ -343,7 +347,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
     "leads": HubspotEndpointConfig(
         name="leads",
         path="/crm/v3/objects/leads",
-        associations=[],
+        associations=["contacts", "companies"],
         partition_key="hs_createdate",
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
@@ -356,7 +360,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
     "calls": HubspotEndpointConfig(
         name="calls",
         path="/crm/v3/objects/calls",
-        associations=[],
+        associations=["contacts", "companies", "deals", "tickets"],
         partition_key="hs_timestamp",
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
@@ -365,7 +369,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
     "notes": HubspotEndpointConfig(
         name="notes",
         path="/crm/v3/objects/notes",
-        associations=[],
+        associations=["contacts", "companies", "deals", "tickets"],
         partition_key="hs_timestamp",
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
@@ -374,7 +378,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
     "tasks": HubspotEndpointConfig(
         name="tasks",
         path="/crm/v3/objects/tasks",
-        associations=[],
+        associations=["contacts", "companies", "deals", "tickets"],
         partition_key="hs_timestamp",
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
@@ -383,7 +387,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
     "communications": HubspotEndpointConfig(
         name="communications",
         path="/crm/v3/objects/communications",
-        associations=[],
+        associations=["contacts", "companies", "deals", "tickets"],
         partition_key="hs_timestamp",
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],

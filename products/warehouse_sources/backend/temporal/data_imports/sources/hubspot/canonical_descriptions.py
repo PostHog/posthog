@@ -63,6 +63,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "hs_mrr": "Monthly recurring revenue associated with the deal.",
             "hubspot_owner_id": "ID of the HubSpot user who owns the deal.",
             "hs_updated_by_user_id": "ID of the user who last updated the deal.",
+            "contacts": "Contacts associated with the deal, as {value, contacts_id} pairs.",
+            "companies": "Companies associated with the deal, as {value, companies_id} pairs.",
         },
     },
     "tickets": {
@@ -79,6 +81,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "createdate": "Date the ticket was created in HubSpot.",
             "hs_lastmodifieddate": "Date any property on the ticket was last modified.",
             "hubspot_companyid": "ID of the primary company associated with the ticket.",
+            "contacts": "Contacts associated with the ticket, as {value, contacts_id} pairs.",
+            "companies": "Companies associated with the ticket, as {value, companies_id} pairs.",
         },
     },
     "quotes": {
@@ -93,6 +97,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "hs_createdate": "Date the quote was created in HubSpot.",
             "hs_lastmodifieddate": "Date any property on the quote was last modified.",
             "hs_esign_num_signers_required": "Number of signers required to e-sign the quote.",
+            "contacts": "Contacts associated with the quote, as {value, contacts_id} pairs.",
+            "companies": "Companies associated with the quote, as {value, companies_id} pairs.",
         },
     },
     "emails": {
@@ -109,6 +115,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "hs_email_headers": "Raw email headers (from, to, cc) as a serialized string.",
             "hs_attachment_ids": "IDs of files attached to the email.",
             "hs_lastmodifieddate": "Date any property on the email was last modified.",
+            "contacts": "Contacts associated with the email, as {value, contacts_id} pairs.",
+            "companies": "Companies associated with the email, as {value, companies_id} pairs.",
+            "deals": "Deals associated with the email, as {value, deals_id} pairs.",
+            "tickets": "Tickets associated with the email, as {value, tickets_id} pairs.",
         },
     },
     "meetings": {
@@ -129,6 +139,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "hs_attachment_ids": "IDs of files attached to the meeting.",
             "hs_lastmodifieddate": "Date any property on the meeting was last modified.",
             "hs_meeting_source": "How the meeting was created (e.g. CRM_UI, MEETINGS_PUBLIC).",
+            "contacts": "Contacts associated with the meeting, as {value, contacts_id} pairs.",
+            "companies": "Companies associated with the meeting, as {value, companies_id} pairs.",
+            "deals": "Deals associated with the meeting, as {value, deals_id} pairs.",
+            "tickets": "Tickets associated with the meeting, as {value, tickets_id} pairs.",
         },
     },
     "leads": {
@@ -143,6 +157,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "hs_pipeline_stage": "The pipeline stage the lead is in (e.g. new, attempting, connected, qualified).",
             "hs_createdate": "Date the lead was created in HubSpot.",
             "hs_lastmodifieddate": "Date any property on the lead was last modified.",
+            "contacts": "Contacts associated with the lead, as {value, contacts_id} pairs.",
+            "companies": "Companies associated with the lead, as {value, companies_id} pairs.",
         },
     },
     "calls": {
@@ -152,6 +168,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "hs_object_id": "HubSpot's unique internal identifier for the call.",
             "hs_timestamp": "Time the call took place.",
             "hs_lastmodifieddate": "Date any property on the call was last modified.",
+            "contacts": "Contacts associated with the call, as {value, contacts_id} pairs.",
+            "companies": "Companies associated with the call, as {value, companies_id} pairs.",
+            "deals": "Deals associated with the call, as {value, deals_id} pairs.",
+            "tickets": "Tickets associated with the call, as {value, tickets_id} pairs.",
         },
     },
     "notes": {
@@ -161,6 +181,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "hs_object_id": "HubSpot's unique internal identifier for the note.",
             "hs_timestamp": "Time the note was logged.",
             "hs_lastmodifieddate": "Date any property on the note was last modified.",
+            "contacts": "Contacts associated with the note, as {value, contacts_id} pairs.",
+            "companies": "Companies associated with the note, as {value, companies_id} pairs.",
+            "deals": "Deals associated with the note, as {value, deals_id} pairs.",
+            "tickets": "Tickets associated with the note, as {value, tickets_id} pairs.",
         },
     },
     "tasks": {
@@ -170,6 +194,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "hs_object_id": "HubSpot's unique internal identifier for the task.",
             "hs_timestamp": "Date the task is due.",
             "hs_lastmodifieddate": "Date any property on the task was last modified.",
+            "contacts": "Contacts associated with the task, as {value, contacts_id} pairs.",
+            "companies": "Companies associated with the task, as {value, companies_id} pairs.",
+            "deals": "Deals associated with the task, as {value, deals_id} pairs.",
+            "tickets": "Tickets associated with the task, as {value, tickets_id} pairs.",
         },
     },
     "communications": {
@@ -179,6 +207,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "hs_object_id": "HubSpot's unique internal identifier for the communication.",
             "hs_timestamp": "Time the message was sent.",
             "hs_lastmodifieddate": "Date any property on the communication was last modified.",
+            "contacts": "Contacts associated with the communication, as {value, contacts_id} pairs.",
+            "companies": "Companies associated with the communication, as {value, companies_id} pairs.",
+            "deals": "Deals associated with the communication, as {value, deals_id} pairs.",
+            "tickets": "Tickets associated with the communication, as {value, tickets_id} pairs.",
         },
     },
     "feedback_submissions": {
