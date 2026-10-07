@@ -91,9 +91,17 @@ def feature_flag_pairs_sql(feature_flags_sql: str) -> str:
     return f"arrayConcat({flag_pairs}, {active_pair})"
 
 
-def json_document_sql(document_sql: str, **filters: Iterable[str]) -> str:
+def json_document_sql(
+    document_sql: str,
+    *,
+    declared_array_paths: Iterable[str] = (),
+    declared_string_paths: Iterable[str] = (),
+) -> str:
     """A JSON column as document text, built from its member pairs so declared defaults can be left out."""
-    return f"concat('{{', arrayStringConcat({json_member_pairs_sql(document_sql, **filters)}, ','), '}}')"
+    pairs = json_member_pairs_sql(
+        document_sql, declared_array_paths=declared_array_paths, declared_string_paths=declared_string_paths
+    )
+    return f"concat('{{', arrayStringConcat({pairs}, ','), '}}')"
 
 
 def person_document_sql(person_properties_sql: str) -> str:
