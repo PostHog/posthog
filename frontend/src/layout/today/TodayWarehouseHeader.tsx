@@ -14,6 +14,7 @@ import {
     cn,
 } from '@posthog/quill'
 
+import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -95,7 +96,12 @@ export function TodayWarehouseHeader({ className }: { className?: string }): JSX
                     )}
                 </>
             }
-            actions={<SceneTitlePanelButton />}
+            actions={
+                <>
+                    <ProductSetupButton />
+                    <SceneTitlePanelButton />
+                </>
+            }
         />
     )
 }

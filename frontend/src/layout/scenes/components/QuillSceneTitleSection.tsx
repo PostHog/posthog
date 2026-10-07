@@ -53,7 +53,7 @@ export function QuillSceneTitleSection({
     const { showDescription } = useValues(sceneLayoutLogic)
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
     const { phoneHeaderShown, currentWarehouseItem, warehouseHeaderShown } = useValues(todayShellLogic)
-    // The warehouse header carries the context panel toggle, so the scene registers its PostHog AI tool here instead of through that button.
+    // The warehouse header carries Quick start and the context panel toggle, so the scene registers its PostHog AI tool here instead of through that button.
     useMaxTool({ ...(maxToolProps ?? { identifier: 'read_data' }), active: !!maxToolProps && warehouseHeaderShown })
     // The phone header shows the title, so this row keeps only the actions. A new resource keeps its name field.
     const titleInPhoneHeader = phoneHeaderShown && !forceEdit
@@ -70,7 +70,7 @@ export function QuillSceneTitleSection({
         hasDescription && (descriptionAlwaysVisible || (showDescription && !titleInPhoneHeader) || forceEdit)
     const sceneActions = (
         <>
-            {!hideProductSetupButton && <ProductSetupButton />}
+            {!hideProductSetupButton && !warehouseHeaderShown && <ProductSetupButton />}
             {actions}
             {!warehouseHeaderShown && (
                 <SceneTitlePanelButton maxToolProps={maxToolProps} maxButtonLabel={maxButtonLabel} />
