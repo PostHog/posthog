@@ -6,6 +6,8 @@ import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/common/config/kafka-to
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs/persons'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+import { PersonMessage } from '~/common/persons/person-message'
+import { COOKIELESS_SENTINEL_VALUE } from '~/common/persons/person-utils'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -216,6 +218,11 @@ describe('PostgresPersonRepository', () => {
                 personMergeTombstoneTeamAllowlist: '*',
             })
         })
+
+        function recordQueryTags(): () => string[] {
+            const spy = jest.spyOn(postgres, 'query')
+            return () => spy.mock.calls.map((call) => String(call[3]))
+        }
 
         async function tombstonePerson(person: InternalPerson): Promise<void> {
             await postgres.query(
@@ -772,6 +779,7 @@ describe('PostgresPersonRepository', () => {
         it('createPerson undoes its insert when a distinct id is owned by a live mapping', async () => {
             await createTestPerson(team.id, 'contested-did')
             const uuid = new UUIDT().toString()
+            const queryTags = recordQueryTags()
 
             const result = await revivalRepository.createPerson(
                 TIMESTAMP,
@@ -787,6 +795,7 @@ describe('PostgresPersonRepository', () => {
             )
 
             expect(result).toMatchObject({ success: false, error: 'CreationConflict' })
+            expect(queryTags()).not.toContain('lockStrayDistinctIds')
             // The person row and the primary mapping it did attach are tombstoned, not
             // left live: a live person unreachable by its contested distinct id would
             // block the key forever. Like every tombstone, the properties are scrubbed.
@@ -798,6 +807,104 @@ describe('PostgresPersonRepository', () => {
             )
             expect(personRows.rows).toEqual([{ is_deleted: true, properties: {} }])
             await expect(repository.fetchPerson(team.id, 'undo-primary-did')).resolves.toBeUndefined()
+        })
+
+        it('createPerson undone by a live mapping leaves a reattached stray tombstoned', async () => {
+            const liveOwner = await createTestPerson(team.id, 'mixed-contested-did')
+            const deadOwner = await createTestPerson(team.id, 'mixed-stray-owner-did')
+            await revivalRepository.addDistinctId(deadOwner, 'mixed-stray-did', 1)
+            await tombstonePerson(deadOwner)
+
+            const result = await revivalRepository.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                new UUIDT().toString(),
+                { distinctId: 'mixed-stray-did' },
+                [{ distinctId: 'mixed-contested-did' }]
+            )
+
+            expect(result).toMatchObject({ success: false, error: 'CreationConflict' })
+            // The tombstone is not published. Its version stays above the mapping's ClickHouse row,
+            // and the ClickHouse deletion sweep removes that row with the deleted owner.
+            const strayRows = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT is_deleted, version FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2',
+                [team.id, 'mixed-stray-did'],
+                'fetchMixedStray'
+            )
+            expect(strayRows.rows).toEqual([{ is_deleted: true, version: '4' }])
+            await expect(repository.fetchPerson(team.id, 'mixed-contested-did')).resolves.toMatchObject({
+                uuid: liveOwner.uuid,
+            })
+        })
+
+        it.each([
+            [
+                'createPerson',
+                async (): Promise<[string, PersonMessage[]]> => {
+                    const uuid = new UUIDT().toString()
+                    const result = await revivalRepository.createPerson(
+                        TIMESTAMP,
+                        {},
+                        {},
+                        {},
+                        team.id,
+                        null,
+                        false,
+                        uuid,
+                        {
+                            distinctId: 'stray-did',
+                        }
+                    )
+                    if (!result.success) {
+                        throw new Error('Expected creation to succeed')
+                    }
+                    return [uuid, result.messages.slice(1)]
+                },
+            ],
+            [
+                'addDistinctId',
+                async (): Promise<[string, PersonMessage[]]> => {
+                    const newOwner = await createTestPerson(team.id, 'stray-adder-did')
+                    return [newOwner.uuid, await revivalRepository.addDistinctId(newOwner, 'stray-did', 1)]
+                },
+            ],
+        ])('%s takes over a live mapping left on a tombstoned person', async (_name, write) => {
+            const deadOwner = await createTestPerson(team.id, 'stray-owner-did')
+            await revivalRepository.addDistinctId(deadOwner, 'stray-did', 1)
+            await tombstonePerson(deadOwner)
+
+            const [ownerUuid, messages] = await write()
+
+            await expect(repository.fetchPerson(team.id, 'stray-did')).resolves.toMatchObject({ uuid: ownerUuid })
+            expect(messages.map((message) => parseJSON(message.value!.toString()))).toEqual([
+                expect.objectContaining({ distinct_id: 'stray-did', person_id: ownerUuid, version: 3, is_deleted: 0 }),
+            ])
+        })
+
+        it('createPerson that revives the owner of a stray keeps the stray attached', async () => {
+            const owner = await createTestPerson(team.id, 'self-stray-did')
+            await tombstonePerson(owner)
+
+            const result = await revivalRepository.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                owner.uuid,
+                { distinctId: 'self-stray-did' }
+            )
+
+            expect(result).toMatchObject({ success: true, person: { id: owner.id, uuid: owner.uuid } })
+            await expect(repository.fetchPerson(team.id, 'self-stray-did')).resolves.toMatchObject({ uuid: owner.uuid })
         })
 
         it('addDistinctId revives a tombstoned mapping, repointing it at the new person', async () => {
@@ -821,14 +928,24 @@ describe('PostgresPersonRepository', () => {
             })
         })
 
-        it('addDistinctId throws DistinctIdConflictError for a live mapping', async () => {
-            const person = await createTestPerson(team.id, 'conflict-adder-did')
-            await createTestPerson(team.id, 'already-owned-did')
+        it.each([
+            ['another live person', 'other-owned-did', false],
+            ['the same person', 'conflict-adder-did', true],
+        ])(
+            'addDistinctId throws DistinctIdConflictError for a live mapping owned by %s',
+            async (_owner, distinctId, ownedBySamePerson) => {
+                const person = await createTestPerson(team.id, 'conflict-adder-did')
+                if (!ownedBySamePerson) {
+                    await createTestPerson(team.id, distinctId)
+                }
+                const queryTags = recordQueryTags()
 
-            await expect(revivalRepository.addDistinctId(person, 'already-owned-did', 0)).rejects.toThrow(
-                DistinctIdConflictError
-            )
-        })
+                await expect(revivalRepository.addDistinctId(person, distinctId, 0)).rejects.toThrow(
+                    DistinctIdConflictError
+                )
+                expect(queryTags()).not.toContain('lockStrayDistinctIds')
+            }
+        )
 
         it('isPersonLive is true for a live person and false for a tombstoned one', async () => {
             const person = await createTestPerson(team.id, 'live-check-did')
@@ -2382,12 +2499,24 @@ describe('PostgresPersonRepository', () => {
                 feature_flag_key: 'beta-feature',
                 hash_key: 'existing_override_value_for_beta_feature',
             })
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: sourcePersonID,
+                feature_flag_key: 'gamma',
+                hash_key: 'override_value_for_gamma',
+            })
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: targetPersonID,
+                feature_flag_key: 'gamma',
+                hash_key: COOKIELESS_SENTINEL_VALUE,
+            })
 
             await repository.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
 
             const result = await getAllHashKeyOverrides()
 
-            expect(result.length).toEqual(2)
+            expect(result.length).toEqual(3)
             expect(result).toEqual(
                 expect.arrayContaining([
                     {
@@ -2398,6 +2527,11 @@ describe('PostgresPersonRepository', () => {
                     {
                         feature_flag_key: 'aloha',
                         hash_key: 'override_value_for_aloha',
+                        person_id: targetPersonID,
+                    },
+                    {
+                        feature_flag_key: 'gamma',
+                        hash_key: 'override_value_for_gamma',
                         person_id: targetPersonID,
                     },
                 ])
@@ -3478,29 +3612,30 @@ describe('PostgresPersonRepository', () => {
     })
 
     describe('updateCohortsAndFeatureFlagsForMergeBatch()', () => {
-        it('moves overrides from multiple sources, keeping target values on conflict', async () => {
+        it('moves overrides from multiple sources, keeping target values on conflict unless they are the cookieless sentinel', async () => {
             const source1 = await createTestPerson(team.id, 'fold-ff-source-1', {})
             const source2 = await createTestPerson(team.id, 'fold-ff-source-2', {})
             const target = await createTestPerson(team.id, 'fold-ff-target', {})
 
-            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
-                team_id: team.id,
-                person_id: source1.id,
-                feature_flag_key: 'aloha',
-                hash_key: 'source1_aloha',
-            })
-            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
-                team_id: team.id,
-                person_id: source2.id,
-                feature_flag_key: 'beta-feature',
-                hash_key: 'source2_beta',
-            })
-            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
-                team_id: team.id,
-                person_id: target.id,
-                feature_flag_key: 'beta-feature',
-                hash_key: 'target_beta',
-            })
+            for (const [personId, flagKey, hashKey] of [
+                [source1.id, 'aloha', COOKIELESS_SENTINEL_VALUE],
+                [source2.id, 'aloha', 'source2_aloha'],
+                [source2.id, 'beta-feature', 'source2_beta'],
+                [target.id, 'beta-feature', 'target_beta'],
+                [source1.id, 'gamma', 'source1_gamma'],
+                [target.id, 'gamma', COOKIELESS_SENTINEL_VALUE],
+                [source1.id, 'delta', 'source1_delta'],
+                [source2.id, 'delta', 'source2_delta'],
+                [target.id, 'delta', COOKIELESS_SENTINEL_VALUE],
+                [source1.id, 'epsilon', COOKIELESS_SENTINEL_VALUE],
+            ]) {
+                await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
+                    team_id: team.id,
+                    person_id: personId,
+                    feature_flag_key: flagKey,
+                    hash_key: hashKey,
+                })
+            }
 
             await repository.updateCohortsAndFeatureFlagsForMergeBatch(team.id, [source1.id, source2.id], target.id)
 
@@ -3512,11 +3647,17 @@ describe('PostgresPersonRepository', () => {
             )
             expect(result.rows).toEqual(
                 expect.arrayContaining([
-                    { feature_flag_key: 'aloha', hash_key: 'source1_aloha', person_id: target.id },
+                    { feature_flag_key: 'aloha', hash_key: 'source2_aloha', person_id: target.id },
                     { feature_flag_key: 'beta-feature', hash_key: 'target_beta', person_id: target.id },
+                    { feature_flag_key: 'gamma', hash_key: 'source1_gamma', person_id: target.id },
+                    {
+                        feature_flag_key: 'delta',
+                        hash_key: expect.stringMatching(/^source[12]_delta$/),
+                        person_id: target.id,
+                    },
                 ])
             )
-            expect(result.rows).toHaveLength(2)
+            expect(result.rows).toHaveLength(4)
         })
 
         it('is a no-op for empty sources', async () => {
