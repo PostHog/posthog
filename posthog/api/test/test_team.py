@@ -447,6 +447,7 @@ def team_api_test_factory():
         @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True)
         def test_update_rejects_a_test_account_filter_through_a_denied_warehouse_table(self, _flag):
             denied_filter = deny_warehouse_table_to_member(self.organization, self.team, self.user)
+            filters_before = self.team.test_account_filters
 
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/", {"test_account_filters": [denied_filter]}
@@ -456,7 +457,7 @@ def team_api_test_factory():
             assert response.json()["attr"] == "test_account_filters"
             assert "denied_warehouse_table" in response.json()["detail"]
             self.team.refresh_from_db()
-            assert self.team.test_account_filters == []
+            assert self.team.test_account_filters == filters_before
 
         @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
         @patch("posthoganalytics.capture")
