@@ -117,10 +117,11 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                     </ItemTitle>
                     {(lead || card.pullRequestUrl) && (
                         <ItemDescription className="flex flex-wrap items-center gap-x-1.5">
-                            {lead && <span>{lead}</span>}
+                            {/* The separator ends the lead rather than opening the link, so a wrap leaves it
+                                trailing the first line instead of reading as a bullet on the second. */}
+                            {lead && <span>{card.pullRequestUrl ? `${lead} ·` : lead}</span>}
                             {card.pullRequestUrl && (
                                 <span className="flex min-w-0 items-center gap-1.5">
-                                    {lead && <span aria-hidden>·</span>}
                                     <LinkPrimitive
                                         to={card.pullRequestUrl}
                                         target="_blank"

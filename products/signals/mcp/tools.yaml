@@ -216,6 +216,26 @@ tools:
             id:
                 aliases:
                     - report_id
+    inbox-reports-leave-reviewers:
+        operation: signals_reports_reviewers_me_destroy
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Step off a report's suggested reviewers
+        description: >
+            Take the authenticated user off this report's suggested reviewers, leaving the other reviewers in place.
+            Use it when a report was routed to them by mistake, so it stops reaching them without closing it for
+            anyone else. The report's own state does not change: it stays open for whoever is left, and for the
+            project. Succeeds whether or not the user was on the list, so a repeat call is safe. To change who else
+            reviews a report, edit its `suggested_reviewers` artefact instead.
+        param_overrides:
+            id:
+                aliases:
+                    - report_id
     inbox-reports-list:
         operation: signals_reports_list
         enabled: true
