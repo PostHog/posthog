@@ -85,6 +85,29 @@ const successfulPrChecks = {
 }
 
 const monitoringReportId = '019e64b8-0000-7000-8000-000000000901'
+const monitoringReport = makeReport({
+    ...reportTabReports[0],
+    id: monitoringReportId,
+    status: SignalReportStatus.MONITORING,
+    monitoring_started_at: '2026-08-29T00:00:00Z',
+    monitoring_enabled: false,
+    implementation_pr_state: 'merged',
+    implementation_pr_merged: true,
+    implementation_pr_url: 'https://github.com/example/project/pull/1',
+    pull_requests: [
+        {
+            id: '019e64b8-0000-7000-8000-000000000902',
+            url: 'https://github.com/example/project/pull/1',
+            state: 'merged',
+            merged: true,
+            review_decision: 'approved',
+            merged_at: '2026-08-29T00:00:00Z',
+            claim_id: null,
+            attached_at: '2026-08-28T00:00:00Z',
+            attached_by: null,
+        },
+    ],
+})
 
 // Detail-body stories. Each detail component mounts the keyed `inboxReportDetailLogic`,
 // which fetches artefacts / signals / tasks – mocked here. Polish the two-column detail
@@ -149,6 +172,14 @@ const detailMocks = mswDecorator({
         ],
         '/api/projects/:id/signals/reports/:reportId/pr_comments/': () => [200, { comments: [] }],
         '/api/projects/:id/signals/reports/available_reviewers': () => [200, mockReviewers],
+        '/api/projects/:id/signals/reports/:reportId/': (req) => [
+            200,
+            req.params.reportId === monitoringReportId
+                ? monitoringReport
+                : makeReport(
+                      reportTabReports.find((report) => report.id === req.params.reportId) ?? reportTabReports[0]
+                  ),
+        ],
         // Terminal run status so the inline run viewer replays its static log instead of opening SSE.
         '/api/projects/:id/tasks/:taskId': (req) => [200, mockTask(req.params.taskId as string, 'completed')],
         '/api/projects/:id/tasks/:taskId/runs/:runId': (req) => [
@@ -337,31 +368,7 @@ export const ReportMonitoring: Story = {
     parameters: { mockDate: '2026-08-30' },
     render: () => (
         <Frame>
-            <ReportDetail
-                report={makeReport({
-                    ...reportTabReports[0],
-                    id: monitoringReportId,
-                    status: SignalReportStatus.MONITORING,
-                    monitoring_started_at: '2026-08-29T00:00:00Z',
-                    monitoring_enabled: false,
-                    implementation_pr_state: 'merged',
-                    implementation_pr_merged: true,
-                    implementation_pr_url: 'https://github.com/example/project/pull/1',
-                    pull_requests: [
-                        {
-                            id: '019e64b8-0000-7000-8000-000000000902',
-                            url: 'https://github.com/example/project/pull/1',
-                            state: 'merged',
-                            merged: true,
-                            review_decision: 'approved',
-                            merged_at: '2026-08-29T00:00:00Z',
-                            claim_id: null,
-                            attached_at: '2026-08-28T00:00:00Z',
-                            attached_by: null,
-                        },
-                    ],
-                })}
-            />
+            <ReportDetail report={monitoringReport} />
         </Frame>
     ),
 }
