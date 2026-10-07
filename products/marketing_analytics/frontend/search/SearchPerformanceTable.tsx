@@ -1,5 +1,6 @@
 import './SearchPerformanceTable.scss'
 
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
@@ -78,7 +79,10 @@ export function SearchPerformanceTable({
             <LemonTable<MarketingAnalyticsSearchRow>
                 size="small"
                 tableLayout="fixed"
-                className="SearchPerformanceTable @max-[40rem]:[&_col:nth-child(2)]:w-10 @max-[40rem]:[&_th]:px-2 @max-[40rem]:[&_td]:px-2 @max-[40rem]:[&_th_svg]:hidden @max-[40rem]:[&_.sorting-indicator]:hidden"
+                className={clsx(
+                    'SearchPerformanceTable @max-[40rem]:[&_col:nth-child(2)]:w-10 @max-[40rem]:[&_th]:px-2 @max-[40rem]:[&_td]:px-2 @max-[40rem]:[&_th_svg]:hidden @max-[40rem]:[&_.sorting-indicator]:hidden',
+                    { 'SearchPerformanceTable--paginated': rows.length > 10 }
+                )}
                 dataSource={responseLoading ? [] : rows}
                 loading={responseLoading}
                 loadingSkeletonRows={10}

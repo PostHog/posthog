@@ -43,5 +43,6 @@ Keywords and queries includes paid keywords from ad platforms and organic querie
 Search Console requires a synced `search_analytics_by_query` or `search_analytics_by_query_page` table; the integration and paid/organic filters determine which sources appear.
 Each search table has a reload control and query duration.
 Pagination stays within the table without scrolling the scene, and changing between keywords and landing pages starts on page 1.
-Rows reserve consistent space for values and comparisons, and the table keeps room for ten rows on shorter pages.
+Tables with more than ten results reserve consistent space for values and comparisons and keep room for ten rows on shorter pages.
+Tables with ten results or fewer keep their compact layout without reserved space.
 Use the page selector to jump directly to a page, or the arrows to move one page at a time.

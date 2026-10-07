@@ -318,6 +318,11 @@ export const Pagination: Story = {
 }
 export const Comparison: Story = {
     parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=true` },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Google Search Console')
+        const table = canvasElement.querySelector('.SearchPerformanceTable .LemonTable__content')!
+        await expect(table.getBoundingClientRect().height).toBeLessThan(600)
+    },
 }
 export const MixedWithPosition: Story = {
     ...Comparison,
