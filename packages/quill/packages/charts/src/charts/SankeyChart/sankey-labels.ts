@@ -152,8 +152,10 @@ export function outsideLabelWidth(
 ): number {
     const lastColumn = lastColumnSinkIds(nodes, links, nodeAlign)
     const inflow = new Map<string, number>()
+    const outflow = new Map<string, number>()
     for (const link of links) {
         inflow.set(link.target, (inflow.get(link.target) ?? 0) + link.value)
+        outflow.set(link.source, (outflow.get(link.source) ?? 0) + link.value)
     }
     let widest = 0
     for (const node of nodes) {
@@ -161,7 +163,9 @@ export function outsideLabelWidth(
             continue
         }
         const label = node.label ?? node.id
-        const text = showValues ? `${label} ${valueFormatter(inflow.get(node.id) ?? 0)}` : label
+        // The layout gives a node the larger of its inflow and outflow, and the label shows that value.
+        const value = Math.max(inflow.get(node.id) ?? 0, outflow.get(node.id) ?? 0)
+        const text = showValues ? `${label} ${valueFormatter(value)}` : label
         widest = Math.max(widest, measureLabelWidth(text, LABEL_FONT))
     }
     return widest === 0 ? 0 : Math.min(MAX_OUTSIDE_LABEL_WIDTH, Math.ceil(widest) + LABEL_GAP)

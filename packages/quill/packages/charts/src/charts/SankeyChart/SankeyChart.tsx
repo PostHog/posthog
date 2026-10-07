@@ -109,15 +109,27 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
 
     const margins = useMemo<ChartMargins>(() => {
         const applied = marginsOverride ? applyMarginOverride(BASE_MARGINS, marginsOverride) : BASE_MARGINS
-        // Column headers and `outside` labels are sized for their room, so an override cannot take it away.
-        return {
-            ...applied,
-            top: applied.top + (hasColumnLabels ? COLUMN_LABEL_HEIGHT : 0),
-            right: applied.right + outsideWidth,
-        }
-    }, [hasColumnLabels, outsideWidth, marginsOverride])
+        // Column headers are sized for their room, so an override cannot take it away.
+        return { ...applied, top: applied.top + (hasColumnLabels ? COLUMN_LABEL_HEIGHT : 0) }
+    }, [hasColumnLabels, marginsOverride])
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
+
+    // `outside` labels take their room from the plot, capped at half of it, so a chart narrower
+    // than the labels still has nodes to draw and the labels truncate instead.
+    const outsideRoom = dimensions ? Math.min(outsideWidth, Math.floor(dimensions.plotWidth / 2)) : 0
+    const plot = useMemo(
+        () =>
+            dimensions
+                ? {
+                      plotLeft: dimensions.plotLeft,
+                      plotTop: dimensions.plotTop,
+                      plotWidth: dimensions.plotWidth - outsideRoom,
+                      plotHeight: dimensions.plotHeight,
+                  }
+                : { plotLeft: 0, plotTop: 0, plotWidth: 0, plotHeight: 0 },
+        [dimensions, outsideRoom]
+    )
 
     // Nodes that share a label share a palette slot, so the same tool in two columns keeps one hue.
     const colorForLabel = useMemo(() => {
@@ -139,7 +151,7 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
             computeSankeyLayout<NodeMeta, LinkMeta>({
                 nodes,
                 links,
-                plot: dimensions ?? { plotLeft: 0, plotTop: 0, plotWidth: 0, plotHeight: 0 },
+                plot,
                 nodeWidth,
                 nodePadding,
                 nodeAlign,
@@ -147,7 +159,7 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
                 colorForLabel,
                 resolveColor: resolveCssColor,
             }),
-        [nodes, links, dimensions, nodeWidth, nodePadding, nodeAlign, preserveNodeOrder, colorForLabel]
+        [nodes, links, plot, nodeWidth, nodePadding, nodeAlign, preserveNodeOrder, colorForLabel]
     )
 
     // A controlled highlight paints on the static layer, so a change to it is a full repaint
@@ -174,10 +186,10 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
                       showValues: showNodeValues,
                       valueFormatter,
                       lastColumnLabels,
-                      outsideWidth,
+                      outsideWidth: outsideRoom,
                   })
                 : [],
-        [showNodeLabels, layout, showNodeValues, valueFormatter, lastColumnLabels, outsideWidth]
+        [showNodeLabels, layout, showNodeValues, valueFormatter, lastColumnLabels, outsideRoom]
     )
 
     const { hoverIndex, hoverPosition, tooltipCtx, handlers } = useSankeyInteraction<NodeMeta, LinkMeta>({
@@ -290,7 +302,7 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
                         showOverlay={!!dimensions}
                     >
                         {hasColumnLabels ? (
-                            <SankeyColumnLabels labels={columnLabels} color={labelColor} trailingRoom={outsideWidth} />
+                            <SankeyColumnLabels labels={columnLabels} color={labelColor} trailingRoom={outsideRoom} />
                         ) : null}
                         {showNodeLabels ? <SankeyNodeLabels boxes={labelBoxes} color={labelColor} /> : null}
                         {children}

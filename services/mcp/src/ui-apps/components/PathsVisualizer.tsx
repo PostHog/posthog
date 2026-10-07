@@ -61,12 +61,13 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
     const nodePadding = useMemo(() => {
         const perStep = new Map<number, number>()
         for (const node of graph.nodes) {
-            const step = parsePathNodeKey(node.id).step
+            // Unpinned, the layout places nodes by depth, so nodes from any step can share one column.
+            const step = graph.stepsPinned ? parsePathNodeKey(node.id).step : 0
             perStep.set(step, (perStep.get(step) ?? 0) + 1)
         }
         const densest = Math.max(1, ...perStep.values())
         return densest > 1 ? Math.min(NODE_PADDING, MAX_COLUMN_PADDING / (densest - 1)) : NODE_PADDING
-    }, [graph.nodes])
+    }, [graph.nodes, graph.stepsPinned])
     const config = useMemo<SankeyChartConfig>(
         () => ({ ...CHART_CONFIG, columnLabels, nodePadding }),
         [columnLabels, nodePadding]

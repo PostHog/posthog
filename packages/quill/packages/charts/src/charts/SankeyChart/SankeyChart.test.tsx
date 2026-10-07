@@ -323,6 +323,26 @@ describe('SankeyChart', () => {
         expect(outsideLabelWidth(nodes, links, nodeAlign, false, String)).toBe(onlySink)
     })
 
+    it('keeps nodes and labels when the outside label room is wider than half the plot', () => {
+        const nodes: SankeyNodeInput[] = [
+            { id: 'start', label: 'Start' },
+            { id: 'done', label: 'Completed after a very long outcome name that needs the full margin' },
+        ]
+        // An 800px wrapper with a 700px left margin leaves a 92px plot, under the 160px label cap.
+        const { chart } = renderHogChart(
+            <SankeyChart
+                nodes={nodes}
+                links={[{ source: 'start', target: 'done', value: 5 }]}
+                theme={THEME}
+                config={{ lastColumnLabels: 'outside', margins: { left: 700 } }}
+            />
+        )
+        const labels = Array.from(
+            chart.element.querySelectorAll<HTMLElement>('[data-attr="hog-chart-sankey-node-label"]')
+        ).map((label) => label.textContent)
+        expect(labels).toEqual([expect.stringMatching(/^Start/), expect.stringMatching(/^Comp.*…/)])
+    })
+
     it('keeps room for column headers when a consumer overrides the top margin', () => {
         const { chart } = renderHogChart(
             <SankeyChart
