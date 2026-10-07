@@ -8,7 +8,7 @@ import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
-import { PieChart, PieChartProps } from './PieChart'
+import { PartOfWholeChart, PartOfWholeChartProps } from './PartOfWholeChart'
 
 let cleanupJsdom: () => void
 let cleanupRaf: () => void
@@ -25,7 +25,7 @@ afterEach(() => {
     cleanup()
 })
 
-const props: PieChartProps = {
+const props: PartOfWholeChartProps = {
     xData: {
         column: { name: 'category', type: { name: 'STRING', isNumerical: false }, label: 'category', dataIndex: 0 },
         data: ['alpha', 'beta'],
@@ -41,9 +41,9 @@ const props: PieChartProps = {
     chartSettings: {},
 }
 
-describe('PieChart wrapper', () => {
+describe('PartOfWholeChart', () => {
     it('renders the quill SqlPieGraph', async () => {
-        render(<PieChart {...props} />)
+        render(<PartOfWholeChart {...props} />)
 
         // The quill PieChart canvas carries this accessible name.
         expect(await screen.findByLabelText(/pie chart with/i, {}, { timeout: 5000 })).toBeInTheDocument()
@@ -51,7 +51,7 @@ describe('PieChart wrapper', () => {
 
     it('renders a donut total in the chart center', async () => {
         render(
-            <PieChart
+            <PartOfWholeChart
                 {...props}
                 visualizationType={ChartDisplayType.ActionsDonut}
                 chartSettings={{ pie: { sliceContent: 'labels', showTotal: true } }}
@@ -61,5 +61,13 @@ describe('PieChart wrapper', () => {
         await screen.findByLabelText(/pie chart with/i, {}, { timeout: 5000 })
 
         expect((await screen.findByText('100')).closest('[data-attr="sql-pie-chart"]')).toBeInTheDocument()
+    })
+
+    it('renders a proportion bar for the proportion bar display', () => {
+        const { container } = render(
+            <PartOfWholeChart {...props} visualizationType={ChartDisplayType.ActionsProportionBar} />
+        )
+
+        expect(container.querySelector('[data-attr="sql-proportion-bar"]')).toBeInTheDocument()
     })
 })
