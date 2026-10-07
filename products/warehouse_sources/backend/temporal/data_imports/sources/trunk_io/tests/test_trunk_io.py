@@ -20,6 +20,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.t
     TrunkPageQueryPaginator,
     TrunkRepo,
     failing_tests,
+    list_test_collections,
+    list_tests,
     merge_queue_pull_requests,
     quarantined_tests,
     unhealthy_tests,
@@ -538,6 +540,74 @@ class TestMergeQueuePullRequests:
 
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [TrunkIoResumeConfig(cursor="cursor-1", synced_through="2024-06-15T00:00:00Z")]
+
+
+class TestV2Lists:
+    @staticmethod
+    def _drive(responses: list[Response]) -> tuple[Any, list[dict[str, Any]]]:
+        sent: list[dict[str, Any]] = []
+        response_iter = iter(responses)
+
+        def fake_send(request: Any, *_args: Any, **kwargs: Any) -> Response:
+            assert kwargs.get("allow_redirects") is False
+            sent.append(
+                {
+                    "method": request.method,
+                    "url": request.url,
+                    "params": dict(request.params),
+                    "headers": request.auth(Request(headers={})).headers,
+                }
+            )
+            return next(response_iter)
+
+        patcher = patch(MAKE_SESSION_TARGET)
+        mock_session = patcher.start().return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.side_effect = lambda req: req
+        mock_session.send.side_effect = fake_send
+        return patcher, sent
+
+    @parameterized.expand(
+        [
+            ("test_collections", list_test_collections, "https://api.trunk.io/v2/test-collections"),
+            ("tests", list_tests, "https://api.trunk.io/v2/tests"),
+        ]
+    )
+    def test_paginates_v2_cursor_with_bearer_auth(self, _label: str, fn: Any, expected_url: str) -> None:
+        patcher, sent = self._drive(
+            [
+                _make_http_response({"data": [{"id": "a"}], "nextCursor": "cursor-1", "hasMore": True}),
+                _make_http_response({"data": [{"id": "b"}], "nextCursor": None, "hasMore": False}),
+            ]
+        )
+        try:
+            manager = MagicMock(spec=ResumableSourceManager)
+            manager.can_resume.return_value = False
+
+            pages = list(fn("token", manager))
+        finally:
+            patcher.stop()
+
+        assert [row["id"] for page in pages for row in page] == ["a", "b"]
+        assert [(r["method"].upper(), r["url"]) for r in sent] == [("GET", expected_url)] * 2
+        assert sent[0]["params"] == {"limit": 100}
+        assert sent[1]["params"] == {"limit": 100, "cursor": "cursor-1"}
+        assert sent[0]["headers"] == {"Authorization": "Bearer token"}
+        manager.save_state.assert_called_once_with(TrunkIoResumeConfig(cursor="cursor-1"))
+        manager.clear_state.assert_called_once()
+
+    def test_resume_seeds_saved_cursor(self) -> None:
+        patcher, sent = self._drive([_make_http_response({"data": [], "nextCursor": None, "hasMore": False})])
+        try:
+            manager = MagicMock(spec=ResumableSourceManager)
+            manager.can_resume.return_value = True
+            manager.load_state.return_value = TrunkIoResumeConfig(cursor="cursor-resumed")
+
+            list(list_tests("token", manager))
+        finally:
+            patcher.stop()
+
+        assert sent[0]["params"]["cursor"] == "cursor-resumed"
 
 
 class TestClientRedirectHandling:
