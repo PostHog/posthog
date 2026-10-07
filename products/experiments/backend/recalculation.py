@@ -309,6 +309,11 @@ def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
             pass
 
 
+def _refresh_window_enforced() -> bool:
+    # Local development skips the window so a developer can reload at will. Tests keep it, because they assert it.
+    return not settings.DEBUG or settings.TEST
+
+
 def request_recalculation(experiment: Experiment, user: User | None, trigger: str = "manual") -> dict:
     """Create an idempotent batch recalculation request for all experiment metrics.
 
@@ -346,7 +351,7 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
             _recalculation_reuse_counter.inc()
             return build_job_payload(existing, is_existing=True)
 
-        if trigger in _RATE_LIMITED_TRIGGERS:
+        if trigger in _RATE_LIMITED_TRIGGERS and _refresh_window_enforced():
             # get the latest terminal run and check against the rate limiting rules
             # if matched, increment counter and raise so the API answers 429 with Retry-After
             latest = _terminal_recalculations(experiment).order_by("-created_at").first()
