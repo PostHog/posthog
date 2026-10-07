@@ -211,7 +211,8 @@ def unarchive_flag(flag: FeatureFlag, *, team: Team, user: Any, request: Any | N
     """Unarchive a flag through the gated serializer path.
 
     The flag stays disabled; re-enabling it is a separate, explicit write
-    (``set_flag_active``).
+    (``set_flag_active``). Raises ``ValidationError`` when a release condition targets a
+    deleted cohort.
     """
     return update_flag(flag, {"archived": False}, team=team, user=user, request=request)
 

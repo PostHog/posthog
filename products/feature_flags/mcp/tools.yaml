@@ -222,9 +222,10 @@ tools:
             the flag is served to, use `update-feature-flag`.
 
 
-            Returns 400 when the flag is archived (call `feature-flag-unarchive` first) or when a flag it depends on is
-            disabled. Returns 409 when an approval policy gates enabling. Enabling an already-enabled flag succeeds and
-            changes nothing, so retrying is safe.
+            Returns 400 when the flag is archived (call `feature-flag-unarchive` first), when a flag it depends on is
+            disabled, or when a release condition targets a deleted cohort (remove that condition with
+            `update-feature-flag`). Returns 409 when an approval policy gates enabling. Enabling an already-enabled
+            flag succeeds and changes nothing, so retrying is safe.
 
 
             `feature-flag-get-definition-by-key` also finds archived flags. `feature-flag-get-all` hides archived flags
@@ -491,6 +492,10 @@ tools:
 
             The flag stays turned off. Call `feature-flag-enable` when the user also wants it serving again. Unarchiving
             a flag that is not archived succeeds and changes nothing, so retrying is safe.
+
+
+            Returns 400 when a release condition targets a deleted cohort. Remove that condition with
+            `update-feature-flag` first.
         param_overrides:
             id:
                 cast: string-int

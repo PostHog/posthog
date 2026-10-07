@@ -1710,8 +1710,9 @@ def get_flags_blocking_cohort_deletion(cohort: Cohort) -> list[FeatureFlag]:
     The flag evaluator skips deleted cohorts. A flag that still references one fails every
     evaluation. A disabled flag blocks deletion because some writers enable a flag without the
     flag API's validation. For example, starting a survey enables its targeting flag directly.
-    An archived flag does not block deletion. A database constraint keeps it disabled. Enabling
-    it after unarchiving goes through the flag API, which rejects a deleted cohort.
+    A deleted or archived flag does not block deletion. A database constraint keeps an archived
+    flag disabled. The flag API rejects a restore or unarchive of a flag that targets a deleted
+    cohort.
     """
     return _filter_flags_referencing_cohort(
         _flags_with_cohort_filters(cohort).filter(archived=False),

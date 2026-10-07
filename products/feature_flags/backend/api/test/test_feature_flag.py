@@ -5821,10 +5821,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @parameterized.expand(
-        [(mode, mode, "deleted") for mode in TURN_ON_MODES]
+        [(mode, mode, "deleted") for mode in (*TURN_ON_MODES, "restore_disabled", "unarchive")]
         + [("patch_missing_cohort", "patch", "missing"), ("patch_malformed_cohort", "patch", "malformed")]
     )
-    def test_enabling_or_restoring_checks_stored_cohorts(self, _name: str, mode: str, cohort_state: str) -> None:
+    def test_enabling_restoring_or_unarchiving_checks_stored_cohorts(
+        self, _name: str, mode: str, cohort_state: str
+    ) -> None:
         cohort_id = self._unusable_cohort_id(cohort_state)
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -5832,11 +5834,18 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             key="cohort-flag",
             filters=self._cohort_condition_filters(cohort_id),
             active=mode == "restore",
-            deleted=mode == "restore",
+            deleted=mode in ("restore", "restore_disabled"),
+            archived=mode == "unarchive",
             version=7,
         )
+        url = f"/api/projects/{self.team.id}/feature_flags/{flag.id}/"
 
-        response = turn_flag_on(self.client, f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", mode)
+        if mode == "restore_disabled":
+            response = self.client.patch(url, {"deleted": False}, format="json")
+        elif mode == "unarchive":
+            response = self.client.post(f"{url}unarchive/", {}, format="json")
+        else:
+            response = turn_flag_on(self.client, url, mode)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertLessEqual(
@@ -5850,21 +5859,18 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag.refresh_from_db()
         self.assertEqual(flag.version, 7)
 
-    @parameterized.expand([("disable",), ("archive",), ("delete",), ("restore_disabled",)])
+    @parameterized.expand([("disable",), ("archive",), ("delete",)])
     def test_restrictive_writes_succeed_with_stored_deleted_cohort(self, action: str) -> None:
         flag = FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
             key="cohort-flag",
             filters=self._cohort_condition_filters(self._unusable_cohort_id("deleted")),
-            active=action != "restore_disabled",
-            deleted=action == "restore_disabled",
+            active=True,
         )
         url = f"/api/projects/{self.team.id}/feature_flags/{flag.id}/"
         if action == "delete":
             response = self.client.patch(url, {"deleted": True}, format="json")
-        elif action == "restore_disabled":
-            response = self.client.patch(url, {"deleted": False}, format="json")
         else:
             response = self.client.post(f"{url}{action}/", {}, format="json")
 

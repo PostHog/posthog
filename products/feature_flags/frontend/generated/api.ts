@@ -1009,7 +1009,8 @@ export const getFeatureFlagsUnarchiveCreateUrl = (projectId: string, id: number)
  * Restore an archived feature flag to the default flag list.
  *
  * Sets `archived` to false and changes nothing else. The flag stays disabled; enable it
- * with a separate call. An already-unarchived flag is returned unchanged.
+ * with a separate call. A flag whose release conditions target a deleted cohort is
+ * refused: remove that condition first. An already-unarchived flag is returned unchanged.
  */
 export const featureFlagsUnarchiveCreate = async (
     projectId: string,
