@@ -41,9 +41,8 @@ export function ExecuteToolView({
   // tools whose rawInput carries no `command`.
   const headerText = executeInput?.description ?? (command ? undefined : title);
 
-  // The command renders in both chromes but styled differently: the new thread shows it as plain
-  // mono text carried by the ChatMarker title; the legacy thread keeps the bordered inline chip so
-  // ConversationView is unchanged when the chat thread is toggled off.
+  // Chat-thread chrome renders commands as plain mono text in the ChatMarker title. The standalone
+  // fallback uses a bordered inline chip when chat-thread chrome is unavailable.
   const chatChrome = useChatThreadChrome();
 
   const output = stripCodeFences(getContentText(content) ?? "").replace(

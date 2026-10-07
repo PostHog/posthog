@@ -1,12 +1,9 @@
 import { createContext, useContext } from "react";
 
 /**
- * When true, shared session-update components (notably `ToolRow`) render their chrome with the new
- * ChatX primitives (`ChatMarker`) instead of the legacy Radix chrome. The experimental `ChatThread`
- * turns this on; the production `ConversationView` never provides it, so its rendering is unchanged.
- *
- * This lets one shared `ToolRow` serve both threads — the new thread swaps chrome via context
- * rather than forking every per-tool view.
+ * When true, shared session-update components such as `ToolRow` use ChatMarker chrome. The
+ * standalone fallback keeps its existing chrome when this provider is absent, so shared views can
+ * render in either context without forking.
  */
 const ChatThreadChromeContext = createContext(false);
 
