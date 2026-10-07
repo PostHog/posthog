@@ -129,7 +129,7 @@ describe('scoutTrialsLogic', () => {
         'keeps a scout-scoped trial page on its requested scout when available=%s',
         async (available) => {
             const configId = '00000000-0000-4000-8000-000000000010'
-            const config = { ...trialFixtureConfig, id: configId, display_name: 'Account activity' }
+            const config = { ...trialFixtureConfig, id: configId, display_name: 'Zebra activity' }
             jest.mocked(signalsScoutConfigList).mockResolvedValue(
                 available ? [trialFixtureConfig, config] : [trialFixtureConfig]
             )
@@ -604,10 +604,19 @@ describe('scoutTrialsLogic', () => {
         expect(logic.values.pageError).toContain("Couldn't load scouts")
         logic.actions.setVariants(variants)
         jest.mocked(signalsScoutConfigList).mockClear()
+        const firstConfig = {
+            ...trialFixtureConfig,
+            id: '00000000-0000-4000-8000-000000000010',
+            skill_name: 'signals-scout-zebra',
+            display_name: 'Account activity',
+        }
+        jest.mocked(signalsScoutConfigList).mockResolvedValue([trialFixtureConfig, firstConfig])
         jest.mocked(signalsScoutConfigTrialSetup).mockClear()
         await expectLogic(logic, () => logic.actions.retryPageLoad()).toFinishAllListeners()
         expect(signalsScoutConfigList).toHaveBeenCalledTimes(1)
         expect(signalsScoutConfigTrialSetup).not.toHaveBeenCalled()
+        expect(logic.values.configs?.map((config) => config.id)).toEqual([firstConfig.id, trialFixtureConfig.id])
+        expect(logic.values.selectedConfigId).toBe(trialFixtureConfig.id)
         expect(logic.values.variants).toEqual(variants)
         expect(logic.values.pageError).toBeNull()
 
