@@ -36432,6 +36432,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `not_useful` - Not useful
+     * * `not_now` - Not now
+     * * `other` - Other
+     */
+    export type WarehouseSuggestionDismissalReasonEnum = typeof WarehouseSuggestionDismissalReasonEnum[keyof typeof WarehouseSuggestionDismissalReasonEnum];
+
+
+    export const WarehouseSuggestionDismissalReasonEnum = {
+      NotUseful: 'not_useful',
+      NotNow: 'not_now',
+      Other: 'other',
+    } as const;
+
+    export interface DismissWarehouseSuggestion {
+      /** Why the suggestion is dismissed.
+       *
+       * * `not_useful` - Not useful
+       * * `not_now` - Not now
+       * * `other` - Other */
+      reason: WarehouseSuggestionDismissalReasonEnum;
+      /**
+         * Optional note about the dismissal.
+         * @maxLength 1000
+         */
+      note?: string;
+    }
+
+    /**
      * * `already_fixed` - Already fixed
      * * `report_unclear` - Report is unclear to me
      * * `analysis_wrong` - Agent's analysis is wrong
@@ -74361,6 +74389,174 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: WarehouseColumnStatistics[];
+    }
+
+    export interface WarehouseSuggestionReviewer {
+      /** User id. */
+      id: number;
+      /** User first name. */
+      first_name: string;
+      /** User email. */
+      email: string;
+    }
+
+    /**
+     * * `certify` - Certify
+     * * `deprecate` - Deprecate
+     * * `materialize` - Materialize
+     */
+    export type WarehouseSuggestionKindEnum = typeof WarehouseSuggestionKindEnum[keyof typeof WarehouseSuggestionKindEnum];
+
+
+    export const WarehouseSuggestionKindEnum = {
+      Certify: 'certify',
+      Deprecate: 'deprecate',
+      Materialize: 'materialize',
+    } as const;
+
+    /**
+     * * `saved_query` - Saved query
+     * * `table` - Table
+     */
+    export type WarehouseSuggestionSubjectKindEnum = typeof WarehouseSuggestionSubjectKindEnum[keyof typeof WarehouseSuggestionSubjectKindEnum];
+
+
+    export const WarehouseSuggestionSubjectKindEnum = {
+      SavedQuery: 'saved_query',
+      Table: 'table',
+    } as const;
+
+    /**
+     * * `proposed` - Proposed
+     * * `accepted` - Accepted
+     * * `dismissed` - Dismissed
+     * * `expired` - Expired
+     * * `auto_resolved` - Auto-resolved
+     */
+    export type WarehouseSuggestionStatusEnum = typeof WarehouseSuggestionStatusEnum[keyof typeof WarehouseSuggestionStatusEnum];
+
+
+    export const WarehouseSuggestionStatusEnum = {
+      Proposed: 'proposed',
+      Accepted: 'accepted',
+      Dismissed: 'dismissed',
+      Expired: 'expired',
+      AutoResolved: 'auto_resolved',
+    } as const;
+
+    /**
+     * * `live` - Live
+     * * `deleted` - Deleted
+     * * `unused` - Unused
+     */
+    export type WarehouseSuggestionAssetOutcomeEnum = typeof WarehouseSuggestionAssetOutcomeEnum[keyof typeof WarehouseSuggestionAssetOutcomeEnum];
+
+
+    export const WarehouseSuggestionAssetOutcomeEnum = {
+      Live: 'live',
+      Deleted: 'deleted',
+      Unused: 'unused',
+    } as const;
+
+    /**
+     * What accepting this suggestion would create or change. Shape depends on kind.
+     */
+    export type WarehouseSuggestionPayload = { [key: string]: unknown };
+
+    /**
+     * The usage numbers that led to this suggestion.
+     */
+    export type WarehouseSuggestionEvidence = { [key: string]: unknown };
+
+    /**
+     * What accepting this suggestion created. Null until accepted.
+     * @nullable
+     */
+    export type WarehouseSuggestionCreatedAsset = { [key: string]: unknown } | null;
+
+    export interface WarehouseSuggestion {
+      /** What accepting this suggestion would create or change. Shape depends on kind. */
+      payload: WarehouseSuggestionPayload;
+      /** The usage numbers that led to this suggestion. */
+      evidence: WarehouseSuggestionEvidence;
+      /**
+         * What accepting this suggestion created. Null until accepted.
+         * @nullable
+         */
+      created_asset: WarehouseSuggestionCreatedAsset;
+      /** Who accepted or dismissed this suggestion. Null while it is open. */
+      reviewed_by: WarehouseSuggestionReviewer | null;
+      /** What the suggestion proposes: certify, deprecate or materialize the subject.
+       *
+       * * `certify` - Certify
+       * * `deprecate` - Deprecate
+       * * `materialize` - Materialize */
+      kind: WarehouseSuggestionKindEnum;
+      /** Whether the subject is a saved query (view) or a warehouse table.
+       *
+       * * `saved_query` - Saved query
+       * * `table` - Table */
+      subject_kind: WarehouseSuggestionSubjectKindEnum;
+      /** proposed until someone accepts or dismisses it, or the job expires it.
+       *
+       * * `proposed` - Proposed
+       * * `accepted` - Accepted
+       * * `dismissed` - Dismissed
+       * * `expired` - Expired
+       * * `auto_resolved` - Auto-resolved */
+      status: WarehouseSuggestionStatusEnum;
+      /** Why the suggestion was dismissed.
+       *
+       * * `not_useful` - Not useful
+       * * `not_now` - Not now
+       * * `other` - Other */
+      dismissal_reason: WarehouseSuggestionDismissalReasonEnum | null;
+      /** What happened to the asset an accepted suggestion created.
+       *
+       * * `live` - Live
+       * * `deleted` - Deleted
+       * * `unused` - Unused */
+      asset_outcome: WarehouseSuggestionAssetOutcomeEnum | null;
+      /** Suggestion identifier. */
+      id: string;
+      /** Id of the view or table the suggestion is about. */
+      subject_id: string;
+      /** Version of the payload shape for this kind. */
+      payload_version: number;
+      /** Start of the usage window the evidence covers. */
+      evidence_window_start: string;
+      /** End of the usage window the evidence covers. */
+      evidence_window_end: string;
+      /** When the daily job last found evidence for this suggestion. */
+      last_seen_at: string;
+      /** How strongly the evidence supports the suggestion. Higher comes first. */
+      score: number;
+      /**
+         * When the suggestion was first shown. Null while it waits for a slot.
+         * @nullable
+         */
+      surfaced_at: string | null;
+      /**
+         * When the suggestion was accepted or dismissed.
+         * @nullable
+         */
+      reviewed_at: string | null;
+      /**
+         * Free-text note left when dismissing.
+         * @nullable
+         */
+      dismissal_note: string | null;
+      /** Whether the caller has edit access to the subject and so may accept, dismiss or resume. */
+      can_act: boolean;
+    }
+
+    export interface PaginatedWarehouseSuggestionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WarehouseSuggestion[];
     }
 
     export interface WebAnalyticsFilterPreset {
@@ -114659,6 +114855,7 @@ export namespace Schemas {
      * * `TableCertification` - TableCertification
      * * `DataQualityCheck` - DataQualityCheck
      * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
+     * * `WarehouseSuggestion` - WarehouseSuggestion
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -114764,6 +114961,7 @@ export namespace Schemas {
       TableCertification: 'TableCertification',
       DataQualityCheck: 'DataQualityCheck',
       DataQualityCheckSchedule: 'DataQualityCheckSchedule',
+      WarehouseSuggestion: 'WarehouseSuggestion',
       Billing: 'Billing',
       Loop: 'Loop',
       StamphogRepoConfig: 'StamphogRepoConfig',
@@ -114855,6 +115053,7 @@ export namespace Schemas {
      * * `TableCertification` - TableCertification
      * * `DataQualityCheck` - DataQualityCheck
      * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
+     * * `WarehouseSuggestion` - WarehouseSuggestion
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -114948,6 +115147,7 @@ export namespace Schemas {
       TableCertification: 'TableCertification',
       DataQualityCheck: 'DataQualityCheck',
       DataQualityCheckSchedule: 'DataQualityCheckSchedule',
+      WarehouseSuggestion: 'WarehouseSuggestion',
       Billing: 'Billing',
       Loop: 'Loop',
       StamphogRepoConfig: 'StamphogRepoConfig',
@@ -126728,6 +126928,57 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type WarehouseSuggestionsListParams = {
+    /**
+     * Only return suggestions of this kind.
+     *
+     * * `certify` - Certify
+     * * `deprecate` - Deprecate
+     * * `materialize` - Materialize
+     * @minLength 1
+     */
+    kind?: WarehouseSuggestionsListKind;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return suggestions in this status.
+     *
+     * * `proposed` - Proposed
+     * * `accepted` - Accepted
+     * * `dismissed` - Dismissed
+     * * `expired` - Expired
+     * * `auto_resolved` - Auto-resolved
+     * @minLength 1
+     */
+    status?: WarehouseSuggestionsListStatus;
+    };
+
+    export type WarehouseSuggestionsListKind = typeof WarehouseSuggestionsListKind[keyof typeof WarehouseSuggestionsListKind];
+
+
+    export const WarehouseSuggestionsListKind = {
+      Certify: 'certify',
+      Deprecate: 'deprecate',
+      Materialize: 'materialize',
+    } as const;
+
+    export type WarehouseSuggestionsListStatus = typeof WarehouseSuggestionsListStatus[keyof typeof WarehouseSuggestionsListStatus];
+
+
+    export const WarehouseSuggestionsListStatus = {
+      Proposed: 'proposed',
+      Accepted: 'accepted',
+      Dismissed: 'dismissed',
+      Expired: 'expired',
+      AutoResolved: 'auto_resolved',
+    } as const;
 
     export type WarehouseTablesListParams = {
     /**
