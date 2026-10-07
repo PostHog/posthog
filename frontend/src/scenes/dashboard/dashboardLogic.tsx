@@ -125,12 +125,7 @@ import {
     type DashboardFilterChange,
 } from 'products/dashboards/frontend/dashboardSettings/dashboardChanges'
 import { streamDashboardQueryResults } from 'products/dashboards/frontend/streamDashboardQueryResults'
-import {
-    type DashboardSharingDebugRun,
-    summarizeSharingDebug,
-} from 'products/dashboards/frontend/summarizeSharingDebug'
 
-import type { DashboardSharingDebugApi } from '../../../../products/dashboards/frontend/generated/api.schemas'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { Node } from '../../queries/schema/schema-general'
 import { getResponseBytes, sortDayJsDates } from '../insights/utils'
@@ -409,8 +404,6 @@ export interface dashboardLogicValues {
     placement: DashboardPlacement
     previewedDashboardSettings: DashboardSettings | null
     projectTreeRef: ProjectTreeRef
-    querySharingDebug: DashboardSharingDebugRun | null
-    querySharingDebugSummary: ReturnType<typeof summarizeSharingDebug> | null
     refreshEligibilityTick: number
     refreshMetrics: {
         completed: number
@@ -582,13 +575,6 @@ export interface dashboardLogicActions {
             tile: DashboardTile
         }
     }
-    finishQuerySharingDebug: (
-        batchId: string,
-        status: DashboardSharingDebugRun['status']
-    ) => {
-        batchId: string
-        status: 'aborted' | 'complete' | 'partial' | 'running' | 'skipped'
-    }
     forceRefreshIfStale: () => {
         value: true
     }
@@ -708,19 +694,6 @@ export interface dashboardLogicActions {
     }
     previewDashboardChangesFailure: () => {
         value: true
-    }
-    receiveQuerySharingDebug: (
-        batchId: string,
-        tileId: number,
-        result: DashboardSharingDebugRun['results'][number]
-    ) => {
-        batchId: string
-        result: {
-            cached: boolean
-            debug?: DashboardSharingDebugApi | undefined
-            failed: boolean
-        }
-        tileId: number
     }
     receiveTileFromStream: (data: { order: number; tile: any }) => {
         order: number
@@ -973,9 +946,6 @@ export interface dashboardLogicActions {
     setProperties: (properties: AnyPropertyFilter[] | null) => {
         properties: AnyPropertyFilter[] | null
     }
-    setQuerySharingDebug: (run: DashboardSharingDebugRun) => {
-        run: DashboardSharingDebugRun
-    }
     setRefreshError: (
         shortId: InsightShortId,
         error?: Error
@@ -1164,9 +1134,6 @@ export interface dashboardLogicMeta {
         ) => void | Promise<void>
     }
     __keaTypeGenInternalSelectorTypes: {
-        querySharingDebugSummary: (
-            querySharingDebug: DashboardSharingDebugRun | null
-        ) => ReturnType<typeof summarizeSharingDebug> | null
         filterEditModeActive: (dashboardEditing: DashboardEditing | null) => boolean
         layoutEditMode: (dashboardEditing: DashboardEditing | null) => boolean
         shouldUseStreaming: (featureFlags: FeatureFlagsSet) => boolean
@@ -1362,7 +1329,7 @@ export interface dashboardLogicMeta {
         ) => number | null
         dataColorTheme: (
             dataColorThemeId: number | null,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
         ) => DataColorTheme | null
         autoBreakdownColorsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         breakdownValuesIncomplete: (itemsLoading: boolean, insightTiles: DashboardTile[]) => boolean
@@ -1433,13 +1400,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
     }),
 
     actions(() => ({
-        setQuerySharingDebug: (run: DashboardSharingDebugRun) => ({ run }),
-        receiveQuerySharingDebug: (
-            batchId: string,
-            tileId: number,
-            result: DashboardSharingDebugRun['results'][number]
-        ) => ({ batchId, tileId, result }),
-        finishQuerySharingDebug: (batchId: string, status: DashboardSharingDebugRun['status']) => ({ batchId, status }),
         /**
          * Dashboard loading and dashboard tile refreshes.
          */
@@ -2058,20 +2018,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     reducers(({ props }) => ({
-        querySharingDebug: [
-            null as DashboardSharingDebugRun | null,
-            {
-                setQuerySharingDebug: (_, { run }) => run,
-                receiveQuerySharingDebug: (state, { batchId, tileId, result }) =>
-                    state?.batchId === batchId && state.status === 'running'
-                        ? { ...state, results: { ...state.results, [tileId]: result } }
-                        : state,
-                finishQuerySharingDebug: (state, { batchId, status }) =>
-                    state?.batchId === batchId && state.status === 'running' ? { ...state, status } : state,
-                abortAnyRunningQuery: (state) =>
-                    state?.status === 'running' ? { ...state, status: 'aborted' } : state,
-            },
-        ],
         dashboardLoading: [
             false,
             {
@@ -2793,11 +2739,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     selectors(() => ({
-        querySharingDebugSummary: [
-            (s) => [s.querySharingDebug],
-            (run: DashboardSharingDebugRun | null): ReturnType<typeof summarizeSharingDebug> | null =>
-                run ? summarizeSharingDebug(run) : null,
-        ],
         filterEditModeActive: [
             (s) => [s.dashboardEditing],
             (dashboardEditing: DashboardEditing | null): boolean => dashboardEditing?.filters === true,
@@ -4330,24 +4271,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let tilesErroredCount = 0
             let tilesAbortedCount = 0
 
-            if (
-                values.featureFlags[FEATURE_FLAGS.HOGQL_QUERY_SHARING] === true &&
-                values.placement === DashboardPlacement.Dashboard &&
-                !isSharedView() &&
-                (sortedTilesToRefresh.length < 2 || sortedTilesToRefresh.length > 32)
-            ) {
-                actions.setQuerySharingDebug({
-                    batchId: uuid(),
-                    status: 'skipped',
-                    reason:
-                        sortedTilesToRefresh.length === 0
-                            ? 'No insight tiles needed a refresh. Existing results were kept.'
-                            : 'Sharing requires between 2 and 32 insight tiles in one refresh. Tiles use the normal refresh path.',
-                    tiles: [],
-                    results: {},
-                })
-            }
-
             if (sortedTilesToRefresh.length > 0) {
                 // Mark tiles as queued before the breakpoint's await, so there's no render gap
                 // between the refreshDashboardItems reducer wiping refreshStatus to {} and it
@@ -4386,15 +4309,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     const signal = sharingController.signal
                     const batchQueryId = uuid()
                     const startedAt = performance.now()
-                    actions.setQuerySharingDebug({
-                        batchId: batchQueryId,
-                        status: 'running',
-                        tiles: sortedTilesToRefresh.map((tile) => ({
-                            id: tile.id,
-                            name: getDashboardTileDisplayName(tile),
-                        })),
-                        results: {},
-                    })
                     cache.disposables.add(
                         () => () => {
                             if (!signal.aborted) {
@@ -4411,13 +4325,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             {
                                 tile_ids: sortedTilesToRefresh.map((tile) => tile.id).join(','),
                                 client_query_id: batchQueryId,
-                                debug: true,
                                 refresh: forceRefresh ? 'force_blocking' : 'blocking',
                                 filters_override: JSON.stringify(effectiveRefreshFilters),
                                 variables_override: JSON.stringify(urlVariables),
                             },
                             signal,
-                            (result, debug) => {
+                            (result) => {
                                 if (signal.aborted || cache.disposables.isDisposed) {
                                     return
                                 }
@@ -4425,16 +4338,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 if (!tile || streamedTiles.has(tile.id)) {
                                     return
                                 }
-                                actions.receiveQuerySharingDebug(batchQueryId, tile.id, {
-                                    cached: result.insight?.is_cached === true,
-                                    failed:
-                                        'error' in result ||
-                                        !result.insight ||
-                                        !!getInsightQueryError(
-                                            getQueryBasedInsightModel(result.insight as unknown as InsightModel)
-                                        ),
-                                    debug,
-                                })
                                 if ('error' in result || !result.insight) {
                                     streamedTiles.add(tile.id)
                                     actions.setRefreshError(tile.insight.short_id)
@@ -4480,13 +4383,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         }
                     }
                     if (signal.aborted) {
-                        actions.finishQuerySharingDebug(batchQueryId, 'aborted')
                         return
                     }
-                    actions.finishQuerySharingDebug(
-                        batchQueryId,
-                        streamedTiles.size === sortedTilesToRefresh.length ? 'complete' : 'partial'
-                    )
                     breakpoint()
                     if (cache.disposables.isDisposed) {
                         return

@@ -18,7 +18,6 @@ import type {
     CreateTextTileRequestApi,
     DashboardApi,
     DashboardCollaboratorApi,
-    DashboardQuerySharingEventApi,
     DashboardSubscribeNudgeResponseApi,
     DashboardTemplateApi,
     DashboardTemplatesListParams,
@@ -771,21 +770,18 @@ export const getDashboardsStreamQueryResultsRetrieveUrl = (
 }
 
 /**
- * Experimentally refresh insight tiles. Each SSE data frame contains one event of the response schema.
+ * Experimentally refresh insight tiles with shared query execution and progressive results.
  */
 export const dashboardsStreamQueryResultsRetrieve = async (
     projectId: string,
     id: number,
     params: DashboardsStreamQueryResultsRetrieveParams,
     options?: RequestInit
-): Promise<DashboardQuerySharingEventApi> => {
-    return apiMutator<DashboardQuerySharingEventApi>(
-        getDashboardsStreamQueryResultsRetrieveUrl(projectId, id, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<string> => {
+    return apiMutator<string>(getDashboardsStreamQueryResultsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getDashboardsStreamTilesRetrieveUrl = (

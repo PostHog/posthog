@@ -1,4 +1,3 @@
-import json
 import asyncio
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 from threading import Barrier, Event
@@ -14,12 +13,13 @@ from posthog.schema import HogQLQueryResponse
 from posthog.hogql.multi_query import SharingQuery
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
-from posthog.hogql.query_stats import record
 
 from products.dashboards.backend.api.query_sharing import DashboardQuerySharingParamsSerializer
 from products.dashboards.backend.query_sharing import DashboardQuerySharing
-from products.dashboards.backend.query_sharing_debug import DashboardQuerySharingDebug, sharing_debug
-from products.dashboards.backend.query_sharing_stream import DashboardQuerySharingStream, DashboardQuerySharingTileEvent
+from products.dashboards.backend.query_sharing_stream import (
+    DashboardQuerySharingStream,
+    DashboardQuerySharingStreamEvent,
+)
 
 
 class TestDashboardQuerySharing(SimpleTestCase):
@@ -52,15 +52,6 @@ class TestDashboardQuerySharing(SimpleTestCase):
         sharing = DashboardQuerySharing(match_window_seconds=30)
         barrier = Barrier(2)
         executors = [self.executor("SELECT count() AS n FROM events", barrier) for _ in range(2)]
-        diagnostics = [DashboardQuerySharingDebug(tile_id) for tile_id in (11, 22)]
-
-        def run(index: int) -> HogQLQueryResponse:
-            token = sharing_debug.set(diagnostics[index])
-            try:
-                return sharing.execute(executors[index])
-            finally:
-                sharing_debug.reset(token)
-
         shared = Mock()
         shared.execute.side_effect = ValueError("bad shared query") if fail else None
         shared.execute.return_value = HogQLQueryResponse(results=[(7,)], columns=["n"], types=[("n", "UInt64")])
@@ -68,7 +59,7 @@ class TestDashboardQuerySharing(SimpleTestCase):
             executors[0].execute.side_effect = ValueError("one bad tile")
         with patch("products.dashboards.backend.query_sharing.HogQLQueryExecutor", return_value=shared):
             with ThreadPoolExecutor(max_workers=2) as pool:
-                futures = [pool.submit(run, index) for index in range(2)]
+                futures = [pool.submit(sharing.execute, executor) for executor in executors]
                 if fail:
                     with self.assertRaisesRegex(ValueError, "one bad tile"):
                         futures[0].result(timeout=10)
@@ -77,14 +68,6 @@ class TestDashboardQuerySharing(SimpleTestCase):
                 self.assertEqual(futures[1].result(timeout=10).results, [(7,)])
         self.assertEqual(shared.execute.call_count, 1)
         self.assertEqual([executor.execute.call_count for executor in executors], [int(fail), int(fail)])
-        decisions = [entry for debug in diagnostics for entry in debug.executions]
-        shared_decisions = [entry for entry in decisions if entry["outcome"] != "separate"]
-        self.assertEqual(len(shared_decisions), 1)
-        self.assertEqual(set(shared_decisions[0]["tile_ids"]), {11, 22})
-        self.assertEqual(shared_decisions[0]["outcome"], "fallback" if fail else "shared")
-        self.assertEqual(shared_decisions[0]["rule"], "count_fusion")
-        self.assertEqual(sum(entry["outcome"] == "separate" for entry in decisions), 2 if fail else 0)
-        self.assertNotIn("bad", json.dumps(decisions))
 
     def test_unsupported_query_does_not_wait_or_retry_its_error(self) -> None:
         executor = self.executor("SELECT * FROM events")
@@ -93,39 +76,24 @@ class TestDashboardQuerySharing(SimpleTestCase):
             DashboardQuerySharing(match_window_seconds=30).execute(executor)
         executor.execute.assert_called_once()
 
-    @parameterized.expand([("normal", False), ("debug", True)])
-    def test_stream_delivers_fast_tile_before_slow_tile(self, _name: str, debug: bool) -> None:
+    def test_stream_delivers_fast_tile_before_slow_tile(self) -> None:
         release = Event()
 
-        def slow() -> DashboardQuerySharingTileEvent:
+        def slow() -> DashboardQuerySharingStreamEvent:
             if not release.wait(timeout=10):
                 raise AssertionError("Slow tile never released")
-            record(rows_read=20, duration_ms=2)
             return {"type": "tile", "tile": {"id": 1}}
 
-        def fast() -> DashboardQuerySharingTileEvent:
-            record(rows_read=10, duration_ms=1)
+        def fast() -> DashboardQuerySharingStreamEvent:
             return {"type": "tile", "tile": {"id": 2}}
 
-        stream = DashboardQuerySharingStream(
-            jobs=[slow, fast], team_id=1, query_id="test", debug_tile_ids=[1, 2] if debug else ()
-        )
+        stream = DashboardQuerySharingStream(jobs=[slow, fast], team_id=1, query_id="test")
         iterator = stream.stream()
         try:
-            first = json.loads(next(iterator).removeprefix(b"data: "))
-            self.assertEqual(first["tile"]["id"], 2)
+            self.assertIn(b'"id":2', next(iterator))
         finally:
             release.set()
-        second = json.loads(next(iterator).removeprefix(b"data: "))
-        self.assertEqual(second["tile"]["id"], 1)
-        if debug:
-            self.assertEqual(first["debug"]["rows_read"], 10)
-            self.assertEqual(second["debug"]["rows_read"], 20)
-            self.assertEqual(first["debug"]["query_count"] + second["debug"]["query_count"], 2)
-            self.assertEqual(first["debug"]["duration_ms"] + second["debug"]["duration_ms"], 3)
-        else:
-            self.assertNotIn("debug", first)
-            self.assertNotIn("debug", second)
+        self.assertIn(b'"id":1', next(iterator))
         self.assertIn(b'"complete"', next(iterator))
         with self.assertRaises(StopIteration):
             next(iterator)
@@ -136,7 +104,7 @@ class TestDashboardQuerySharing(SimpleTestCase):
         finished = Event()
         executor = self.executor("SELECT * FROM events")
 
-        def slow() -> DashboardQuerySharingTileEvent:
+        def slow() -> DashboardQuerySharingStreamEvent:
             try:
                 if not release.wait(timeout=10):
                     raise AssertionError("Slow tile never released")
@@ -147,9 +115,10 @@ class TestDashboardQuerySharing(SimpleTestCase):
             finally:
                 finished.set()
 
-        stream = DashboardQuerySharingStream(
-            jobs=[slow, lambda: {"type": "tile", "tile": {"id": 2}}], team_id=1, query_id="test"
-        )
+        def fast() -> DashboardQuerySharingStreamEvent:
+            return {"type": "tile", "tile": {"id": 2}}
+
+        stream = DashboardQuerySharingStream(jobs=[slow, fast], team_id=1, query_id="test")
 
         async def disconnect() -> None:
             iterator = stream.astream()

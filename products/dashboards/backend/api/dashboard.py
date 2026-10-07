@@ -113,10 +113,7 @@ from products.dashboards.backend.access import dashboard_access_method, record_d
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
-from products.dashboards.backend.api.query_sharing import (
-    DashboardQuerySharingParamsSerializer,
-    DashboardSharingDebugSerializer,
-)
+from products.dashboards.backend.api.query_sharing import DashboardQuerySharingParamsSerializer
 from products.dashboards.backend.api.widget_openapi_serializers import (
     WIDGET_BATCH_ADD_OPENAPI_HELP,
     AddDashboardWidgetRequestOpenApi,
@@ -479,7 +476,7 @@ def _serialize_shared_tile(tile: DashboardTile, order: int, context: dict) -> Da
     return {"type": "tile", "tile": cast(dict[str, object], data)}
 
 
-def _denied_shared_tile(tile_id: int) -> DashboardQuerySharingStreamEvent:
+def _shared_tile_access_denied(tile_id: int) -> DashboardQuerySharingStreamEvent:
     return {"type": "tile", "tile": {"id": tile_id, "error": {"type": "access_denied"}}}
 
 
@@ -1107,12 +1104,6 @@ class DashboardTileErrorSerializer(DashboardTileSerializer):
             _hide_extra_details(self.context, representation["insight"])
 
         return representation
-
-
-class DashboardQuerySharingEventSerializer(serializers.Serializer):
-    type = serializers.CharField(help_text="SSE event type: tile, complete, or error.")
-    tile = DashboardTileSerializer(required=False, help_text="Independently completed dashboard tile.")
-    debug = DashboardSharingDebugSerializer(required=False, help_text="Present only when debug is requested.")
 
 
 class InsightResultSerializer(InsightSerializer):
@@ -3055,8 +3046,8 @@ class DashboardsViewSet(
 
     @extend_schema(
         parameters=[DashboardQuerySharingParamsSerializer, FILTERS_OVERRIDE_PARAM, VARIABLES_OVERRIDE_PARAM],
-        responses={(200, "text/event-stream"): DashboardQuerySharingEventSerializer},
-        description="Experimentally refresh insight tiles. Each SSE data frame contains one event of the response schema.",
+        responses={(200, "text/event-stream"): OpenApiTypes.STR},
+        description="Experimentally refresh insight tiles with shared query execution and progressive results.",
     )
     @action(methods=["GET"], detail=True, required_scopes=["query:read"])
     def stream_query_results(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
@@ -3094,14 +3085,11 @@ class DashboardsViewSet(
             tile = by_id[tile_id]
             level = self.user_access_control.get_user_access_level(tile.insight)
             if not level or not access_level_satisfied_for_resource("insight", level, "viewer"):
-                jobs.append(partial(_denied_shared_tile, tile_id))
+                jobs.append(partial(_shared_tile_access_denied, tile_id))
             else:
                 jobs.append(partial(_serialize_shared_tile, tile, order, context))
         stream = DashboardQuerySharingStream(
-            jobs=jobs,
-            team_id=self.team.pk,
-            query_id=str(params.validated_data["client_query_id"]),
-            debug_tile_ids=tile_ids if params.validated_data["debug"] else (),
+            jobs=jobs, team_id=self.team.pk, query_id=str(params.validated_data["client_query_id"])
         )
         return sse_streaming_response(
             stream.astream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else stream.stream(),

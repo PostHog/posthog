@@ -1,18 +1,14 @@
 import api from 'lib/api'
 
 import { getDashboardsStreamQueryResultsRetrieveUrl } from './generated/api'
-import type {
-    DashboardSharingDebugApi,
-    DashboardTileApi,
-    DashboardsStreamQueryResultsRetrieveParams,
-} from './generated/api.schemas'
+import type { DashboardTileApi, DashboardsStreamQueryResultsRetrieveParams } from './generated/api.schemas'
 
 export async function streamDashboardQueryResults(
     projectId: number,
     dashboardId: number,
     params: DashboardsStreamQueryResultsRetrieveParams,
     signal: AbortSignal,
-    onTile: (tile: DashboardTileApi, debug?: DashboardSharingDebugApi) => void
+    onTile: (tile: DashboardTileApi) => void
 ): Promise<void> {
     let complete = false
     // nosemgrep: prefer-codegen-api -- SSE transport has no generated client; the URL comes from the generated getDashboardsStreamQueryResultsRetrieveUrl.
@@ -23,7 +19,7 @@ export async function streamDashboardQueryResults(
             if (data.type === 'complete') {
                 complete = true
             } else if (data.type === 'tile' && typeof data.tile?.id === 'number') {
-                onTile(data.tile, data.debug)
+                onTile(data.tile)
             } else if (data.type === 'error') {
                 throw new Error('Dashboard query stream failed')
             }
