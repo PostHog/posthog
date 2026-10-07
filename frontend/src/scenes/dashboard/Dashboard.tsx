@@ -8,6 +8,7 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { dashboardTileScreenshotKey } from 'lib/components/Cards/InsightCard/insightCardImageCapture'
 import { NotFound } from 'lib/components/NotFound'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Link } from 'lib/lemon-ui/Link'
@@ -21,11 +22,13 @@ import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { DashboardPlacement, DashboardType, DataColorThemeModel } from '~/types'
 
+import { DashboardQuerySharingDebug } from 'products/dashboards/frontend/DashboardQuerySharingDebug'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { teamLogic } from '../teamLogic'
@@ -120,6 +123,9 @@ function DashboardScene({
         accessDeniedToDashboard,
         error404,
         hasInvalidDashboardId,
+        featureFlags,
+        querySharingDebug,
+        querySharingDebugSummary,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
@@ -233,6 +239,15 @@ function DashboardScene({
                             )}
                     </SceneStickyBar>
 
+                    {placement === DashboardPlacement.Dashboard &&
+                        !isSharedView() &&
+                        featureFlags[FEATURE_FLAGS.HOGQL_QUERY_SHARING] === true && (
+                            <DashboardQuerySharingDebug
+                                dashboardName={dashboard?.name || 'Dashboard'}
+                                run={querySharingDebug}
+                                summary={querySharingDebugSummary}
+                            />
+                        )}
                     <DashboardItems showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />
                 </div>
             )}

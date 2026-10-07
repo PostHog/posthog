@@ -2597,6 +2597,23 @@ describe('dashboardLogic', () => {
                             event: '',
                             data: JSON.stringify({
                                 type: 'tile',
+                                debug: {
+                                    executions:
+                                        tile.id === tiles[0].id
+                                            ? [
+                                                  {
+                                                      outcome: 'shared',
+                                                      tile_ids: tiles.map((t) => t.id),
+                                                      rule: 'count_fusion',
+                                                      reason: '',
+                                                  },
+                                              ]
+                                            : [],
+                                    query_count: tile.id === tiles[0].id ? 1 : 0,
+                                    rows_read: tile.id === tiles[0].id ? 500 : 0,
+                                    duration_ms: tile.id === tiles[0].id ? 12 : 0,
+                                    truncated: false,
+                                },
                                 tile: {
                                     ...tile,
                                     insight: {
@@ -2647,12 +2664,29 @@ describe('dashboardLogic', () => {
                     await firstDelivered
                     expect(logic.values.refreshStatus[tiles[0].insight!.short_id].refreshed).toBe(true)
                     expect(individual).not.toHaveBeenCalled()
+                    expect(logic.values.querySharingDebug?.status).toBe('running')
+                    expect(logic.values.querySharingDebugSummary).toMatchObject({
+                        queryCount: 1,
+                        rowsRead: 500,
+                        durationMs: 12,
+                        sharedGroups: 1,
+                        receivedTiles: 1,
+                    })
                     if (outcome === 'abort') {
                         logic.actions.abortAnyRunningQuery()
                     }
                     release()
                     await expectLogic(logic).toFinishAllListeners()
                     const retry = outcome === 'disconnect' || outcome === 'rate_limited'
+                    expect(logic.values.querySharingDebug?.status).toBe(
+                        outcome === 'abort' ? 'aborted' : retry ? 'partial' : 'complete'
+                    )
+                    expect(logic.values.querySharingDebugSummary).toMatchObject({
+                        queryCount: 1,
+                        rowsRead: 500,
+                        sharedGroups: 1,
+                        receivedTiles: outcome === 'abort' || outcome === 'disconnect' ? 1 : tiles.length,
+                    })
                     expect(individual).toHaveBeenCalledTimes(retry ? tiles.length - 1 : 0)
                     if (retry) {
                         expect(individual.mock.calls.every((call) => call[1].id !== tiles[0].insight!.id)).toBe(true)

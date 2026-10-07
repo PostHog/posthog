@@ -1,14 +1,18 @@
 import api from 'lib/api'
 
 import { getDashboardsStreamQueryResultsRetrieveUrl } from './generated/api'
-import type { DashboardTileApi, DashboardsStreamQueryResultsRetrieveParams } from './generated/api.schemas'
+import type {
+    DashboardSharingDebugApi,
+    DashboardTileApi,
+    DashboardsStreamQueryResultsRetrieveParams,
+} from './generated/api.schemas'
 
 export async function streamDashboardQueryResults(
     projectId: number,
     dashboardId: number,
     params: DashboardsStreamQueryResultsRetrieveParams,
     signal: AbortSignal,
-    onTile: (tile: DashboardTileApi) => void
+    onTile: (tile: DashboardTileApi, debug?: DashboardSharingDebugApi) => void
 ): Promise<void> {
     let complete = false
     await api.stream(getDashboardsStreamQueryResultsRetrieveUrl(String(projectId), dashboardId, params), {
@@ -18,7 +22,7 @@ export async function streamDashboardQueryResults(
             if (data.type === 'complete') {
                 complete = true
             } else if (data.type === 'tile' && typeof data.tile?.id === 'number') {
-                onTile(data.tile)
+                onTile(data.tile, data.debug)
             } else if (data.type === 'error') {
                 throw new Error('Dashboard query stream failed')
             }

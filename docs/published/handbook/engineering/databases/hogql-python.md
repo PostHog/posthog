@@ -151,6 +151,10 @@ Each tile streams as soon as it completes. A failed or incomplete shared query f
 
 Monitor `posthog_dashboard_sharing_executions_total` for separate executions, shared groups, and fallback groups. Sharing reduces duplicate work only when compatible, uncached queries meet during the matching window; it does not guarantee lower dashboard latency.
 
+With the flag enabled, expand **Query sharing debug** below the dashboard filters to inspect the latest refresh. It shows participating tiles, sharing rules, reasons for separate execution and fallback, and cache hits. Work totals count measured ClickHouse queries, rows read, and summed execution time once per executing worker, including measured lookups and failed attempts. On older ClickHouse protocols, time falls back to client round-trip time. A shared execution is counted once, not once per consumer. Bytes read, dashboard wall time, and savings against a separate-execution baseline are not measured.
+
+Diagnostics arrive progressively with tile results and stay in page memory, outside insight caches. Cancelled or interrupted refreshes show partial totals; normal-path retries and unfinished workers are not included. Refreshes outside the sharing batch size show why they used the normal path. The endpoint includes diagnostics only when requested with `debug=true`, limits execution details to 64 records per worker, and does not collect SQL text or query results in diagnostics. Sharing is within one dashboard refresh, not across dashboards.
+
 ## Pattern matching during query preparation
 
 Expressions inside HogQL placeholders execute in the Python HogVM.

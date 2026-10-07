@@ -10007,6 +10007,57 @@ export interface RunWidgetsResponseApi {
     results: DashboardWidgetRunResultApi[]
 }
 
+/**
+ * * `shared` - Shared
+ * * `separate` - Separate
+ * * `fallback` - Shared attempt failed
+ */
+export type DashboardSharingOutcomeEnumApi =
+    (typeof DashboardSharingOutcomeEnumApi)[keyof typeof DashboardSharingOutcomeEnumApi]
+
+export const DashboardSharingOutcomeEnumApi = {
+    Shared: 'shared',
+    Separate: 'separate',
+    Fallback: 'fallback',
+} as const
+
+export interface DashboardSharingExecutionDebugApi {
+    /** Execution sharing outcome.
+     *
+     * * `shared` - Shared
+     * * `separate` - Separate
+     * * `fallback` - Shared attempt failed */
+    outcome: DashboardSharingOutcomeEnumApi
+    /** Tiles participating in this execution. */
+    tile_ids: number[]
+    /** Sharing rule, or empty for separate execution. */
+    rule: string
+    /** Why the query ran separately or fell back. */
+    reason: string
+}
+
+export interface DashboardSharingDebugApi {
+    /** Decisions recorded by this tile's worker. */
+    executions: DashboardSharingExecutionDebugApi[]
+    /** Whether the per-worker limit of 64 diagnostic records was reached. */
+    truncated: boolean
+    /** ClickHouse queries measured by this worker, including lookups. */
+    query_count: number
+    /** ClickHouse rows read, attributed once to the executing worker. */
+    rows_read: number
+    /** Summed ClickHouse execution time in milliseconds; client round-trip time on older protocols. */
+    duration_ms: number
+}
+
+export interface DashboardQuerySharingEventApi {
+    /** SSE event type: tile, complete, or error. */
+    type: string
+    /** Independently completed dashboard tile. */
+    tile?: DashboardTileApi
+    /** Present only when debug is requested. */
+    debug?: DashboardSharingDebugApi
+}
+
 export interface DashboardSubscribeNudgeResponseApi {
     /** Whether a nudge notification was created. False when one was already sent recently for this user and dashboard, or when in-app notifications are unavailable. */
     created: boolean
@@ -11221,6 +11272,10 @@ export type DashboardsStreamQueryResultsRetrieveParams = {
      * Cancellation ID for this dashboard refresh batch.
      */
     client_query_id: string
+    /**
+     * Include request-local sharing decisions and measured ClickHouse work in tile events.
+     */
+    debug?: boolean
     /**
      * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */

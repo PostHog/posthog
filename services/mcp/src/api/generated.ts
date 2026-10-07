@@ -27154,6 +27154,57 @@ export namespace Schemas {
       widget?: DashboardPatchWidgetOpenApi;
     }
 
+    /**
+     * * `shared` - Shared
+     * * `separate` - Separate
+     * * `fallback` - Shared attempt failed
+     */
+    export type DashboardSharingOutcomeEnum = typeof DashboardSharingOutcomeEnum[keyof typeof DashboardSharingOutcomeEnum];
+
+
+    export const DashboardSharingOutcomeEnum = {
+      Shared: 'shared',
+      Separate: 'separate',
+      Fallback: 'fallback',
+    } as const;
+
+    export interface DashboardSharingExecutionDebug {
+      /** Execution sharing outcome.
+       *
+       * * `shared` - Shared
+       * * `separate` - Separate
+       * * `fallback` - Shared attempt failed */
+      outcome: DashboardSharingOutcomeEnum;
+      /** Tiles participating in this execution. */
+      tile_ids: number[];
+      /** Sharing rule, or empty for separate execution. */
+      rule: string;
+      /** Why the query ran separately or fell back. */
+      reason: string;
+    }
+
+    export interface DashboardSharingDebug {
+      /** Decisions recorded by this tile's worker. */
+      executions: DashboardSharingExecutionDebug[];
+      /** Whether the per-worker limit of 64 diagnostic records was reached. */
+      truncated: boolean;
+      /** ClickHouse queries measured by this worker, including lookups. */
+      query_count: number;
+      /** ClickHouse rows read, attributed once to the executing worker. */
+      rows_read: number;
+      /** Summed ClickHouse execution time in milliseconds; client round-trip time on older protocols. */
+      duration_ms: number;
+    }
+
+    export interface DashboardQuerySharingEvent {
+      /** SSE event type: tile, complete, or error. */
+      type: string;
+      /** Independently completed dashboard tile. */
+      tile?: DashboardTile;
+      /** Present only when debug is requested. */
+      debug?: DashboardSharingDebug;
+    }
+
     export interface DashboardSubscribeNudgeResponse {
       /** Whether a nudge notification was created. False when one was already sent recently for this user and dashboard, or when in-app notifications are unavailable. */
       created: boolean;
@@ -116050,6 +116101,10 @@ export namespace Schemas {
      * Cancellation ID for this dashboard refresh batch.
      */
     client_query_id: string;
+    /**
+     * Include request-local sharing decisions and measured ClickHouse work in tile events.
+     */
+    debug?: boolean;
     /**
      * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
