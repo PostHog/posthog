@@ -3765,6 +3765,7 @@ class TestHogFlowAPI(APIBaseTest):
             patch("products.workflows.backend.services.blast_radius.get_user_blast_radius") as mock_v1,
         ):
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+            from products.workflows.backend.services.batch_audience import DedupeAudienceSize  # noqa: PLC0415
 
             mock_v2.return_value = BlastRadiusResult(affected=6400, total=64000)
 
@@ -3780,7 +3781,7 @@ class TestHogFlowAPI(APIBaseTest):
             mock_v1.assert_not_called()
 
             # Dedupe-enabled workflows route to the sampled dedupe count.
-            mock_dedupe_v2.return_value = BlastRadiusResult(affected=3200, total=64000)
+            mock_dedupe_v2.return_value = DedupeAudienceSize(affected=3200, total=64000, without_email=640)
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
                 {"filters": {"properties": []}, "dedupe_key": "email"},
@@ -3789,6 +3790,7 @@ class TestHogFlowAPI(APIBaseTest):
             assert response.status_code == 200, response.json()
             body = response.json()
             assert body["affected"] == 3200
+            assert body["without_email"] == 640
             assert body["dedupe_key"] == "email"
             mock_dedupe_v2.assert_called_once_with(self.team, {"properties": []}, "email")
             mock_v1.assert_not_called()
@@ -3999,12 +4001,17 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("dedupe_key_uses_deduped_count", "email", 3),
-            ("no_dedupe_key_keeps_person_count", None, 5),
+            ("dedupe_key_uses_deduped_count", "email", (3, 1), 3, 1),
+            ("no_dedupe_key_keeps_person_count", None, (3, 1), 5, None),
+            # The team-wide total is a cached count that can lag the audience query.
+            ("deduped_counts_capped_at_total", "email", (12, 11), 10, 10),
         ]
     )
-    def test_user_blast_radius_dedupe_key_affects_count(self, _name, dedupe_key, expected_affected):
+    def test_user_blast_radius_dedupe_key_affects_count(
+        self, _name, dedupe_key, deduped_count, expected_affected, expected_without_email
+    ):
         from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+        from products.workflows.backend.services.batch_audience import DedupeAudienceCount  # noqa: PLC0415
 
         payload: dict = {"filters": {"properties": []}}
         if dedupe_key is not None:
@@ -4016,7 +4023,8 @@ class TestHogFlowAPI(APIBaseTest):
                 return_value=BlastRadiusResult(affected=5, total=10),
             ) as mock_legacy_count,
             patch(
-                "products.workflows.backend.services.blast_radius.get_batch_audience_count", return_value=3
+                "products.workflows.backend.services.blast_radius.get_batch_audience_count",
+                return_value=DedupeAudienceCount(sends=deduped_count[0], without_email=deduped_count[1]),
             ) as mock_deduped_count,
             patch(
                 "posthog.models.team.team.Team.persons_seen_so_far",
@@ -4032,6 +4040,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["affected"] == expected_affected
         assert response.json()["total"] == 10
+        assert response.json()["without_email"] == expected_without_email
         # The applied key is echoed so the frontend can label the count correctly
         assert response.json()["dedupe_key"] == dedupe_key
         if dedupe_key is not None:

@@ -2032,6 +2032,11 @@ export interface BlastRadiusApi {
     affected: number
     /** Total number of users */
     total: number
+    /**
+     * How many of 'affected' are persons with a missing or blank email property, who cannot receive an email. Only counted when dedupe_key is 'email'; null otherwise.
+     * @nullable
+     */
+    without_email: number | null
     /** Maximum allowed audience size for batch triggers for this team. */
     limit: number
     /** The dedupe key that was actually applied to 'affected'. 'email' means it counts unique email addresses; null means it counts persons.

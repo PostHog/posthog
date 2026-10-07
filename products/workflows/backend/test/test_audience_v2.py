@@ -1,6 +1,9 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from parameterized import parameterized
+
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -8,6 +11,7 @@ from products.feature_flags.backend.person_sampling import bounded_memory_settin
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, replace_proxy_properties
 from products.workflows.backend.services.audience_v2 import (
     build_dedupe_count_query,
+    build_without_email_count_query,
     get_dedupe_audience_count_v2,
     get_person_audience_count_v2,
 )
@@ -17,6 +21,15 @@ FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["tru
 
 
 class TestAudienceV2(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(
+            patch(
+                "posthog.cdp.flag_gated_templates.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *_args, **_kwargs: key == "workflows-missing-email-warning",
+            )
+        )
+
     def _create_persons(self, subscribed_flags: list[bool]) -> None:
         for i, subscribed in enumerate(subscribed_flags, start=1):
             _create_person(
@@ -155,7 +168,8 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
 
         result = get_dedupe_audience_count_v2(self.team, FILTERS, "email")
 
-        assert result.affected == get_batch_audience_count(self.team, FILTERS, dedupe_key="email") == 4
+        v1 = get_batch_audience_count(self.team, FILTERS, dedupe_key="email")
+        assert (result.affected, result.without_email) == (v1.sends, v1.without_email) == (4, 2)
         assert result.total == 5
 
     def test_dedupe_count_is_zero_when_no_person_matches(self):
@@ -164,24 +178,53 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
 
         result = get_dedupe_audience_count_v2(self.team, FILTERS, "email")
 
-        assert result.affected == get_batch_audience_count(self.team, FILTERS, dedupe_key="email") == 0
+        v1 = get_batch_audience_count(self.team, FILTERS, dedupe_key="email")
+        assert (result.affected, result.without_email) == (v1.sends, v1.without_email) == (0, 0)
 
-    def test_sampled_dedupe_count_extrapolates_by_modulus(self):
+    @parameterized.expand(
+        [
+            ("dense_missing_emails_extrapolate", 0, 2, True),
+            ("sparse_missing_emails_count_exactly", 2, 1, True),
+            ("disabled_warning_keeps_the_send_count", 2, None, False),
+        ]
+    )
+    def test_sampled_dedupe_count_extrapolates_by_modulus(
+        self, _name: str, min_sampled_without_email: int, expected_without_email: int | None, flag_enabled: bool
+    ):
         for i in range(3):
             _create_person(
                 team=self.team,
                 distinct_ids=[f"user-{i}"],
                 properties={"subscribed": "true", "email": f"user-{i}@example.com"},
             )
+        _create_person(team=self.team, distinct_ids=["user-no-email"], properties={"subscribed": "true"})
         flush_persons_and_events()
 
         with (
-            patch("products.feature_flags.backend.person_sampling.SAMPLE_MODULUS", 1),
+            patch("posthog.cdp.flag_gated_templates.posthoganalytics.feature_enabled", return_value=flag_enabled),
+            patch("products.feature_flags.backend.person_sampling.SAMPLE_MODULUS", 2),
             patch("products.feature_flags.backend.person_sampling.MIN_SAMPLED_MATCHES", 0),
+            patch(
+                "products.workflows.backend.services.audience_v2.MIN_SAMPLED_WITHOUT_EMAIL", min_sampled_without_email
+            ),
+            patch("products.workflows.backend.services.audience_v2.sample_predicate", return_value=parse_expr("1 = 1")),
+            patch("products.workflows.backend.services.audience_v2.count_matching_persons", return_value=100),
         ):
             result = get_dedupe_audience_count_v2(self.team, FILTERS, "email")
 
-        assert (result.affected, result.total) == (3, 3)
+        assert (result.affected, result.without_email, result.total) == (8, expected_without_email, 100)
+
+    def test_without_email_predicate_reaches_raw_person_prefilter(self):
+        # The exact missing-email count stays cheap only because the prefilter limits the dedup to
+        # people without an email. Without the push it dedups every person the filter matches.
+        cleaned_filter = replace_proxy_properties(self.team, FILTERS)
+        query = build_without_email_count_query(self.team, cleaned_filter)
+        response = execute_hogql_query(query=query, team=self.team, settings=bounded_memory_settings())
+
+        clickhouse_sql = response.clickhouse
+        assert clickhouse_sql is not None
+        prefilter = clickhouse_sql.split("AS where_optimization", 1)[1].split("GROUP BY", 1)[0]
+        assert "trim(" in prefilter
 
     def test_dedupe_sampling_predicate_reaches_raw_person_prefilter(self):
         # Same guard as the person-count variant below, for the group-hash predicate.

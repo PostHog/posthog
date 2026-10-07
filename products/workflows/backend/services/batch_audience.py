@@ -8,8 +8,10 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.cdp.flag_gated_templates import gated_template_enabled
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models.property import GroupTypeIndex, PropertyGroup
 from posthog.models.team.team import Team
 
@@ -22,6 +24,30 @@ from products.feature_flags.backend.user_blast_radius import (
 
 EMAIL_DEDUPE_KEY = "email"
 SUPPORTED_DEDUPE_KEYS = (EMAIL_DEDUPE_KEY,)
+
+
+@frozen
+class DedupeAudienceCount:
+    """Sends a deduped batch audience produces, and how many of them go to a person with no email."""
+
+    sends: int
+    without_email: Optional[int]
+
+
+@frozen
+class DedupeAudienceSize:
+    affected: int
+    total: int
+    without_email: Optional[int]
+
+    @classmethod
+    def capped_at_total(cls, count: DedupeAudienceCount, total: int) -> "DedupeAudienceSize":
+        affected = min(count.sends, total)
+        return cls(
+            affected=affected,
+            total=total,
+            without_email=min(count.without_email, affected) if count.without_email is not None else None,
+        )
 
 
 def person_audience_page_size() -> int:
@@ -74,11 +100,13 @@ def get_batch_audience_count(
     team: Team,
     filters: dict,
     dedupe_key: str,
-) -> int:
+) -> DedupeAudienceCount:
     """
     Count how many sends a batch workflow would produce with dedup applied — i.e. the
     number of dedupe groups (unique emails, plus one group per email-less person).
     Mirrors get_batch_audience_person_ids so the preview matches the actual audience.
+    The email-less persons are counted alongside, in the same scan, so the editor can
+    say how many of those sends cannot be delivered.
 
     The count is exact up to uniqCombined's hash-table threshold and approximate above it,
     so a very large audience can read a fraction of a percent off the delivered send count.
@@ -112,8 +140,11 @@ def get_batch_audience_count(
         # The persons expansion still holds one entry per matching person, in the id set it pushes
         # the filter into and in the group-by that picks the latest version, so this drops one term
         # from peak memory instead of making it flat.
+        select = [ast.Call(name="uniqCombined", args=[group_expr])]
+        if gated_template_enabled("workflows-missing-email-warning", team):
+            select.append(ast.Call(name="countIf", args=[email_missing_expr()]))
         select_query = ast.SelectQuery(
-            select=[ast.Call(name="uniqCombined", args=[group_expr])],
+            select=select,
             select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
             where=ast.And(exprs=where_exprs),
         )
@@ -121,20 +152,29 @@ def get_batch_audience_count(
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
         response = execute_hogql_query(query=select_query, team=team)
 
+    return dedupe_audience_count_from_row(response.results[0] if response.results else None)
+
+
+def dedupe_audience_count_from_row(row: Optional[list]) -> DedupeAudienceCount:
     # uniqCombined over a nullable expression returns NULL rather than 0 when no person matches.
-    return (response.results[0][0] if response.results else None) or 0
+    if not row:
+        return DedupeAudienceCount(sends=0, without_email=None)
+    return DedupeAudienceCount(sends=row[0] or 0, without_email=(row[1] or 0) if len(row) > 1 else None)
+
+
+def email_missing_expr() -> ast.Expr:
+    # Fields stay fully qualified so nothing resolves to an enclosing query's alias.
+    return parse_expr("isNull(persons.properties.email) OR trim(toString(persons.properties.email)) = ''")
 
 
 def email_dedupe_group_expr() -> ast.Expr:
-    # Fields stay fully qualified so nothing resolves to an enclosing query's alias.
-    return parse_expr(
-        """
-        if(
-            isNull(persons.properties.email) OR trim(toString(persons.properties.email)) = '',
-            toString(persons.id),
-            lower(trim(toString(persons.properties.email)))
-        )
-        """
+    return ast.Call(
+        name="if",
+        args=[
+            email_missing_expr(),
+            parse_expr("toString(persons.id)"),
+            parse_expr("lower(trim(toString(persons.properties.email)))"),
+        ],
     )
 
 

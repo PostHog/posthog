@@ -17,11 +17,12 @@ import { AnyPersonScopeFilter, PropertyFilterType } from '~/types'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../Workflows/hogflows/filters/HogFlowFilters'
+import { AudienceWithoutEmailNotice } from '../../Workflows/hogflows/steps/components/AudienceWithoutEmailNotice'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
 
 function AudienceSizePreview(): JSX.Element | null {
-    const { blastRadius, blastRadiusLoading } = useValues(broadcastWizardLogic)
+    const { blastRadius, blastRadiusLoading, audienceProperties } = useValues(broadcastWizardLogic)
 
     if (blastRadiusLoading) {
         return <Spinner className="mt-1" />
@@ -36,7 +37,7 @@ function AudienceSizePreview(): JSX.Element | null {
         )
     }
 
-    const { affected, total, limit } = blastRadius
+    const { affected, total, limit, without_email } = blastRadius
     const exceeded = limit != null && affected > limit
 
     return (
@@ -59,6 +60,7 @@ function AudienceSizePreview(): JSX.Element | null {
                     .
                 </div>
             )}
+            <AudienceWithoutEmailNotice withoutEmail={without_email} audienceProperties={audienceProperties} />
         </div>
     )
 }

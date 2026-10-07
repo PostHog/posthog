@@ -5,7 +5,7 @@ from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
 
 from products.feature_flags.backend.person_sampling import bounded_memory_settings
-from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
+from products.feature_flags.backend.user_blast_radius import get_user_blast_radius
 from products.workflows.backend.facade.contracts import AudiencePage, AudienceSize
 from products.workflows.backend.services.account_audience import (
     ACCOUNT_BATCH_SIZE,
@@ -19,6 +19,7 @@ from products.workflows.backend.services.audience_v2 import (
     use_audience_query_v2,
 )
 from products.workflows.backend.services.batch_audience import (
+    DedupeAudienceSize,
     audience_page_size,
     get_batch_audience_count,
     get_batch_audience_person_ids,
@@ -35,32 +36,45 @@ def get_audience_size(
     sends_email: bool,
 ) -> AudienceSize:
     team = Team.objects.get(id=team_id)
+    limit = get_hogflow_batch_trigger_limit(team_id, sends_email=sends_email)
+    audience_v2 = group_type_index is None and use_audience_query_v2(team)
     # Preview matches the actual send: with dedup active, "affected" is the number of
     # sends (unique emails + email-less persons), not the number of matching persons -
-    # the legacy person-count query is skipped entirely, "total" comes straight from
-    # the cached team-wide count it would have returned anyway. The applied key is
-    # echoed back so the frontend labels the count from the response instead of
-    # guessing whether the dedup actually ran.
-    applied_dedupe_key = None
-    audience_v2 = group_type_index is None and use_audience_query_v2(team)
+    # the legacy person-count query is skipped entirely. The applied key is echoed back
+    # so the frontend labels the count from the response instead of guessing whether
+    # the dedup actually ran.
     if dedupe_key is not None and group_type_index is None:
-        if audience_v2:
-            blast_radius = get_dedupe_audience_count_v2(team, filters, dedupe_key)
-        else:
-            total = team.persons_seen_so_far
-            affected = min(get_batch_audience_count(team, filters, dedupe_key), total)
-            blast_radius = BlastRadiusResult(affected=affected, total=total)
-        applied_dedupe_key = dedupe_key
-    elif audience_v2:
-        blast_radius = get_person_audience_count_v2(team, filters)
-    else:
-        blast_radius = get_user_blast_radius(team, filters, group_type_index)
+        size = (
+            get_dedupe_audience_count_v2(team, filters, dedupe_key)
+            if audience_v2
+            else _get_dedupe_audience_size(team, filters, dedupe_key)
+        )
+        return AudienceSize(
+            affected=size.affected,
+            total=size.total,
+            without_email=size.without_email,
+            limit=limit,
+            dedupe_key=dedupe_key,
+        )
 
+    blast_radius = (
+        get_person_audience_count_v2(team, filters)
+        if audience_v2
+        else get_user_blast_radius(team, filters, group_type_index)
+    )
     return AudienceSize(
         affected=blast_radius.affected,
         total=blast_radius.total,
-        limit=get_hogflow_batch_trigger_limit(team_id, sends_email=sends_email),
-        dedupe_key=applied_dedupe_key,
+        without_email=None,
+        limit=limit,
+        dedupe_key=None,
+    )
+
+
+def _get_dedupe_audience_size(team: Team, filters: dict, dedupe_key: str) -> DedupeAudienceSize:
+    # "total" comes straight from the cached team-wide count the legacy query would have returned.
+    return DedupeAudienceSize.capped_at_total(
+        get_batch_audience_count(team, filters, dedupe_key), total=team.persons_seen_so_far
     )
 
 
@@ -69,6 +83,7 @@ def get_account_audience_size(*, team_id: int, filters: dict, sends_email: bool)
     return AudienceSize(
         affected=get_account_audience_count(team, filters),
         total=get_account_audience_count(team, {"audience_type": "accounts"}),
+        without_email=None,
         limit=get_hogflow_batch_trigger_limit(team_id, sends_email=sends_email),
         dedupe_key=None,
     )

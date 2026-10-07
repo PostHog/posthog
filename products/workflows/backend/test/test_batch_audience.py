@@ -1,5 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -47,12 +48,29 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
 
         assert sorted(result) == [_uuid(i) for i in expected_indices]
 
-    def test_count_matches_deduped_audience_size(self):
+    @parameterized.expand(
+        [("enabled", True, False, 2), ("disabled", False, False, None), ("flag_error", False, True, None)]
+    )
+    def test_count_matches_deduped_audience_size(
+        self, _name: str, enabled: bool, flag_error: bool, expected_without_email: int | None
+    ) -> None:
         self._create_audience(["Dup@X.com", " dup@x.com ", "b@x.com", None, ""])
 
-        count = get_batch_audience_count(self.team, FILTERS, dedupe_key="email")
+        def evaluate_flag(flag_key: str, *_args: object, **_kwargs: object) -> bool:
+            if flag_key != "workflows-missing-email-warning":
+                return False
+            if flag_error:
+                raise RuntimeError("Flag evaluation unavailable")
+            return enabled
 
-        assert count == len(get_batch_audience_person_ids(self.team, FILTERS, dedupe_key="email")) == 4
+        with patch(
+            "posthog.cdp.flag_gated_templates.posthoganalytics.feature_enabled",
+            side_effect=evaluate_flag,
+        ):
+            count = get_batch_audience_count(self.team, FILTERS, dedupe_key="email")
+
+        assert count.sends == len(get_batch_audience_person_ids(self.team, FILTERS, dedupe_key="email")) == 4
+        assert count.without_email == expected_without_email
 
     def test_count_rejects_unsupported_dedupe_key(self):
         # Defence-in-depth: the endpoint's serializer allowlist is the primary gate, but this
