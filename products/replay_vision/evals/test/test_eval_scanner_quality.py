@@ -19,12 +19,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
 from products.replay_vision.backend.temporal.scanners import ClassifierScanner
 from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
-from products.replay_vision.backend.temporal.types import (
-    ScannerCallOutput,
-    ScannerLlmInputs,
-    ScannerSnapshot,
-    VerificationRecord,
-)
+from products.replay_vision.backend.temporal.types import ScannerCallOutput, ScannerLlmInputs, ScannerSnapshot
 from products.replay_vision.evals import collector, eval_scanner_quality
 from products.replay_vision.evals.collector import (
     _VideoAsset,
@@ -210,23 +205,12 @@ def test_scan_completed_fails_on_schema_breakage() -> None:
     ],
     ids=["empty", "multiple_findings"],
 )
-@pytest.mark.parametrize(
-    "verification",
-    [
-        None,
-        VerificationRecord(mode="enforce", draws=["yes", "yes"], resolved_verdict="yes", served_verdict="yes"),
-    ],
-    ids=["unverified", "verified"],
-)
-def test_scan_task_retains_structured_signals(
-    signals: list[dict[str, str | int | float]], verification: VerificationRecord | None, tmp_path: Path
-) -> None:
+def test_scan_task_retains_structured_signals(signals: list[dict[str, str | int | float]], tmp_path: Path) -> None:
     golden = _golden("monitor", True, {"verdict": "yes"})
     golden = golden.model_copy(update={"snapshot": golden.snapshot.model_copy(update={"emits_signals": True})})
     scan_output = ScannerCallOutput(
         model_output=MonitorOutput(verdict="yes", reasoning="The book list is covered.", confidence=0.9),
         signals=[SignalFinding.model_validate(signal) for signal in signals],
-        verification=verification,
     )
     with (
         patch.object(GoldenCase, "load_inputs", return_value=MagicMock(spec=ScannerLlmInputs)),
@@ -255,7 +239,6 @@ def test_scan_task_retains_structured_signals(
         "scanner_type": "monitor",
         "signals_count": len(signals),
         "signals": signals,
-        "verification": verification.model_dump(mode="json") if verification else None,
         "primary": "Verdict: yes",
         "last_message": "Verdict: yes",
     }
@@ -418,6 +401,7 @@ class _FakeApi:
                 [],
                 [],
                 [],
+                None,
             ],
             [
                 "$autocapture",
@@ -432,6 +416,7 @@ class _FakeApi:
                 [],
                 [],
                 [],
+                None,
             ],
             [
                 "file_uploaded",
@@ -446,6 +431,7 @@ class _FakeApi:
                 [],
                 [],
                 [],
+                None,
             ],
         ]
 

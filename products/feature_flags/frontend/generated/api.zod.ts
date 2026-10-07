@@ -139,7 +139,7 @@ export const FeatureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBody = /* @_
     flag_evaluations_mode: zod
         .union([zod.literal(0), zod.literal(1), zod.literal(2)])
         .describe(
-            'Target flag_evaluations mode. 0 reads events, 1 reads flag_evaluations, 2 also stops writing $feature_flag_called to events. Ingestion ignores 2 until its support for 2 deploys, so 2 acts as 1 until then.\n\n\* `0` - Events\n\* `1` - Read flag evaluations\n\* `2` - Flag evaluations only'
+            "Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist.\n\n\* `0` - Events\n\* `1` - Read flag evaluations\n\* `2` - Flag evaluations only"
         ),
     team_ids: zod
         .array(zod.number())
@@ -152,7 +152,7 @@ export const FeatureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBody = /* @_
         .boolean()
         .default(featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyAllowDowngradeDefault)
         .describe(
-            'Also lower organizations that are above the target mode. Once ingestion acts on mode 2, lowering an organization from 2 leaves a gap in the events table for the time it spent on 2.'
+            'Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams in the ingestion allowlist. The events table keeps a gap for those teams for the time the organization spent on 2.'
         ),
     dry_run: zod
         .boolean()
@@ -1212,8 +1212,9 @@ export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
  *
  * Returns same format as bulk_delete for UI compatibility.
  *
- * Uses bulk operations for efficiency: database updates are batched and cache
- * invalidation happens once at the end rather than per-flag.
+ * Config version 1 flags are deleted with batched updates, and cache invalidation
+ * runs once at the end. Config version 2 flags are deleted one at a time through
+ * ``update_flag``. Each one bumps its ``version`` and commits on its own.
  */
 
 export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
@@ -1223,7 +1224,9 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                 .enum(['true', 'false', 'STALE'])
                 .describe('\* `true` - true\n\* `false` - false\n\* `STALE` - STALE')
                 .optional()
-                .describe('Filter by active state.\n\n\* `true` - true\n\* `false` - false\n\* `STALE` - STALE'),
+                .describe(
+                    "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.\n\n\* `true` - true\n\* `false` - false\n\* `STALE` - STALE"
+                ),
             created_by_id: zod.number().optional().describe('Filter to flags created by a specific user ID.'),
             search: zod.string().optional().describe('Search by feature flag key or name (case-insensitive).'),
             type: zod

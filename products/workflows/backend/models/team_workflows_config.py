@@ -7,7 +7,7 @@ from products.workflows.backend.facade.enums import EMAIL_TRACKING_CONSENT_MODE_
 
 
 class TeamWorkflowsConfig(models.Model):
-    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
+    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, related_name="+")
 
     # Opt-in toggle for emitting workflows engagement activity (sends, opens, clicks, bounces, etc.)
     # as standard PostHog events alongside the existing workflow metrics.

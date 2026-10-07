@@ -14,7 +14,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightModel, UserBasicType } from '~/types'
 
-import type { AlertDeliveryApi } from './generated/api.schemas'
+import type { AlertApi, AlertDeliveryApi, AlertSimulateResponseApi } from './generated/api.schemas'
 
 export type AlertCheckDelivery = AlertDeliveryApi
 
@@ -82,7 +82,10 @@ export interface BreakdownSimulationResult {
     sub_detector_scores?: SubDetectorScores[]
 }
 
-export interface AlertSimulationResult {
+export interface AlertSimulationResult extends Pick<
+    AlertSimulateResponseApi,
+    'evaluation_delay_intervals' | 'evaluated_interval_start' | 'evaluated_interval_end' | 'evaluated_interval_timezone'
+> {
     data: number[]
     dates: string[]
     scores: (number | null)[]
@@ -108,7 +111,7 @@ export type AlertThreshold = Omit<InsightThreshold, 'bounds'> & {
     bounds?: InsightsThresholdBounds | null
 }
 
-export interface AlertTypeBase {
+export interface AlertTypeBase extends Pick<AlertApi, 'evaluation_delay_intervals'> {
     name: string
     condition: AlertCondition
     threshold: { configuration: AlertThreshold }

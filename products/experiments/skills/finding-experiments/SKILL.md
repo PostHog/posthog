@@ -58,4 +58,4 @@ Agent:
 ## Related skills
 
 - **`managing-experiment-lifecycle`** — act on the experiment once you've resolved its ID
-- **`diagnosing-experiment-results`** — investigate the experiment you found
+- **`diagnosing-experiment-health`** — investigate the experiment you found

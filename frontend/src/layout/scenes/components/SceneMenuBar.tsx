@@ -34,6 +34,7 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
 
@@ -134,6 +135,7 @@ const RIGHT_TRIGGER_LABEL_CLASSES = 'hidden @min-[36rem]/main-content:inline'
 
 function SceneMenuBarRightLinks(): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { todayRailEnabled } = useValues(todayShellLogic)
     const { productKey } = useContext(SceneContentContext)
     const settingsUrl = getSettingsUrl(productKey)
 
@@ -174,20 +176,22 @@ function SceneMenuBarRightLinks(): JSX.Element {
                 <span className={RIGHT_TRIGGER_LABEL_CLASSES}>Support</span>
                 <IconSidePanel />
             </Button>
-            <Button
-                type="button"
-                onClick={() => {
-                    captureSceneMenuBar('scene menu bar right link clicked', { link: 'ai' })
-                    openSidePanel(SidePanelTab.Max)
-                }}
-                data-attr="scene-menu-bar-ai"
-                aria-label="PostHog AI"
-                className={RIGHT_TRIGGER_CLASSES}
-                variant="outline"
-            >
-                <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
-                <span className={RIGHT_TRIGGER_LABEL_CLASSES}>PostHog AI</span>
-            </Button>
+            {!todayRailEnabled && (
+                <Button
+                    type="button"
+                    onClick={() => {
+                        captureSceneMenuBar('scene menu bar right link clicked', { link: 'ai' })
+                        openSidePanel(SidePanelTab.Max)
+                    }}
+                    data-attr="scene-menu-bar-ai"
+                    aria-label="PostHog AI"
+                    className={RIGHT_TRIGGER_CLASSES}
+                    variant="outline"
+                >
+                    <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
+                    <span className={RIGHT_TRIGGER_LABEL_CLASSES}>PostHog AI</span>
+                </Button>
+            )}
         </div>
     )
 }

@@ -22,7 +22,6 @@ import importlib
 from pathlib import Path
 from typing import get_args
 
-from rest_framework import authentication
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.schemas.generators import EndpointEnumerator
 from rest_framework.views import APIView
@@ -34,9 +33,7 @@ SCANNED_ROOTS = ("posthog", "ee", "products", "common")
 SKIPPED_DIRS = {"node_modules", ".venv", "venv", "__pycache__", ".git", ".mypy_cache"}
 OWNED_MODULE_PREFIXES = tuple(f"{root}." for root in SCANNED_ROOTS)
 DECLARED_TYPES = frozenset(get_args(DeclaredCredentialType))
-# `ActivityLoggingMiddleware` records the session for any class that authenticates the session's
-# user, so DRF's own session class records `session` too.
-UNOWNED_ROUTE_CLASSES = frozenset({authentication.SessionAuthentication})
+UNOWNED_ROUTE_CLASSES: frozenset[type] = frozenset()
 
 
 def _dotted_name(cls: type) -> str:

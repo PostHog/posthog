@@ -1,8 +1,11 @@
+import posthog from 'posthog-js'
+
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { BreakdownFilter, DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
+import { BreakdownFilter, DashboardFilter, HogQLVariable, QueryStatus } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     DashboardPlacement,
@@ -19,6 +22,7 @@ import {
     dashboardToSaveableTemplate,
     searchParamsWithUrlFilters,
     getDashboardTileDisplayName,
+    getInsightQueryError,
     getInsightWithRetry,
     isWidgetTileVisibleOnPlacement,
     parseURLFilters,
@@ -281,9 +285,25 @@ describe('dashboardSearchParamsFromOverrides', () => {
 describe('getInsightWithRetry', () => {
     const insight = { id: 300, short_id: 'abc123', name: 'Test insight' } as InsightModel
     const MAX_ATTEMPTS = 3
+    const capacityStatus: QueryStatus = {
+        id: 'q',
+        team_id: 1,
+        query_async: true,
+        complete: true,
+        error: true,
+        error_code: 'rate_limited',
+        error_message: 'Queries are a little too busy right now. Please try again later.',
+    }
+    const insightResponse = (value: Partial<InsightModel> | null): Response =>
+        new Response(JSON.stringify(value), { status: 200 })
+
+    beforeEach(() => {
+        jest.useFakeTimers()
+    })
 
     afterEach(() => {
         jest.restoreAllMocks()
+        jest.useRealTimers()
     })
 
     it.each<[string, number, number | undefined]>([
@@ -294,8 +314,119 @@ describe('getInsightWithRetry', () => {
     ])('on %s, requests %i time(s) before throwing', async (_, expectedAttempts, status) => {
         const getResponseSpy = jest.spyOn(api, 'getResponse').mockRejectedValue(new ApiError('some error', status))
 
-        await expect(
-            getInsightWithRetry(
+        const request = getInsightWithRetry(
+            1,
+            insight,
+            60,
+            'query-id',
+            'blocking',
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            MAX_ATTEMPTS,
+            1
+        )
+        await Promise.all([expect(request).rejects.toThrow('some error'), jest.runAllTimersAsync()])
+        expect(getResponseSpy).toHaveBeenCalledTimes(expectedAttempts)
+    })
+
+    it.each([
+        ['a structured capacity code', 'rate_limited', capacityStatus.error_message],
+        ['a legacy concurrency response', 'concurrency_limit_exceeded', 'concurrency_limit_exceeded'],
+    ])('retries %s', async (_name, error_code, error_message) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        const getResponseSpy = jest
+            .spyOn(api, 'getResponse')
+            .mockResolvedValueOnce(
+                insightResponse({
+                    ...insight,
+                    result: null,
+                    query_status: { ...capacityStatus, error_code, error_message },
+                })
+            )
+            .mockResolvedValueOnce(insightResponse({ ...insight, result: [{ count: 1 }] }))
+
+        const request = getInsightWithRetry(
+            1,
+            insight,
+            60,
+            'query-id',
+            'blocking',
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            MAX_ATTEMPTS,
+            1
+        )
+        await jest.runAllTimersAsync()
+        const result = await request
+
+        expect(getResponseSpy).toHaveBeenCalledTimes(2)
+        expect(result?.result).toEqual([{ count: 1 }])
+        expect(capture).toHaveBeenCalledWith(
+            'dashboard tile recovered from capacity error',
+            { insight_short_id: 'abc123', dashboard_id: 60, attempts: 1 },
+            undefined
+        )
+    })
+
+    describe.each([
+        ['blocking retry', 2],
+        ['async fallback', 1],
+    ] as const)('%s recovery', (_path, maxAttempts) => {
+        it.each<{ name: string; response: Partial<InsightModel> | null; recovered: boolean; hasError: boolean }>([
+            {
+                name: 'a usable result',
+                response: { ...insight, result: [{ count: 1 }] },
+                recovered: true,
+                hasError: false,
+            },
+            { name: 'an empty result', response: { ...insight, result: [] }, recovered: true, hasError: false },
+            {
+                name: 'a failed calculation',
+                response: {
+                    ...insight,
+                    result: null,
+                    query_status: { ...capacityStatus, error_code: 'hogql_error', error_message: 'Invalid query' },
+                },
+                recovered: false,
+                hasError: true,
+            },
+            {
+                name: 'an error with results',
+                response: {
+                    ...insight,
+                    result: [],
+                    query_status: { ...capacityStatus, error_code: 'hogql_error', error_message: 'Invalid query' },
+                },
+                recovered: false,
+                hasError: true,
+            },
+            { name: 'a missing result', response: { ...insight, result: null }, recovered: false, hasError: false },
+            { name: 'no insight', response: null, recovered: false, hasError: maxAttempts === 1 },
+        ])('records recovery only for usable data: $name', async ({ response, recovered, hasError }) => {
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            jest.spyOn(lemonToast, 'error').mockImplementation()
+            jest.spyOn(api, 'getResponse')
+                .mockResolvedValueOnce(insightResponse({ ...insight, result: null, query_status: capacityStatus }))
+                .mockResolvedValueOnce(insightResponse(response))
+            jest.spyOn(api, 'get').mockResolvedValue({
+                ...insight,
+                query_status: {
+                    ...capacityStatus,
+                    complete: false,
+                    error: false,
+                    error_code: null,
+                    error_message: null,
+                },
+            })
+            jest.spyOn(api.queryStatus, 'get').mockResolvedValue({
+                query_status: { ...capacityStatus, error: false, error_code: null, error_message: null },
+            })
+
+            const request = getInsightWithRetry(
                 1,
                 insight,
                 60,
@@ -305,11 +436,18 @@ describe('getInsightWithRetry', () => {
                 undefined,
                 undefined,
                 undefined,
-                MAX_ATTEMPTS,
+                maxAttempts,
                 1
             )
-        ).rejects.toThrow('some error')
-        expect(getResponseSpy).toHaveBeenCalledTimes(expectedAttempts)
+            await jest.runAllTimersAsync()
+            const result = await request
+
+            expect(
+                capture.mock.calls.filter(([event]) => event === 'dashboard tile recovered from capacity error')
+            ).toHaveLength(recovered ? 1 : 0)
+            expect(result?.result ?? null).toEqual(response?.result ?? null)
+            expect(Boolean(result?.query_status?.error)).toBe(hasError)
+        })
     })
 })
 
@@ -339,5 +477,42 @@ describe('shouldSharedDashboardAutoForceForStaleTime', () => {
         ])('when %s, returns expected result', (_, isoTime, expected) => {
             expect(shouldSharedDashboardAutoForceForStaleTime(dayjs(isoTime))).toBe(expected)
         })
+    })
+})
+
+describe('getInsightQueryError', () => {
+    it.each([
+        ['clickhouse_memory_limit_exceeded', 513],
+        ['invalid_query', 400],
+    ])('maps error code %s to status %s', (errorCode, expectedStatus) => {
+        const error = getInsightQueryError({
+            query_status: {
+                id: 'query-id',
+                error: true,
+                error_message: 'Query ran out of memory',
+                error_code: errorCode,
+            },
+        } as unknown as InsightModel)
+
+        expect(error?.status).toBe(expectedStatus)
+        expect(error?.data?.code).toBe(errorCode)
+    })
+
+    it('reads the memory code out of the error message when the status field is absent', () => {
+        const error = getInsightQueryError({
+            query_status: {
+                id: 'query-id',
+                error: true,
+                error_message:
+                    "[ErrorDetail(string='Query ran out of memory', code='clickhouse_memory_limit_exceeded')]",
+            },
+        } as unknown as InsightModel)
+
+        expect(error?.status).toBe(513)
+        expect(error?.data?.code).toBe('clickhouse_memory_limit_exceeded')
+    })
+
+    it('returns null when the query did not error', () => {
+        expect(getInsightQueryError({} as InsightModel)).toBeNull()
     })
 })

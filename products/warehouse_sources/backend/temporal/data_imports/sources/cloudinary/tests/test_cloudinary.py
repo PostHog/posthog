@@ -15,7 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudinary
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.cloudinary.cloudinary"
 
@@ -34,7 +34,7 @@ def _response(status_code: int = 200) -> mock.MagicMock:
     return response
 
 
-def _source(endpoint: str = "images", region: str = "global", manager: mock.MagicMock | None = None) -> Resource:
+def _source(endpoint: str = "images", region: str = "global", manager: mock.MagicMock | None = None) -> SourceResponse:
     return cloudinary_source("my-cloud", "key", "secret", region, endpoint, 1, "job", manager or _manager())
 
 
@@ -83,6 +83,16 @@ class TestCloudinaryResources:
 
 
 class TestCloudinarySource:
+    @pytest.mark.parametrize("endpoint", sorted(CLOUDINARY_ENDPOINTS))
+    def test_the_pipeline_gets_a_source_response_keyed_on_the_endpoint(self, endpoint: str) -> None:
+        config = CLOUDINARY_ENDPOINTS[endpoint]
+        response = _source(endpoint)
+
+        assert isinstance(response, SourceResponse)
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        assert response.partition_keys == ([config.partition_key] if config.partition_key else None)
+
     def test_pages_are_walked_with_cloudinarys_cursor_field(self) -> None:
         with mock.patch(f"{_MODULE}.rest_api_resource") as rest_api_resource:
             _source()

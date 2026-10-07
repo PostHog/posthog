@@ -122,7 +122,7 @@ def resolve_dependency_to_node(
         saved_query = DataWarehouseSavedQuery.objects.filter(team=team, name=dependency_name, deleted=False).first()
         if saved_query is None:
             raise UnknownParentError(dependency_name, "")
-        node = Node.objects.filter(team=team, dag=dag, saved_query=saved_query).first()
+        node = Node.objects.filter(team=team, dag=dag, saved_query=saved_query).order_by("created_at").first()
         if node is not None:
             return node
         reference = _managed_cross_dag_reference(team, dag, dependency_name, saved_query)
@@ -138,7 +138,11 @@ def resolve_dependency_to_node(
             )
             # matview
             if matview_saved_query is not None:
-                node = Node.objects.filter(team=team, dag=dag, saved_query=matview_saved_query).first()
+                node = (
+                    Node.objects.filter(team=team, dag=dag, saved_query=matview_saved_query)
+                    .order_by("created_at")
+                    .first()
+                )
                 if node is not None:
                     return node
                 reference = _managed_cross_dag_reference(team, dag, dependency_name, matview_saved_query)
@@ -200,12 +204,29 @@ def lock_dag(team_id: int, dag_id: UUID) -> None:
 
     The same key `Edge._detect_cycles` takes, so an edge write and a node delete cannot interleave.
     Callers holding more than one DAG take them in a fixed order, so two of them cannot deadlock.
-
-    Materialization takes it too, on the job-start side, so a job cannot be created against a
-    placement a move has already left behind.
     """
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [team_id, str(dag_id)])
+
+
+def _placement_lock_key(dag_id: UUID) -> str:
+    return f"placement:{dag_id}"
+
+
+def lock_dag_placements(team_id: int, dag_id: UUID) -> None:
+    """Hold off every job start in this DAG, so a job cannot be created against a placement a
+    move has already left behind.
+
+    A separate key from `lock_dag`, so a job start does not queue behind edge writes and syncs.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [team_id, _placement_lock_key(dag_id)])
+
+
+def lock_dag_placements_shared(team_id: int, dag_id: UUID) -> None:
+    """Taken by each job start. Job starts do not block each other, only a move out of this DAG."""
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock_shared(%s, hashtext(%s))", [team_id, _placement_lock_key(dag_id)])
 
 
 def replace_incoming_edges(
@@ -547,7 +568,7 @@ def move_saved_query_to_dag(team_id: int, saved_query_id: UUID, dag_id: UUID) ->
     A move is refused while a materialization runs. Its activities load the node by team, node
     and DAG, so the move makes the remaining ones stop finding it -- including the activity that
     records the failure, which leaves the job row Running with nothing to close it. Job creation
-    takes the same DAG lock and re-reads the node in its DAG, so a job that starts between the
+    takes the DAG's placement lock and re-reads the node in its DAG, so a job that starts between the
     check and the move cannot slip past.
 
     The saved-query row lock is held too, because a query edit picks the DAG to sync into from its
@@ -556,7 +577,7 @@ def move_saved_query_to_dag(team_id: int, saved_query_id: UUID, dag_id: UUID) ->
 
     That row lock is `FOR NO KEY UPDATE`, which is what makes it safe to hold alongside a DAG
     lock. `FOR UPDATE` conflicts with the `KEY SHARE` lock Postgres takes on this row for the
-    foreign key of every job and node insert, so a materialization holding the DAG lock and
+    foreign key of every job and node insert, so a materialization holding the placement lock and
     inserting its job row would deadlock against this transaction waiting for that same DAG.
     """
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -570,6 +591,7 @@ def move_saved_query_to_dag(team_id: int, saved_query_id: UUID, dag_id: UUID) ->
         held = {dag.id} | {node.dag_id for node in placements if node.dag_id is not None}
         for held_dag_id in sorted(held, key=str):
             lock_dag(team_id, held_dag_id)
+            lock_dag_placements(team_id, held_dag_id)
 
         nodes = list(placements.select_related("dag"))
         if len(nodes) > 1:

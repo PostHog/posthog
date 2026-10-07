@@ -23,7 +23,9 @@ import { llmPromptLogic } from '../prompts/llmPromptLogic'
 import { getApiErrorDetail } from '../prompts/utils'
 import { normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
 import { isOTelPartsMessage, normalizeRole, safeStringify } from '../utils'
+import { isMessageSendable } from './playgroundMessageMapping'
 import { isTraceLikeSelection } from './playgroundModelMatching'
+import { type PlaygroundModelConfig, parsePlaygroundConfig, serializePlaygroundConfig } from './playgroundPromptConfig'
 
 const SOURCE_PARAM_KEYS = ['source_prompt_name', 'source_prompt_version', 'source_evaluation_id'] as const
 
@@ -36,12 +38,25 @@ export function cleanSourceSearchParams(searchParams: Record<string, any>): Reco
     return clean
 }
 
-export type MessageRole = 'user' | 'assistant' | 'system'
+export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 export type ReasoningLevel = 'minimal' | 'low' | 'medium' | 'high' | null
+
+export interface MessageToolCall {
+    id: string
+    name: string
+    /** JSON string, the shape providers stream. Parsed into an object at request time. */
+    arguments: string
+}
 
 export interface Message {
     role: MessageRole
     content: string
+    /** Assistant messages only. */
+    toolCalls?: MessageToolCall[]
+    /** Tool messages only: id of the tool call this result answers. */
+    toolCallId?: string
+    /** Tool messages only. */
+    toolName?: string
 }
 
 export interface PromptConfig {
@@ -482,6 +497,7 @@ export interface llmPlaygroundPromptsLogicValues {
     pendingTargetIsTrace: boolean
     pendingTargetModel: string | null
     pendingTargetProvider: string | null
+    pendingTargetProviderKeyId: string | null
     promptConfigs: PromptConfig[]
     reasoningLevel: ReasoningLevel
     saving: boolean
@@ -510,10 +526,19 @@ export interface llmPlaygroundPromptsLogicActions {
     }
     addResultToConversation: (
         response: string,
+        toolCalls?: MessageToolCall[],
         promptId?: string
     ) => {
         promptId: string | undefined
         response: string
+        toolCalls: MessageToolCall[] | undefined
+    }
+    applySavedModelSelection: (selection: { model: string; provider: string | null; providerKeyId: string | null }) => {
+        selection: {
+            model: string
+            provider: string | null
+            providerKeyId: string | null
+        }
     }
     clearConversation: (promptId?: string) => {
         promptId: string | undefined
@@ -556,8 +581,10 @@ export interface llmPlaygroundPromptsLogicActions {
     }
     saveAsNewPrompt: (
         promptId: string,
-        name: string
+        name: string,
+        modelConfig: PlaygroundModelConfig | null
     ) => {
+        modelConfig: PlaygroundModelConfig | null
         name: string
         promptId: string
     }
@@ -579,7 +606,11 @@ export interface llmPlaygroundPromptsLogicActions {
         } | null
         promptId: string
     }
-    saveToLinkedPrompt: (promptId: string) => {
+    saveToLinkedPrompt: (
+        promptId: string,
+        modelConfig: PlaygroundModelConfig | null
+    ) => {
+        modelConfig: PlaygroundModelConfig | null
         promptId: string
     }
     setActivePromptId: (promptId: string | null) => {
@@ -762,7 +793,11 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         setMessages: (messages: Message[], promptId?: string) => ({ messages, promptId }),
         deleteMessage: (index: number, promptId?: string) => ({ index, promptId }),
         addMessage: (message?: Partial<Message>, promptId?: string) => ({ message, promptId }),
-        addResultToConversation: (response: string, promptId?: string) => ({ response, promptId }),
+        addResultToConversation: (response: string, toolCalls?: MessageToolCall[], promptId?: string) => ({
+            response,
+            toolCalls,
+            promptId,
+        }),
         updateMessage: (index: number, payload: Partial<Message>, promptId?: string) => ({ index, payload, promptId }),
         clearLinkedSource: true,
         setSourceNames: (promptName: string | null, evaluationName: string | null, promptId?: string) => ({
@@ -779,12 +814,24 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         toggleCollapsed: (key: string) => ({ key }),
         setToolsJsonError: (promptId: string, error: string | null) => ({ promptId, error }),
         setSourceSetupLoading: (isLoading: boolean) => ({ isLoading }),
-        saveToLinkedPrompt: (promptId: string) => ({ promptId }),
+        applySavedModelSelection: (selection: {
+            model: string
+            provider: string | null
+            providerKeyId: string | null
+        }) => ({ selection }),
+        saveToLinkedPrompt: (promptId: string, modelConfig: PlaygroundModelConfig | null) => ({
+            promptId,
+            modelConfig,
+        }),
         saveToLinkedEvaluation: (
             promptId: string,
             modelConfig: { model: string; provider: string; provider_key_id: string | null } | null
         ) => ({ promptId, modelConfig }),
-        saveAsNewPrompt: (promptId: string, name: string) => ({ promptId, name }),
+        saveAsNewPrompt: (promptId: string, name: string, modelConfig: PlaygroundModelConfig | null) => ({
+            promptId,
+            name,
+            modelConfig,
+        }),
         saveAsNewEvaluation: (
             promptId: string,
             name: string,
@@ -873,17 +920,35 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     }),
                 addResultToConversation: (
                     state: PromptConfig[],
-                    { response, promptId }: { response: string; promptId?: string }
+                    {
+                        response,
+                        toolCalls,
+                        promptId,
+                    }: { response: string; toolCalls?: MessageToolCall[]; promptId?: string }
                 ) => {
-                    if (!response.trim()) {
+                    if (!response.trim() && !toolCalls?.length) {
                         return state
                     }
+                    // A result with tool calls continues with empty tool results to fill in and
+                    // run again (the mock loop); a plain response continues with a user turn.
+                    const nextTurns: Message[] = toolCalls?.length
+                        ? toolCalls.map((toolCall) => ({
+                              role: 'tool',
+                              content: '',
+                              toolCallId: toolCall.id,
+                              toolName: toolCall.name,
+                          }))
+                        : [{ role: 'user', content: '' }]
                     return updatePromptConfigs(state, promptId, (prompt) => ({
                         ...prompt,
                         messages: [
                             ...prompt.messages,
-                            { role: 'assistant', content: response },
-                            { role: 'user', content: '' },
+                            {
+                                role: 'assistant',
+                                content: response,
+                                ...(toolCalls?.length ? { toolCalls } : {}),
+                            },
+                            ...nextTurns,
                         ],
                     }))
                 },
@@ -981,6 +1046,8 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 resetPlayground: () => null,
                 setupPlaygroundFromEvent: (_: string | null, { payload }: { payload: { model?: string } }) =>
                     payload.model ?? null,
+                applySavedModelSelection: (_: string | null, { selection }: { selection: { model: string } }) =>
+                    selection.model,
                 clearPendingTargetModel: () => null,
             },
         ],
@@ -990,6 +1057,22 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 resetPlayground: () => null,
                 setupPlaygroundFromEvent: (_: string | null, { payload }: { payload: { provider?: string } }) =>
                     normalizeLLMProvider(payload.provider),
+                applySavedModelSelection: (
+                    _: string | null,
+                    { selection }: { selection: { provider: string | null } }
+                ) => normalizeLLMProvider(selection.provider ?? undefined),
+                clearPendingTargetModel: () => null,
+            },
+        ],
+        pendingTargetProviderKeyId: [
+            null as string | null,
+            {
+                resetPlayground: () => null,
+                setupPlaygroundFromEvent: () => null,
+                applySavedModelSelection: (
+                    _: string | null,
+                    { selection }: { selection: { providerKeyId: string | null } }
+                ) => selection.providerKeyId,
                 clearPendingTargetModel: () => null,
             },
         ],
@@ -1001,6 +1084,9 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     _: boolean,
                     { payload }: { payload: { model?: string; provider?: string } }
                 ) => isTraceLikeSelection(payload.model, payload.provider),
+                // Saved selections resolve through the trace-matching path: no default-model
+                // fallback, so an unmatched saved model id survives as-is.
+                applySavedModelSelection: () => true,
                 clearPendingTargetModel: () => false,
             },
         ],
@@ -1141,7 +1227,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         hasRunnablePrompts: [
             (s) => [s.promptConfigs],
             (promptConfigs: PromptConfig[]): boolean =>
-                promptConfigs.some((prompt) => prompt.messages.some((message) => message.content.trim().length > 0)),
+                promptConfigs.some((prompt) => prompt.messages.some(isMessageSendable)),
         ],
     }),
 
@@ -1173,14 +1259,21 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             }
         },
 
-        addMessage: () => {
+        addMessage: ({ message }) => {
             posthog.capture('llma playground message added', {
                 message_count: values.activePromptConfig?.messages.length ?? 0,
+                role: message?.role ?? 'user',
             })
         },
         deleteMessage: () => {
             posthog.capture('llma playground message removed', {
                 message_count: values.activePromptConfig?.messages.length ?? 0,
+            })
+        },
+        addResultToConversation: ({ toolCalls }) => {
+            posthog.capture('llma playground result added to conversation', {
+                has_tool_calls: !!toolCalls?.length,
+                tool_call_count: toolCalls?.length ?? 0,
             })
         },
         setTools: ({ tools }) => {
@@ -1234,6 +1327,31 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                             sourceParams.source_prompt_version = String(payload.sourcePromptVersion)
                         }
                         finishSourceSetup(sourceParams)
+                        // Prompts saved from the playground carry the whole panel in config.
+                        // Prompts without playground keys (older, or API-authored) parse to null
+                        // and load as before: body into the system prompt, panel untouched.
+                        const parsedConfig = parsePlaygroundConfig(fetchedPrompt.config)
+                        if (parsedConfig) {
+                            actions.setPromptConfigs(
+                                updatePromptConfigs(values.promptConfigs, promptId, (p) => ({
+                                    ...p,
+                                    temperature: parsedConfig.temperature,
+                                    maxTokens: parsedConfig.maxTokens,
+                                    topP: parsedConfig.topP,
+                                    thinking: parsedConfig.thinking,
+                                    reasoningLevel: parsedConfig.reasoningLevel,
+                                    tools: parsedConfig.tools,
+                                    messages: parsedConfig.messages,
+                                }))
+                            )
+                            if (parsedConfig.model) {
+                                actions.applySavedModelSelection({
+                                    model: parsedConfig.model,
+                                    provider: parsedConfig.provider,
+                                    providerKeyId: parsedConfig.providerKeyId,
+                                })
+                            }
+                        }
                     } catch {
                         lemonToast.error('Error loading prompt for playground')
                     }
@@ -1366,8 +1484,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             }
         },
 
-        saveToLinkedPrompt: async ({ promptId }) => {
-            posthog.capture('llma playground saved to source', { action: 'save_to_linked_prompt' })
+        saveToLinkedPrompt: async ({ promptId, modelConfig }) => {
             const { linkedSource, promptConfigs } = values
             if (!linkedSource.promptName) {
                 lemonToast.error('No linked prompt to save to')
@@ -1380,6 +1497,12 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 actions.saveComplete()
                 return
             }
+            posthog.capture('llma playground saved to source', {
+                action: 'save_to_linked_prompt',
+                with_messages: prompt.messages.length > 0,
+                with_tools: !!prompt.tools?.length,
+                with_model_config: !!modelConfig,
+            })
             try {
                 const current = await llmPromptsNameRetrieve(
                     String(ApiConfig.getCurrentTeamId()),
@@ -1387,6 +1510,9 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 )
                 await llmPromptsNamePartialUpdate(String(ApiConfig.getCurrentTeamId()), linkedSource.promptName, {
                     prompt: prompt.systemPrompt,
+                    // Explicit even when null: omitting config would carry the previous
+                    // version's forward, resurrecting panel state the user cleared.
+                    config: serializePlaygroundConfig(prompt, modelConfig, current.config),
                     base_version: current.latest_version,
                 })
                 const promptName = linkedSource.promptName
@@ -1466,16 +1592,26 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             }
         },
 
-        saveAsNewPrompt: async ({ promptId, name }) => {
-            posthog.capture('llma playground saved to source', { action: 'save_as_new_prompt' })
+        saveAsNewPrompt: async ({ promptId, name, modelConfig }) => {
             const prompt = values.promptConfigs.find((p) => p.id === promptId)
             if (!prompt) {
                 lemonToast.error('No prompt configuration to save')
                 actions.saveComplete()
                 return
             }
+            posthog.capture('llma playground saved to source', {
+                action: 'save_as_new_prompt',
+                with_messages: prompt.messages.length > 0,
+                with_tools: !!prompt.tools?.length,
+                with_model_config: !!modelConfig,
+            })
             try {
-                await llmPromptsCreate(String(ApiConfig.getCurrentTeamId()), { name, prompt: prompt.systemPrompt })
+                const config = serializePlaygroundConfig(prompt, modelConfig, null)
+                await llmPromptsCreate(String(ApiConfig.getCurrentTeamId()), {
+                    name,
+                    prompt: prompt.systemPrompt,
+                    ...(config ? { config } : {}),
+                })
                 // Link the playground to the newly created prompt
                 actions.setPromptConfigs(
                     updatePromptConfigs(values.promptConfigs, prompt.id, (p) => ({

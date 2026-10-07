@@ -1,4 +1,7 @@
-import type { CommentTarget } from "@posthog/core/comments/anchors";
+import {
+  type CommentTarget,
+  commentScopeFromWire,
+} from "@posthog/core/comments/anchors";
 import type { TaskLinkCommentAnchor } from "@posthog/core/links/task-link";
 import {
   TASK_SERVICE,
@@ -30,11 +33,9 @@ function commentTargetFromAnchor(
   taskId: string,
   anchor: TaskLinkCommentAnchor,
 ): CommentTarget {
-  if (
-    (anchor.scope === "desktop_canvas" || anchor.scope === "task_artifact") &&
-    anchor.itemId
-  ) {
-    return { scope: anchor.scope, itemId: anchor.itemId };
+  const scope = commentScopeFromWire(anchor.scope);
+  if ((scope === "canvas" || scope === "task_artifact") && anchor.itemId) {
+    return { scope, itemId: anchor.itemId };
   }
   return { scope: "task", itemId: taskId };
 }

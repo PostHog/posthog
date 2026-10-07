@@ -1,4 +1,5 @@
 import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -8,22 +9,32 @@ from parameterized import parameterized
 
 from posthog.models import Organization, Team, User
 from posthog.temporal.experiments.activities import (
+    _calculate_experiment_saved_metric_sync,
     _get_experiment_regular_metrics_for_hour_sync,
     _get_experiment_saved_metrics_for_hour_sync,
 )
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
-from products.experiments.backend.metric_resolution import find_metric_dict
+from products.experiments.backend.metric_resolution import build_metric, find_metric_dict
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 METRIC_UUID = "metric-uuid-1"
 METRIC = {"metric_type": "mean", "uuid": METRIC_UUID, "source": {"kind": "EventsNode", "event": "test"}}
+SAVED_FUNNEL: dict[str, Any] = {
+    "kind": "ExperimentMetric",
+    "metric_type": "funnel",
+    "uuid": "saved-funnel-uuid",
+    "series": [{"kind": "EventsNode", "event": "signup"}, {"kind": "EventsNode", "event": "purchase"}],
+    "breakdownAttributionType": "first_touch",
+    "breakdownFilter": {"breakdown_limit": 5},
+}
 
 # Access the underlying sync functions, patching out close_old_connections which kills the test DB connection
 _raw_regular_sync = _get_experiment_regular_metrics_for_hour_sync.func  # type: ignore[attr-defined]
 _raw_saved_sync = _get_experiment_saved_metrics_for_hour_sync.func  # type: ignore[attr-defined]
+_raw_saved_calc = _calculate_experiment_saved_metric_sync.func  # type: ignore[attr-defined]
 
 
 @pytest.mark.django_db
@@ -83,31 +94,44 @@ class TestDiscoveryFingerprints:
         [
             ("no_breakdowns", {}),
             ("with_breakdowns", {"type": "primary", "breakdowns": [{"type": "event", "property": "$os_name"}]}),
+            (
+                "with_attribution_and_limit_overrides",
+                {
+                    "type": "primary",
+                    "breakdowns": [{"type": "event", "property": "$os_name"}],
+                    "breakdownAttributionType": "step",
+                    "breakdownAttributionValue": 0,
+                    "breakdown_limit": 20,
+                },
+            ),
         ]
     )
-    def test_saved_metric_discovery_fingerprint_matches_recalculation_resolution(
-        self, _name: str, metadata: dict
-    ) -> None:
-        """The readers (timeseries sync, cold-start fallback, chart read) resolve a saved metric through
-        find_metric_dict, which merges the link-metadata breakdowns. Discovery must fingerprint the same
-        merged dict, or the daily points are filed under a hash no reader looks up and daily results are
-        never published for that metric."""
+    def test_saved_metric_calculation_uses_the_fingerprinted_definition(self, _name: str, metadata: dict) -> None:
         experiment, user = self._create_experiment(metrics=[])
         saved_metric = ExperimentSavedMetric.objects.create(
             team=experiment.team,
             name="Saved metric",
-            query=METRIC,
+            query=SAVED_FUNNEL,
             created_by=user,
         )
         ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric, metadata=metadata)
 
-        with patch("posthog.temporal.experiments.activities.close_old_connections"):
+        with (
+            patch("posthog.temporal.experiments.activities.close_old_connections"),
+            patch("posthog.temporal.experiments.activities.ExperimentQueryRunner") as mock_runner_class,
+        ):
+            mock_runner_class.return_value.run.return_value.model_dump.return_value = {"variant_results": []}
             results = _raw_saved_sync(hour=2)
+            [discovered] = [r for r in results if r.experiment_id == experiment.id]
+            outcome = _raw_saved_calc(experiment.id, discovered.metric_uuid, discovered.fingerprint)
 
-        discovery_fingerprints = [r.fingerprint for r in results if r.experiment_id == experiment.id]
-        merged_dict = find_metric_dict(experiment, METRIC_UUID)
-        assert merged_dict is not None
-        assert discovery_fingerprints == [self._expected_fingerprint(experiment, merged_dict)]
+        assert outcome.success, outcome.error_message
+        effective = find_metric_dict(experiment, SAVED_FUNNEL["uuid"])
+        assert effective is not None
+        assert discovered.fingerprint == self._expected_fingerprint(experiment, effective)
+        calculated_metric = mock_runner_class.call_args.kwargs["query"].metric
+        assert calculated_metric == build_metric({**effective, "fingerprint": discovered.fingerprint})
+        assert calculated_metric.breakdownFilter.breakdown_limit == metadata.get("breakdown_limit", 5)
 
 
 @pytest.mark.parametrize(

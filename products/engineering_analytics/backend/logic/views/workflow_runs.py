@@ -42,7 +42,7 @@ and wrong for a few. Ask what the number is being counted *for*:
   ``NOT is_merge_queue``. A gate branch's head SHA is a rebase the queue made, so counting it reports
   activity nobody performed, once per merge attempt.
 
-Only ``runs_by_pr`` (``_curated``) and the push-history scan (``pull_request_list``) are in the second
+Only ``push_rows_select`` (``_curated``) and the push-activity query (``pull_request_list``) are in the second
 group today. Getting this wrong is silent: the numbers stay plausible and just drift up.
 
 ``commit_pr_number`` is the complementary key: it is how a push run gets PR attribution at all,
@@ -169,11 +169,13 @@ def build_query(table_name: str, *, pull_requests_table: str | None = None, star
             if(status = 'completed', dateDiff('second', run_started_at, updated_at), NULL) AS duration_seconds,
             {STOPPED_REPORTING_SQL} AS stopped_reporting,
             arrayElement(repo_parts, 1) AS repo_owner,
-            arrayElement(repo_parts, 2) AS repo_name
+            arrayElement(repo_parts, 2) AS repo_name,
+            ci_engine, native_run_id, native_workflow_run_id
         FROM (
             SELECT
                 id,
                 name AS workflow_name,
+                ci_engine, native_run_id, native_workflow_run_id,
                 head_sha,
                 head_branch,
                 status,

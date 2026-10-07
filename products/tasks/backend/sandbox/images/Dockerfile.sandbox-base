@@ -161,8 +161,8 @@ RUN set -eux; \
 # every sandbox image with no PostHog commit or review. Bump this deliberately
 # in a reviewed PR when picking up a new agent release. COMMIT_HASH invalidates
 # the layer for PostHog-side image changes that keep the agent version unchanged.
-ARG AGENT_VERSION=2.4.234
-ARG AGENT_TARBALL_SHA256="c7ecdad2aa3c94b44ba60051aa8343f3199e82999f7c2227b918aab52fa90702"
+ARG AGENT_VERSION=2.4.256
+ARG AGENT_TARBALL_SHA256="bc2c57a17a0a044db52f7e37cfdf1871e01d36f76e1440bbbe4649c832a876d5"
 ARG AGENT_TARBALL_URL=https://github.com/PostHog/posthog/releases/download/agent-v${AGENT_VERSION}/posthog-agent-${AGENT_VERSION}.tgz
 ARG COMMIT_HASH
 RUN mkdir -p /scripts && \
@@ -202,6 +202,8 @@ COPY products/tasks/backend/sandbox/images/hogli-shim.sh /opt/posthog/bin/hogli
 RUN chmod +x /opt/posthog/bin/hogli
 COPY products/tasks/backend/sandbox/images/cpu_billing_sampler.py /usr/local/bin/posthog-cpu-billing-sampler
 RUN chmod +x /usr/local/bin/posthog-cpu-billing-sampler
+COPY products/tasks/backend/sandbox/images/memory_watchdog.py /usr/local/bin/posthog-memory-watchdog
+RUN chmod +x /usr/local/bin/posthog-memory-watchdog
 COPY --from=agent-shadow-builder /agent-shadow /usr/local/bin/agent-shadow
 ENV PATH="/opt/posthog/bin:${PATH}"
 

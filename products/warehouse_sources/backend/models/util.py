@@ -756,16 +756,17 @@ _NOT_OUR_STORAGE = (
 # DATAWAREHOUSE_BUCKET/BUCKET_PATH, so a deployment that points it at a different bucket was
 # reachable through a table's url_pattern until this line was added.
 #
-# CLICKHOUSE_BACKUPS_BUCKET, DICTIONARY_STAGING_S3_BUCKET, IDENTITY_MATCHING_S3_BUCKET,
-# NOTEBOOKS_FRAME_STORE_S3_BUCKET, OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET, and
-# QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET are here because each is read or written by ClickHouse's own
-# `s3(...)` / `BACKUP ... TO S3(...)` with no explicit access key in the query, the same credential-less
-# shape the original vulnerability exploited - not because a customer's url_pattern can reach them today.
+# CLICKHOUSE_BACKUPS_BUCKET, DATA_DELETION_STAGING_S3_BUCKET, DICTIONARY_STAGING_S3_BUCKET,
+# IDENTITY_MATCHING_S3_BUCKET, NOTEBOOKS_FRAME_STORE_S3_BUCKET,
+# OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET, and QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET are here
+# because each is read or written by ClickHouse's own `s3(...)` / `BACKUP ... TO S3(...)` with no
+# explicit access key in the query, the same credential-less shape the original vulnerability
+# exploited - not because a customer's url_pattern can reach them today.
 #
-# DICTIONARY_STAGING_S3_BUCKET and NOTEBOOKS_FRAME_STORE_S3_BUCKET both fall back to
-# OBJECT_STORAGE_BUCKET, so they widen this set only on a deployment that points either one at a
-# bucket of its own, which cloud does for frames. Both writers (posthog/dags/common/staged_dictionary.py
-# and notebooks' frame_materialize.py) omit credentials whenever their own endpoint setting is empty,
+# DATA_DELETION_STAGING_S3_BUCKET, DICTIONARY_STAGING_S3_BUCKET and NOTEBOOKS_FRAME_STORE_S3_BUCKET
+# all fall back to OBJECT_STORAGE_BUCKET, so they widen this set only on a deployment that points one
+# at a bucket of its own, which cloud does for frames. Every writer (posthog/dags/common/s3_staging.py
+# and notebooks' frame_materialize.py) omits credentials whenever its own endpoint setting is empty,
 # and it is empty on prod, so ClickHouse reaches the object through its node role.
 #
 # BATCH_EXPORT_INTERNAL_STAGING_BUCKET is the same shape: internal_stage.py's get_s3_function_call
@@ -779,6 +780,7 @@ _POSTHOG_OWNED_BUCKET_SETTING_NAMES = (
     "BUCKET_PATH",
     "BUCKET_URL",
     "CLICKHOUSE_BACKUPS_BUCKET",
+    "DATA_DELETION_STAGING_S3_BUCKET",
     "DATAWAREHOUSE_BUCKET",
     "DICTIONARY_STAGING_S3_BUCKET",
     "IDENTITY_MATCHING_S3_BUCKET",

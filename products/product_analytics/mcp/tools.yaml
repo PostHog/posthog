@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product product_analytics
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product product_analytics
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Product analytics
 feature: product_analytics
 url_prefix: /insights
@@ -13,39 +11,6 @@ ui_apps:
         view_prop: data
         link_prop: openLink
 tools:
-    column-configurations-create:
-        operation: column_configurations_create
-        enabled: false
-    column-configurations-destroy:
-        operation: column_configurations_destroy
-        enabled: false
-    column-configurations-list:
-        operation: column_configurations_list
-        enabled: false
-    column-configurations-partial-update:
-        operation: column_configurations_partial_update
-        enabled: false
-    column-configurations-retrieve:
-        operation: column_configurations_retrieve
-        enabled: false
-    column-configurations-update:
-        operation: column_configurations_update
-        enabled: false
-    elements-create:
-        operation: elements_create
-        enabled: false
-    elements-destroy:
-        operation: elements_destroy
-        enabled: false
-    elements-list:
-        operation: elements_list
-        enabled: false
-    elements-partial-update:
-        operation: elements_partial_update
-        enabled: false
-    elements-retrieve:
-        operation: elements_retrieve
-        enabled: false
     elements-stats-retrieve:
         operation: elements_stats_retrieve
         enabled: true
@@ -63,15 +28,6 @@ tools:
             This powers heatmap/clickmap views; use it to answer "what do users click most" and "which elements get rage
             or dead clicks". Responses can be very large on busy projects — always pass a small `limit` (e.g. 100) and
             paginate with `offset` if you need more results.
-    elements-update:
-        operation: elements_update
-        enabled: false
-    elements-values-list:
-        operation: elements_values_list
-        enabled: false
-    events-retention-retrieve:
-        operation: events_retention_retrieve
-        enabled: false
     insight-create:
         operation: insights_create
         enabled: true
@@ -109,6 +65,67 @@ tools:
             A bare query is accepted too. `{ "kind": "TrendsQuery", ... }` and `{ "kind": "HogQLQuery", ... }` are each
 
             wrapped for you, so a query you just ran through one of the `query-*` tools can be passed straight through.
+
+
+            Choose the TrendsQuery `trendsFilter.display` from the question the insight answers:
+
+            - Change over time: `ActionsLineGraph` (default), `ActionsAreaGraph`, or `ActionsBar`.
+
+            - Compare breakdown values or series as totals ("top pages", "failures by reason"): `ActionsBarValue`, or
+            `ActionsPie` for the share of a whole with a few values.
+
+            - One number for the period, or this period against the previous one: `Metric` with `compareFilter.compare:
+            true` for a comparison, or `BoldNumber` when a trend has no meaning.
+
+            - Many breakdown rows that a person reads rather than compares: `ActionsTable`.
+
+            - Totals per country from a `$geoip_country_name` breakdown: `WorldMap`.
+
+
+            In a TrendsQuery, `ActionsBar` is a time series with one bar per interval and the breakdown values stacked
+            in each bar. It is not one bar per category. In a SQL `DataVisualizationNode`, `ActionsBar` is one bar per
+            X-axis value.
+        agent_note: >
+            When you tell the user about this insight, name the display you chose and one or two other displays that
+            also fit this query, in one short sentence, and offer to change it. If the user agrees, change it with
+            insight-update. Suggest only displays that the insight kind supports and that fit the question:
+
+
+            - Trends (`trendsFilter.display`): for change over time `ActionsLineGraph`, `ActionsAreaGraph`, `ActionsBar`
+            or `ActionsUnstackedBar`; for totals per breakdown value or series `ActionsBarValue`, `ActionsPie` or
+            `ActionsTable`; for one number `Metric` or `BoldNumber`, never with a breakdown or more than one series;
+            `WorldMap` only for a `$geoip_country_name` breakdown.
+
+            - Funnels (`funnelsFilter.funnelVizType`): `steps` for drop-off per step, `trends` for conversion over time,
+            or `time_to_convert` for how long users take.
+
+            - Retention (`retentionFilter.display`): `ActionsLineGraph` or `ActionsBar`.
+
+            - Stickiness (`stickinessFilter.display`): `ActionsLineGraph`, `ActionsBar` or `ActionsAreaGraph`.
+
+            - Lifecycle: stacked or side-by-side bars (`lifecycleFilter.stacked`).
+
+            - SQL (`DataVisualizationNode` `display`): only displays that fit the columns the query returns.
+
+            - Paths: suggest nothing.
+
+
+            Use the chart names a person sees, such as "bar chart per category" or "line chart", not enum values or tool
+            names. If the user named the chart they want, do not suggest others. If you create several insights in this
+            task, give one short list of alternatives at the end, not one per insight.
+
+
+            After creating a Trends, SQL (HogQL), Funnels or Metrics insight, call insight-query with the returned
+            short_id, read the current value, and offer an alert when the metric is one someone would act on if it moved
+            sharply (signups, active users, revenue, conversion rate, error or failure counts, latency). Name an actual
+            number, never a placeholder such as X, for example "want me to alert you when daily signups drop below
+            400?". A count sitting at zero, such as errors or failures, is a strong case, so offer an upper bound of 1.
+            Offer nothing when the insight returned no rows. When no absolute number fits and the insight supports it,
+            offer a relative-change alert on a sudden increase or decrease. Skip metrics nobody acts on, such as raw
+            pageview or event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A
+            newly created insight, or one the user just asked to see, is not throwaway for that reason. If the user
+            already declined an alert in this conversation, do not offer again. If alert-create is unavailable, say
+            nothing about alerts. Wait for the user to accept before creating an alert.
         exclude_params:
             - query
         include_params:
@@ -279,9 +296,6 @@ tools:
                 - detail.changes.*.after
                 - detail.trigger
                 - detail.type
-    insights-activity-retrieve-2:
-        operation: insights_activity_retrieve
-        enabled: false
     insights-all-activity-retrieve:
         operation: insights_all_activity_retrieve
         enabled: true
@@ -305,24 +319,6 @@ tools:
                 - detail.changes.*.after
                 - detail.trigger
                 - detail.type
-    insights-bulk-delete-create:
-        operation: insights_bulk_delete_create
-        enabled: false
-    insights-bulk-restore-create:
-        operation: insights_bulk_restore_create
-        enabled: false
-    insights-bulk-set-test-account-filter-create:
-        operation: insights_bulk_set_test_account_filter_create
-        enabled: false
-    insights-bulk-update-tags-create:
-        operation: insights_bulk_update_tags_create
-        enabled: false
-    insights-cancel-create:
-        operation: insights_cancel_create
-        enabled: false
-    insights-generate-metadata-create:
-        operation: insights_generate_metadata_create
-        enabled: false
     insights-list:
         operation: insights_list
         enabled: true
@@ -364,9 +360,6 @@ tools:
                 - last_modified_by
                 - last_viewed_at
                 - alerts
-    insights-my-last-viewed-retrieve:
-        operation: insights_my_last_viewed_retrieve
-        enabled: false
     insights-trending-retrieve:
         operation: insights_trending_retrieve
         enabled: true
@@ -401,12 +394,3 @@ tools:
                 - last_viewed_at
                 - view_count
                 - viewers
-    insights-update:
-        operation: insights_update
-        enabled: false
-    insights-viewed-create:
-        operation: insights_viewed_create
-        enabled: false
-    paths-v2-segment-to-funnel-create:
-        operation: paths_v2_segment_to_funnel_create
-        enabled: false

@@ -4,8 +4,15 @@ import pytest
 
 import psycopg2
 import psycopg2.extras
+from prometheus_client import CollectorRegistry
 
-from posthog.dags.personhog_shadow_drift import compute_shadow_drift
+from posthog.dags.personhog_shadow_drift import (
+    DriftCategoryReport,
+    PropertyKeyDrift,
+    compute_shadow_drift,
+    record_drift_gauges,
+    sample_property_drift,
+)
 from posthog.persons_db import persons_db_url
 
 TEAM_ID = 990000123
@@ -38,11 +45,13 @@ def test_compute_shadow_drift_counts_each_category() -> None:
         with connection.cursor() as cursor:
             legacy_matched = _insert_person(cursor, "posthog_person", matched, {"a": 1})
             _insert_person(cursor, "posthog_person", legacy_only, {})
-            _insert_person(cursor, "posthog_person", props_differ, {"b": 1})
+            _insert_person(cursor, "posthog_person", props_differ, {"b": 1, "legacy_key": "xyz", "same": True})
 
             ph_matched = _insert_person(cursor, "personhog_person_tmp", matched, {"a": 1}, version=2)
             _insert_person(cursor, "personhog_person_tmp", personhog_only, {})
-            ph_props = _insert_person(cursor, "personhog_person_tmp", props_differ, {"b": 2})
+            ph_props = _insert_person(
+                cursor, "personhog_person_tmp", props_differ, {"b": 2, "personhog_key": [1, 2], "same": True}
+            )
             ph_tombstoned = _insert_person(cursor, "personhog_person_tmp", tombstoned, {}, is_deleted=True)
 
             cursor.execute(
@@ -70,6 +79,7 @@ def test_compute_shadow_drift_counts_each_category() -> None:
             )
 
         reports = {report.category: report for report in compute_shadow_drift(connection, sample_size=10)}
+        property_drift = sample_property_drift(connection, persons_limit=500, detail_limit=10)
     finally:
         connection.close()
 
@@ -82,6 +92,19 @@ def test_compute_shadow_drift_counts_each_category() -> None:
         "field_mismatch",
         "missing_in_legacy",
         "missing_in_personhog",
+    ]
+
+    assert property_drift.sampled_persons == 1
+    assert property_drift.key_drifts == [
+        PropertyKeyDrift(key="b", kind="value_differs", persons=1),
+        PropertyKeyDrift(key="legacy_key", kind="only_in_legacy", persons=1),
+        PropertyKeyDrift(key="personhog_key", kind="only_in_personhog", persons=1),
+    ]
+    assert property_drift.person_details == [
+        f"team={TEAM_ID} uuid={props_differ} differing_keys=3: "
+        "'b' value_differs legacy=number(1) personhog=number(1); "
+        "'legacy_key' only_in_legacy legacy=string(5) personhog=absent; "
+        "'personhog_key' only_in_personhog legacy=absent personhog=array(6)"
     ]
 
     distinct_ids = reports["distinct_ids"]
@@ -101,3 +124,59 @@ def test_compute_shadow_drift_counts_each_category() -> None:
     assert (hash_keys.legacy_total, hash_keys.personhog_total) == (2, 2)
     assert (hash_keys.missing_in_personhog, hash_keys.missing_in_legacy, hash_keys.mismatched_rows) == (0, 0, 1)
     assert hash_keys.samples == [f"team={TEAM_ID} person={matched} flag=flag-2 hash_key_mismatch"]
+
+
+def test_drift_gauges_keep_each_count_under_its_own_name_and_category() -> None:
+    reports = [
+        DriftCategoryReport(
+            category="persons",
+            legacy_total=90,
+            personhog_total=95,
+            missing_in_personhog=5,
+            missing_in_legacy=10,
+            mismatched_rows=10,
+            field_mismatches={"properties": 7, "version": 40},
+            samples=[],
+        ),
+        DriftCategoryReport(
+            category="distinct_ids",
+            legacy_total=3,
+            personhog_total=3,
+            missing_in_personhog=0,
+            missing_in_legacy=0,
+            mismatched_rows=0,
+            field_mismatches={"version": 0},
+            samples=[],
+        ),
+    ]
+    registry = CollectorRegistry()
+
+    record_drift_gauges(registry, "PERSONS_SHADOW_DB_URL", reports, completed_at=1_700_000_000.0)
+
+    def sample(name: str, **labels: str) -> float | None:
+        return registry.get_sample_value(
+            f"posthog_personhog_shadow_lane_drift_{name}", {"database": "PERSONS_SHADOW_DB_URL", **labels}
+        )
+
+    assert {
+        name: sample(name, category="persons")
+        for name in (
+            "legacy_rows",
+            "personhog_rows",
+            "missing_in_personhog_rows",
+            "missing_in_legacy_rows",
+            "mismatched_rows",
+            "ratio",
+        )
+    } == {
+        "legacy_rows": 90,
+        "personhog_rows": 95,
+        "missing_in_personhog_rows": 5,
+        "missing_in_legacy_rows": 10,
+        "mismatched_rows": 10,
+        "ratio": 0.25,
+    }
+    assert sample("field_mismatched_rows", category="persons", field="version") == 40
+    assert sample("field_mismatched_rows", category="persons", field="properties") == 7
+    assert sample("ratio", category="distinct_ids") == 0
+    assert sample("last_success_timestamp_seconds") == 1_700_000_000.0

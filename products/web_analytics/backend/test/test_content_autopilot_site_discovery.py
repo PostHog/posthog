@@ -196,6 +196,40 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
         self.assertEqual(result["source_urls"], ["https://example.com/sitemap.xml"])
         self.assertTrue(result["sitemap_detected"])
 
+    @parameterized.expand(
+        [
+            ("same_site", "https://www.example.com/sitemap-0.xml", ["https://example.com/docs"]),
+            ("other_site", "https://rival.example/sitemap.xml", []),
+        ]
+    )
+    @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
+    def test_follows_a_sitemap_redirect_only_within_the_site(
+        self, _name: str, redirect_target: str, expected: list[str], fetch_public_url: MagicMock
+    ) -> None:
+        def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:
+            if url == "https://example.com/sitemap.xml":
+                return _response(status=301, location=redirect_target)
+            return _response(body=b"<urlset><url><loc>https://example.com/docs</loc></url></urlset>")
+
+        fetch_public_url.side_effect = response_for
+
+        result = read_sitemap_urls(["https://example.com/sitemap.xml"], origin="https://example.com")
+
+        self.assertEqual(result, expected)
+
+    @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
+    def test_keeps_pages_on_a_custom_port_site(self, fetch_public_url: MagicMock) -> None:
+        fetch_public_url.return_value = _response(
+            body=b"""<urlset>
+                <url><loc>http://example.com:8080/docs</loc></url>
+                <url><loc>http://example.com/docs</loc></url>
+            </urlset>"""
+        )
+
+        result = read_sitemap_urls(["http://example.com:8080/sitemap.xml"], origin="http://example.com:8080")
+
+        self.assertEqual(result, ["http://example.com:8080/docs"])
+
     @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
     def test_reads_only_sitemaps_and_pages_on_the_site_host(self, fetch_public_url: MagicMock) -> None:
         index = b"""<sitemapindex>

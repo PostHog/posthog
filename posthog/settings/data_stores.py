@@ -667,6 +667,8 @@ HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS = get_list(
     get_from_env("HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS", "local-development-key" if DEBUG and not TEST else "")
 )
 
+MCP_SERVER_URL: str = get_from_env("MCP_SERVER_URL", "http://localhost:8787/mcp" if DEBUG and not TEST else "")
+
 # Definitions fleet, which serves remote_config (the eval fleet 404s it). Falls back until set per env.
 FEATURE_FLAGS_DEFINITIONS_SERVICE_URL = os.getenv("FEATURE_FLAGS_DEFINITIONS_SERVICE_URL", FEATURE_FLAGS_SERVICE_URL)
 

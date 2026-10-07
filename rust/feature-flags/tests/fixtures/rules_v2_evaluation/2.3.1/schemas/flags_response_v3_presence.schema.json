@@ -1,0 +1,690 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://posthog.com/contracts/feature_flag_rules_v2/flags_response_v3_presence.schema.json",
+  "title": "Additional v3 producer presence constraints",
+  "description": "Use together with flags_response_v3.schema.json. Map-key equality and recursive seed prohibition are separate checks.",
+  "allOf": [
+    {
+      "$ref": "https://posthog.com/contracts/feature_flag_rules_v2/flags_response_v3.schema.json"
+    },
+    {
+      "properties": {
+        "flags": {
+          "additionalProperties": {
+            "properties": {
+              "metadata": {
+                "if": {
+                  "required": [
+                    "experiment_id"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "has_experiment": {
+                      "const": true
+                    }
+                  }
+                }
+              }
+            },
+            "if": {
+              "properties": {
+                "metadata": {
+                  "properties": {
+                    "config_version": {
+                      "const": 2
+                    }
+                  }
+                }
+              }
+            },
+            "then": {
+              "oneOf": [
+                {
+                  "properties": {
+                    "reason": {
+                      "properties": {
+                        "code": {
+                          "const": "targeting_match"
+                        },
+                        "condition_index": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "required": [
+                        "has_experiment",
+                        "rule_type",
+                        "rule_id"
+                      ],
+                      "not": {
+                        "anyOf": [
+                          {
+                            "required": [
+                              "experiment_id"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "variant_key"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "holdout_id"
+                            ]
+                          }
+                        ]
+                      },
+                      "properties": {
+                        "rule_type": {
+                          "const": "targeted_release"
+                        }
+                      }
+                    },
+                    "value": {
+                      "type": [
+                        "boolean",
+                        "string",
+                        "number",
+                        "object"
+                      ]
+                    }
+                  },
+                  "not": {
+                    "required": [
+                      "failed"
+                    ]
+                  }
+                },
+                {
+                  "properties": {
+                    "reason": {
+                      "properties": {
+                        "code": {
+                          "const": "targeting_match"
+                        },
+                        "condition_index": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "required": [
+                        "has_experiment",
+                        "rule_type",
+                        "rule_id"
+                      ],
+                      "not": {
+                        "anyOf": [
+                          {
+                            "required": [
+                              "experiment_id"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "variant_key"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "holdout_id"
+                            ]
+                          }
+                        ]
+                      },
+                      "properties": {
+                        "rule_type": {
+                          "const": "percentage_rollout"
+                        }
+                      }
+                    },
+                    "value": {
+                      "type": [
+                        "boolean",
+                        "string",
+                        "number",
+                        "object"
+                      ]
+                    }
+                  },
+                  "not": {
+                    "required": [
+                      "failed"
+                    ]
+                  }
+                },
+                {
+                  "properties": {
+                    "reason": {
+                      "properties": {
+                        "code": {
+                          "const": "experiment_split"
+                        },
+                        "condition_index": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "required": [
+                        "has_experiment",
+                        "rule_type",
+                        "rule_id",
+                        "experiment_id",
+                        "variant_key"
+                      ],
+                      "not": {
+                        "anyOf": [
+                          {
+                            "required": [
+                              "holdout_id"
+                            ]
+                          }
+                        ]
+                      },
+                      "properties": {
+                        "rule_type": {
+                          "const": "experiment"
+                        }
+                      }
+                    },
+                    "value": {
+                      "type": [
+                        "boolean",
+                        "string",
+                        "number",
+                        "object"
+                      ]
+                    }
+                  },
+                  "not": {
+                    "required": [
+                      "failed"
+                    ]
+                  }
+                },
+                {
+                  "properties": {
+                    "reason": {
+                      "properties": {
+                        "code": {
+                          "const": "rollout_miss"
+                        },
+                        "condition_index": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "required": [
+                        "has_experiment",
+                        "rule_type",
+                        "rule_id"
+                      ],
+                      "not": {
+                        "anyOf": [
+                          {
+                            "required": [
+                              "experiment_id"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "variant_key"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "holdout_id"
+                            ]
+                          }
+                        ]
+                      },
+                      "properties": {
+                        "rule_type": {
+                          "const": "percentage_rollout"
+                        }
+                      }
+                    }
+                  },
+                  "not": {
+                    "required": [
+                      "failed"
+                    ]
+                  }
+                },
+                {
+                  "properties": {
+                    "reason": {
+                      "properties": {
+                        "code": {
+                          "const": "rollout_miss"
+                        },
+                        "condition_index": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "required": [
+                        "has_experiment",
+                        "rule_type",
+                        "rule_id",
+                        "experiment_id"
+                      ],
+                      "not": {
+                        "anyOf": [
+                          {
+                            "required": [
+                              "variant_key"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "holdout_id"
+                            ]
+                          }
+                        ]
+                      },
+                      "properties": {
+                        "rule_type": {
+                          "const": "experiment"
+                        }
+                      }
+                    }
+                  },
+                  "not": {
+                    "required": [
+                      "failed"
+                    ]
+                  }
+                },
+                {
+                  "properties": {
+                    "reason": {
+                      "properties": {
+                        "code": {
+                          "const": "experiment_paused"
+                        },
+                        "condition_index": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "required": [
+                        "has_experiment",
+                        "rule_type",
+                        "rule_id",
+                        "experiment_id"
+                      ],
+                      "not": {
+                        "anyOf": [
+                          {
+                            "required": [
+                              "variant_key"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "holdout_id"
+                            ]
+                          }
+                        ]
+                      },
+                      "properties": {
+                        "rule_type": {
+                          "const": "experiment"
+                        }
+                      }
+                    }
+                  },
+                  "not": {
+                    "required": [
+                      "failed"
+                    ]
+                  }
+                },
+                {
+                  "properties": {
+                    "reason": {
+                      "properties": {
+                        "code": {
+                          "const": "holdout"
+                        },
+                        "condition_index": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "required": [
+                        "has_experiment",
+                        "rule_type",
+                        "rule_id",
+                        "experiment_id",
+                        "holdout_id"
+                      ],
+                      "not": {
+                        "anyOf": [
+                          {
+                            "required": [
+                              "variant_key"
+                            ]
+                          }
+                        ]
+                      },
+                      "properties": {
+                        "rule_type": {
+                          "const": "experiment"
+                        }
+                      }
+                    }
+                  },
+                  "not": {
+                    "required": [
+                      "failed"
+                    ]
+                  }
+                },
+                {
+                  "properties": {
+                    "reason": {
+                      "properties": {
+                        "code": {
+                          "const": "no_rule_match"
+                        },
+                        "condition_index": {
+                          "type": "null"
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "required": [
+                        "has_experiment"
+                      ],
+                      "not": {
+                        "anyOf": [
+                          {
+                            "required": [
+                              "rule_type"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "rule_id"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "experiment_id"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "variant_key"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "holdout_id"
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "not": {
+                    "required": [
+                      "failed"
+                    ]
+                  }
+                },
+                {
+                  "properties": {
+                    "reason": {
+                      "properties": {
+                        "code": {
+                          "const": "missing_group_key"
+                        },
+                        "condition_index": {
+                          "type": "null"
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "required": [
+                        "has_experiment"
+                      ],
+                      "not": {
+                        "anyOf": [
+                          {
+                            "required": [
+                              "rule_type"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "rule_id"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "experiment_id"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "variant_key"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "holdout_id"
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "not": {
+                    "required": [
+                      "failed"
+                    ]
+                  }
+                },
+                {
+                  "properties": {
+                    "reason": {
+                      "properties": {
+                        "code": {
+                          "const": "dependency_error"
+                        },
+                        "condition_index": {
+                          "type": "null"
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "required": [
+                        "has_experiment"
+                      ],
+                      "not": {
+                        "anyOf": [
+                          {
+                            "required": [
+                              "rule_type"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "rule_id"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "experiment_id"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "variant_key"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "holdout_id"
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "failed"
+                  ]
+                },
+                {
+                  "properties": {
+                    "reason": {
+                      "properties": {
+                        "code": {
+                          "const": "error"
+                        },
+                        "condition_index": {
+                          "type": "null"
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "required": [
+                        "has_experiment"
+                      ],
+                      "not": {
+                        "anyOf": [
+                          {
+                            "required": [
+                              "rule_type"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "rule_id"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "experiment_id"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "variant_key"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "holdout_id"
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "failed"
+                  ]
+                }
+              ],
+              "properties": {
+                "value": {
+                  "minLength": 1
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "metadata": {
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "rule_type"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "rule_id"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "holdout_id"
+                        ]
+                      }
+                    ]
+                  },
+                  "properties": {
+                    "payload": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              },
+              "if": {
+                "not": {
+                  "required": [
+                    "failed"
+                  ]
+                }
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "type": [
+                      "boolean",
+                      "string"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "flags": {
+            "additionalProperties": {
+              "not": {
+                "required": [
+                  "failed"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "errorsWhileComputingFlags": {
+            "const": true
+          }
+        }
+      }
+    }
+  ]
+}

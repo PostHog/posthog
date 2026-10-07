@@ -48,7 +48,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
-from products.experiments.backend.metric_resolution import merge_saved_metric_breakdowns
+from products.experiments.backend.metric_resolution import find_metric_dict
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
@@ -624,6 +624,23 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["is_legacy"])
+
+    @parameterized.expand(
+        [
+            ("legacy_kind", {"kind": "ExperimentFunnelsQuery"}),
+            ("no_kind", {"metric_type": "mean", "source": {"kind": "EventsNode", "event": "$pageview"}}),
+            ("no_metric_type", {"kind": "ExperimentMetric", "source": {"kind": "EventsNode", "event": "$pageview"}}),
+        ]
+    )
+    def test_detail_serves_no_effective_query_for_a_query_outside_the_metric_union(
+        self, _name: str, saved_query: dict[str, Any]
+    ) -> None:
+        experiment, _ = self._create_experiment_with_action_metrics(0)
+        ExperimentSavedMetric.objects.filter(experimenttosavedmetric__experiment=experiment).update(query=saved_query)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["saved_metrics"][0]["effective_query"])
 
     @parameterized.expand(
         [
@@ -1242,22 +1259,36 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             {"id": holdout_2_id, "exclusion_percentage": 5},
         )
 
-    def test_saved_metric_fingerprint_is_stamped_from_the_merged_query(self):
+    @parameterized.expand(
+        [
+            ("event_source", False, True),
+            ("action_source_renamed_after_the_save", True, True),
+            ("limit_without_link_breakdowns", False, False),
+        ]
+    )
+    def test_saved_metric_fingerprint_is_stamped_from_the_merged_query(
+        self, _name: str, rename_action: bool, link_has_breakdowns: bool
+    ):
         """The stamped fingerprint tells the frontend which timeseries rows to read. It must be computed on
-        the saved query merged with the link-metadata breakdowns, the same dict the daily workflow files its
-        rows under, or the chart reads an empty series for a breakdown-configured saved metric."""
+        the saved query with the link overrides applied, the same dict the daily workflow files its rows
+        under, or the chart reads an empty series for an override-configured saved metric."""
+        breakdowns = [{"type": "event", "property": "$os_name"}] if link_has_breakdowns else []
+        action = Action.objects.create(team=self.team, name="Stored name", steps_json=[{"event": "$pageview"}])
+        source = (
+            {"kind": "ActionsNode", "id": action.id, "name": action.name}
+            if rename_action
+            else {"kind": "EventsNode", "event": "$pageview"}
+        )
         saved_metric_response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
             {
                 "name": "Breakdown saved metric",
-                "query": {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "mean",
-                    "source": {"kind": "EventsNode", "event": "$pageview"},
-                },
+                "query": {"kind": "ExperimentMetric", "metric_type": "mean", "source": source},
             },
         )
-        metadata = {"type": "primary", "breakdowns": [{"type": "event", "property": "$os_name"}]}
+        if rename_action:
+            Action.objects.filter(pk=action.pk).update(name="Current name")
+        metadata = {"type": "primary", "breakdowns": breakdowns, "breakdown_limit": 20}
         experiment_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
@@ -1272,7 +1303,20 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
 
         detail = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_response.json()['id']}/")
-        stamped = detail.json()["saved_metrics"][0]["query"]["fingerprint"]
+        served = detail.json()["saved_metrics"][0]
+        stamped = served["query"]["fingerprint"]
+        if rename_action:
+            self.assertEqual(served["query"]["source"]["name"], "Current name")
+        # The link limit applies only together with link breakdowns.
+        self.assertEqual(
+            served["effective_query"],
+            {
+                **served["query"],
+                "breakdownFilter": (
+                    {"breakdowns": breakdowns, "breakdown_limit": 20} if link_has_breakdowns else {"breakdowns": []}
+                ),
+            },
+        )
 
         experiment = Experiment.objects.get(pk=experiment_response.json()["id"])
         saved_query = experiment.saved_metrics.first().query  # type: ignore[union-attr]
@@ -1281,24 +1325,27 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             get_experiment_stats_method(experiment),
             experiment.exposure_criteria,
         )
+        effective_definition = find_metric_dict(experiment, saved_query["uuid"])
+        assert effective_definition is not None
         expected = compute_metric_fingerprint(
-            merge_saved_metric_breakdowns(saved_query, metadata),
+            effective_definition,
             *fingerprint_args,
             only_count_matured_users=experiment.only_count_matured_users,
             excluded_variants=experiment.excluded_variants or [],
         )
         self.assertEqual(stamped, expected)
-        # The raw query hashes differently when real breakdowns exist, so a stamp computed on it would
-        # point the chart at rows that do not exist.
-        self.assertNotEqual(
-            stamped,
-            compute_metric_fingerprint(
-                saved_query,
-                *fingerprint_args,
-                only_count_matured_users=experiment.only_count_matured_users,
-                excluded_variants=experiment.excluded_variants or [],
-            ),
-        )
+        if link_has_breakdowns:
+            # The raw query hashes differently when real breakdowns exist, so a stamp computed on it would
+            # point the chart at rows that do not exist.
+            self.assertNotEqual(
+                stamped,
+                compute_metric_fingerprint(
+                    saved_query,
+                    *fingerprint_args,
+                    only_count_matured_users=experiment.only_count_matured_users,
+                    excluded_variants=experiment.excluded_variants or [],
+                ),
+            )
 
     def test_saved_metrics(self):
         response = self.client.post(

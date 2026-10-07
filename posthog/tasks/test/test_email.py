@@ -60,7 +60,7 @@ from posthog.test.api_keys import create_project_secret_api_key
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.facade import testing as batch_exports_testing
-from products.batch_exports.backend.facade.contracts import BatchExportRunStatus, DestinationType
+from products.batch_exports.backend.facade.enums import BatchExportDestinationType, BatchExportRunStatus
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.data_modeling.backend.facade.api import mark_node_suspended, sync_saved_query_to_dag
@@ -71,7 +71,7 @@ def _create_failed_batch_export_run(team_id: int) -> tuple[uuid.UUID, uuid.UUID]
     batch_export_id = batch_exports_testing.create_batch_export(
         team_id,
         name="A batch export",
-        destination_type=DestinationType.AWS_S3,
+        destination_type=BatchExportDestinationType.AWS_S3,
         destination_config={"bucket_name": "my_production_s3_bucket"},
     )
     now = dt.datetime.now()
@@ -640,7 +640,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         on_demand_id = batch_exports_testing.create_batch_export_on_demand(
             self.team.pk,
-            destination_type=DestinationType.AWS_S3,
+            destination_type=BatchExportDestinationType.AWS_S3,
             destination_config={"bucket_name": "my_production_s3_bucket"},
         )
         now = dt.datetime.now()
@@ -2320,7 +2320,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Verify the href falls back to base URL with discussion panel
         assert mocked_email_messages[0].properties["href"] == f"{settings.SITE_URL}#panel=discussion"
 
-    @parameterized.expand(["task", "task_artifact", "desktop_canvas"])
+    @parameterized.expand(["task", "task_artifact", "canvas"])
     def test_send_discussions_mentioned_skips_desktop_comments(self, MockEmailMessage: MagicMock, scope: str) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         mentioned_user = User.objects.create_and_join(

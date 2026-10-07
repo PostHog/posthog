@@ -1,8 +1,13 @@
 """Twilio integration."""
 
+from typing import TYPE_CHECKING
+
 from rest_framework.exceptions import ValidationError
 
 from . import model
+
+if TYPE_CHECKING:
+    from products.workflows.backend.facade.contracts import TwilioPhoneNumber
 
 
 class TwilioIntegration:
@@ -15,7 +20,7 @@ class TwilioIntegration:
         self._account_sid = self.integration.config["account_sid"]
         self._auth_token = self.integration.sensitive_config["auth_token"]
 
-    def list_twilio_phone_numbers(self) -> list[dict]:
+    def list_twilio_phone_numbers(self) -> list["TwilioPhoneNumber"]:
         from products.workflows.backend.facade.api import (
             get_twilio_phone_numbers,  # noqa: PLC0415 — keeps the workflows facade off the model import path
         )

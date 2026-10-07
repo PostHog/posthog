@@ -79,9 +79,9 @@ import { visionScannersList } from 'products/replay_vision/frontend/generated/ap
 import type { ScannerTypeEnumApi } from 'products/replay_vision/frontend/generated/api.schemas'
 
 import type { ExperimentIdType } from '../../../types'
-import type { ExperimentSavedMetric } from '../experimentLogic'
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import {
+    type ExperimentSavedMetric,
     getExperimentVariants,
     getExposureLinkabilityEventName,
     getFunnelDropoffReason,
@@ -121,6 +121,8 @@ export interface LinkedScanner {
     name: string
     scannerType: ScannerTypeEnumApi
     observationsThisMonth: number
+    /** Saved off on a draft experiment; it turns on when the experiment launches. */
+    startsAtLaunch: boolean
 }
 
 /** One experiment metric offered in the recordings tab's "Metric events" dropdown. */
@@ -594,6 +596,7 @@ export interface experimentReplayTabLogicActions {
             name: string
             observationsThisMonth: number
             scannerType: ScannerTypeEnumApi
+            startsAtLaunch: boolean
         }[],
         payload?: unknown
     ) => {
@@ -602,6 +605,7 @@ export interface experimentReplayTabLogicActions {
             name: string
             observationsThisMonth: number
             scannerType: ScannerTypeEnumApi
+            startsAtLaunch: boolean
         }[]
         payload?: unknown
     }
@@ -1059,6 +1063,10 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                             name: scanner.name,
                             scannerType: scanner.scanner_type,
                             observationsThisMonth: scanner.observations_this_month,
+                            startsAtLaunch:
+                                !scanner.enabled &&
+                                (scanner.scanner_config as { start_on_launch?: boolean } | null)?.start_on_launch ===
+                                    true,
                         }))
                     } catch {
                         return []

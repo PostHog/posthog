@@ -97,6 +97,7 @@ DEPOT_JOB_ATTEMPTS_COLUMNS: dict[str, dict[str, str]] = {
             "repo",
             "ref",
             "head_sha",
+            "sha",
             "workflow_id",
             "workflow_name",
             "workflow_status",

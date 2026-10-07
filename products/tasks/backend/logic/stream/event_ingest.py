@@ -3,17 +3,18 @@ from __future__ import annotations
 import re
 import json
 import math
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal, cast
+from http import HTTPStatus
+from typing import BinaryIO, Literal, cast
 from uuid import NAMESPACE_URL, uuid5
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections
 
 import structlog
-from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync, sync_to_async
 from jwt import PyJWTError
 
 from posthog.ph_client import ph_scoped_capture
@@ -22,6 +23,12 @@ from products.tasks.backend.facade.api import signal_workflow_completion
 from products.tasks.backend.logic.services.connection_token import (
     SandboxEventIngestTokenPayload,
     validate_sandbox_event_ingest_token,
+)
+from products.tasks.backend.logic.services.process_killed import (
+    PROCESS_KILLED_EVENT,
+    ProcessKilledNotice,
+    parse_process_killed,
+    process_killed_event_uuid,
 )
 from products.tasks.backend.logic.stream.agent_events import is_agent_command_dispatched, is_agent_generation_event
 from products.tasks.backend.logic.stream.budget_steer import BudgetSteerCapture
@@ -32,7 +39,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunStreamSequenceGap,
     get_task_run_stream_key,
 )
-from products.tasks.backend.metrics import observe_stream_write_skipped
+from products.tasks.backend.metrics import observe_sandbox_process_killed, observe_stream_write_skipped
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.turn_completed import dispatch_turn_completed
 
@@ -57,12 +64,16 @@ STREAM_COMPLETE_CONTROL_TYPE = "_posthog/stream_complete"
 RTK_SAVINGS_SIDE_EFFECT = "rtk-savings"
 RTK_SAVINGS_CAPTURE_LOCK_SECONDS = 60
 BUDGET_STEER_SIDE_EFFECT = "budget-steer"
+PROCESS_KILLED_SIDE_EFFECT = "process-killed"
 BUDGET_STEER_STAGES = frozenset({"warn", "critical"})
 BUDGET_STEER_MODES = frozenset({"publish", "wrap_up"})
 
 ASGIMessage = dict[str, object]
 ASGIReceive = Callable[[], Awaitable[ASGIMessage]]
 ASGISend = Callable[[ASGIMessage], Awaitable[None]]
+WSGIStartResponse = Callable[[str, list[tuple[str, str]]], object]
+
+WSGI_READ_CHUNK_BYTES = 64 * 1024
 
 
 class ClientDisconnected(Exception):
@@ -185,6 +196,50 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
     return True
 
 
+def handle_task_run_event_ingest_wsgi(
+    environ: dict[str, object], start_response: WSGIStartResponse
+) -> Iterable[bytes] | None:
+    path = environ.get("PATH_INFO")
+    if not isinstance(path, str) or _match_event_ingest_route(path) is None:
+        return None
+
+    body_stream = cast(BinaryIO, environ["wsgi.input"])
+    sent: list[ASGIMessage] = []
+
+    async def receive() -> ASGIMessage:
+        chunk = body_stream.read(WSGI_READ_CHUNK_BYTES)
+        return {"type": "http.request", "body": chunk, "more_body": bool(chunk)}
+
+    async def send(message: ASGIMessage) -> None:
+        sent.append(message)
+
+    scope: ASGIMessage = {
+        "type": "http",
+        "method": environ.get("REQUEST_METHOD"),
+        "path": path,
+        "headers": [
+            (_wsgi_header_name(key).encode("latin-1"), value.encode("latin-1"))
+            for key, value in environ.items()
+            if isinstance(value, str) and (key.startswith("HTTP_") or key in ("CONTENT_TYPE", "CONTENT_LENGTH"))
+        ],
+    }
+    async_to_sync(handle_task_run_event_ingest)(scope, receive, send)
+    if not sent:
+        return []
+
+    status = cast(int, sent[0]["status"])
+    headers = [
+        (name.decode("latin-1"), value.decode("latin-1"))
+        for name, value in cast(list[tuple[bytes, bytes]], sent[0].get("headers", []))
+    ]
+    start_response(f"{status} {HTTPStatus(status).phrase}", headers)
+    return [cast(bytes, message.get("body", b"")) for message in sent[1:]]
+
+
+def _wsgi_header_name(environ_key: str) -> str:
+    return environ_key.removeprefix("HTTP_").replace("_", "-").lower()
+
+
 async def _ingest_event_lines(
     redis_stream: TaskRunRedisStream,
     claims: SandboxEventIngestTokenPayload,
@@ -214,11 +269,14 @@ async def _ingest_event_lines(
             event = parsed_line.event
             rtk_savings_properties = _parse_rtk_savings_properties(claims, event)
             budget_steer_properties = _parse_budget_steer_properties(claims, event)
+            process_killed = parse_process_killed(event)
             pending_side_effect = None
             if rtk_savings_properties is not None:
                 pending_side_effect = RTK_SAVINGS_SIDE_EFFECT
             elif budget_steer_properties is not None:
                 pending_side_effect = BUDGET_STEER_SIDE_EFFECT
+            elif process_killed is not None:
+                pending_side_effect = PROCESS_KILLED_SIDE_EFFECT
             write = await redis_stream.write_event_with_sequence(
                 event, sequence, pending_side_effect=pending_side_effect
             )
@@ -226,6 +284,7 @@ async def _ingest_event_lines(
             await _capture_budget_steer_if_needed(
                 redis_stream, claims, sequence, budget_steer_properties, event.get("timestamp")
             )
+            await _capture_process_killed_if_needed(redis_stream, claims, sequence, process_killed)
             if not write.accepted:
                 result.duplicate += 1
                 result.last_accepted_seq = max(result.last_accepted_seq, await redis_stream.get_last_sequence())
@@ -306,6 +365,47 @@ async def _capture_budget_steer_if_needed(
         logger.warning("task_run_budget_steer_capture_failed", run_id=claims.run_id, exc_info=True)
         return
     await redis_stream.complete_pending_side_effect(BUDGET_STEER_SIDE_EFFECT, sequence)
+
+
+async def _capture_process_killed_if_needed(
+    redis_stream: TaskRunRedisStream,
+    claims: SandboxEventIngestTokenPayload,
+    sequence: int,
+    notice: ProcessKilledNotice | None,
+) -> None:
+    if notice is None:
+        return
+    capture_claim = await redis_stream.claim_pending_side_effect(
+        PROCESS_KILLED_SIDE_EFFECT, sequence, RTK_SAVINGS_CAPTURE_LOCK_SECONDS
+    )
+    if not capture_claim:
+        return
+    event_uuid = process_killed_event_uuid(claims.run_id, sequence)
+    try:
+        captured = await sync_to_async(_capture_process_killed, thread_sensitive=True)(
+            claims.run_id, event_uuid, notice
+        )
+    except Exception:
+        captured = False
+    if not captured:
+        await redis_stream.release_pending_side_effect(PROCESS_KILLED_SIDE_EFFECT, sequence)
+        logger.warning("task_run_process_killed_capture_failed", run_id=claims.run_id)
+        return
+    await redis_stream.complete_pending_side_effect(PROCESS_KILLED_SIDE_EFFECT, sequence)
+    observe_sandbox_process_killed()
+
+
+def _capture_process_killed(run_id: str, event_uuid: str, notice: ProcessKilledNotice) -> bool:
+    if not settings.TEST:
+        close_old_connections()
+
+    try:
+        task_run = TaskRun.objects.select_related("task__created_by", "team").get(id=run_id)
+    except TaskRun.DoesNotExist:
+        logger.warning("task_run_event_ingest_process_killed_run_missing", run_id=run_id)
+        return True
+
+    return task_run.capture_event(PROCESS_KILLED_EVENT, notice.analytics_properties(), event_uuid=event_uuid)
 
 
 def _parse_budget_steer_properties(
@@ -507,8 +607,9 @@ async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id
             )
         return
 
-    if _is_session_update(event):
-        await redis_stream.set_agent_active(True)
+    activity_started = False
+    if _is_session_update(event) or is_agent_generation_event(event):
+        activity_started = not await redis_stream.set_agent_active(True)
         agent_active = True
     else:
         agent_active = await redis_stream.get_agent_active()
@@ -516,13 +617,13 @@ async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id
     if not agent_active:
         return
 
-    if not await redis_stream.claim_agent_active_heartbeat(HEARTBEAT_THROTTLE_SECONDS):
+    if not await redis_stream.claim_agent_active_heartbeat(HEARTBEAT_THROTTLE_SECONDS) and not activity_started:
         return
 
-    await sync_to_async(_heartbeat_workflow, thread_sensitive=True)(run_id, agent_active)
+    await sync_to_async(_heartbeat_workflow, thread_sensitive=True)(run_id, agent_active, force=activity_started)
 
 
-def _heartbeat_workflow(run_id: str, agent_active: bool) -> None:
+def _heartbeat_workflow(run_id: str, agent_active: bool, *, force: bool = False) -> None:
     # This runs on a sync_to_async thread that Django never health-checks (the ASGI wrapper
     # intercepts the request before Django's connection lifecycle runs), so a pooled connection
     # Postgres has since closed can be reused. Mirror push_dispatcher/custom_prompt_internals and
@@ -537,7 +638,7 @@ def _heartbeat_workflow(run_id: str, agent_active: bool) -> None:
         logger.warning("task_run_event_ingest_heartbeat_run_missing", run_id=run_id)
         return
 
-    task_run.heartbeat_workflow(agent_active=agent_active)
+    task_run.heartbeat_workflow(agent_active=agent_active, force=force)
 
 
 def _signal_agent_boot_milestone(

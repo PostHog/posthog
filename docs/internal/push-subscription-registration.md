@@ -7,7 +7,7 @@ configured does not generate a request per device per app open.
 
 A mobile SDK with push capture enabled posts its device token to `/api/push_subscriptions/` when the
 app starts. The server resolves the `app_id` to a Firebase or APNs integration on the team and stores
-the token as a `$device_push_subscription_<app_id>` person property.
+the token as a person property.
 
 `distinct_id`, `device_token` and `app_id` are required. SDKs also send a `platform` field, which the
 server ignores: nothing is stored or routed by it, and the provider is selected by `app_id`. A device
@@ -16,6 +16,23 @@ reject a registration over a field it does not use.
 
 Push is opt-in per project, and the SDK cannot see whether a project opted in. So an app that ships
 with push capture on registers against every project it reports to, configured or not.
+
+## Where a token is stored
+
+Each device holds its own person property, `$device_push_subscription_<app_id>:<digest>`, where the
+digest is the first 16 hex characters of the SHA-256 of the token. The digest comes from the token
+rather than from a device id supplied by the SDK, so a build already in the field lands on the right
+key without shipping a new one.
+
+`$device_push_subscription_<app_id>`, keyed on the app alone, is the earlier shape and holds a single
+device for the whole app. `POST` no longer writes it, and the send path still reads it, so a device
+stored that way stays reachable until it registers again and moves to a per-device key.
+
+`DELETE` unsets the key for the token in the request, and the app-wide key with it. A device cannot
+tell whether that key holds its own token, and a logout that left it would keep a signed-out device
+receiving notifications.
+
+One send addresses at most 20 devices for one person and one app, taken in key order.
 
 ## What the server does with an unconfigured `app_id`
 

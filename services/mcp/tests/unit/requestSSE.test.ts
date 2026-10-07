@@ -186,6 +186,7 @@ describe('ApiClient.requestSSE', () => {
         }
         const mockResponse = {
             ok: true,
+            headers: new Headers(),
             body: mockBody,
             text: vi.fn(),
         } as unknown as Response
@@ -229,6 +230,7 @@ describe('ApiClient.requestSSE', () => {
         }
         const mockResponse = {
             ok: true,
+            headers: new Headers(),
             body: mockBody,
             text: vi.fn(),
         } as unknown as Response

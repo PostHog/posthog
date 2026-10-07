@@ -37,7 +37,6 @@ from oauthlib.common import Request as OauthlibRequest
 from oauthlib.oauth2 import InvalidClientIdError, InvalidGrantError
 from redis.exceptions import RedisError
 from rest_framework import serializers, status
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -69,6 +68,7 @@ from posthog.api.oauth.metadata import (
     openid_provider_metadata,
     protected_resource_metadata,
 )
+from posthog.auth import SessionAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.helpers.oauth_pending_connection import (
     PendingOAuthConnection,
@@ -103,7 +103,7 @@ from posthog.utils import absolute_uri, get_instance_region, get_trusted_client_
 from posthog.views import login_required
 
 from products.access_control.backend.facade.api import user_organizations_use_access_controls
-from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
 
@@ -352,7 +352,7 @@ def _gateway_blocklist_block(
         return None
     organization_ids = _scoped_organization_ids(request.user, access_level, scoped_organization_ids, scoped_team_ids)
     try:
-        security_shadow_check(
+        refused = security_access_refused(
             SecuritySubject(
                 email=request.user.email,
                 user_uuid=str(request.user.uuid),
@@ -363,8 +363,9 @@ def _gateway_blocklist_block(
             call_site="oauth_authorize",
         )
     except Exception:
-        logger.exception("security_shadow_check_site_failed", call_site="oauth_authorize")
-    if not wizard_identity_blocked(
+        logger.exception("security_access_check_site_failed", call_site="oauth_authorize")
+        refused = False
+    if not refused and not wizard_identity_blocked(
         distinct_id=str(request.user.distinct_id),
         email=request.user.email,
         surface="oauth_authorize",

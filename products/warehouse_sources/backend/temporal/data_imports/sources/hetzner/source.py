@@ -23,11 +23,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.hetzner import (
     HetznerResumeConfig,
+    hetzner_child_source,
+    hetzner_metrics_source,
     hetzner_source,
     validate_credentials as validate_hetzner_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.settings import (
     ENDPOINTS,
+    HETZNER_CHILD_ENDPOINTS,
+    HETZNER_METRICS_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -99,11 +103,11 @@ Create a token under **Security > API tokens** in the [Hetzner Cloud Console](ht
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # The Hetzner Cloud API has no server-side timestamp filter on any list endpoint, so every
-        # table is full refresh only — no incremental, no append (append would re-append the whole
-        # list every run and materialize duplicates). INCREMENTAL_FIELDS is empty for every endpoint,
-        # so build_endpoint_schemas yields supports_incremental/supports_append=False for all.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # The Hetzner Cloud API has no server-side timestamp filter on any list endpoint, so those
+        # tables are full refresh only — no incremental, no append (append would re-append the whole
+        # list every run and materialize duplicates). Only the metrics tables take a time window.
+        # They are merge-only, because each run re-reads the latest sample, which append would duplicate.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=HETZNER_METRICS_ENDPOINTS.keys())
 
     def validate_credentials(
         self,
@@ -123,11 +127,26 @@ Create a token under **Security > API tokens** in the [Hetzner Cloud Console](ht
         resumable_source_manager: ResumableSourceManager[HetznerResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        if inputs.schema_name in HETZNER_METRICS_ENDPOINTS:
+            return hetzner_metrics_source(
+                api_token=config.api_token,
+                endpoint=inputs.schema_name,
+                resumable_source_manager=resumable_source_manager,
+                db_incremental_field_last_value=inputs.db_incremental_field_last_value
+                if inputs.should_use_incremental_field
+                else None,
+            )
+        if inputs.schema_name in HETZNER_CHILD_ENDPOINTS:
+            return hetzner_child_source(
+                api_token=config.api_token,
+                endpoint=inputs.schema_name,
+                resumable_source_manager=resumable_source_manager,
+            )
         return hetzner_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=None,  # every Hetzner endpoint is full refresh
+            db_incremental_field_last_value=None,  # every Hetzner list endpoint is full refresh
         )

@@ -22,13 +22,13 @@ from products.signals.backend.signal_metadata import (
     SignalSourceReference,
     fetch_origin_sources_for_report,
     fetch_signal_stats_for_source_slice,
+    fetch_signals_for_report_sync,
     fetch_source_products_for_reports,
     fetch_source_references_for_report,
 )
 from products.signals.backend.temporal.signal_queries import (
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
-    fetch_signals_for_report_sync,
 )
 
 _MODEL_TABLE = f"distributed_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"

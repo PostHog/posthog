@@ -2,7 +2,7 @@ import { Combobox } from '@base-ui/react/combobox'
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
 
-import { IconCheck, IconLetter, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
+import { IconCheck, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -14,14 +14,12 @@ import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
-import { pendingInvitesLogic, PendingInviteForCurrentUser } from './pendingInvitesLogic'
 import { ProjectFreshnessIndicator } from './ProjectFreshnessIndicator'
 import { ProjectName } from './ProjectMenu'
 
@@ -32,19 +30,13 @@ interface ProjectListItem {
     isCurrent: boolean
 }
 
-interface PendingInviteListItem {
-    type: 'pending-invite'
-    id: string
-    invite: PendingInviteForCurrentUser
-}
-
 interface CreateProjectItem {
     type: 'create'
     id: 'create-new-project'
     label: string
 }
 
-type ListItem = ProjectListItem | PendingInviteListItem | CreateProjectItem
+type ListItem = ProjectListItem | CreateProjectItem
 
 export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
@@ -52,7 +44,6 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
-    const { pendingInvites } = useValues(pendingInvitesLogic)
     const { closeProjectSwitcher, setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const [searchValue, setSearchValue] = useState('')
     const inputRef = useRef<HTMLInputElement>(null!)
@@ -74,16 +65,6 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
         return items
     }, [currentOrganization?.teams, currentTeam?.id])
 
-    const allPendingInviteItems: PendingInviteListItem[] = useMemo(
-        () =>
-            pendingInvites.map((invite) => ({
-                type: 'pending-invite' as const,
-                id: invite.id,
-                invite,
-            })),
-        [pendingInvites]
-    )
-
     const filteredItems = useMemo(() => {
         const searchLower = searchValue.trim().toLowerCase()
 
@@ -91,10 +72,6 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
         const filteredProjects = searchLower
             ? allProjectItems.filter((item) => item.team.name.toLowerCase().includes(searchLower))
             : allProjectItems
-
-        const filteredInvites = searchLower
-            ? allPendingInviteItems.filter((item) => item.invite.organization_name.toLowerCase().includes(searchLower))
-            : allPendingInviteItems
 
         // Create the "create" item - show different label based on search
         const createItem: CreateProjectItem = {
@@ -105,16 +82,13 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
             // label: searchValue.trim() ? `Create '${searchValue.trim()}'` : 'New project',
         }
 
-        return [...filteredProjects, ...filteredInvites, createItem] as ListItem[]
-    }, [allProjectItems, allPendingInviteItems, searchValue])
+        return [...filteredProjects, createItem] as ListItem[]
+    }, [allProjectItems, searchValue])
 
     const currentProject = filteredItems.find((p): p is ProjectListItem => p.type === 'project' && p.isCurrent)
     const otherProjects = filteredItems
         .filter((p): p is ProjectListItem => p.type === 'project' && !p.isCurrent)
         .sort((a, b) => a.team.name.localeCompare(b.team.name))
-    const pendingInviteItems = filteredItems
-        .filter((p): p is PendingInviteListItem => p.type === 'pending-invite')
-        .sort((a, b) => a.invite.organization_name.localeCompare(b.invite.organization_name))
     const createItem = filteredItems.find((p): p is CreateProjectItem => p.type === 'create')
 
     const canCreateProject = preflight?.can_create_org !== false && !projectCreationForbiddenReason
@@ -138,9 +112,6 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                     }
                 )
                 closeProjectSwitcher()
-            } else if (item.type === 'pending-invite') {
-                closeProjectSwitcher()
-                window.location.href = urls.inviteSignup(item.invite.id)
             } else if (!item.isCurrent) {
                 const targetUrl = getProjectSwitchTargetUrl(
                     location.pathname,
@@ -169,9 +140,6 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
         }
         if (item.type === 'create') {
             return item.label
-        }
-        if (item.type === 'pending-invite') {
-            return item.invite.organization_name
         }
         return item.team.name
     }, [])
@@ -286,39 +254,6 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                                     <IconBlank />
                                                     <ProjectName team={item.team} className="flex-1 min-w-0" />
                                                     <ProjectFreshnessIndicator teamId={item.team.id} />
-                                                </ButtonPrimitive>
-                                            )}
-                                        />
-                                    )}
-                                </Combobox.Collection>
-                            </Combobox.Group>
-                        )}
-
-                        {/* Pending Invitations */}
-                        {pendingInviteItems.length > 0 && (
-                            <Combobox.Group items={pendingInviteItems}>
-                                <Combobox.Collection>
-                                    {(item: PendingInviteListItem) => (
-                                        <Combobox.Item
-                                            key={item.id}
-                                            value={item}
-                                            onClick={() => handleItemClick(item)}
-                                            render={(props) => (
-                                                <ButtonPrimitive
-                                                    {...props}
-                                                    menuItem
-                                                    className="flex-1"
-                                                    tabIndex={-1}
-                                                    tooltip={`Accept pending invitation to ${item.invite.organization_name}`}
-                                                    tooltipPlacement="right"
-                                                >
-                                                    <IconLetter className="text-warning" />
-                                                    <span className="truncate flex-1">
-                                                        {item.invite.organization_name}
-                                                    </span>
-                                                    <span className="text-xxs text-tertiary shrink-0 ml-1">
-                                                        Pending invite
-                                                    </span>
                                                 </ButtonPrimitive>
                                             )}
                                         />
