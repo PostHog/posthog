@@ -27,16 +27,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.l
     HTTP_NOT_ALLOWED_ERROR,
     REPEATED_CURSOR_ERROR,
     RESPONSE_LIMIT_ERROR,
+    TABLE_NOT_IN_VERSION_ERROR,
     LangfuseResumeConfig,
     langfuse_source,
     validate_credentials as validate_langfuse_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.settings import (
     DEFAULT_VERSION,
-    ENDPOINTS,
     INCREMENTAL_FIELDS,
     LANGFUSE_API_VERSION_V1,
+    LANGFUSE_API_VERSION_V2,
+    LANGFUSE_LEGACY_SUNSET,
     SUPPORTED_VERSIONS,
+    endpoints_for_version,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -48,12 +51,14 @@ class LangfuseSource(ResumableSource[LangfuseSourceConfig, LangfuseResumeConfig]
 
     supported_versions = SUPPORTED_VERSIONS
     default_version = DEFAULT_VERSION
-    # Langfuse is retiring its v1 public read endpoints at the (undated) v4 cutover. The source
-    # already reads Langfuse's current route for every resource that has one, so both labels share
-    # one wire and v1-pinned rows keep working — v1 is deprecated advisory-only (no vendor sunset
-    # date). `traces`/`sessions` have no lossless v2 replacement (v2 returns observation rows, not
-    # trace/session objects), so their cutover is a documented manual migration, not an auto repin.
-    deprecated_versions = (VersionDeprecation(version=LANGFUSE_API_VERSION_V1),)
+    # v1 and v2 read the legacy `/traces` and `/sessions` routes, which Langfuse Cloud serves until
+    # the sunset date. Their replacement returns observation rows, not trace or session objects, so
+    # v3 drops both tables instead of reshaping them. Sources that sync either table need a manual
+    # move to v3.
+    deprecated_versions = (
+        VersionDeprecation(version=LANGFUSE_API_VERSION_V1, sunset_at=LANGFUSE_LEGACY_SUNSET),
+        VersionDeprecation(version=LANGFUSE_API_VERSION_V2, sunset_at=LANGFUSE_LEGACY_SUNSET),
+    )
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -124,6 +129,7 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
             # PAGE_LIMIT_ERROR is intentionally absent: it is retryable, so a huge sync resumes
             # from its checkpoint on the next attempt instead of failing permanently.
             REPEATED_CURSOR_ERROR: "The Langfuse host repeated a pagination cursor, so the sync was stopped to avoid looping. Check that the host points at a real Langfuse instance.",
+            TABLE_NOT_IN_VERSION_ERROR: "Langfuse retired the API for this table. Trace and session data is in the observations table: group its rows by traceId or sessionId.",
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -149,6 +155,7 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
+        # The table set differs by version, and discovery diffs run under the source pin.
         schemas = [
             SourceSchema(
                 name=endpoint,
@@ -156,7 +163,7 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
-            for endpoint in ENDPOINTS
+            for endpoint in endpoints_for_version(self.resolve_api_version(api_version))
         ]
         if names is not None:
             names_set = set(names)
@@ -181,6 +188,12 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
         resumable_source_manager: ResumableSourceManager[LangfuseResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        api_version = self.resolve_api_version(inputs.api_version)
+        if inputs.schema_name not in endpoints_for_version(api_version):
+            raise ValueError(
+                f"{TABLE_NOT_IN_VERSION_ERROR}: '{inputs.schema_name}' is not available on API version {api_version}"
+            )
+
         return langfuse_source(
             host=config.host,
             public_key=config.public_key,
