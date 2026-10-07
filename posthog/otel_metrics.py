@@ -172,10 +172,10 @@ class OtelInstrumentFactory:
         except Exception:
             pass
 
-    def record_gauge_twin(self, metric: PromGauge, value: float) -> None:
+    def record_gauge_twin(self, metric: PromGauge, value: float, attributes: dict[str, str] | None = None) -> None:
         try:
             meta = self._describe_twin(metric)
-            self.gauge(meta.name, description=meta.description).set(value)
+            self.gauge(meta.name, description=meta.description).set(value, attributes)
         except Exception:
             pass
 

@@ -4,6 +4,7 @@ SCHEDULE_ID = "replay-vision-gemini-cleanup-sweep-schedule"
 WORKFLOW_ID = "replay-vision-gemini-cleanup-sweep"
 WORKFLOW_NAME = "replay-vision-gemini-cleanup-sweep"
 SCHEDULE_TYPE = "replay-vision-gemini-cleanup-sweep"
+SCHEDULED_JOB_NAME = "gemini_cleanup_sweep"
 
 SCHEDULE_INTERVAL = timedelta(minutes=5)
 
@@ -18,6 +19,10 @@ SWEEP_MIN_AGE = timedelta(seconds=60)
 
 MAX_FILES_PER_SWEEP = 1500
 MGET_BATCH_SIZE = 200
+
+# The Files API caps a page at 100 files. The cap bounds a listing when files leak and pile up.
+STORAGE_LIST_PAGE_SIZE = 100
+MAX_STORAGE_LIST_FILES = 5000
 
 DESCRIBE_CONCURRENCY = 20
 DELETE_CONCURRENCY = 10

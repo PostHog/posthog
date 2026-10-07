@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from temporalio.client import ScheduleOverlapPolicy, WorkflowExecutionStatus
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from temporalio.exceptions import ApplicationError
@@ -566,6 +567,13 @@ async def test_reap_orphaned_observations_activity(org_team) -> None:
         assert statuses[key].completed_at is None, key
     # The fresh row never reaches Temporal; the empty-workflow-id row is reaped without a describe.
     assert set(temporal.described) == {"wf-gone-1", "wf-timed-out", "wf-open", "wf-err"}
+    # The backlog is measured before reaping, so it counts every row the setup left in flight.
+    for status in ("pending", "running"):
+        assert REGISTRY.get_sample_value("replay_vision_in_flight_observations", {"status": status}) == 3, status
+    oldest_pending = REGISTRY.get_sample_value(
+        "replay_vision_oldest_in_flight_observation_age_seconds", {"status": "pending"}
+    )
+    assert oldest_pending is not None and oldest_pending >= stale.total_seconds()
 
 
 def _make_inline_scanner(team: Team, *, key: str, age: dt.timedelta) -> ReplayScanner:

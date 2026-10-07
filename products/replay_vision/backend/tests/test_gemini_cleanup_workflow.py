@@ -25,6 +25,8 @@ async def test_workflow_returns_activity_result_as_dict():
             skipped_invalid_value=2,
             delete_failed=1,
             hit_max_files_cap=True,
+            storage_files=7,
+            storage_bytes=2048,
         )
 
     task_queue = str(uuid.uuid4())
@@ -52,4 +54,7 @@ async def test_workflow_returns_activity_result_as_dict():
         "skipped_invalid_value": 2,
         "delete_failed": 1,
         "hit_max_files_cap": True,
+        "storage_files": 7,
+        "storage_bytes": 2048,
+        "storage_listing_truncated": False,
     }

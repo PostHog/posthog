@@ -11,6 +11,7 @@ from products.replay_vision.backend.temporal.metrics import (
     record_estimate_outcome,
     record_failure_kind,
     record_gemini_cleanup_backlog,
+    record_gemini_cleanup_files,
     record_ineligible_kind,
     record_observation,
     record_observation_e2e,
@@ -106,6 +107,13 @@ class TestRecordHelpers(SimpleTestCase):
                 "replay_vision_observation_e2e_seconds_count",
                 {"scanner_type": "monitor"},
                 1.0,
+            ),
+            (
+                "gemini_cleanup_files",
+                lambda: record_gemini_cleanup_files("delete_failed", 4),
+                "replay_vision_gemini_cleanup_files_total",
+                {"result": "delete_failed"},
+                4.0,
             ),
             (
                 "side_effect_failure",

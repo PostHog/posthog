@@ -1,11 +1,14 @@
 import json
+import math
 import datetime as dt
 from dataclasses import dataclass
 
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from google.genai import types
 from google.genai.errors import APIError
+from prometheus_client import REGISTRY
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -57,6 +60,13 @@ class _StubFiles:
     def __init__(self) -> None:
         self.deleted: list[str] = []
         self.delete_raises_for: dict[str, BaseException] = {}
+        self.listed: list[types.File] = []
+        self.list_raises: BaseException | None = None
+
+    def list(self, *, config: dict) -> list[types.File]:
+        if self.list_raises is not None:
+            raise self.list_raises
+        return self.listed
 
     def delete(self, *, name: str) -> None:
         if name in self.delete_raises_for:
@@ -117,7 +127,7 @@ async def test_no_keys_returns_zeros(activity_environment, fixed_now, gemini_red
     p1, p2 = _patch_clients(raw, tmp)
     with p1, p2:
         result = await activity_environment.run(sweep_gemini_files_activity, CleanupSweepInputs())
-    assert result == CleanupSweepResult()
+    assert result == CleanupSweepResult(storage_files=0, storage_bytes=0)
     assert raw.files.deleted == []
 
 
@@ -333,3 +343,34 @@ async def test_mixed_cycle_aggregates_correctly(activity_environment, fixed_now,
     assert result.skipped_invalid_value == 1
     assert result.deleted == 2
     assert sorted(raw.files.deleted) == ["files/done", "files/orphan"]
+
+
+@pytest.mark.asyncio
+async def test_reports_storage_from_the_full_gemini_listing(activity_environment, fixed_now, gemini_redis):
+    raw, tmp = _StubRawClient(), _StubTemporal({})
+    raw.files.listed = [
+        types.File(name="files/tracked", size_bytes=300, create_time=_NOW - dt.timedelta(minutes=5)),
+        types.File(name="files/untracked", size_bytes=700, create_time=_NOW - dt.timedelta(hours=30)),
+        types.File(name="files/no-metadata"),
+    ]
+    p1, p2 = _patch_clients(raw, tmp)
+    with p1, p2:
+        result = await activity_environment.run(sweep_gemini_files_activity, CleanupSweepInputs())
+    assert (result.storage_files, result.storage_bytes, result.storage_listing_truncated) == (3, 1000, False)
+    assert REGISTRY.get_sample_value("replay_vision_gemini_storage_bytes") == 1000
+    assert REGISTRY.get_sample_value("replay_vision_gemini_oldest_file_age_seconds") == 30 * 3600
+
+
+@pytest.mark.asyncio
+async def test_storage_listing_failure_still_deletes_and_blanks_the_gauges(
+    activity_environment, fixed_now, gemini_redis
+):
+    await _track(gemini_redis, file_name="files/old", workflow_id="wf-1", age=SWEEP_MIN_AGE * 10)
+    raw, tmp = _StubRawClient(), _StubTemporal({"wf-1": _Outcome(status=WorkflowExecutionStatus.COMPLETED)})
+    raw.files.list_raises = RuntimeError("simulated")
+    p1, p2 = _patch_clients(raw, tmp)
+    with p1, p2:
+        result = await activity_environment.run(sweep_gemini_files_activity, CleanupSweepInputs())
+    assert result.deleted == 1
+    assert result.storage_files is None
+    assert math.isnan(REGISTRY.get_sample_value("replay_vision_gemini_storage_bytes") or 0.0)

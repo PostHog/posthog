@@ -16,6 +16,9 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants impo
     DELETE_CONCURRENCY,
     DESCRIBE_CONCURRENCY,
     MAX_FILES_PER_SWEEP,
+    MAX_STORAGE_LIST_FILES,
+    SCHEDULED_JOB_NAME,
+    STORAGE_LIST_PAGE_SIZE,
     SWEEP_MIN_AGE,
 )
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.tracking import (
@@ -26,9 +29,15 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep.tracking impor
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.types import (
     CleanupSweepInputs,
     CleanupSweepResult,
+    GeminiStorageUsage,
     TrackedFile,
 )
-from products.replay_vision.backend.temporal.metrics import record_gemini_cleanup_backlog
+from products.replay_vision.backend.temporal.metrics import (
+    record_gemini_cleanup_backlog,
+    record_gemini_cleanup_files,
+    record_gemini_storage,
+    record_scheduled_job_run,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -132,7 +141,18 @@ async def _sweep_gemini_files(inputs: CleanupSweepInputs) -> CleanupSweepResult:
     deleted = sum(1 for r in delete_results if r)
     delete_failed = sum(1 for r in delete_results if not r)
 
-    result = base_result.model_copy(update={"deleted": deleted, "delete_failed": delete_failed})
+    storage = await _measure_storage(raw_client)
+
+    result = base_result.model_copy(
+        update={
+            "deleted": deleted,
+            "delete_failed": delete_failed,
+            "storage_files": storage.files if storage else None,
+            "storage_bytes": storage.total_bytes if storage else None,
+            "storage_listing_truncated": storage.truncated if storage else False,
+        }
+    )
+    _record_sweep_metrics(result, storage)
     logger.info(
         "replay_vision.cleanup_sweep.cycle_complete",
         scanned=result.scanned,
@@ -143,6 +163,69 @@ async def _sweep_gemini_files(inputs: CleanupSweepInputs) -> CleanupSweepResult:
         skipped_temporal_error=result.skipped_temporal_error,
         delete_failed=result.delete_failed,
         hit_max_files_cap=result.hit_max_files_cap,
+        storage_files=result.storage_files,
+        storage_bytes=result.storage_bytes,
+        storage_listing_truncated=result.storage_listing_truncated,
         signals_type="cleanup-sweep",
     )
     return result
+
+
+def _list_storage(raw_client: RawGenAIClient) -> GeminiStorageUsage:
+    files = 0
+    total_bytes = 0
+    oldest_created_at: datetime | None = None
+    for file in raw_client.files.list(config={"page_size": STORAGE_LIST_PAGE_SIZE}):
+        files += 1
+        total_bytes += file.size_bytes or 0
+        if file.create_time and (oldest_created_at is None or file.create_time < oldest_created_at):
+            oldest_created_at = file.create_time
+        if files >= MAX_STORAGE_LIST_FILES:
+            break
+    return GeminiStorageUsage(
+        files=files,
+        total_bytes=total_bytes,
+        oldest_created_at=oldest_created_at,
+        truncated=files >= MAX_STORAGE_LIST_FILES,
+    )
+
+
+async def _measure_storage(raw_client: RawGenAIClient) -> GeminiStorageUsage | None:
+    """Lists every file in the Gemini project, which is what counts against its storage quota.
+
+    The Redis index only knows files whose tracking write succeeded, so this listing also sees the files
+    the sweep can never reach. A failed listing returns None and never fails the sweep.
+    """
+    try:
+        storage = await asyncio.to_thread(_list_storage, raw_client)
+    except Exception:
+        logger.exception("replay_vision.cleanup_sweep.storage_list_failed", signals_type="cleanup-sweep")
+        return None
+    activity.heartbeat({"phase": "storage_listed", "files": storage.files})
+    if storage.truncated:
+        logger.warning(
+            "replay_vision.cleanup_sweep.storage_list_truncated",
+            max_files=MAX_STORAGE_LIST_FILES,
+            signals_type="cleanup-sweep",
+        )
+    return storage
+
+
+def _record_sweep_metrics(result: CleanupSweepResult, storage: GeminiStorageUsage | None) -> None:
+    for name, count in (
+        ("deleted", result.deleted),
+        ("delete_failed", result.delete_failed),
+        ("skipped_running", result.skipped_running),
+        ("skipped_too_young", result.skipped_too_young),
+        ("skipped_temporal_error", result.skipped_temporal_error),
+        ("skipped_invalid_value", result.skipped_invalid_value),
+    ):
+        record_gemini_cleanup_files(name, count)
+    if storage is None:
+        record_gemini_storage(None, None, None)
+    else:
+        oldest_age = (
+            (datetime.now(UTC) - storage.oldest_created_at).total_seconds() if storage.oldest_created_at else 0.0
+        )
+        record_gemini_storage(storage.files, storage.total_bytes, oldest_age)
+    record_scheduled_job_run(SCHEDULED_JOB_NAME)

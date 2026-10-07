@@ -8,6 +8,9 @@ The twin derives its name and description from the prom instrument, and its reco
 is swallowed so telemetry can never fail an activity.
 """
 
+import math
+import time
+
 from prometheus_client import Counter, Gauge, Histogram
 
 from posthog.otel_metrics import OtelInstrumentFactory
@@ -204,6 +207,48 @@ REPLAY_VISION_GEMINI_CLEANUP_BACKLOG = Gauge(
     "Tracked Gemini files awaiting cleanup (a growing backlog means the sweep is losing)",
 )
 
+# Any worker pod can run a singleton schedule, and each pod keeps exporting the gauge values from its own
+# last run. Dashboards join a singleton's gauges to the pod with the newest timestamp here.
+REPLAY_VISION_SCHEDULED_JOB_LAST_RUN = Gauge(
+    "replay_vision_scheduled_job_last_run_timestamp_seconds",
+    "Unix time a singleton scheduled job last finished reporting its gauges",
+    ["job"],
+)
+
+REPLAY_VISION_GEMINI_CLEANUP_FILES = Counter(
+    "replay_vision_gemini_cleanup_files_total",
+    "Tracked Gemini files the cleanup sweep looked at, by result",
+    ["result"],
+)
+
+REPLAY_VISION_GEMINI_STORAGE_FILES = Gauge(
+    "replay_vision_gemini_storage_files",
+    "Files in the Gemini project from a full Files API listing, including files the Redis index lost; "
+    "NaN when the listing failed, and a flat line at the listing cap means the real count is higher",
+)
+
+REPLAY_VISION_GEMINI_STORAGE_BYTES = Gauge(
+    "replay_vision_gemini_storage_bytes",
+    "Bytes the listed Gemini files hold against the project's Files API storage quota",
+)
+
+REPLAY_VISION_GEMINI_OLDEST_FILE_AGE = Gauge(
+    "replay_vision_gemini_oldest_file_age_seconds",
+    "Age of the oldest listed Gemini file; a file older than any scan's run time is one cleanup missed",
+)
+
+REPLAY_VISION_IN_FLIGHT_OBSERVATIONS = Gauge(
+    "replay_vision_in_flight_observations",
+    "Observations not yet terminal, by status",
+    ["status"],
+)
+
+REPLAY_VISION_OLDEST_IN_FLIGHT_AGE = Gauge(
+    "replay_vision_oldest_in_flight_observation_age_seconds",
+    "Time since the oldest not-yet-terminal observation was created, by status; 0 when there is none",
+    ["status"],
+)
+
 
 REPLAY_VISION_SEARCH_RERANK = Counter(
     "replay_vision_search_rerank_total",
@@ -362,6 +407,39 @@ def record_enqueue_claim_failure(operation: str) -> None:
 def record_gemini_cleanup_backlog(count: int) -> None:
     REPLAY_VISION_GEMINI_CLEANUP_BACKLOG.set(count)
     _otel.record_gauge_twin(REPLAY_VISION_GEMINI_CLEANUP_BACKLOG, count)
+
+
+def record_scheduled_job_run(job: str) -> None:
+    now = time.time()
+    REPLAY_VISION_SCHEDULED_JOB_LAST_RUN.labels(job=job).set(now)
+    _otel.record_gauge_twin(REPLAY_VISION_SCHEDULED_JOB_LAST_RUN, now, {"job": job})
+
+
+def record_gemini_cleanup_files(result: str, count: int) -> None:
+    if count <= 0:
+        return
+    REPLAY_VISION_GEMINI_CLEANUP_FILES.labels(result=result).inc(count)
+    _otel.record_counter_twin(REPLAY_VISION_GEMINI_CLEANUP_FILES, count, {"result": result})
+
+
+def record_gemini_storage(files: int | None, total_bytes: int | None, oldest_age_seconds: float | None) -> None:
+    """Pass None for every field when the listing failed, so the gauges read NaN instead of the last good value."""
+    for gauge, value in (
+        (REPLAY_VISION_GEMINI_STORAGE_FILES, files),
+        (REPLAY_VISION_GEMINI_STORAGE_BYTES, total_bytes),
+        (REPLAY_VISION_GEMINI_OLDEST_FILE_AGE, oldest_age_seconds),
+    ):
+        reading = math.nan if value is None else float(value)
+        gauge.set(reading)
+        _otel.record_gauge_twin(gauge, reading)
+
+
+def record_in_flight_observations(status: str, count: int, oldest_age_seconds: float) -> None:
+    labels = {"status": status}
+    REPLAY_VISION_IN_FLIGHT_OBSERVATIONS.labels(**labels).set(count)
+    _otel.record_gauge_twin(REPLAY_VISION_IN_FLIGHT_OBSERVATIONS, count, labels)
+    REPLAY_VISION_OLDEST_IN_FLIGHT_AGE.labels(**labels).set(oldest_age_seconds)
+    _otel.record_gauge_twin(REPLAY_VISION_OLDEST_IN_FLIGHT_AGE, oldest_age_seconds, labels)
 
 
 def record_search_rerank(outcome: str, seconds: float) -> None:
