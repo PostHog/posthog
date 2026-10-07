@@ -6,7 +6,6 @@ import { useEffect } from 'react'
 
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { userLogic } from 'scenes/userLogic'
 
@@ -32,24 +31,34 @@ function MobileProjectCreation({ projectLimit }: { projectLimit: number }): JSX.
         },
     })
     const { isCreateProjectModalShown } = useValues(globalModalsLogic)
-    const { user } = useValues(userLogic)
-    const { preflight: loadedPreflight } = useValues(preflightLogic)
+    const { user, userLoading } = useValues(userLogic)
+    const { preflight: loadedPreflight, preflightLoading } = useValues(preflightLogic)
     const { loadUserSuccess } = useActions(userLogic)
-    const { loadCurrentOrganizationSuccess } = useActions(organizationLogic)
     const { hideCreateProjectModal } = useActions(globalModalsLogic)
     const { loadPreflightSuccess } = useActions(preflightLogic)
     useEffect(() => {
-        loadUserSuccess({ ...MOCK_DEFAULT_USER, organization, pending_invites: [] })
-        loadCurrentOrganizationSuccess(organization)
-        loadPreflightSuccess({
-            ...preflight,
-            cloud: true,
-            can_create_org: true,
-            slack_service: { available: false },
-            data_warehouse_integrations: { hubspot: {}, salesforce: {} },
-            wizard_cloud_run_available: false,
-        } as PreflightStatus)
-    }, [loadPreflightSuccess, loadUserSuccess, loadCurrentOrganizationSuccess, projectLimit])
+        if (
+            user &&
+            !userLoading &&
+            !user.organization?.available_product_features?.some(
+                (feature) => feature.key === AvailableFeature.ORGANIZATIONS_PROJECTS && feature.limit === projectLimit
+            )
+        ) {
+            loadUserSuccess({ ...MOCK_DEFAULT_USER, organization, pending_invites: [] })
+        }
+    }, [loadUserSuccess, user, userLoading, projectLimit])
+    useEffect(() => {
+        if (loadedPreflight && !preflightLoading && !loadedPreflight.can_create_org) {
+            loadPreflightSuccess({
+                ...preflight,
+                cloud: true,
+                can_create_org: true,
+                slack_service: { available: false },
+                data_warehouse_integrations: { hubspot: {}, salesforce: {} },
+                wizard_cloud_run_available: false,
+            } as PreflightStatus)
+        }
+    }, [loadPreflightSuccess, loadedPreflight, preflightLoading])
     return (
         <>
             {loadedPreflight?.cloud &&
