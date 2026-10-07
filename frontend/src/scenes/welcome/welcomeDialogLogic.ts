@@ -135,8 +135,8 @@ export interface welcomeDialogLogicActions {
         membershipKey: string,
         closedAt: number
     ) => {
-        membershipKey: string
         closedAt: number
+        membershipKey: string
     }
     markDismissed: (membershipKey: string) => {
         membershipKey: string
