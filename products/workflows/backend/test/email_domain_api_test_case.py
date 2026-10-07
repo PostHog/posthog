@@ -35,6 +35,12 @@ class EmailDomainApiTestCase(APIBaseTest):
             patch("posthog.models.integration.email.reload_integrations_on_workers")
         )
         self.report_user_action = self.enterContext(patch("posthog.api.integration.report_user_action"))
+        self.feature_flags = self.enterContext(
+            patch(
+                "posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == "workflows-email-domain-wizard",
+            )
+        )
 
     def create_sender(self, email: str, *, team: Team | None = None) -> int:
         response = self.client.post(
