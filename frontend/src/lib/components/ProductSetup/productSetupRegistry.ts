@@ -650,7 +650,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 {
                     id: SetupTaskId.SendWorkflowTestEmail,
                     title: 'Send yourself a test email',
-                    description: 'Pick a template and send its first email to your own inbox.',
+                    description: 'Send a test email from a template, broadcast, or workflow email step.',
                     taskType: 'onboarding',
                     getUrl: () => urls.workflows(),
                     targetSelector: '[data-attr="first-run-recommended-template"]',

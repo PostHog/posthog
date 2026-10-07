@@ -28,6 +28,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AccessControlResourceType, UserType } from '~/types'
 
+import { completeTestEmailSetupTask } from '../completeTestEmailSetupTask'
 import { hogFlowsCreate } from '../generated/api'
 import type { HogFlowApi } from '../generated/api.schemas'
 import { findTestSendSkipReason } from '../Workflows/hogflows/findTestSendSkipReason'
@@ -422,9 +423,7 @@ export const firstRunMakeItYoursLogic: LogicWrapper<firstRunMakeItYoursLogicType
             if (outcome?.kind === 'sent' || outcome?.kind === 'skipped') {
                 posthog.capture('workflows first run test sent', { skipped: outcome.kind === 'skipped' })
             }
-            if (outcome?.kind === 'sent') {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SendWorkflowTestEmail)
-            }
+            completeTestEmailSetupTask(values.testSendResult)
         },
     })),
 ])

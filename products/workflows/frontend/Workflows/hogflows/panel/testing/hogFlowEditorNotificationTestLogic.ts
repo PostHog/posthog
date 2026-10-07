@@ -14,9 +14,10 @@ import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { CyclotronJobInvocationGlobals, FilterLogicalOperator, PersonType, PropertyFilterType } from '~/types'
 
+import { completeTestEmailSetupTask } from '../../../../completeTestEmailSetupTask'
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
-import { HogflowTestResult } from '../../steps/types'
+import { HogflowTestResult, isEmailAction } from '../../steps/types'
 import { createExampleEvent } from '../../testEventFactory'
 import type { HogFlow } from '../../types'
 import { createGlobalsFromResponse } from './hogFlowEditorTestLogic'
@@ -350,6 +351,9 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             submit: async (testInvocation: HogflowTestInvocation) => {
                 try {
                     const parsedGlobals = JSON.parse(testInvocation.globals)
+                    const testedAction = values.workflowSanitized.actions.find(
+                        (action) => action.id === values.selectedNodeId
+                    )
 
                     // Use emailAddressOverride if set, otherwise fall back to sampleGlobals person email
                     const emailToUse = values.emailAddressOverride ?? values.sampleGlobals?.person?.properties?.email
@@ -388,6 +392,9 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                         })),
                     }
 
+                    if (!testInvocation.mock_async_functions && testedAction && isEmailAction(testedAction)) {
+                        completeTestEmailSetupTask(result)
+                    }
                     actions.setTestResult(result)
                     const nextActionId = result.nextActionId
                     if (nextActionId && nextActionId !== values.selectedNodeId) {

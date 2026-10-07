@@ -9,6 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { UserType } from '~/types'
 
+import { completeTestEmailSetupTask } from '../completeTestEmailSetupTask'
 import type { HogFlowApi } from '../generated/api.schemas'
 import { findTestSendSkipReason } from '../Workflows/hogflows/findTestSendSkipReason'
 import { HogflowTestResult } from '../Workflows/hogflows/steps/types'
@@ -258,6 +259,7 @@ export const broadcastTestSendLogic = kea<broadcastTestSendLogicType>([
             }
         },
         sendTestEmailSuccess: ({ testSendResult }) => {
+            completeTestEmailSetupTask(testSendResult)
             // A declined send finishes the step cleanly, so check the reason before the status.
             if (values.testSendSkipReason) {
                 lemonToast.warning('Nothing was sent, see why below')

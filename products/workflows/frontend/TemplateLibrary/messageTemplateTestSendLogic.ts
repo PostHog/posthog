@@ -10,6 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { IntegrationType, UserType } from '~/types'
 
+import { completeTestEmailSetupTask } from '../completeTestEmailSetupTask'
 import { HogflowTestResult } from '../Workflows/hogflows/steps/types'
 import { createExampleEvent } from '../Workflows/hogflows/testEventFactory'
 import type { HogFlow, HogFlowAction, HogFlowEdge } from '../Workflows/hogflows/types'
@@ -247,6 +248,7 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
             }
         },
         sendTestEmailSuccess: ({ testSendResult }) => {
+            completeTestEmailSetupTask(testSendResult)
             if (testSendResult.status === 'success') {
                 lemonToast.success(`Test email sent to ${values.recipientEmail}`)
                 actions.setModalOpen(false)
