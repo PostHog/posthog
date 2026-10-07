@@ -3,6 +3,7 @@ import threading
 import contextvars
 
 import pytest
+from unittest.mock import patch
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.abandonable_iterate import (
     AbandonableSourcePuller,
@@ -51,12 +52,13 @@ async def test_stopping_a_sync_source_waits_for_its_pull_and_closes_on_the_daemo
     pull = puller.pull()
     await asyncio.to_thread(blocked.wait, 5)
 
-    stopping = asyncio.create_task(puller.stop())
-    await asyncio.sleep(0)
-    assert not stopping.done()
+    with patch.object(asyncio, "to_thread", side_effect=AssertionError("stop used the shared executor")):
+        stopping = asyncio.create_task(puller.stop())
+        await asyncio.sleep(0)
+        assert not stopping.done()
 
-    release.set()
-    await stopping
+        release.set()
+        await stopping
 
     assert await asyncio.to_thread(closed.wait, 5)
     await asyncio.to_thread(thread[0].join, 5)
