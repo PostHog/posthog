@@ -1,4 +1,7 @@
 import uuid
+import asyncio
+import functools
+import threading
 import contextlib
 import dataclasses
 from datetime import UTC, datetime, timedelta
@@ -37,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core imp
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
+from products.warehouse_sources.backend.temporal.data_imports.retry_limits import PROGRESSLESS_RESUMABLE_ATTEMPTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     SimpleSource,
     SourceExtractionNotImplementedError,
@@ -74,11 +78,13 @@ class _FakeAsyncCM:
         pass
 
 
-def _passthrough(fn):
-    """Stand-in for database_sync_to_async_pool that just calls the wrapped fn."""
+def _passthrough(fn, *, executor=None):
+    """Stand-in for database_sync_to_async_pool that honors an explicitly selected executor."""
 
     async def _inner(*args, **kwargs):
-        return fn(*args, **kwargs)
+        if executor is None:
+            return fn(*args, **kwargs)
+        return await asyncio.get_running_loop().run_in_executor(executor, functools.partial(fn, *args, **kwargs))
 
     return _inner
 
@@ -978,6 +984,20 @@ def _inputs_no_reset() -> ImportDataActivityInputs:
 
 
 @pytest.mark.asyncio
+async def test_source_setup_uses_a_dedicated_executor():
+    thread_names: list[str] = []
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.side_effect = lambda *_args: thread_names.append(threading.current_thread().name)
+    schema = _incremental_schema(is_incremental=False, lookback_seconds=None)
+
+    with _patched_activity_reaching_run(source, schema):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    assert thread_names[0].startswith("warehouse-source-setup")
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "is_incremental,expected_last_value,expected_before_lookback",
     [
@@ -1244,6 +1264,7 @@ def _probe_model() -> mock.MagicMock:
 def _probe_schema() -> mock.MagicMock:
     schema = mock.MagicMock()
     schema.id = uuid.uuid4()
+    schema.sync_type = ExternalDataSchema.SyncType.FULL_REFRESH
     schema.should_use_incremental_field = False
     schema.is_incremental = False
     schema.sync_type_config = {}
@@ -1647,3 +1668,105 @@ async def test_a_free_handoff_is_a_result_and_any_other_handoff_is_a_retry(hando
         else:
             with pytest.raises(WorkerShuttingDownError):
                 await import_data_activity_sync(inputs)
+
+
+@parameterized.expand(
+    [
+        ("no_checkpoint_past_the_allowance", True, PROGRESSLESS_RESUMABLE_ATTEMPTS + 1, False, True),
+        ("checkpoint_past_the_allowance", True, PROGRESSLESS_RESUMABLE_ATTEMPTS + 1, True, False),
+        ("no_checkpoint_inside_the_allowance", True, PROGRESSLESS_RESUMABLE_ATTEMPTS, False, False),
+        ("first_attempt", True, 1, False, False),
+        # A smaller cap was chosen knowing each attempt restarts, so it stands.
+        ("not_on_the_resumable_cap", False, PROGRESSLESS_RESUMABLE_ATTEMPTS + 5, False, False),
+    ]
+)
+def test_the_progressless_stand_down_needs_a_spent_resumable_cap(
+    _name: str, on_resumable_cap: bool, attempt: int, can_resume: bool, expected: bool
+):
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = can_resume
+
+    with mock.patch.object(module, "current_import_attempt", return_value=attempt):
+        assert module._spent_resumable_cap_without_resuming(manager, on_resumable_cap) is expected
+
+
+def test_a_source_with_no_resumable_manager_never_stands_down():
+    with mock.patch.object(module, "current_import_attempt", return_value=PROGRESSLESS_RESUMABLE_ATTEMPTS + 5):
+        assert module._spent_resumable_cap_without_resuming(None, True) is False
+
+
+def test_an_unreadable_checkpoint_keeps_the_run_retrying():
+    # A Redis blip must not end a run's retries, or one unavailable dependency of ours fails syncs.
+    manager = mock.MagicMock()
+    manager.can_resume.side_effect = redis_exceptions.ConnectionError("redis is down")
+
+    with mock.patch.object(module, "current_import_attempt", return_value=PROGRESSLESS_RESUMABLE_ATTEMPTS + 5):
+        assert module._spent_resumable_cap_without_resuming(manager, True) is False
+
+
+@pytest.mark.asyncio
+async def test_a_spent_progressless_cap_stops_retrying_but_keeps_the_real_error():
+    # The finalizer classifies `internal_error` to pick the customer-facing message, so losing the
+    # cause here would replace a connection failure with this decision.
+    error = Exception('connection to server at "10.0.0.1", port 5432 failed: server closed the connection unexpectedly')
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = {"server closed the connection unexpectedly"}
+
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+
+    logger = mock.MagicMock()
+    logger.ainfo = mock.AsyncMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "current_import_attempt", return_value=PROGRESSLESS_RESUMABLE_ATTEMPTS + 1),
+    ):
+        with pytest.raises(NonRetryableException) as exc_info:
+            await module._handle_import_error(
+                mock.MagicMock(),
+                logger,
+                error,
+                resumable_source_manager=manager,
+                on_resumable_retry_budget=True,
+            )
+
+    assert exc_info.value.__cause__ is error
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_non_retryable_error_keeps_its_own_give_up_path():
+    # The source's own policy disables the schema and shows its own message, so the stand-down
+    # must not pre-empt it and turn an actionable credential error into a bare failure.
+    error = Exception("password authentication failed for user")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {"password authentication failed": "Check your password."}
+    source.get_retryable_errors.return_value = set()
+
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+
+    logger = mock.MagicMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "current_import_attempt", return_value=PROGRESSLESS_RESUMABLE_ATTEMPTS + 1),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(
+                mock.MagicMock(),
+                logger,
+                error,
+                resumable_source_manager=manager,
+                on_resumable_retry_budget=True,
+            )
+
+    handle_mock.assert_awaited_once()

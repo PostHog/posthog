@@ -61,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     capture_repartition_event,
     maybe_flag_for_repartition,
     needs_pre_extraction_detection,
+    pre_extraction_measurement_is_redundant,
     target_partition_bytes,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
@@ -202,6 +203,18 @@ def _target_from_schema(schema: ExternalDataSchema) -> RepartitionTarget:
         partition_count=schema.partition_count,
         partition_size=schema.partition_size,
     )
+
+
+def _measurement_is_redundant(schema: ExternalDataSchema, job: ExternalDataJob, logger: FilteringBoundLogger) -> bool:
+    """Whether the last recorded measurement makes the on-disk read unnecessary. Never raises.
+
+    Any doubt gives False, and the activity then reads the table as before.
+    """
+    try:
+        return pre_extraction_measurement_is_redundant(schema, job)
+    except Exception:
+        logger.warning("repartition: could not check the last measurement, measuring on disk", exc_info=True)
+        return False
 
 
 def _maybe_flag_pre_extraction(
@@ -356,6 +369,10 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # renamed during the multi-schema migration keeps its folder pinned to the original path (name
     # `public.users`, folder `users`), and the pipeline writes there too. Deriving the folder from
     # `name` alone probes a path that was never written and the repartition skips as `no_delta_table`.
+    if pending is None and swap is None and _measurement_is_redundant(schema, job, logger):
+        logger.info("repartition: no data reached the table since the last healthy measurement, nothing to do")
+        return
+
     resource_name = schema.resolved_s3_folder_name or schema.name
     table_ref = DeltaTableRef(
         resource_name=resource_name, job=job, logger=logger, expect_missing=schema.table_id is None
@@ -447,7 +464,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             f"down until the next sync schema_id={schema.id}",
             schema_id=str(schema.id),
         )
-        DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="killed").inc()
+        DELTA_REPARTITION_TOTAL.labels(outcome="killed").inc()
         _capture_stood_down(schema, inputs, trigger_reason, "attempt_killed_without_progress", logger)
         return
 
@@ -514,7 +531,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             f"repartition: stopped at a commit for worker shutdown, handing off rows_written={e.rows_written}",
             rows_written=e.rows_written,
         )
-        DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="handed_off").inc()
+        DELTA_REPARTITION_TOTAL.labels(outcome="handed_off").inc()
         _refund_attempt(schema, charged_attempts, logger)
         _capture_stood_down(schema, inputs, trigger_reason, "worker_shutdown", logger)
         raise WorkerShuttingDownError.from_activity_context() from e
@@ -525,7 +542,6 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # progress counts toward `MAX_REPARTITION_ATTEMPTS` so a doomed rewrite still gives up.
         logger.warning(f"repartition: {e}")
         DELTA_REPARTITION_TOTAL.labels(
-            team_id=str(inputs.team_id),
             outcome=_handle_budget_exceeded(
                 inputs, schema, pending, trigger_reason, e, claim_token, logger, charged_attempts
             ),
@@ -537,7 +553,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # but still emit the skip: a started event with no terminal event leaves `repartition_pending`
         # set and no way to tell a stood-down attempt from one that vanished.
         logger.info("repartition: superseded by a newer attempt, standing down")
-        DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="superseded").inc()
+        DELTA_REPARTITION_TOTAL.labels(outcome="superseded").inc()
         _refund_attempt(schema, charged_attempts, logger)
         _capture_stood_down(schema, inputs, trigger_reason, "superseded", logger)
         return
@@ -551,7 +567,6 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # schema's imports until then (see `_import_held_for_repartition`).
         logger.error("repartition: the swap landed but its scheme could not be saved; imports stay held", exc_info=True)
         DELTA_REPARTITION_TOTAL.labels(
-            team_id=str(inputs.team_id),
             outcome=_handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger, charged_attempts),
         ).inc()
         return
@@ -569,7 +584,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         props = base_event_props(schema, schema.source, inputs.job_id)
         props.update({"trigger_reason": trigger_reason, "reason": str(e)})
         capture_repartition_event("warehouse_repartition_skipped", props)
-        DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="skipped").inc()
+        DELTA_REPARTITION_TOTAL.labels(outcome="skipped").inc()
         capture_exception(e)
         return
     except asyncio.CancelledError:
@@ -593,7 +608,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             # (e.g. it swept our temp mid-write). It owns the retry; recording our wreckage as a
             # failure would burn an attempt and pollute error tracking with self-inflicted noise.
             logger.info("repartition: failed after being superseded, standing down", exc_info=True)
-            DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="superseded").inc()
+            DELTA_REPARTITION_TOTAL.labels(outcome="superseded").inc()
             _refund_attempt(schema, charged_attempts, logger)
             _capture_stood_down(schema, inputs, trigger_reason, "superseded_after_error", logger)
             return
@@ -604,7 +619,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             # error tracking — a condition nobody can act on (e.g. a pgbouncer login-retry cooldown)
             # shouldn't trip an issue there; the log line, the transient metric, and the skipped
             # event's reason="transient_infra_error" already carry the visibility.
-            DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="transient").inc()
+            DELTA_REPARTITION_TOTAL.labels(outcome="transient").inc()
             if trigger_reason == "admin":
                 # An operator staged this rewrite precisely because syncing on the old layout is
                 # pathological (e.g. a badly over-partitioned table merging one commit per partition
@@ -628,7 +643,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         failure_outcome = _handle_failure(
             inputs, schema, pending, trigger_reason, e, claim_token, logger, charged_attempts
         )
-        DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome=failure_outcome).inc()
+        DELTA_REPARTITION_TOTAL.labels(outcome=failure_outcome).inc()
         return
     except BaseException as e:
         if not _is_native_panic(e):
@@ -640,14 +655,13 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # the remaining retries on it and holds the sync behind a rewrite that cannot finish.
         logger.error("repartition: the rewrite panicked inside the native delta stack", exc_info=True)
         DELTA_REPARTITION_TOTAL.labels(
-            team_id=str(inputs.team_id),
             outcome=_handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger, charged_attempts),
         ).inc()
         return
 
     duration = time.monotonic() - start
-    DELTA_REPARTITION_DURATION_SECONDS.labels(team_id=str(inputs.team_id), schema_id=inputs.schema_id).observe(duration)
-    DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome=result.get("outcome", "completed")).inc()
+    DELTA_REPARTITION_DURATION_SECONDS.observe(duration)
+    DELTA_REPARTITION_TOTAL.labels(outcome=result.get("outcome", "completed")).inc()
 
     if result.get("outcome") != "completed":
         # A non-completed result is a skip that ran no rewrite (live unreadable or no delta table on
@@ -711,11 +725,9 @@ def _defer_to_full_refresh(
         if not transient:
             capture_exception(e)
         logger.warning("repartition: could not stage the scheme for the next full refresh", exc_info=True)
-        DELTA_REPARTITION_TOTAL.labels(
-            team_id=str(inputs.team_id), outcome="transient" if transient else "failed"
-        ).inc()
+        DELTA_REPARTITION_TOTAL.labels(outcome="transient" if transient else "failed").inc()
         return
-    DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="deferred").inc()
+    DELTA_REPARTITION_TOTAL.labels(outcome="deferred").inc()
     props = base_event_props(schema, schema.source, inputs.job_id)
     props.update({"trigger_reason": trigger_reason, **result})
     capture_repartition_event("warehouse_repartition_skipped", props)
@@ -1000,7 +1012,7 @@ def _give_up(
     # the controller has abandoned surfaces as an issue instead of only a metric — the sync context is
     # already bound (bind_job_context) so the issue is attributed to the connector and table.
     capture_exception(error)
-    DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
+    DELTA_REPARTITION_TOTAL.labels(outcome="failed").inc()
 
 
 def _charge_attempt(

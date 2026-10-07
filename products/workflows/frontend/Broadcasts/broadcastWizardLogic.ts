@@ -50,6 +50,13 @@ import {
 import { getTeamUtmDefaults, newEmailUtmConfig } from '../Workflows/hogflows/steps/components/utmDefaults'
 import type { UtmTagKey, UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
+import {
+    AUDIENCE_PREFILL_PARAM,
+    type BroadcastPrefill,
+    NAME_PREFILL_PARAM,
+    parseBroadcastAudiencePrefill,
+    SOURCE_PREFILL_PARAM,
+} from './broadcastAudiencePrefill'
 import { confirmArchiveBroadcast, confirmDeleteBroadcast, restoreBroadcast } from './broadcastLifecycle'
 import {
     BroadcastStatus,
@@ -59,13 +66,15 @@ import {
     getBroadcastStatus,
 } from './broadcastsLogic'
 import {
-    COMPOSER_DRAFT_PARAM,
-    COMPOSER_DRAFT_VALUE,
     advanceAgentDraft,
     broadcastPath,
+    COMPOSER_DRAFT_PARAM,
+    COMPOSER_DRAFT_VALUE,
     editedFields,
     loadComposerDraft,
+    loadEntrySource,
     saveComposerDraft,
+    saveEntrySource,
     snapshotBroadcast,
 } from './broadcastUsage'
 
@@ -224,6 +233,7 @@ export interface broadcastWizardLogicValues {
     email: BroadcastEmailValue
     emailRateLimit: HogFlowEmailSendingRateLimitApi | null
     emailSettings: BroadcastEmailSettings
+    entrySource: string | null
     expandedRunIds: string[]
     expandedRunOverride: string[] | null
     firstInvalidStep: BroadcastWizardStep | null
@@ -232,6 +242,7 @@ export interface broadcastWizardLogicValues {
     hasLoadedBatchJobs: boolean
     isReadOnly: boolean
     launching: boolean
+    linkAudienceRejected: boolean
     movingToDraft: boolean
     name: string
     rateLimitedSendDuration: string
@@ -361,7 +372,13 @@ export interface broadcastWizardLogicActions {
     nextStep: () => {
         value: true
     }
+    prefillFromLink: (prefill: BroadcastPrefill) => {
+        prefill: BroadcastPrefill
+    }
     prevStep: () => {
+        value: true
+    }
+    rejectLinkAudience: () => {
         value: true
     }
     replayDeferredEdit: () => {
@@ -383,6 +400,9 @@ export interface broadcastWizardLogicActions {
         settings: Pick<BroadcastEmailSettings, 'utmParams' | 'utmParamsFromDefault' | 'utmTagsEnabled'>
     ) => {
         settings: Pick<BroadcastEmailSettings, 'utmParams' | 'utmParamsFromDefault' | 'utmTagsEnabled'>
+    }
+    sendToEveryoneAfterRejectedLink: () => {
+        value: true
     }
     setAudienceProperties: (properties: AnyPropertyFilter[]) => {
         properties: AnyPropertyFilter[]
@@ -489,7 +509,9 @@ export interface broadcastWizardLogicMeta {
             sendAt: string | null,
             recurringStartsAt: string | null,
             integrations: IntegrationType[] | null,
-            integrationsLoading: boolean
+            integrationsLoading: boolean,
+            linkAudienceRejected: boolean,
+            audienceProperties: AnyPropertyFilter[]
         ) => Record<BroadcastWizardStep, string[]>
         currentStepHasErrors: (
             stepValidationErrors: Record<BroadcastWizardStep, string[]>,
@@ -543,8 +565,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         continueStep: true,
         reportReviewVisit: true,
         setName: (name: string) => ({ name }),
+        prefillFromLink: (prefill: BroadcastPrefill) => ({ prefill }),
         saveName: true,
         setAudienceProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
+        rejectLinkAudience: true,
+        sendToEveryoneAfterRejectedLink: true,
         setGoalEnabled: (enabled: boolean) => ({ enabled }),
         setConversion: (conversion: HogFlowConversionApi) => ({ conversion }),
         setEmailRateLimit: (emailRateLimit: HogFlowEmailSendingRateLimitApi | null) => ({ emailRateLimit }),
@@ -664,15 +689,32 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             'New broadcast',
             {
                 setName: (_, { name }) => name,
+                prefillFromLink: (state, { prefill }) => prefill.name || state,
                 hydrateFromBroadcast: (state, { broadcast }) => broadcast.name || state,
                 applyExternalEdit: (state, { broadcast, base }) =>
                     changedElsewhere(broadcast, base, (b) => b.name) ? broadcast.name || state : state,
+            },
+        ],
+        // Kept for the launch event, so a launch counts toward the product it started from.
+        // Set when a link's audience couldn't be used. While the audience is empty, sending to everyone needs an explicit choice.
+        linkAudienceRejected: [
+            false,
+            {
+                rejectLinkAudience: () => true,
+                sendToEveryoneAfterRejectedLink: () => false,
+            },
+        ],
+        entrySource: [
+            null as string | null,
+            {
+                prefillFromLink: (_, { prefill }) => prefill.source ?? null,
             },
         ],
         audienceProperties: [
             [] as AnyPropertyFilter[],
             {
                 setAudienceProperties: (_, { properties }) => properties,
+                prefillFromLink: (_, { prefill }) => prefill.properties,
                 hydrateFromBroadcast: (state, { broadcast }) => {
                     const trigger = findAction(broadcast, 'trigger')
                     return (trigger?.config?.filters?.properties as AnyPropertyFilter[]) ?? state
@@ -960,6 +1002,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 s.recurringStartsAt,
                 s.integrations,
                 s.integrationsLoading,
+                s.linkAudienceRejected,
+                s.audienceProperties,
             ],
             (
                 goalEnabled: boolean,
@@ -969,7 +1013,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 sendAt: string | null,
                 recurringStartsAt: string | null,
                 integrations: IntegrationType[] | null,
-                integrationsLoading: boolean
+                integrationsLoading: boolean,
+                linkAudienceRejected: boolean,
+                audienceProperties: AnyPropertyFilter[]
             ): Record<BroadcastWizardStep, string[]> => {
                 const errors: Record<BroadcastWizardStep, string[]> = {
                     recipients: [],
@@ -977,6 +1023,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     content: [],
                     schedule: [],
                     review: [],
+                }
+
+                if (linkAudienceRejected && audienceProperties.length === 0) {
+                    errors.recipients.push('Choose who gets this email')
                 }
 
                 if (goalEnabled) {
@@ -1211,6 +1261,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 values.broadcastId &&
                 values.broadcast?.status === 'draft'
             ) {
+                if (values.entrySource) {
+                    saveEntrySource(values.broadcastId, values.entrySource)
+                }
                 router.actions.replace(urls.broadcast(values.broadcastId), { step: values.currentStep })
             }
         },
@@ -1555,6 +1608,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     schedule_mode: values.scheduleMode,
                     audience_filter_count: values.audienceProperties.length,
                     has_goal: values.goalEnabled,
+                    entry_source: values.entrySource ?? loadEntrySource(broadcastId),
                     seconds_since_created: activated
                         ? Math.round((Date.now() - new Date(activated.created_at).getTime()) / 1000)
                         : null,
@@ -1713,12 +1767,41 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     afterMount(({ actions, props, values }) => {
         if (props.id !== 'new') {
             actions.loadBroadcast()
-        } else {
-            if (values.currentTeam) {
-                seedTeamUtmDefaults(actions, values.currentTeam)
-            }
-            actions.loadBlastRadius()
+            return
         }
+        if (values.currentTeam) {
+            seedTeamUtmDefaults(actions, values.currentTeam)
+        }
+        const {
+            [AUDIENCE_PREFILL_PARAM]: audience,
+            [NAME_PREFILL_PARAM]: name,
+            [SOURCE_PREFILL_PARAM]: source,
+            ...searchParams
+        } = router.values.searchParams
+        const properties = parseBroadcastAudiencePrefill(audience)
+        if (audience !== undefined || name !== undefined || source !== undefined) {
+            const prefill: BroadcastPrefill = {
+                properties: properties ?? [],
+                name: typeof name === 'string' ? name : undefined,
+                source: typeof source === 'string' ? source : undefined,
+            }
+            // Not setAudienceProperties: opening /broadcasts/new must not create a draft.
+            actions.prefillFromLink(prefill)
+            if (properties) {
+                // pinned: analytics event name
+                posthog.capture('broadcast prefilled from link', {
+                    entry_source: prefill.source ?? null,
+                    audience_filter_count: properties.length,
+                })
+            }
+        }
+        if (audience !== undefined && !properties) {
+            actions.rejectLinkAudience()
+        }
+        if (audience !== undefined || name !== undefined || source !== undefined) {
+            router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
+        }
+        actions.loadBlastRadius()
     }),
 ])
 

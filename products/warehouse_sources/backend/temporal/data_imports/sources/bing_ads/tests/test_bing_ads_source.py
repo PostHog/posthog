@@ -101,6 +101,9 @@ class TestBingAdsSource:
         assert report_schema.incremental_fields[0]["field"] == "TimePeriod"
         assert report_schema.incremental_fields[0]["field_type"] == IncrementalFieldType.Date
 
+        destination_url_schema = next(s for s in schemas if s.name == "destination_url_performance_report")
+        assert destination_url_schema.default_incremental_lookback_seconds == 15 * 24 * 60 * 60
+
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source.bing_ads_source")
     @mock.patch.object(BingAdsSource, "get_oauth_integration")
     def test_source_for_pipeline_campaigns(self, mock_get_oauth, mock_bing_ads_source):
@@ -409,6 +412,7 @@ class TestBingAdsSource:
         ):
             original = BingAdsResumeConfig(next_start_date="2025-02-01", end_date="2025-06-30")
             manager.save_state(original)
+            manager.confirm()
             manager.commit()
             loaded = manager.load_state()
 

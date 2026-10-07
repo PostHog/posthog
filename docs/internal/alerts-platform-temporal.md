@@ -10,7 +10,7 @@ The alerts platform registers three queues through `products/alerts_platform/bac
 
 These queue names are hardcoded and stay separate even with `DEBUG=True`.
 Shared orchestration registers the orchestration workflow, the source dispatcher and a synthetic demand-discovery activity.
-The evaluation queue registers the evaluation workflow (`alerts-platform-evaluate`), each bound source evaluation, and the probe activity.
+The evaluation queue registers the evaluation workflow (`alerts-platform-evaluate`), the logs and insight source evaluations, the probe activity and the record-outcomes activity.
 Each schedule tick starts orchestration, which discovers demand once and then pages source dispatchers until the demand is exhausted or its dispatch budget is spent.
 Each dispatcher starts one evaluation child for its source. Evaluation runs the probe and starts its independent delivery child on the delivery queue.
 Start one worker for each queue:
@@ -55,7 +55,7 @@ writes a source product's rows. What it does cost is the evaluation queries its 
 ones the source's own production fleet is already running for the same alerts.
 
 The tick's work is whatever `PlatformAlertConfiguration` rows exist, and nothing creates those on its own:
-`python manage.py backfill_platform_alert_configurations [--team-id N]` is the only writer, and it is manual.
+`python manage.py backfill_platform_alert_configurations [--team-id N]` for logs and `python manage.py backfill_platform_insight_alert_configurations [--team-id N]` for insight are the only writers, and both are manual.
 So the order below puts the schedule in place while there is no demand, and load arrives when the backfill
 is run, one cohort at a time.
 
@@ -131,7 +131,7 @@ The empty `--input '{}'` becomes an `OrchestrateInputs` with every field default
 Watch orchestration, its source dispatcher children, their evaluation children, and the delivery great-grandchildren in the Temporal UI at <http://localhost:8081>.
 
 Evaluation and delivery accept an empty `AlertsPlatformInputs` dataclass; orchestration accepts `OrchestrateInputs` with all fields defaulted.
-Orchestration pages source dispatchers, which start evaluation children with a 75-second execution timeout and one workflow attempt.
+Orchestration pages source dispatchers, which start evaluation children with one workflow attempt, on the queue and under the execution timeout of the source's binding.
 Evaluation child IDs carry the tick ID, source and page, so each tick starts distinct evaluations.
 Evaluation runs a Postgres connectivity probe; delivery runs an empty activity with no I/O.
 Evaluation and delivery activities each have a 10-second start-to-close timeout and a 30-second schedule-to-close timeout.
@@ -166,7 +166,10 @@ The hard stop is the run's own execution timeout when it has one, and the budget
 The orchestrator passes a dispatcher every remaining ID for its source. The dispatcher decides how much to take and returns the rest.
 Today it takes everything: no adapter has said yet how many alerts one evaluation can hold, so nothing remains and a tick is one page.
 The limit that will matter is the evaluation workflow's own history, which depends on the adapter's query shape; it arrives with the first real adapter.
-It starts one `alerts-platform-evaluate` child, ID `{dispatcher_id}-eval`, with `ParentClosePolicy.ABANDON`, a 75-second execution timeout (`SOURCE_EVALUATION_TIMEOUT`) and one attempt.
+It starts one evaluation child per key with `ParentClosePolicy.ABANDON` and one attempt.
+A source with an entry in `SOURCE_BINDINGS` (`temporal/sources.py`) starts the binding's workflow on the binding's `task_queue`, under its `evaluation_timeout`.
+A source with no binding starts `alerts-platform-evaluate` on the evaluation queue, under the 75-second `NOOP_EVALUATION_TIMEOUT`.
+Each source has its own timeout, so no source adopts the logs ceiling. Sources share the evaluation queue while their checks finish in seconds. A source whose checks hold a worker slot for minutes needs its own queue, so that it does not hold the slots the other sources need.
 The timeout has to hold every attempt a source's activities allow, because an attempt cut off here is a batch that decided something and recorded nothing.
 Evaluations are abandoned rather than awaited, so it does not have to fit inside the tick.
 It waits for the child to start, never for it to finish, then returns the dispatched count and the remaining IDs.
@@ -195,7 +198,8 @@ Scheduled runs use `TemporalScheduledStartTime`; manual runs use the workflow st
 Activity retries retain the same cutoff rather than reading the activity's clock.
 The activity returns an `AlertDemand` containing configuration IDs grouped by the shared `SourceKind` enum (`logs` and `insight`).
 Only nonempty groups are returned. Discovery does not reserve or claim IDs.
-Each source is bounded to `DISCOVERY_LIMIT_PER_SOURCE` IDs (1,000) so the manifest stays near 40 KB per source, under the repository's 256 KB rule for Temporal payload fields.
+Each source is bounded to its binding's `discovery_limit`, or to `DISCOVERY_LIMIT_PER_SOURCE` (1,000) without a binding, so the manifest stays near 40 KB per source, under the repository's 256 KB rule for Temporal payload fields.
+A source that admits fewer checks per tick sets a lower limit, because every key starts a workflow.
 `omitted_by_source` counts the due IDs left out. The tick adds that count to its `remaining` result, and the next tick discovers that work again.
 
 For now, `logic/demand.py` supplies deterministic synthetic configurations relative to that cutoff:
@@ -405,7 +409,7 @@ all come from the existing logs code, so a preview says what production would ha
 
 ### The query budget sits under the activity timeout
 
-Four bounds, largest first: `SOURCE_EVALUATION_TIMEOUT` (75s) over the source's `EVALUATION_BUDGET` (62s) over `EVALUATE_START_TO_CLOSE` (30s) over `BATCH_QUERY_BUDGET_SECONDS` (25s) over `MAX_QUERY_SECONDS` (20s).
+Four bounds, largest first: the logs binding's `evaluation_timeout` (75s) over the source's `EVALUATION_BUDGET` (62s) over `EVALUATE_START_TO_CLOSE` (30s) over `BATCH_QUERY_BUDGET_SECONDS` (25s) over `MAX_QUERY_SECONDS` (20s).
 Temporal bounds an attempt by whichever of start-to-close and schedule-to-close expires first, so schedule-to-close is derived as start-to-close plus a queue tolerance rather than written as a literal.
 A literal close to start-to-close lets queue time shorten the run below the query budget, which is the same inversion arriving by another route, on exactly the load that causes queueing.
 `test_the_evaluation_timeout_ladder_holds` asserts the whole ladder in one place.
@@ -456,6 +460,32 @@ Pass `--team-id` to copy one team's configurations only.
 It is a seed, not a sync: the logs product keeps the control plane, and a later change to a logs alert reaches these tables only on the next run.
 A second run updates rather than duplicates, because `legacy_configuration_id` carries the row each copy came from.
 Each run also copies the logs alert's snooze onto its platform alert row, so a snoozed alert stays silent, and an alert unsnoozed since the last run is unsnoozed here too.
+
+Insight alerts are copied the same way:
+
+```bash
+python manage.py backfill_platform_insight_alert_configurations
+```
+
+It copies threshold alerts on an hourly or slower cadence only, and skips detector alerts and the real-time and 15-minute cadences.
+Run it only after the evaluation worker's chart sets `CLICKHOUSE_ALERTS_PLATFORM_INSIGHT_USER` and its token file.
+Insight checks tag their queries with `ClickHouseUser.ALERTS_PLATFORM_INSIGHT`, a user of their own, so the parallel run never takes from the per-user budget of the user that production insight alerts query as.
+Without that env the tag resolves to the worker's default user, which other workloads on the same servers already push against its concurrent query limit.
+Logs checks use their own user, `alerts_platform_logs`, on the logs cluster.
+
+Every copy adds ClickHouse load beside production's, so roll it out in steps.
+A full logs backfill hit ClickHouse's per-user concurrent query limit and had to be removed.
+
+1. Copy one internal team with `--team-id`, then a small sample with `--sample-percent`, for example 5. The sample is chosen by alert id, so a rerun copies the same alerts and a larger percentage only adds alerts.
+2. Watch the parallel run's ClickHouse cost in `query_log`: its `client_query_id` starts with `alerts-platform-insight:`.
+3. Watch scheduler lag for `source=insight`, and the `capacity` skip reason on the platform's skipped-check counter. Capacity skips mean ClickHouse refused the query for load.
+4. Widen the sample only while both stay flat. `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the concurrent checks whatever the sample size.
+5. Raise that cap from its default of 10 only while the daily count of refused queries, `exception_code = 202` in `query_log`, stays flat for both `alerts_platform_insight` and the user that production insight alerts query as. The first shows the parallel run's own contention. The second shows whether it reaches production through the server-wide limit. Do not size it from per-second concurrency, which overcounts because short queries that run back to back inside one second read as concurrent. Code 202 also covers the server-wide limit, so a rise is a reason to look rather than proof that the cap caused it.
+
+To stop the parallel run, pass `--disable`, with `--team-id` to stop one team.
+It switches the copies off and keeps their rows, state and history. Checks already running finish.
+Running the backfill again turns them back on at the production alert's next due time.
+An hourly alert on the platform checks on a UTC grid, while production checks it at the alert's creation minute, so the two stacks check an hourly alert at different minutes.
 
 ## Postgres connectivity probe
 

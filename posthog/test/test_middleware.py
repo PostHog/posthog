@@ -1127,7 +1127,6 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("tracing_attribute_breakdown", "tracing/spans/attribute-breakdown/", {}),
             ("tracing_trace_by_id", "tracing/spans/trace/zzz/", {}),
             ("metrics_query", "metrics/query/", {}),
-            ("metrics_explain", "metrics/explain/", {}),
             ("experiments_setup_context", "experiments/setup_context/", {}),
         ]
     )
@@ -2375,6 +2374,12 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
                 "/complete/saml/",
                 AuthFailed(_social_auth_backend(), "sso_enforced"),
                 "/login?error_code=sso_enforced",
+            ),
+            (
+                "access_blocked",
+                "/complete/google-oauth2/",
+                AuthFailed(_social_auth_backend(), "access_blocked"),
+                "/login?error_code=access_blocked",
             ),
         ]
     )

@@ -1264,3 +1264,129 @@ export const BIMeasureDisplay: Story = {
         await userEvent.click((await within(canvasElement).findAllByRole('button', { name: 'Format and display' }))[0])
     },
 }
+
+export const BIDrilldown: Story = {
+    ...BITableAnalysis,
+    parameters: {
+        ...BITableAnalysis.parameters,
+        // The dialog is portaled outside main, so a scene-only capture clips it.
+        testOptions: { ...BITableAnalysis.parameters?.testOptions, includeNavigationInSnapshot: true },
+        msw: {
+            mocks: {
+                ...BITableAnalysis.parameters?.msw.mocks,
+                post: {
+                    ...BITableAnalysis.parameters?.msw.mocks.post,
+                    '/api/environments/:team_id/query/HogQLQuery/': async ({ request }: MockResolverInfo) => {
+                        const { query } = (await request.json()) as { query: { query: string } }
+                        return query.query.startsWith('SELECT *')
+                            ? {
+                                  columns: ['event', 'timestamp', 'revenue'],
+                                  types: [
+                                      ['event', 'String'],
+                                      ['timestamp', 'DateTime'],
+                                      ['revenue', 'Float64'],
+                                  ],
+                                  results: [
+                                      ['purchase', '2026-06-01 12:00:00', 20],
+                                      ['purchase', '2026-06-01 15:00:00', 100],
+                                  ],
+                                  hasMore: false,
+                              }
+                            : BITableAnalysis.parameters?.msw.mocks.post['/api/environments/:team_id/query/HogQLQuery/']
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await userEvent.click(await canvas.findByText('120', { exact: true }))
+        await userEvent.click(await within(document.body).findByRole('button', { name: 'View underlying rows' }))
+        await waitFor(() => expect(within(document.body).getByText('2026-06-01 12:00:00')).toBeVisible())
+    },
+}
+
+const BI_COMPARISON_CONFIG: BIConfig = {
+    ...BI_COMBO_CONFIG,
+    dateRange: { date_from: '-7d' },
+    compareFilter: { compare: true },
+    values: [BI_COMBO_CONFIG.values[0]],
+}
+
+export const BIOneClickComparison: Story = {
+    ...BICombinedMeasures,
+    parameters: {
+        ...BICombinedMeasures.parameters,
+        pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({ q: buildBIQuery(BI_COMPARISON_CONFIG)!.query, mode: 'bi', bi: JSON.stringify(BI_COMPARISON_CONFIG) })}`,
+        msw: {
+            mocks: {
+                ...BICombinedMeasures.parameters?.msw.mocks,
+                post: {
+                    ...BICombinedMeasures.parameters?.msw.mocks.post,
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: ['bi_row_timestamp', 'sum_revenue', 'bi_comparison'],
+                        types: [
+                            ['bi_row_timestamp', 'DateTime'],
+                            ['sum_revenue', 'Float64'],
+                            ['bi_comparison', 'String'],
+                        ],
+                        results: [
+                            ['2026-06-01', 120, 'Current period'],
+                            ['2026-06-02', 210, 'Current period'],
+                            ['2026-06-03', 180, 'Current period'],
+                            ['2026-06-04', 245, 'Current period'],
+                            ['2026-06-01', 100, 'Previous period'],
+                            ['2026-06-02', 150, 'Previous period'],
+                            ['2026-06-03', 120, 'Previous period'],
+                            ['2026-06-04', 220, 'Previous period'],
+                        ],
+                        hasMore: false,
+                    },
+                },
+            },
+        },
+    },
+}
+
+const BI_PIVOT_TOTALS_CONFIG: BIConfig = {
+    ...BI_ANALYSIS_CONFIG,
+    chartType: ChartDisplayType.TwoDimensionalHeatmap,
+    values: [BI_COMBO_CONFIG.values[0]],
+    totals: { rows: true, columns: true },
+}
+
+export const BIPivotTotals: Story = {
+    ...BITableAnalysis,
+    parameters: {
+        ...BITableAnalysis.parameters,
+        pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({ q: buildBIQuery(BI_PIVOT_TOTALS_CONFIG)!.query, mode: 'bi', bi: JSON.stringify(BI_PIVOT_TOTALS_CONFIG) })}`,
+        msw: {
+            mocks: {
+                ...BITableAnalysis.parameters?.msw.mocks,
+                post: {
+                    ...BITableAnalysis.parameters?.msw.mocks.post,
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue'],
+                        types: [
+                            ['bi_row_timestamp', 'String'],
+                            ['bi_column_event', 'String'],
+                            ['sum_revenue', 'Float64'],
+                        ],
+                        results: [
+                            ['Total', 'Total', 340],
+                            ['Total', 'purchase', 300],
+                            ['Total', 'Other', 40],
+                            ['2026-06-01', 'Total', 160],
+                            ['2026-06-02', 'Total', 180],
+                            ['2026-06-01', 'purchase', 120],
+                            ['2026-06-02', 'purchase', 180],
+                            ['2026-06-01', 'Other', 40],
+                        ],
+                        hasMore: false,
+                    },
+                },
+            },
+        },
+    },
+}

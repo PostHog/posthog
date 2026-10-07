@@ -4,6 +4,7 @@ import asyncio
 import datetime as dt
 import functools
 import dataclasses
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
 from django.conf import settings
@@ -33,9 +34,11 @@ from posthog.temporal.common.utils import is_stale_connection_read_only_error
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
+    UnsupportedSyncTypeError,
     apply_incremental_lookback,
     get_schema_if_exists,
     process_incremental_value,
+    resolve_sync_type,
     staged_handoff_resume_point,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -49,6 +52,7 @@ from products.warehouse_sources.backend.temporal.data_imports.import_attempt imp
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     TERMINAL_JOB_STATUSES,
+    get_progressless_stand_down_metric,
     get_worker_shutdown_handoff_metric,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
@@ -69,6 +73,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
+from products.warehouse_sources.backend.temporal.data_imports.retry_limits import PROGRESSLESS_RESUMABLE_ATTEMPTS
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -132,6 +137,9 @@ class ImportDataActivityInputs:
     handoff_count: int = 0
     # Attempts that earlier executions of this activity used in the same workflow run.
     prior_attempts: int = 0
+    # True when the workflow gave this run the resumable retry cap. Defaults False so a payload
+    # that predates the field keeps every attempt its history recorded.
+    on_resumable_retry_budget: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -591,9 +599,16 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 new_source, schema.sync_type_config if use_stored_cursors else None, logger
             )
 
+            try:
+                resolved_sync_type = resolve_sync_type(schema.sync_type)
+            except UnsupportedSyncTypeError as e:
+                await handle_non_retryable_error(
+                    job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, str(e), logger, e
+                )
+
             source_inputs = SourceInputs(
                 schema_name=schema.name,
-                sync_type=ExternalDataSchema.SyncType(schema.sync_type) if schema.sync_type is not None else None,
+                sync_type=resolved_sync_type,
                 schema_id=str(schema.id),
                 source_id=str(inputs.source_id),
                 team_id=inputs.team_id,
@@ -669,19 +684,25 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
             resumable_source_manager: ResumableSourceManager | None = None
             try:
-                if isinstance(new_source, ResumableSource):
-                    resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
-                    source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
-                        config, resumable_source_manager, source_inputs
-                    )
-                elif isinstance(new_source, SimpleSource):
-                    source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
-                        config, source_inputs
-                    )
-                else:
-                    raise TypeError(
-                        f"{new_source.__class__.__name__} does not implement either SimpleSource or ResumableSource"
-                    )
+                # Some source setup functions bridge back to async code. Keep their outer blocking
+                # call off the shared default executor so that nested work cannot deadlock behind it.
+                executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="warehouse-source-setup")
+                try:
+                    if isinstance(new_source, ResumableSource):
+                        resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
+                        source_response = await database_sync_to_async_pool(
+                            new_source.source_for_pipeline, executor=executor
+                        )(config, resumable_source_manager, source_inputs)
+                    elif isinstance(new_source, SimpleSource):
+                        source_response = await database_sync_to_async_pool(
+                            new_source.source_for_pipeline, executor=executor
+                        )(config, source_inputs)
+                    else:
+                        raise TypeError(
+                            f"{new_source.__class__.__name__} does not implement either SimpleSource or ResumableSource"
+                        )
+                finally:
+                    executor.shutdown(wait=False, cancel_futures=True)
             except SourceExtractionNotImplementedError as e:
                 # Web refuses to create a source whose implementation it does not have, so the
                 # stub is only reachable while this worker still runs the build from before the
@@ -699,7 +720,13 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 # here (deleted/misconfigured cluster hostname, revoked credentials) would
                 # otherwise bypass the guard in `_run` and be retried up to the activity's
                 # maximum on every scheduled sync. Route it through the same policy.
-                await _handle_import_error(job_inputs, logger, e)
+                await _handle_import_error(
+                    job_inputs,
+                    logger,
+                    e,
+                    resumable_source_manager=resumable_source_manager,
+                    on_resumable_retry_budget=inputs.on_resumable_retry_budget,
+                )
 
             return await _run(
                 job_inputs=job_inputs,
@@ -710,6 +737,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 resumable_source_manager=resumable_source_manager,
                 source_cursor_manager=source_cursor_manager,
                 incremental_checkpoints_allowed=incremental_checkpoints_allowed,
+                on_resumable_retry_budget=inputs.on_resumable_retry_budget,
                 resumed_incremental_run_uuid=resumed_incremental_run_uuid,
                 resumed_incremental_value=resumed_incremental_value,
             )
@@ -796,10 +824,34 @@ def _log_worker_shutdown_during_import(logger: FilteringBoundLogger) -> None:
     )
 
 
+def _spent_resumable_cap_without_resuming(
+    resumable_source_manager: ResumableSourceManager | None,
+    on_resumable_retry_budget: bool,
+) -> bool:
+    """Whether this run has used its progressless share of the resumable cap.
+
+    The resumable cap is large because each attempt continues where the last stopped. An attempt
+    that never checkpointed restarts from row 0 instead, so a run that has committed nothing by
+    now would re-read the same rows for every attempt that is left.
+
+    False on any error reading the checkpoint, because keeping the attempts is the safe answer.
+    """
+    if not on_resumable_retry_budget or resumable_source_manager is None:
+        return False
+    if current_import_attempt() <= PROGRESSLESS_RESUMABLE_ATTEMPTS:
+        return False
+    try:
+        return not resumable_source_manager.can_resume()
+    except Exception:
+        return False
+
+
 async def _handle_import_error(
     job_inputs: PipelineInputs,
     logger: FilteringBoundLogger,
     error: Exception,
+    resumable_source_manager: ResumableSourceManager | None = None,
+    on_resumable_retry_budget: bool = False,
 ) -> NoReturn:
     """Route an import error through the source's non-retryable error policy.
 
@@ -1026,6 +1078,19 @@ async def _handle_import_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
 
+    # Below the classified branches, which are PostHog-side or vendor-side blips that another
+    # attempt does clear. Raised `from error` so the finalizer still classifies the real failure
+    # and the customer still reads its message rather than this decision.
+    if _spent_resumable_cap_without_resuming(resumable_source_manager, on_resumable_retry_budget):
+        await logger.awarning(error_msg)
+        await logger.ainfo(
+            "No attempt of this run has anything to resume from, so it stops retrying",
+            attempt=current_import_attempt(),
+        )
+        if activity.in_activity():
+            get_progressless_stand_down_metric(str(job_inputs.job_type)).add(1)
+        raise NonRetryableException() from error
+
     retryable_errors = source_cls.get_retryable_errors()
     if error_message_matches(error_msg, retryable_errors):
         await logger.awarning(error_msg)
@@ -1048,6 +1113,7 @@ async def _run(
     incremental_checkpoints_allowed: bool = False,
     resumed_incremental_run_uuid: str | None = None,
     resumed_incremental_value: Any = None,
+    on_resumable_retry_budget: bool = False,
 ) -> PipelineResult:
     try:
         reset_pipeline = reset_pipeline or source_response.destination_reset_required
@@ -1072,4 +1138,10 @@ async def _run(
         await logger.adebug("Finished running pipeline")
         return result
     except Exception as e:
-        await _handle_import_error(job_inputs, logger, e)
+        await _handle_import_error(
+            job_inputs,
+            logger,
+            e,
+            resumable_source_manager=resumable_source_manager,
+            on_resumable_retry_budget=on_resumable_retry_budget,
+        )

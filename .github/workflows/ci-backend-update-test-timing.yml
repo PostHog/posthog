@@ -4,7 +4,7 @@ on:
     workflow_dispatch:
         inputs:
             backend_run_id:
-                description: 'Backend CI run ID (leave empty to use latest successful run)'
+                description: 'Depot CI run ID of an hourly Backend CI run (leave empty to use latest successful run)'
                 required: false
                 type: string
             dagster_run_id:
@@ -50,10 +50,12 @@ jobs:
               with:
                   enable-cache: false
 
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
             - name: Find Backend CI run to use
               id: find-backend-run
               env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
                   INPUT_RUN_ID: ${{ inputs.backend_run_id }}
                   # Optional org/repo variable to tune how many runs the per-segment plan averages
                   # (default 5). Unset renders empty and the shell default kicks in.
@@ -66,12 +68,7 @@ jobs:
                       exit 0
                   fi
 
-                  # Find recent successful ci-backend.yml runs with timing artifacts.
-                  # Only the hourly scheduled runs carry them. Master pushes run the per-commit
-                  # checks only, but those take longer than the duration filter below, so
-                  # without the event filter they fill the candidate window and the search
-                  # finds nothing.
-                  # Only consider runs from the past 14 days to ensure artifacts haven't expired
+                  # Only the hourly master runs carry timing artifacts, and they run on Depot CI.
                   echo "Searching for Backend CI runs with timing artifacts..."
 
                   # The per-segment file-mode plans (.test_durations.core/.temporal) and the
@@ -81,31 +78,12 @@ jobs:
                   # de-tax still use the newest run alone (the primary). N stays small because
                   # every extra run downloads its product timing artifacts, the largest set.
                   N="${BACKEND_RUNS_TO_AVERAGE:-5}"
-                  # Guard a mis-set variable: a non-integer would make the `-ge` test below error
-                  # out (never breaking the loop) and silently average every candidate run.
                   [[ "$N" =~ ^[1-9][0-9]*$ ]] || N=5
-                  found=0  # counts qualifying runs inside the loop below
 
-                  # Calculate date 14 days ago in ISO 8601 format
-                  cutoff_date=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-14d +%Y-%m-%dT%H:%M:%SZ)
-                  # Newest first: runs that ran tests (>5 min) and uploaded a full set of timing
-                  # artifacts (>=38), up to N. Scan N plus a margin so a run with expired or
-                  # partial artifacts does not end the search early; the margin also bounds
-                  # the artifact API calls when nothing qualifies.
-                  run_ids=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-backend.yml/runs?status=success&branch=master&event=schedule&per_page=100&created=>=$cutoff_date" \
-                      --jq '.workflow_runs[] | select(
-                          (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
-                      ) | .id' | head -n "$((N + 20))" | \
-                      while read id; do
-                          count=$(gh api "repos/${{ github.repository }}/actions/runs/$id/artifacts?per_page=100" \
-                              --jq '[.artifacts[] | select(.name | startswith("timing_data-")) | select(.expired == false)] | length' 2>/dev/null)
-                          echo "Run $id has $count timing artifacts" >&2
-                          if [ "$count" -ge "38" ]; then
-                              echo "$id"
-                              found=$((found + 1))
-                              [ "$found" -ge "$N" ] && break
-                          fi
-                      done)
+                  # Newest first: successful hourly runs on Depot CI that uploaded a full set of
+                  # timing artifacts (>=38), up to N.
+                  run_ids=$(python3 .github/scripts/depot_scheduled_runs.py find \
+                      --prefix timing_data- --min-artifacts 38 --limit "$N" | cut -d' ' -f1)
 
                   primary=$(echo "$run_ids" | head -1)
                   if [ -z "$primary" ]; then
@@ -191,15 +169,19 @@ jobs:
             - name: Download timing artifacts
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
                   BACKEND_RUN_ID: ${{ steps.find-backend-run.outputs.run_id }}
                   BACKEND_RUN_IDS: ${{ steps.find-backend-run.outputs.run_ids }}
                   DAGSTER_RUN_ID: ${{ steps.find-dagster-run.outputs.run_id }}
               run: |
+                  # Backend runs live on Depot CI, Dagster runs on GitHub Actions.
+                  depot_download() { python3 .github/scripts/depot_scheduled_runs.py download "$@"; }
+
                   # Download backend timing artifacts. Use segment-specific patterns
                   # so we don't accidentally pull Dagster artifacts here when the same
                   # run ID is provided for both jobs (they share the timing_data- prefix
                   # and would otherwise collide on extraction into the same dir).
-                  gh run download "$BACKEND_RUN_ID" \
+                  depot_download "$BACKEND_RUN_ID" \
                       --pattern "timing_data-Core-*" \
                       --pattern "timing_data-Temporal-*" \
                       --pattern "timing_data-Products-*" \
@@ -208,7 +190,7 @@ jobs:
                   # JUnit artifacts power precise per-shard carrier detection.
                   # Without these, optimize_test_durations.py silently takes the
                   # statistical fallback and the JUnit-arg becomes a no-op.
-                  gh run download "$BACKEND_RUN_ID" \
+                  depot_download "$BACKEND_RUN_ID" \
                       --pattern "junit-results-backend-core-*" \
                       --pattern "junit-results-backend-temporal-*" \
                       --pattern "product-junit-results-*" \
@@ -221,11 +203,11 @@ jobs:
                   # the union/JUnit steps above stay untouched. A run with no JUnit just gets its
                   # per-segment slice skipped, same fallback as the single-run path.
                   for rid in $BACKEND_RUN_IDS; do
-                      gh run download "$rid" \
+                      depot_download "$rid" \
                           --pattern "timing_data-Core-*" \
                           --pattern "timing_data-Temporal-*" \
                           --dir "runs/$rid/timing" || { echo "::warning::No timing for run $rid — skipping it"; continue; }
-                      gh run download "$rid" \
+                      depot_download "$rid" \
                           --pattern "junit-results-backend-core-*" \
                           --pattern "junit-results-backend-temporal-*" \
                           --dir "runs/$rid/junit" || echo "::warning::No JUnit for run $rid — its per-segment slice is skipped"
@@ -233,9 +215,9 @@ jobs:
                       # junit_artifacts. Product timing artifacts are the largest set, so do not
                       # download them twice.
                       if [ "$rid" != "$BACKEND_RUN_ID" ]; then
-                          gh run download "$rid" --pattern "timing_data-Products-*" --dir "runs/$rid/timing" \
+                          depot_download "$rid" --pattern "timing_data-Products-*" --dir "runs/$rid/timing" \
                               || echo "::warning::No Products timing for run $rid — its products slice is skipped"
-                          gh run download "$rid" --pattern "product-junit-results-*" --dir "runs/$rid/junit" \
+                          depot_download "$rid" --pattern "product-junit-results-*" --dir "runs/$rid/junit" \
                               || echo "::warning::No Products JUnit for run $rid — its products slice is skipped"
                       fi
                   done
@@ -456,27 +438,33 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
         steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts/depot_scheduled_runs.py
+                  sparse-checkout-cone-mode: false
+
+            # The checkout of the recorded commit below replaces the tree, and an older commit
+            # does not have the script.
+            - name: Keep the Depot run reader
+              run: cp .github/scripts/depot_scheduled_runs.py "$RUNNER_TEMP/depot_scheduled_runs.py"
+
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
             - name: Find the newest scheduled Backend CI run with recordings
               id: find-run
               env:
-                  GH_TOKEN: ${{ github.token }}
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
               run: |
-                  # Only the scheduled runs that take the events_json rows record. A successful
-                  # one carries every shard's recording, because a shard that wrote none fails.
-                  # Without the created filter the API can return runs that are weeks old.
-                  cutoff=$(date -u -d '2 days ago' +%Y-%m-%dT%H:%M:%SZ)
-                  gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci-backend.yml/runs?status=success&branch=master&event=schedule&per_page=10&created=>=$cutoff" \
-                      --jq '.workflow_runs[] | "\(.id) \(.head_sha)"' | while read -r id sha; do
-                      count=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$id/artifacts?per_page=100" \
-                          --jq '[.artifacts[] | select((.name | startswith("events-schema-record-")) and .expired == false)] | length' | jq -s add)
-                      if [ "${count:-0}" -gt 0 ]; then
-                          echo "Using run $id at $sha, with $count recordings"
-                          echo "run_id=$id" >> "$GITHUB_OUTPUT"
-                          echo "revision=$sha" >> "$GITHUB_OUTPUT"
-                          break
-                      fi
-                  done
-                  if ! grep -q '^run_id=' "$GITHUB_OUTPUT"; then
+                  # Only the hourly runs on Depot CI that take the events_json rows record. A
+                  # successful one carries every shard's recording, because a shard that wrote
+                  # none fails.
+                  read -r id sha < <(python3 "$RUNNER_TEMP/depot_scheduled_runs.py" find \
+                      --prefix events-schema-record- --max-age-days 2) || true
+                  if [ -n "${id:-}" ]; then
+                      echo "Using run $id at $sha"
+                      echo "run_id=$id" >> "$GITHUB_OUTPUT"
+                      echo "revision=$sha" >> "$GITHUB_OUTPUT"
+                  else
                       echo "::error::No recent successful scheduled Backend CI run has events_json recordings, so the prune manifest stays as it is"
                       exit 1
                   fi
@@ -503,13 +491,17 @@ jobs:
               with:
                   enable-cache: false
 
-            - name: Build the manifest
+            # Its own step, so the Depot token stays out of the step that installs from PyPI.
+            - name: Download the recordings
               if: steps.cached.outputs.cache-hit != 'true'
               env:
-                  GH_TOKEN: ${{ github.token }}
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
                   RUN_ID: ${{ steps.find-run.outputs.run_id }}
+              run: python3 "$RUNNER_TEMP/depot_scheduled_runs.py" download "$RUN_ID" --pattern 'events-schema-record-*' --dir events-schema-records
+
+            - name: Build the manifest
+              if: steps.cached.outputs.cache-hit != 'true'
               run: |
-                  gh run download "$RUN_ID" --pattern 'events-schema-record-*' --dir events-schema-records
                   uv run --no-project --with pytest python posthog/test/events_schema_prune.py \
                       --output events-schema-prune.json events-schema-records/*/events-schema-record.json
 

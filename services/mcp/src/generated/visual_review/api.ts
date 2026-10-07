@@ -63,7 +63,7 @@ export const VisualReviewReposPartialUpdateBody = () => zod.object({
 })
 
 /**
- * Snapshots in a repo whose rendering cannot be trusted: those that failed the gate or were absorbed by a toleration on a recent default-branch run, and those under an active quarantine. Everything else is omitted, so this is far smaller than the baselines universe; `totals.tracked` gives the full denominator. Each entry carries the share of the last 7 days of default-branch runs that failed the gate (`hard_rate`) and the share a toleration absorbed (`soft_rate`), plus `headroom`, the fraction of the diff threshold its worst absorbed run leaves free. Capped at 2000 entries, which sets `truncated`. Filtering, faceting and search are done client-side; this endpoint takes no filter query params.
+ * Snapshots in a repo whose rendering cannot be trusted: those that failed the gate on a recent default-branch run, those whose absorbed diff is close to the threshold, and those under an active quarantine. Small absorbed diffs well under the threshold are omitted, as is everything else, so this is far smaller than the baselines universe; `totals.tracked` gives the full denominator. Each entry carries the share of the last 7 days of default-branch runs that failed the gate (`hard_rate`) and the share a toleration absorbed (`soft_rate`), plus `headroom`, the fraction of the diff threshold its worst absorbed run leaves free. Capped at 2000 entries, which sets `truncated`. Filtering, faceting and search are done client-side; this endpoint takes no filter query params.
  */
 export const VisualReviewReposFlakinessRetrieveParams = () => zod.object({
     id: zod.string(),

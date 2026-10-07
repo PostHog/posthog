@@ -4,6 +4,10 @@ import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clever import source as source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.clever.settings import (
+    CLEVER_API_VERSION_V3_0,
+    CLEVER_API_VERSION_V3_1,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.clever.source import CleverSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clever import CleverSourceConfig
@@ -13,6 +17,7 @@ def _inputs(
     schema_name: str = "Districts",
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: object = None,
+    api_version: str | None = None,
 ) -> SourceInputs:
     return SourceInputs(
         schema_name=schema_name,
@@ -27,6 +32,7 @@ def _inputs(
         job_id="job-id",
         logger=MagicMock(),
         reset_pipeline=False,
+        api_version=api_version,
     )
 
 
@@ -74,6 +80,40 @@ class TestCleverSource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "evt-123"
+
+    def test_new_sources_default_to_v3_1(self) -> None:
+        assert self.source.supported_versions == (CLEVER_API_VERSION_V3_0, CLEVER_API_VERSION_V3_1)
+        assert self.source.default_version == CLEVER_API_VERSION_V3_1
+
+    @parameterized.expand(
+        [
+            ("pinned_v3_0", CLEVER_API_VERSION_V3_0, CLEVER_API_VERSION_V3_0),
+            ("pinned_v3_1", CLEVER_API_VERSION_V3_1, CLEVER_API_VERSION_V3_1),
+            ("unpinned", None, CLEVER_API_VERSION_V3_1),
+        ]
+    )
+    def test_source_for_pipeline_passes_resolved_api_version(
+        self, _name: str, pinned: str | None, expected: str
+    ) -> None:
+        with patch.object(source_module, "clever_source") as mock_source:
+            self.source.source_for_pipeline(self.config, MagicMock(), _inputs(api_version=pinned))
+
+        assert mock_source.call_args.kwargs["api_version"] == expected
+
+    @parameterized.expand(
+        [
+            ("pinned_v3_0", CLEVER_API_VERSION_V3_0, CLEVER_API_VERSION_V3_0),
+            ("pinned_v3_1", CLEVER_API_VERSION_V3_1, CLEVER_API_VERSION_V3_1),
+            ("pre_creation", None, CLEVER_API_VERSION_V3_1),
+        ]
+    )
+    def test_validate_credentials_uses_resolved_api_version(
+        self, _name: str, pinned: str | None, expected: str
+    ) -> None:
+        with patch.object(source_module, "validate_clever_credentials", return_value=(True, None)) as mock_validate:
+            self.source.validate_credentials(self.config, team_id=1, api_version=pinned)
+
+        mock_validate.assert_called_once_with("test-token", expected)
 
     def test_source_for_pipeline_drops_watermark_on_full_refresh(self) -> None:
         # A stale watermark leaking into a full refresh would silently skip earlier rows.

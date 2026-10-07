@@ -149,6 +149,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                     integration_id=inputs.integration_id,
                     slack_team_id=inputs.slack_team_id,
                     event_text=event.get("text", ""),
+                    thread_ts=thread_ts,
                 ),
             )
 
@@ -186,6 +187,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                     event_text=event.get("text", ""),
                     user_id=inputs.user_id,
                     slack_user_id=slack_user_id,
+                    thread_ts=thread_ts,
                 ),
             )
             if project_route is not None:

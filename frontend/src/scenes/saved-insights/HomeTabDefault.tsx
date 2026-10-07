@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
@@ -7,20 +7,37 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { dateMapping } from 'lib/utils/dateFilters'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 
 import { HomeTabExplore } from 'products/product_analytics/frontend/insights/home/HomeTabExplore'
+import { homeTabLoadTimeLogic } from 'products/product_analytics/frontend/insights/home/homeTabLoadTimeLogic'
+import {
+    homeTabChartInsightId,
+    homeTabStatKey,
+} from 'products/product_analytics/frontend/insights/home/homeTabQueryKeys'
 
 import { HomeTabChartCard } from './HomeTabChartCard'
 import { homeTabDefaultLogic } from './homeTabDefaultLogic'
-import { getHomeTabAudienceOptions, getHomeTabBreakdownOptions, getHomeTabChartOptions } from './homeTabDefaultTiles'
+import {
+    getHomeTabAudienceOptions,
+    getHomeTabBreakdownOptions,
+    getHomeTabChartOptions,
+    getHomeTabStatQueries,
+} from './homeTabDefaultTiles'
 import { HomeTabStatTiles } from './HomeTabStatTiles'
+import { savedInsightsLogic } from './savedInsightsLogic'
 
 const HOME_DATE_OPTIONS = dateMapping.filter((option) => option.key !== CUSTOM_OPTION_KEY)
 
 export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactNode }): JSX.Element {
+    useAttachedLogic(homeTabDefaultLogic(), savedInsightsLogic)
     const { dateRange, compare, selectedMetric, selectedContentKey } = useValues(homeTabDefaultLogic)
     const { setDates, setCompare, setSelectedMetric, setSelectedContentKey } = useActions(homeTabDefaultLogic)
+    const { currentTeamId } = useValues(teamLogic)
 
     const metricCharts = getHomeTabChartOptions(dateRange, compare)
     const audienceCharts = getHomeTabAudienceOptions(dateRange)
@@ -31,6 +48,20 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
     const contentChart = breakdownCharts.find((option) => option.key === selectedContentKey) ?? breakdownCharts[0]
     const eventsChart =
         breakdownCharts.find((option) => option.key === 'top_events') ?? breakdownCharts[breakdownCharts.length - 1]
+
+    useMountedLogic(
+        homeTabLoadTimeLogic({
+            teamId: currentTeamId,
+            tileIds: [
+                ...getHomeTabStatQueries(dateRange, compare).map((stat) => homeTabStatKey(currentTeamId, stat.key)),
+                ...[primaryChart, contentChart, eventsChart, ...audienceCharts, retentionChart].map((chart) =>
+                    insightVizDataNodeKey({ dashboardItemId: homeTabChartInsightId(currentTeamId, chart.key) })
+                ),
+            ],
+            defaultDateRange: dateRange.date_from === '-7d' && !dateRange.date_to,
+            compare,
+        })
+    )
 
     return (
         <div className="@container/home-overview flex flex-col gap-4 @max-[32rem]/saved-insights:gap-3">

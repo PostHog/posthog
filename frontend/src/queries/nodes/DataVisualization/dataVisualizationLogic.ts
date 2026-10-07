@@ -38,6 +38,7 @@ import {
     ChartSettings,
     ChartSettingsDisplay,
     ChartSettingsFormatting,
+    DashboardFilter,
     ConditionalFormattingRule,
     VisualizationNode,
     HeatmapSettings,
@@ -124,6 +125,7 @@ export interface DataVisualizationLogicProps {
     loadPriority?: number
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
+    filtersOverride?: DashboardFilter | null
     limitContext?: 'posthog_ai'
 }
 
@@ -957,6 +959,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 dataNodeCollectionId: props.dataNodeCollectionId,
                 loadPriority: props.loadPriority,
                 variablesOverride: props.variablesOverride,
+                filtersOverride: props.filtersOverride,
                 limitContext: props.limitContext,
             }),
             [
@@ -979,6 +982,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 dataNodeCollectionId: props.dataNodeCollectionId,
                 loadPriority: props.loadPriority,
                 variablesOverride: props.variablesOverride,
+                filtersOverride: props.filtersOverride,
                 limitContext: props.limitContext,
             }),
             ['loadData'],

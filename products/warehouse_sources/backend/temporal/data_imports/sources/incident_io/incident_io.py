@@ -25,9 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.settings import (
-    INCIDENT_IO_ENDPOINTS,
     EntryWindow,
     IncidentIoEndpointConfig,
+    endpoints_for_version,
 )
 
 # Single global host — incident.io has no regions or per-account base paths.
@@ -135,14 +135,16 @@ def _probe_headers(api_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
 
 
-def _fanout_child_probe_url(api_key: str, config: IncidentIoEndpointConfig) -> Optional[str]:
+def _fanout_child_probe_url(
+    api_key: str, endpoints: dict[str, IncidentIoEndpointConfig], config: IncidentIoEndpointConfig
+) -> Optional[str]:
     """Build a one-row child request bound to a real parent id, or None when there is no parent row.
 
     A fan-out child can have its own scope (catalog entries need `catalog_entries.view`, separate
     from `catalog_types.view`), so probing only the parent can pass a key that can't sync the child.
     """
     assert config.fanout is not None
-    parent = INCIDENT_IO_ENDPOINTS[config.fanout.parent_name]
+    parent = endpoints[config.fanout.parent_name]
     try:
         response = make_tracked_session(redact_values=(api_key,)).get(
             _build_url(parent.path, {}), headers=_probe_headers(api_key), timeout=VALIDATION_TIMEOUT_SECONDS
@@ -188,7 +190,7 @@ def _probe_result(api_key: str, url: str, schema_name: Optional[str]) -> tuple[b
     return False, f"incident.io API returned an unexpected response (status {status})."
 
 
-def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
+def validate_credentials(api_key: str, api_version: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
     """Probe the API to confirm the key is genuine.
 
     incident.io API keys carry granular per-resource view/list scopes, so a 403 from one
@@ -196,9 +198,10 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     (``schema_name=None``) we accept 403 — the key authenticated, it's only missing a
     scope the user may not need. When validating a specific schema, a 403 is an error.
     """
-    config = INCIDENT_IO_ENDPOINTS.get(schema_name or "", INCIDENT_IO_ENDPOINTS["incidents"])
+    endpoints = endpoints_for_version(api_version)
+    config = endpoints.get(schema_name or "", endpoints["incidents"])
     # A fan-out child can't be listed without a parent id, so the parent list is probed first.
-    probe_config = INCIDENT_IO_ENDPOINTS[config.fanout.parent_name] if config.fanout is not None else config
+    probe_config = endpoints[config.fanout.parent_name] if config.fanout is not None else config
     params: dict[str, Any] = (
         {probe_config.page_size_param: 1} if probe_config.paginated and probe_config.page_size_param else {}
     )
@@ -207,7 +210,7 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     if not is_valid or config.fanout is None:
         return is_valid, error
 
-    child_url = _fanout_child_probe_url(api_key, config)
+    child_url = _fanout_child_probe_url(api_key, endpoints, config)
     if child_url is None:
         return True, None
     return _probe_result(api_key, child_url, schema_name)
@@ -244,6 +247,7 @@ def _source_response(config: IncidentIoEndpointConfig, items: Iterable[Any]) -> 
 
 def _fanout_source(
     api_key: str,
+    endpoints: dict[str, IncidentIoEndpointConfig],
     config: IncidentIoEndpointConfig,
     team_id: int,
     job_id: str,
@@ -251,7 +255,7 @@ def _fanout_source(
 ) -> SourceResponse:
     """Fetch a parent-scoped endpoint once per row of its parent lookup list."""
     assert config.fanout is not None
-    parent_config = INCIDENT_IO_ENDPOINTS[config.fanout.parent_name]
+    parent_config = endpoints[config.fanout.parent_name]
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     window_params: Optional[dict[str, str]] = None
@@ -275,7 +279,7 @@ def _fanout_source(
     resource = cast(
         Iterable[Any],
         build_dependent_resource(
-            endpoint_configs=INCIDENT_IO_ENDPOINTS,
+            endpoint_configs=endpoints,
             child_endpoint=config.name,
             fanout=config.fanout,
             client_config=_client_config(api_key),
@@ -302,13 +306,15 @@ def incident_io_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[IncidentIoResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
 ) -> SourceResponse:
-    config = INCIDENT_IO_ENDPOINTS[endpoint]
+    endpoints = endpoints_for_version(api_version)
+    config = endpoints[endpoint]
     if config.fanout is not None:
-        return _fanout_source(api_key, config, team_id, job_id, resumable_source_manager)
+        return _fanout_source(api_key, endpoints, config, team_id, job_id, resumable_source_manager)
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
