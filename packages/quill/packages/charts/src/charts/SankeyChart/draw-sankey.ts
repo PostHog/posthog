@@ -150,8 +150,14 @@ function paintEmphasis(
     // A resting opacity above the hover target must not drop when the flow is emphasized.
     const targetOpacity = Math.max(HOVER_LINK_OPACITY, options.linkOpacity)
     const activeOpacity = options.linkOpacity + (targetOpacity - options.linkOpacity) * options.progress
-    for (const link of emphasis.links) {
-        strokeLink(ctx, link, link.color, activeOpacity)
+    // The emphasized ribbon is already on the canvas at `linkOpacity`, and canvas alpha compounds.
+    // This repaint opacity makes the composite equal `activeOpacity` instead of overshooting it.
+    const repaintOpacity =
+        options.linkOpacity < 1 ? (activeOpacity - options.linkOpacity) / (1 - options.linkOpacity) : 0
+    if (repaintOpacity > 0) {
+        for (const link of emphasis.links) {
+            strokeLink(ctx, link, link.color, repaintOpacity)
+        }
     }
     // Every ribbon goes under every node, as on the resting layer, so an emphasized ribbon that
     // crosses a column does not cover a node it does not touch.

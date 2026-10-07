@@ -1,4 +1,4 @@
-import { drawSankeyHover, emphasisForHit } from './draw-sankey'
+import { drawSankey, drawSankeyHover, emphasisForHit } from './draw-sankey'
 import { computeSankeyLayout } from './sankey-data'
 
 const BACKGROUND = 'hsl(235deg 8% 15%)'
@@ -24,10 +24,13 @@ function layoutOf(secondLinkValue = 10): ReturnType<typeof computeSankeyLayout> 
 function recordingCtx(serialize: Record<string, string>): {
     ctx: CanvasRenderingContext2D
     strokes: string[]
+    strokeAlphas: number[]
     fills: string[]
 } {
     const strokes: string[] = []
+    const strokeAlphas: number[] = []
     const fills: string[] = []
+    const savedAlphas: number[] = []
     let fill = '#000000'
     let stroke = '#000000'
     const ctx = {
@@ -48,12 +51,17 @@ function recordingCtx(serialize: Record<string, string>): {
         beginPath: () => {},
         moveTo: () => {},
         bezierCurveTo: () => {},
-        save: () => {},
-        restore: () => {},
+        save: () => savedAlphas.push(ctx.globalAlpha),
+        restore: () => {
+            ctx.globalAlpha = savedAlphas.pop() ?? 1
+        },
         fillRect: () => fills.push(fill),
-        stroke: () => strokes.push(stroke),
+        stroke: () => {
+            strokes.push(stroke)
+            strokeAlphas.push(ctx.globalAlpha)
+        },
     } as unknown as CanvasRenderingContext2D
-    return { ctx, strokes, fills }
+    return { ctx, strokes, strokeAlphas, fills }
 }
 
 describe('drawSankeyHover', () => {
@@ -93,5 +101,26 @@ describe('drawSankeyHover', () => {
 
         expect(strokes).toHaveLength(1)
         expect(fills).toHaveLength(2)
+    })
+
+    it.each([
+        ['static layer below the hover target', 'static', 0.4, 0.85],
+        ['hover layer below the hover target', 'hover', 0.4, 0.85],
+        ['static layer above the hover target', 'static', 0.9, 0.9],
+        ['hover layer above the hover target', 'hover', 0.9, 0.9],
+    ])('composites an emphasized ribbon to its target opacity: %s', (_name, layer, linkOpacity, expectedOpacity) => {
+        const layout = layoutOf(0)
+        const emphasis = emphasisForHit(layout, { kind: 'link', index: 0 })
+        const { ctx, strokeAlphas } = recordingCtx({ [BACKGROUND]: '#202023' })
+        if (layer === 'static') {
+            drawSankey(ctx, layout, { linkOpacity, emphasis, backgroundColor: BACKGROUND })
+        } else {
+            drawSankeyHover(ctx, layout, emphasis, { linkOpacity, backgroundColor: BACKGROUND, progress: 1 })
+        }
+
+        // The hover layer sits on a static layer that already drew the ribbon at rest.
+        const painted = layer === 'hover' ? [linkOpacity, ...strokeAlphas] : strokeAlphas
+        const composite = 1 - painted.reduce((clear, alpha) => clear * (1 - alpha), 1)
+        expect(composite).toBeCloseTo(expectedOpacity)
     })
 })
