@@ -15366,6 +15366,21 @@
             "readOnlyHint": false
         }
     },
+    "workflows-email-reach": {
+        "description": "Count active verified organization members eligible for sandbox sender email and project people with a non-empty email property. These are sender-eligible recipient counts, not the audience matching a workflow trigger or a forecast of future events. Also returns project email sender IDs, providers and verification state without configuration or credentials. An event-triggered workflow only sends when a qualifying event occurs. Match the workflow's sender against email_senders before choosing which count to report.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get email recipient eligibility counts",
+        "title": "Get email recipient eligibility counts",
+        "required_scopes": ["hog_flow:read", "person:read", "integration:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-email-reach"
+    },
     "workflows-enable": {
         "description": "Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your own initiative. Once live, content edits stage as a draft you publish with workflows-publish.",
         "category": "Workflows",

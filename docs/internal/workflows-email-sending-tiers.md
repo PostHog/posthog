@@ -5,6 +5,17 @@ Projects start at the lowest tier and earn higher ones by sending cleanly; dirty
 The tiers exist because all workflow email shares one SES account whose reputation pools every project's complaints.
 Only workflows that send email are subject to the tiers; SMS, push, and webhook activity is never capped by them.
 
+## Recipient eligibility preview
+
+`GET /api/projects/:team_id/hog_flows/email_reach/` and the `workflows-email-reach` MCP tool return two eligibility counts:
+
+- `verified_member_count`: active organization members whose email address is verified. This is the sandbox sender's eligible recipient pool.
+- `project_email_count`: project people with a non-empty email property, counted through HogQL over `persons`. An own-domain sender can email these people when they qualify for the workflow.
+
+The response also includes `email_senders`: project email integration IDs, providers and verification state, without integration configuration or credentials. Match each workflow sender to this list before choosing a count. An unverified or missing sender needs setup; `maildev` only delivers to the local development inbox. The sandbox count applies when a sandbox sender is available and configured; this endpoint does not create one or enforce sending restrictions.
+
+These counts describe eligible recipients, not a trigger's matching audience or expected deliveries. Event-triggered workflows start on future qualifying events. Batch workflows still need their audience preview. Filters, subscription preferences and sending limits can reduce deliveries. The endpoint requires workflow, person and integration read access, and counts no people from other projects. It returns 403 when the caller cannot read person email properties, rather than reporting a misleading zero count.
+
 ## Where the pieces live
 
 - Tier state: `email_sending_tier`, `email_sending_tier_updated_at` (dwell anchor), `email_sending_tier_demoted_at` (demotion cooldown anchor), and `email_sending_tier_pinned` on `TeamWorkflowsConfig`.

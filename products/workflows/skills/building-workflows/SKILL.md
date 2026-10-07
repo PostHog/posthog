@@ -1,6 +1,6 @@
 ---
 name: building-workflows
-description: 'Build, edit, test, enable, and monitor PostHog workflows over MCP. Author the action/edge graph so it runs and opens cleanly in the visual editor, then change drafts surgically with patch operations. Use when asked to build, set up, automate, change, fix, or debug a workflow, campaign, broadcast, drip sequence, or event-triggered automation in the workflows product.'
+description: 'Builds, edits, tests, enables, schedules, monitors, and debugs PostHog workflows over MCP. Use for workflow creation, changes to drafts or live workflows, email sequences, broadcasts, and execution troubleshooting.'
 ---
 
 # Building workflows
@@ -23,6 +23,10 @@ Work the workflow through these stages. Don't jump straight to enabling it.
 8. **Monitor.** Drill down: `workflows-global-stats` (which workflows are failing) to `workflows-stats` (one workflow's trend) to `workflows-list-invocations` (who it failed for) to `workflows-get-invocation` (the triggering payload) to `workflows-logs` (the failing step).
 
 Full tool catalog, grouped by job: [references/lifecycle-and-debugging.md](references/lifecycle-and-debugging.md).
+
+## Email links and the draft handoff
+
+For every workflow with email steps, read [Email links and recipient reach](references/email-links-and-reach.md) after creating the minimal draft. Follow it when composing email content, changing sequence links, or preparing the final answer. Complete its URL, link, reach, and handoff checks before reporting that the draft is ready.
 
 ## Editing a draft
 

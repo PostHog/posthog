@@ -15,6 +15,24 @@ ui_apps:
         type: list
         detail_tool: workflows-get
 tools:
+    workflows-email-reach:
+        feature_flag: workflows-email-reach
+        operation: hog_flows_email_reach_retrieve
+        enabled: true
+        title: Get email recipient eligibility counts
+        description: >-
+            Count active verified organization members eligible for sandbox sender email and project people with a non-empty email property.
+            These are sender-eligible recipient counts, not the audience matching a workflow trigger or a forecast of future events.
+            Also returns project email sender IDs, providers and verification state without configuration or credentials.
+            An event-triggered workflow only sends when a qualifying event occurs. Match the workflow's sender against email_senders before choosing which count to report.
+        scopes:
+            - hog_flow:read
+            - person:read
+            - integration:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
     broadcasts-create:
         operation: hog_flows_create
         enabled: true

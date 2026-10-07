@@ -29,6 +29,7 @@ The MCP tools for the workflows product, grouped by job. The lifecycle that stri
 - `workflows-update-schedule` — change a schedule's RRULE, start time, timezone, or variable overrides.
 - `workflows-list-batch-jobs` — past batch runs (one-off + schedule-triggered), with the audience filters and variable overrides each used. No per-run status here — use logs/stats for outcomes.
 - `workflows-blast-radius` — preview how many people a set of audience filters matches before dispatching.
+- `workflows-email-reach` — get sender eligibility totals and email sender verification state. These totals do not count a trigger's matching audience or forecast future sends.
 
 **Monitor & debug**
 

@@ -8,10 +8,12 @@ from products.workflows.backend.services.email_health import (
     fold_email_totals,
     team_email_sending_allowance,
 )
+from products.workflows.backend.services.email_reach import EmailReachService
 from products.workflows.backend.services.email_sending_controls import get_email_sending_state
 from products.workflows.backend.services.workflow_email_health import pause_requires_staff, resume_email_sending
 
 __all__ = [
+    "EmailReachService",
     "fetch_aws_tenant_reputation",
     "fetch_email_totals_by_source",
     "fetch_isp_metrics",

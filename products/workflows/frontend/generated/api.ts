@@ -13,6 +13,7 @@ import type {
     AppMetricsTotalsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
+    EmailReachApi,
     EmailSendingSuspensionStatusApi,
     HogFlowApi,
     HogFlowBatchJobApi,
@@ -1207,6 +1208,17 @@ export const hogFlowsBulkDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowApi),
+    })
+}
+
+export const getHogFlowsEmailReachRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/email_reach/`
+}
+
+export const hogFlowsEmailReachRetrieve = async (projectId: string, options?: RequestInit): Promise<EmailReachApi> => {
+    return apiMutator<EmailReachApi>(getHogFlowsEmailReachRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

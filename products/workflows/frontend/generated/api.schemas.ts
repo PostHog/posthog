@@ -1724,6 +1724,24 @@ export interface PatchedHogFlowScheduleApi {
     readonly updated_at?: string
 }
 
+export interface EmailSenderEligibilityApi {
+    /** The project email sender integration ID. */
+    integration_id: number
+    /** Email provider, such as ses, maildev, or sandbox when available. */
+    provider: string
+    /** Whether the email sender has completed verification. */
+    is_verified: boolean
+}
+
+export interface EmailReachApi {
+    /** Active organization members with verified email addresses. Only these recipients can receive sandbox sender email. This is an eligible-recipient count, not a trigger forecast. */
+    verified_member_count: number
+    /** People in this project with a non-empty email property. These people can receive email from an own-domain sender if they qualify for the workflow. This is not a trigger forecast. */
+    project_email_count: number
+    /** Project email sender identity and verification state, without configuration or credentials. */
+    email_senders: EmailSenderEligibilityApi[]
+}
+
 /**
  * Cheap suspension-only read for the persistent scene-wide banner — no reputation computation.
  */

@@ -99,6 +99,10 @@ from posthog.synthetic_user import SyntheticUser
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse_with_delta_mapping
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
@@ -150,6 +154,7 @@ from products.workflows.backend.facade.email_design import (
     render_email_design_html,
 )
 from products.workflows.backend.facade.email_health import (
+    EmailReachService,
     fetch_aws_tenant_reputation,
     fetch_email_totals_by_source,
     fetch_isp_metrics,
@@ -889,6 +894,25 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
         default=True,
         help_text="Whether the workflow contains an email step. The tiered audience limit only applies to "
         "email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true.",
+    )
+
+
+class EmailSenderEligibilitySerializer(serializers.Serializer):
+    integration_id = serializers.IntegerField(help_text="The project email sender integration ID.")
+    provider = serializers.CharField(help_text="Email provider, such as ses, maildev, or sandbox when available.")
+    is_verified = serializers.BooleanField(help_text="Whether the email sender has completed verification.")
+
+
+class EmailReachSerializer(serializers.Serializer):
+    verified_member_count = serializers.IntegerField(
+        help_text="Active organization members with verified email addresses. Only these recipients can receive sandbox sender email. This is an eligible-recipient count, not a trigger forecast."
+    )
+    project_email_count = serializers.IntegerField(
+        help_text="People in this project with a non-empty email property. These people can receive email from an own-domain sender if they qualify for the workflow. This is not a trigger forecast."
+    )
+    email_senders = EmailSenderEligibilitySerializer(
+        many=True,
+        help_text="Project email sender identity and verification state, without configuration or credentials.",
     )
 
 
@@ -4219,6 +4243,7 @@ class HogFlowViewSet(
         "team_reputation",
         "email_sending_suspension",
         "user_blast_radius",
+        "email_reach",
         "assets",
         "asset_content",
         "revisions",
@@ -4309,6 +4334,8 @@ class HogFlowViewSet(
             if request.method in ("GET", "HEAD", "OPTIONS"):
                 return ["hog_flow:read"]
             return ["hog_flow:write", "person:read"]
+        if self.action == "email_reach":
+            return ["hog_flow:read", "person:read", "integration:read"]
         # Sizing an audience runs a person/group count over caller-supplied filters — that's person-data
         # access, so require person:read on top of workflow read. Without it a hog_flow:read-only token
         # could use this as a person-existence oracle (e.g. "does email X exist?"). The web builder uses
@@ -5850,6 +5877,21 @@ class HogFlowViewSet(
             return Response({"status": "error", "message": res.json()["error"]}, status=res.status_code)
 
         return Response(res.json())
+
+    @extend_schema(responses=EmailReachSerializer)
+    @action(methods=["GET"], detail=False)
+    def email_reach(self, request: Request, **kwargs: object) -> Response:
+        if not gated_template_enabled("workflows-email-reach", self.team):
+            raise exceptions.PermissionDenied("Email reach is not enabled for this project.")
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
+            raise exceptions.PermissionDenied("You do not have access to workflows.")
+        user = cast(User, request.user)
+        restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=self.team.id)
+        if "email" in split_restricted_property_names(restrictions).person:
+            raise exceptions.PermissionDenied(
+                "Email reach is unavailable because you cannot read person email properties."
+            )
+        return Response(EmailReachSerializer(EmailReachService.counts(self.team, user)).data)
 
     @extend_schema(request=BlastRadiusRequestSerializer, responses=BlastRadiusSerializer)
     @action(methods=["POST"], detail=False)

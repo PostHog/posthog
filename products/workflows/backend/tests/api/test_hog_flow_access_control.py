@@ -226,7 +226,8 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(HogFlow.objects.filter(id=archived_denied.id).exists())
         self.assertTrue(HogFlow.objects.filter(id=archived_viewer.id).exists())
 
-    def test_user_blast_radius_requires_resource_level_access(self):
+    @parameterized.expand([("user_blast_radius", "post"), ("email_reach", "get")])
+    def test_audience_counts_require_resource_level_access(self, action_name, method):
         # user_blast_radius is detail=False, so AccessControlPermission falls back to "access to any one
         # workflow". A viewer grant on a single workflow must not unlock the project-wide audience count:
         # the action requires resource-level workflow access.
@@ -234,11 +235,12 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
         self._create_access_control(self.no_access_user, resource_id=str(self.hog_flow.id), access_level="viewer")
         self.client.force_login(self.no_access_user)
 
-        response = self.client.post(
-            f"{self._list_url()}/user_blast_radius",
-            data={"filters": {"properties": []}},
-            format="json",
-        )
+        with patch("posthog.cdp.flag_gated_templates.posthoganalytics.feature_enabled", return_value=True):
+            response = getattr(self.client, method)(
+                f"{self._list_url()}/{action_name}",
+                data={"filters": {"properties": []}},
+                format="json",
+            )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, getattr(response, "data", response.content))
 
     def test_org_admin_bypasses_object_level_denial(self):
