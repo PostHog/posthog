@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -12,7 +12,7 @@ import { BIMeasureAnalysis } from '../BIMeasureAnalysis'
 
 export function BIMarksCard(): JSX.Element {
     const { config } = useValues(biEditorLogic)
-    const { setChartType } = useActions(biEditorLogic)
+    const { setChartType, combineMeasures } = useActions(biEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
@@ -31,6 +31,21 @@ export function BIMarksCard(): JSX.Element {
                 data-attr="bi-editor-mark-type"
                 tooltip="Change how measures on Rows are displayed"
             />
+            {config.values.length === 2 ? (
+                <LemonButton
+                    size="xsmall"
+                    fullWidth
+                    data-attr="bi-editor-combine-measures"
+                    onClick={combineMeasures}
+                    disabledReason={
+                        config.rows.length + config.columns.length > 2
+                            ? 'Use at most two dimensions for a combined chart'
+                            : undefined
+                    }
+                >
+                    Combine line + bar
+                </LemonButton>
+            ) : null}
             {config.values.map((_, index) => (
                 <BIMeasureAnalysis key={index} index={index} />
             ))}

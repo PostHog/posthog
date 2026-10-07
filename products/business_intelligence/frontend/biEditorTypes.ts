@@ -36,6 +36,7 @@ import {
     isBITableCalculation,
 } from './biAnalysis'
 import { getBIComparisonDisabledReason, getBIComparisonDateExpression } from './biComparison'
+import { getBIMeasureSettings, isBIMeasureSettings, mergeBIMeasureSettings } from './biMeasureSettings'
 import { getBIFiltersPlaceholder, getBIQueryFilters, normalizeBIDates } from './biQueryFilters'
 
 export enum BIEditorView {
@@ -110,10 +111,14 @@ export function mergeBIChartSettings(
               }
             : current?.xAxis,
         yAxis:
-            generated.yAxis?.map((axis) => ({
-                ...current?.yAxis?.find((savedAxis) => savedAxis.column === axis.column),
-                ...axis,
-            })) ?? current?.yAxis,
+            generated.yAxis?.map((axis) => {
+                const saved = current?.yAxis?.find((savedAxis) => savedAxis.column === axis.column)
+                return {
+                    ...saved,
+                    ...axis,
+                    settings: mergeBIMeasureSettings(saved?.settings, axis.settings),
+                }
+            }) ?? current?.yAxis,
         heatmap: current?.heatmap || generated.heatmap ? { ...current?.heatmap, ...generated.heatmap } : undefined,
     }
 }
@@ -490,6 +495,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
               const field = parseBIFieldValue(valueCandidate.field)
               if (
                   !field ||
+                  !isBIMeasureSettings(valueCandidate) ||
                   !BI_AGGREGATIONS.has(valueCandidate.aggregation as BIAggregation) ||
                   (valueCandidate.label !== undefined && typeof valueCandidate.label !== 'string') ||
                   (valueCandidate.tableCalculation !== undefined &&
@@ -503,6 +509,8 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
                   aggregation: valueCandidate.aggregation as BIAggregation,
                   customExpression: valueCandidate.customExpression,
                   label: valueCandidate.label,
+                  ...(valueCandidate.formatting ? { formatting: valueCandidate.formatting } : {}),
+                  ...(valueCandidate.display ? { display: valueCandidate.display } : {}),
                   ...(valueCandidate.tableCalculation ? { tableCalculation: valueCandidate.tableCalculation } : {}),
               }
           })
@@ -1221,14 +1229,15 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
     }
 
     const calculatedFormats = configuredValues
-        .filter(({ value }) => ['percent_of_total', 'percent_change'].includes(value.tableCalculation?.type ?? ''))
-        .map(({ alias }) => ({
+        .filter(({ value }) => !!getBIMeasureSettings(value))
+        .map(({ alias, value }) => ({
             column: alias,
-            settings: { formatting: { style: 'percent' as const, decimalPlaces: 1 } },
+            settings: getBIMeasureSettings(value),
         }))
     if (calculatedFormats.length) {
         seriesSettings = {
             ...seriesSettings,
+            xAxis: seriesSettings?.xAxis ?? (xDimension ? { column: fieldExpression(xDimension.field) } : undefined),
             yAxis: (seriesSettings?.yAxis ?? configuredValues.map(({ alias }) => ({ column: alias }))).map((axis) => ({
                 ...axis,
                 ...calculatedFormats.find((format) => format.column === axis.column),
@@ -1256,14 +1265,20 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                                   ? [pivotRowAxis, pivotColumnAxis]
                                         .filter((axis): axis is BIPivotAxis => !!axis)
                                         .map((axis) => axis.alias)
-                                  : dimensions.map((dimension) => dimension.alias)),
+                                  : dimensions.map((dimension) =>
+                                        hasBIAnalysis(config) || comparing || hasSeriesBreakdown
+                                            ? dimension.alias
+                                            : fieldExpression(dimension.field)
+                                    )),
                               ...configuredValues.map((value) => value.alias),
                               ...(comparing ? ['bi_comparison'] : []),
                           ].map((column) => calculatedFormats.find((format) => format.column === column) ?? { column }),
                       },
                   }
                 : {}),
-            ...(pivotTableSettings || seriesSettings ? { chartSettings: pivotTableSettings ?? seriesSettings } : {}),
+            ...(pivotTableSettings || seriesSettings
+                ? { chartSettings: { ...seriesSettings, ...pivotTableSettings } }
+                : {}),
         },
     }
 }

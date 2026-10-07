@@ -2,6 +2,8 @@ import { ChartDisplayType } from '~/types'
 
 import {
     ChartSettings,
+    ChartSettingsDisplay,
+    ChartSettingsFormatting,
     CompareFilter,
     DatabaseSerializedFieldType,
     DateRange,
@@ -68,6 +70,8 @@ export interface BIValue {
     customExpression?: string
     label?: string
     tableCalculation?: BITableCalculation
+    formatting?: ChartSettingsFormatting
+    display?: ChartSettingsDisplay
 }
 
 export type BITableCalculationType =
