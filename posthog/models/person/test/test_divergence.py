@@ -29,6 +29,8 @@ from posthog.models.person.divergence import (
     RepairSummary,
     SampleBucket,
     SampledPerson,
+    SampleSummary,
+    ScanSummary,
     TeamCheck,
     _WritePacer,
     check_team,
@@ -312,6 +314,10 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         self._ch_person_row(absent, 3)
         team_gone = uuid4()
         self._ch_person_row(team_gone, 1, team_id=gone_team_id)
+        # Postgres can still hold a deleted team's persons until the team purge reaches them.
+        team_gone_in_postgres = uuid4()
+        self._ch_person_row(team_gone_in_postgres, 1, team_id=gone_team_id)
+        get_active_fake().add_person(team_id=gone_team_id, person_id=987655, uuid=str(team_gone_in_postgres), version=1)
         deleted_winner = self._pg_person(version=3)
         self._ch_person_row(deleted_winner.uuid, 4, deleted=True)
         written_long_ago = self._pg_person(version=3)
@@ -325,6 +331,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             cutoff=now() - timedelta(days=1),
             min_team_id=self.team.pk,
             max_team_id=gone_team_id + 1,
+            team_step=1,
             on_sampled=sampled.append,
             log=lambda _: None,
         )
@@ -336,8 +343,15 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             str(tombstoned.uuid): ("pg_tombstone", "since_cutoff", None),
             str(absent): ("pg_absent", "since_cutoff", None),
             str(team_gone): ("team_gone", "since_cutoff", None),
+            str(team_gone_in_postgres): ("team_gone", "since_cutoff", None),
         }
-        assert summary.sampled == 6
+        assert summary.sampled == 7
+        assert summary.skipped_team_ids == []
+        assert all(
+            call.request.team_id != gone_team_id
+            for call in get_active_fake().calls
+            if call.method == "get_persons_by_uuids"
+        )
         assert summary.counts[SampleBucket(classification="equal", era="before_cutoff")] == 1
 
     def test_team_check_counts_old_live_clickhouse_rows_that_postgres_still_holds(self) -> None:
@@ -774,9 +788,18 @@ class TestWritePacer(SimpleTestCase):
 
 
 class TestScanTeamRanges(SimpleTestCase):
-    @parameterized.expand([("out_of_memory", ClickHouseQueryMemoryLimitExceeded), ("timeout", ClickHouseQueryTimeOut)])
+    @parameterized.expand(
+        [
+            (f"{scan}_{name}", scan, error)
+            for scan in ("stale", "sample")
+            for name, error in (
+                ("out_of_memory", ClickHouseQueryMemoryLimitExceeded),
+                ("timeout", ClickHouseQueryTimeOut),
+            )
+        ]
+    )
     def test_a_team_that_fails_alone_is_skipped_and_every_other_team_is_scanned(
-        self, _name: str, error: type[Exception]
+        self, _name: str, scan: str, error: type[Exception]
     ) -> None:
         scanned: list[int] = []
 
@@ -788,9 +811,25 @@ class TestScanTeamRanges(SimpleTestCase):
             return []
 
         with patch("posthog.models.person.divergence.sync_execute", side_effect=query):
-            summary = scan_stale_persons(
-                window_days=60, min_team_id=0, max_team_id=16, team_step=8, on_found=lambda _: None, log=lambda _: None
-            )
+            if scan == "stale":
+                summary: ScanSummary | SampleSummary = scan_stale_persons(
+                    window_days=60,
+                    min_team_id=0,
+                    max_team_id=16,
+                    team_step=8,
+                    on_found=lambda _: None,
+                    log=lambda _: None,
+                )
+            else:
+                summary = scan_sample(
+                    modulus=1,
+                    residue=0,
+                    min_team_id=0,
+                    max_team_id=16,
+                    team_step=8,
+                    on_sampled=lambda _: None,
+                    log=lambda _: None,
+                )
 
         assert summary.skipped_team_ids == [7]
         assert sorted(scanned) == [team for team in range(16) if team != 7]

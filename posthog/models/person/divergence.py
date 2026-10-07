@@ -68,6 +68,7 @@ LEGACY_TOMBSTONE_MIN_VERSION = 100
 HIDDEN_TEAM_STEP = 10_000
 SWEPT_TEAM_STEP = 10_000
 STALE_TEAM_STEP = 5_000
+SAMPLE_TEAM_STEP = 10_000
 
 _HIDDEN_SETTINGS = {"max_execution_time": 900, "max_memory_usage": 32_000_000_000}
 _SWEPT_SETTINGS = {"apply_deleted_mask": 0, "max_execution_time": 1800, "max_memory_usage": 64_000_000_000}
@@ -132,6 +133,7 @@ class SampleBucket:
 class SampleSummary:
     sampled: int
     counts: dict[SampleBucket, int]
+    skipped_team_ids: list[int]
 
 
 @frozen
@@ -437,9 +439,9 @@ HAVING argMax(is_deleted, version) = 0
 def _classify_sampled(
     pg_version: int | None, ch_max_version: int, *, team_exists: bool, tombstoned: bool
 ) -> SampleClassification:
+    if not team_exists:
+        return "team_gone"
     if pg_version is None:
-        if not team_exists:
-            return "team_gone"
         return "pg_tombstone" if tombstoned else "pg_absent"
     if pg_version == ch_max_version:
         return "equal"
@@ -454,54 +456,78 @@ def scan_sample(
     cutoff: datetime | None = None,
     min_team_id: int = 0,
     max_team_id: int | None = None,
+    team_step: int = SAMPLE_TEAM_STEP,
     on_sampled: Callable[[SampledPerson], None],
     log: Callable[[str], None],
 ) -> SampleSummary:
     """Classify a uniform sample of live ClickHouse persons against Postgres."""
     if not 0 <= residue < modulus:
         raise ValueError("residue must be in [0, modulus)")
-    rows = _ch(
-        _SAMPLE_SQL,
-        {
-            "modulus": modulus,
-            "residue": residue,
-            "written_within_days": written_within_days or 0,
-            "min_team_id": min_team_id,
-            "max_team_id": _resolve_max_team_id(max_team_id),
-        },
-        _SAMPLE_SETTINGS,
-    )
-    log(f"sampled {len(rows)} live ClickHouse persons")
     cutoff_ts = cutoff.timestamp() if cutoff is not None else None
-    by_team: dict[int, dict[str, tuple[int, SampleEra]]] = defaultdict(dict)
-    for team_id, person_uuid, ch_max_version, written_at in rows:
-        era: SampleEra = "any" if cutoff_ts is None else "before_cutoff" if written_at < cutoff_ts else "since_cutoff"
-        by_team[int(team_id)][person_uuid] = (int(ch_max_version), era)
-
-    existing_teams = set(Team.objects.filter(id__in=list(by_team)).values_list("id", flat=True))
     counts: Counter[SampleBucket] = Counter()
-    for team_id, sampled in sorted(by_team.items()):
-        team_exists = team_id in existing_teams
-        pg_versions = _live_person_versions(team_id, list(sampled), "person_divergence_sample")
-        missing = [u for u in sampled if u not in pg_versions]
-        tombstoned = _tombstoned_uuids(team_id, missing) if team_exists else set()
-        for person_uuid, (ch_max_version, era) in sampled.items():
-            pg_version = pg_versions.get(person_uuid)
-            classification = _classify_sampled(
-                pg_version, ch_max_version, team_exists=team_exists, tombstoned=person_uuid in tombstoned
+    sampled_count = 0
+
+    def query(lo: int, hi: int) -> list[Any]:
+        return _ch(
+            _SAMPLE_SQL,
+            {
+                "modulus": modulus,
+                "residue": residue,
+                "written_within_days": written_within_days or 0,
+                "min_team_id": lo,
+                "max_team_id": hi,
+            },
+            _SAMPLE_SETTINGS,
+        )
+
+    def on_rows(rows: list[Any]) -> None:
+        nonlocal sampled_count
+        if not rows:
+            return
+        sampled_count += len(rows)
+        by_team: dict[int, dict[str, tuple[int, SampleEra]]] = defaultdict(dict)
+        for team_id, person_uuid, ch_max_version, written_at in rows:
+            era: SampleEra = (
+                "any" if cutoff_ts is None else "before_cutoff" if written_at < cutoff_ts else "since_cutoff"
             )
-            counts[SampleBucket(classification=classification, era=era)] += 1
-            on_sampled(
-                SampledPerson(
-                    team_id=team_id,
-                    person_uuid=person_uuid,
-                    classification=classification,
-                    era=era,
-                    ch_max_version=ch_max_version,
-                    pg_version=pg_version,
+            by_team[int(team_id)][person_uuid] = (int(ch_max_version), era)
+
+        existing_teams = set(Team.objects.filter(id__in=list(by_team)).values_list("id", flat=True))
+        for team_id, sampled in sorted(by_team.items()):
+            team_exists = team_id in existing_teams
+            # A deleted team's persons can outlive it in Postgres, so they are team_gone whatever their version.
+            pg_versions = (
+                _live_person_versions(team_id, list(sampled), "person_divergence_sample") if team_exists else {}
+            )
+            missing = [u for u in sampled if u not in pg_versions]
+            tombstoned = _tombstoned_uuids(team_id, missing) if team_exists else set()
+            for person_uuid, (ch_max_version, era) in sampled.items():
+                pg_version = pg_versions.get(person_uuid)
+                classification = _classify_sampled(
+                    pg_version, ch_max_version, team_exists=team_exists, tombstoned=person_uuid in tombstoned
                 )
-            )
-    return SampleSummary(sampled=len(rows), counts=dict(counts))
+                counts[SampleBucket(classification=classification, era=era)] += 1
+                on_sampled(
+                    SampledPerson(
+                        team_id=team_id,
+                        person_uuid=person_uuid,
+                        classification=classification,
+                        era=era,
+                        ch_max_version=ch_max_version,
+                        pg_version=pg_version,
+                    )
+                )
+
+    skipped = _scan_team_ranges(
+        query,
+        min_team_id=min_team_id,
+        max_team_id=_resolve_max_team_id(max_team_id),
+        team_step=team_step,
+        on_rows=on_rows,
+        log=log,
+    )
+    log(f"sampled {sampled_count} live ClickHouse persons")
+    return SampleSummary(sampled=sampled_count, counts=dict(counts), skipped_team_ids=skipped)
 
 
 _TEAM_PERSONS_SQL = """
