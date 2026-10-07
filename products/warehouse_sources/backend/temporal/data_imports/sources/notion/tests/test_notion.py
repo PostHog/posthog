@@ -225,6 +225,24 @@ class TestNotion:
         assert session.calls[0]["params"]["start_cursor"] == "stale-cursor"
         assert "start_cursor" not in session.calls[1]["params"]
 
+    def test_users_stream_stages_next_cursor_before_yielding_a_finished_page(self) -> None:
+        session = FakeSession(
+            [
+                _list_response([{"id": "u1"}, {"id": "u2"}], has_more=True, next_cursor="c1"),
+                _list_response([{"id": "u3"}], has_more=False, next_cursor=None),
+            ]
+        )
+        manager = _fresh_manager()
+
+        with mock.patch(f"{MODULE}.CHUNK_SIZE", 1):
+            stream = _users_stream(cast(requests.Session, session), mock.MagicMock(), manager)
+            first = next(stream)
+            manager.save_state.assert_called_once_with(NotionResumeConfig(next_cursor="c1"))
+            rest = list(stream)
+
+        assert first.num_rows == 2
+        assert sum(t.num_rows for t in rest) == 1
+
     def test_permission_groups_stream_pages_through_the_workspace_groups(self) -> None:
         session = FakeSession([FakeResponse({"object": "user", "bot": {"workspace_id": "ws-1"}})])
         admin_session = FakeSession(

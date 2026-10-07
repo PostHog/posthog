@@ -405,18 +405,16 @@ def _cursor_list_stream(
             cursor = None
             continue
         results = data.get("results", [])
-        has_more = data.get("has_more", False)
+        if results:
+            batcher.batch(results)
+
         next_cursor = data.get("next_cursor")
-
-        for item in results:
-            batcher.batch(item)
-            if batcher.should_yield():
-                yield batcher.get_table()
-                if has_more and next_cursor:
-                    resumable_source_manager.save_state(NotionResumeConfig(next_cursor=next_cursor))
-
-        if not has_more or not next_cursor:
+        if not data.get("has_more") or not next_cursor:
             break
+        # Yield only at a page boundary, so the staged cursor covers every row in the yielded table.
+        if batcher.should_yield():
+            resumable_source_manager.save_state(NotionResumeConfig(next_cursor=next_cursor))
+            yield batcher.get_table()
         cursor = next_cursor
 
     if batcher.should_yield(include_incomplete_chunk=True):
