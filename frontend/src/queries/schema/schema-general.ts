@@ -6783,6 +6783,8 @@ export interface DashboardFilter {
     interval?: IntervalType | null
     /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
     filterTestAccounts?: boolean | null
+    /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
+    metricFilters?: MetricsQueryFilter[] | null
 }
 
 export interface TileFilters {

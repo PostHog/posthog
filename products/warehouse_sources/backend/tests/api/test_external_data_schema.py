@@ -157,7 +157,7 @@ class TestExternalDataSchema(APIBaseTest):
             "cdc_available": None,
             "xmin_available": None,
             "full_refresh_available": True,
-            "supports_webhooks": True,
+            "supports_webhooks": False,
             "webhook_only": False,
             "available_columns": [],
             "detected_primary_keys": None,

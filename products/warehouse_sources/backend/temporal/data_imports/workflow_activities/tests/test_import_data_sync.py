@@ -1,4 +1,7 @@
 import uuid
+import asyncio
+import functools
+import threading
 import contextlib
 import dataclasses
 from datetime import UTC, datetime, timedelta
@@ -74,11 +77,13 @@ class _FakeAsyncCM:
         pass
 
 
-def _passthrough(fn):
-    """Stand-in for database_sync_to_async_pool that just calls the wrapped fn."""
+def _passthrough(fn, *, executor=None):
+    """Stand-in for database_sync_to_async_pool that honors an explicitly selected executor."""
 
     async def _inner(*args, **kwargs):
-        return fn(*args, **kwargs)
+        if executor is None:
+            return fn(*args, **kwargs)
+        return await asyncio.get_running_loop().run_in_executor(executor, functools.partial(fn, *args, **kwargs))
 
     return _inner
 
@@ -978,6 +983,20 @@ def _inputs_no_reset() -> ImportDataActivityInputs:
 
 
 @pytest.mark.asyncio
+async def test_source_setup_uses_a_dedicated_executor():
+    thread_names: list[str] = []
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.side_effect = lambda *_args: thread_names.append(threading.current_thread().name)
+    schema = _incremental_schema(is_incremental=False, lookback_seconds=None)
+
+    with _patched_activity_reaching_run(source, schema):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    assert thread_names[0].startswith("warehouse-source-setup")
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "is_incremental,expected_last_value,expected_before_lookback",
     [
@@ -1244,6 +1263,7 @@ def _probe_model() -> mock.MagicMock:
 def _probe_schema() -> mock.MagicMock:
     schema = mock.MagicMock()
     schema.id = uuid.uuid4()
+    schema.sync_type = ExternalDataSchema.SyncType.FULL_REFRESH
     schema.should_use_incremental_field = False
     schema.is_incremental = False
     schema.sync_type_config = {}

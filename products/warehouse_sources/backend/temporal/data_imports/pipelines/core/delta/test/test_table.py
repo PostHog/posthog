@@ -312,6 +312,71 @@ class TestOpenWithoutExistenceCheck:
         mock_delta_table.is_deltatable.assert_called_once()
 
 
+class TestCorruptionCheckSharesItsOpen:
+    @parameterized.expand(
+        [
+            # (name, step between the check and the read, opens made by the read)
+            ("read_reuses_the_handle", "nothing", 0),
+            ("reset_drops_the_handle", "reset", 1),
+            ("invalidate_drops_the_handle", "invalidate", 1),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_read_after_the_corruption_check(self, _name: str, step: str, later_opens: int) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            uri = str(Path(tmp) / "table")
+            deltalake.write_deltalake(uri, pa.table({"id": [1]}))
+            ref = make_local_table_ref(uri)
+            module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
+            s3_cm = MagicMock(__aenter__=AsyncMock(return_value=MagicMock()), __aexit__=AsyncMock(return_value=False))
+
+            with (
+                patch.object(ref, "_open_delta_table", AsyncMock(side_effect=ref._open_delta_table)) as later_open,
+                patch(f"{module}.aget_s3_client", MagicMock(return_value=s3_cm)),
+                patch(f"{module}._purge_s3_prefix", AsyncMock()),
+            ):
+                assert await ref.is_table_corrupted() is False
+                if step == "reset":
+                    await ref.reset_table()
+                elif step == "invalidate":
+                    ref.invalidate_cached_table()
+
+                table = await ref.get_delta_table()
+
+            assert table is not None
+            assert later_open.await_count == later_opens
+
+    @pytest.mark.asyncio
+    async def test_a_commit_through_the_shared_handle_is_visible_to_the_next_reader(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            uri = str(Path(tmp) / "table")
+            deltalake.write_deltalake(uri, pa.table({"id": [1]}))
+            ref = make_local_table_ref(uri)
+
+            assert await ref.is_table_corrupted() is False
+            maintenance_handle = await ref.get_delta_table()
+            assert maintenance_handle is not None
+            deltalake.write_deltalake(maintenance_handle, pa.table({"id": [2]}), mode="append")
+            deltalite.DeltaLiteTable.open(uri).upsert(pa.table({"id": [3]}), primary_keys=["id"])
+            ref.note_deltalite_commit(None)
+
+            reader = await ref.get_delta_table()
+
+            assert reader is not None
+            assert reader.version() == deltalake.DeltaTable(uri).version() == 2
+            assert set(reader.to_pyarrow_table().column("id").to_pylist()) == {1, 2, 3}
+
+    @pytest.mark.asyncio
+    async def test_a_corrupt_table_leaves_no_handle_behind(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "table"
+            _commit_without_metadata(path)
+            ref = make_local_table_ref(str(path))
+
+            assert await ref.is_table_corrupted() is True
+            assert ref.pop_cached_table() is None
+
+
 class TestKnownMissingTable:
     @parameterized.expand(
         [

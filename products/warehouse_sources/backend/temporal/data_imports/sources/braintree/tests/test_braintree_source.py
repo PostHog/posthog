@@ -6,6 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.
     BRAINTREE_VERSION_2026_07_14,
     BRAINTREE_VERSION_2026_08_04,
     BRAINTREE_VERSION_2026_08_13,
+    BRAINTREE_VERSION_2026_10_06,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.source import BraintreeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braintree import (
@@ -59,7 +60,7 @@ class TestBraintreeSource:
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with("production", "pub", "priv", "2026-08-13")
+        mock_validate.assert_called_once_with("production", "pub", "priv", "2026-10-06")
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.braintree.source.braintree_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_bt_source):
@@ -93,9 +94,9 @@ class TestBraintreeSource:
         assert mock_bt_source.call_args.kwargs["db_incremental_field_last_value"] is None
 
     def test_supported_versions_and_default(self):
-        assert self.source.supported_versions == ("2019-01-01", "2026-07-14", "2026-08-04", "2026-08-13")
+        assert self.source.supported_versions == ("2019-01-01", "2026-07-14", "2026-08-04", "2026-08-13", "2026-10-06")
         # New sources start on the latest version; the default must stay in supported.
-        assert self.source.default_version == "2026-08-13"
+        assert self.source.default_version == "2026-10-06"
         assert self.source.default_version in self.source.supported_versions
 
     @pytest.mark.parametrize(
@@ -105,8 +106,9 @@ class TestBraintreeSource:
             ("2026-07-14", "2026-07-14"),
             ("2026-08-04", "2026-08-04"),
             ("2026-08-13", "2026-08-13"),
-            (None, "2026-08-13"),
-            ("", "2026-08-13"),
+            ("2026-10-06", "2026-10-06"),
+            (None, "2026-10-06"),
+            ("", "2026-10-06"),
         ],
     )
     def test_resolve_api_version(self, pinned, expected):
@@ -119,7 +121,8 @@ class TestBraintreeSource:
             ("2026-07-14", "2026-07-14"),
             ("2026-08-04", "2026-08-04"),
             ("2026-08-13", "2026-08-13"),
-            (None, "2026-08-13"),
+            ("2026-10-06", "2026-10-06"),
+            (None, "2026-10-06"),
         ],
     )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.braintree.source.braintree_source")
@@ -143,6 +146,7 @@ class TestValidateCredentialsResolvedPin:
             (BRAINTREE_VERSION_2026_07_14, BRAINTREE_VERSION_2026_07_14),
             (BRAINTREE_VERSION_2026_08_04, BRAINTREE_VERSION_2026_08_04),
             (BRAINTREE_VERSION_2026_08_13, BRAINTREE_VERSION_2026_08_13),
+            (BRAINTREE_VERSION_2026_10_06, BRAINTREE_VERSION_2026_10_06),
         ],
     )
     @mock.patch(
