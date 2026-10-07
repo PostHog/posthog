@@ -127,7 +127,7 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                         {overview.totals.listed.toLocaleString()} snapshots
                     </span>{' '}
                     have something to show here, out of {overview.totals.tracked.toLocaleString()} with a current
-                    baseline. The rest matched their baseline on every run and carry no quarantine.
+                    baseline. The rest passed every run and carry no quarantine.
                 </div>
             )}
 
