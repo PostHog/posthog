@@ -43,6 +43,35 @@ It is never a judgment on the PR.
 How a verdict reaches GitHub, and what happens to a trigger label, is the caller's concern.
 For the hosted product see [`products/stamphog/README.md`](../../README.md#what-a-pr-author-sees).
 
+## Engine channels
+
+`review_local.py` reads `STAMPHOG_ENGINE_CHANNEL`, which the hosted server sets per PR.
+A missing or unknown value is `stable`.
+`review_pr.py` always runs the stable channel.
+
+| Channel       | Verdict that is returned                | Beta reviewer runs                    |
+| ------------- | --------------------------------------- | ------------------------------------- |
+| `stable`      | Claude reviewer                         | No                                    |
+| `beta-live`   | GPT-6 Luna reviewer, in place of Claude | Yes, and its verdict is returned      |
+| `beta-shadow` | Claude reviewer                         | Yes, after Claude, for analytics only |
+
+The Luna reviewer (`luna_reviewer.py`) gets the same system prompt and user prompt as the Claude reviewer, answers the same facts schema through OpenAI structured outputs, and its verdict comes from the same rule in `verdict_rule.py`.
+Only the model and the harness differ, so the two channels compare directly.
+
+- It is an OpenAI Responses API loop with `gpt-6-luna` at medium reasoning effort, and with the same turn limits as the Claude reviewer.
+- In the sandbox it calls the gateway's OpenAI-compatible route (`AI_GATEWAY_URL`, which ends in `/v1`, plus `/responses`) with the run's gateway token and the same `X-PostHog-Properties` header as the Claude reviewer. A local run without a gateway uses `OPENAI_API_KEY`.
+- Its tools are `read_file`, `grep` and `glob`. Every path resolves inside the checkout, symbolic links included, and each tool output is capped.
+- Requests use `store=False`, so the PR content stays out of OpenAI's response storage.
+
+A run whose verdict came from the Luna reviewer reports `BETA_VERSION` from `version.py` as its `stamphog_version`.
+Events carry `stamphog_engine_channel` (`stable` or `beta`), and a value the hosted server sets through `STAMPHOG_EXTRA_PROPERTIES` takes precedence.
+
+In `beta-shadow`, the shadow review never changes the returned result.
+It captures one extra `stamphog_review_completed` event with `stamphog_shadow: true`, `stamphog_engine_channel: beta` and the beta version, plus the token usage the Luna reviewer reports (`stamphog_llm_input_tokens` and similar).
+A crash captures `stamphog_shadow_failed` instead.
+The result line gains a `shadow` summary key, which the server does not read.
+The shadow review has its own time budget, so it cannot push the stable result past the server's reviewer timeout.
+
 ## Local review
 
 ```bash
@@ -376,7 +405,7 @@ API contract, data model, and larger behavioral changes get escalated.
 
 ## Versioning
 
-`version.py` holds `STAMPHOG_VERSION` (semver, pre-releases like `2.0.0b1`).
+`version.py` holds `STAMPHOG_VERSION` (semver, pre-releases like `2.0.0b1`), and `BETA_VERSION` for the beta channel's engine.
 It is stamped onto the `stamphog_review_completed` event (alongside the checkout commit sha), the LLM trace properties, the evidence bundle, and the verdict comment's mechanics table, so verdict quality and reviewer behavior can be segmented by version in LLM analytics.
 Bump it in the same PR as any behavior-affecting change to the engine, the prompt scaffold, or the review guidance.
 Policy data edits don't need a bump; they're tracked by the policy sha shown next to the version.
@@ -399,6 +428,7 @@ Every run produces a JSON evidence bundle (`--output-json` on `review_pr.py`) co
 - `gates.py` - deterministic classification and deny-list logic
 - `github.py` - GitHub data fetching via `gh` CLI
 - `reviewer.py` - Claude Agent SDK reviewer (showstoppers prompt, reports facts)
+- `luna_reviewer.py` - the beta channel's GPT-6 Luna reviewer (OpenAI Responses tool loop, same prompts and facts)
 - `verdict_rule.py` - the facts schema and the rule that derives the verdict from it
 
 ## Empirical basis

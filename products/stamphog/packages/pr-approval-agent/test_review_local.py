@@ -17,8 +17,10 @@ sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 import reviewer  # noqa: E402
 import review_pr  # noqa: E402
 import review_local  # noqa: E402
+import luna_reviewer  # noqa: E402
 from github import CommitProvenance  # noqa: E402
 from review_pr import Pipeline  # noqa: E402
+from version import BETA_VERSION, STAMPHOG_VERSION  # noqa: E402
 
 
 def _review(login: str, state: str, head_sha: str, body: str = "") -> dict:
@@ -750,3 +752,102 @@ def test_main_prints_the_result_with_phase_timings_as_its_last_line(monkeypatch,
     assert result["final_verdict"] == "APPROVED"
     assert result["timings_ms"]["launch"] >= 1500
     assert {"gates", "llm", "flush", "total"} <= set(result["timings_ms"])
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param(None, "stable", id="unset"),
+        pytest.param("stable", "stable", id="stable"),
+        pytest.param("beta-shadow", "beta-shadow", id="beta-shadow"),
+        pytest.param(" beta-live\n", "beta-live", id="beta-live-with-whitespace"),
+        pytest.param("beta", "stable", id="unknown"),
+        pytest.param("BETA-LIVE", "stable", id="wrong-case"),
+    ],
+)
+def test_engine_channel_falls_back_to_stable(monkeypatch, value: str | None, expected: str) -> None:
+    if value is None:
+        monkeypatch.delenv(review_local.ENGINE_CHANNEL_ENV, raising=False)
+    else:
+        monkeypatch.setenv(review_local.ENGINE_CHANNEL_ENV, value)
+
+    assert review_local.engine_channel() == expected
+
+
+def _refuse(self, pr, classification, gate_context, diff_path=None):
+    return {"verdict": "REFUSE", "reasoning": "luna", "risk": "low", "issues": ["x"], "usage": {"turns": 3}}
+
+
+def _crash(self, *args, **kwargs):
+    raise ImportError("openai is not installed")
+
+
+@pytest.mark.parametrize(
+    "channel, luna_init, luna_review, expected",
+    [
+        pytest.param(
+            "beta-live",
+            None,
+            _refuse,
+            {"final_verdict": "REFUSED", "stamphog_version": BETA_VERSION, "shadow": None},
+            id="live-posts-the-beta-verdict",
+        ),
+        pytest.param(
+            "beta-shadow",
+            None,
+            _refuse,
+            {
+                "final_verdict": "APPROVED",
+                "stamphog_version": STAMPHOG_VERSION,
+                "shadow": {"final_verdict": "REFUSED", "stamphog_version": BETA_VERSION},
+            },
+            id="shadow-leaves-the-stable-verdict",
+        ),
+        pytest.param(
+            "beta-shadow",
+            _crash,
+            None,
+            {"final_verdict": "APPROVED", "stamphog_version": STAMPHOG_VERSION, "shadow": {"error": "ImportError"}},
+            id="shadow-crash-leaves-the-stable-verdict",
+        ),
+    ],
+)
+def test_beta_channels_decide_which_verdict_is_posted(
+    monkeypatch, channel: str, luna_init, luna_review, expected: dict
+) -> None:
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
+    monkeypatch.setattr(
+        reviewer.Reviewer,
+        "review",
+        lambda *a, **k: {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []},
+    )
+    if luna_init is not None:
+        monkeypatch.setattr(luna_reviewer.LunaReviewer, "__init__", luna_init)
+    if luna_review is not None:
+        monkeypatch.setattr(luna_reviewer.LunaReviewer, "review", luna_review)
+    events: list[tuple[str, dict]] = []
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", True)
+    monkeypatch.setattr(
+        review_pr.posthoganalytics, "capture", lambda distinct_id, event, properties: events.append((event, properties))
+    )
+    monkeypatch.setenv("STAMPHOG_EXTRA_PROPERTIES", json.dumps({"stamphog_engine_channel": channel}))
+
+    result = review_local.run(_run_context([_api_file("src/app.py")]), channel)
+
+    assert {key: result.get(key) for key in expected} == expected
+    completed = [props for event, props in events if event == "stamphog_review_completed"]
+    posted = [props for props in completed if not props.get("stamphog_shadow")]
+    assert len(posted) == 1
+    assert posted[0]["stamphog_final_verdict"] == result["final_verdict"]
+    assert posted[0]["stamphog_version"] == result["stamphog_version"]
+    # The server's channel value wins on the posted review's event.
+    assert posted[0]["stamphog_engine_channel"] == channel
+    shadow_events = [(event, props) for event, props in events if props.get("stamphog_shadow")]
+    if channel != "beta-shadow":
+        assert shadow_events == []
+        return
+    [(event, props)] = shadow_events
+    assert event == ("stamphog_shadow_failed" if luna_init else "stamphog_review_completed")
+    assert props["stamphog_engine_channel"] == "beta"
+    assert props["stamphog_version"] == BETA_VERSION

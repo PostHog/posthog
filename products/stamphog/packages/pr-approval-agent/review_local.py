@@ -4,6 +4,7 @@
 # dependencies = [
 #     "claude-agent-sdk==0.2.164",
 #     "anthropic==0.80.0",
+#     "openai==3.26.0",
 #     "posthoganalytics==7.20.4",
 #     "pyyaml==6.0.3",
 # ]
@@ -38,18 +39,24 @@ overwrites those paths in the checkout with the default-branch versions before
 this script runs, so a PR head cannot substitute its own gate. The reviewer key
 comes from the environment (ANTHROPIC_API_KEY).
 
+STAMPHOG_ENGINE_CHANNEL picks the reviewer (see engine_channel()). `stable` runs the Claude
+reviewer. `beta-live` runs the GPT-6 Luna reviewer (luna_reviewer.py) in its place. `beta-shadow` runs
+the Claude reviewer for the verdict, then the Luna reviewer on the same inputs for analytics only.
+
 `--pregate` is the server's gate-only pre-check (see pregate()). The server runs it on the worker,
 in a temporary tree that holds the trusted policy files, this engine and, when the server could read
 them, the PR head's AGENT_APPROVALS.md files, before it waits for other bots or makes a sandbox.
 """
 
 import os
+import copy
 import json
 import time
 import argparse
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Literal
 
 from familiarity import (
     AuthorFamiliarity,
@@ -89,6 +96,11 @@ from version import STAMPHOG_VERSION
 # engine can report how long uv and the interpreter took to reach main().
 LAUNCHED_AT_ENV = "STAMPHOG_LAUNCHED_AT_MS"
 
+# The hosted server picks the channel per PR and passes it in this variable.
+ENGINE_CHANNEL_ENV = "STAMPHOG_ENGINE_CHANNEL"
+EngineChannel = Literal["stable", "beta-shadow", "beta-live"]
+_ENGINE_CHANNELS: tuple[EngineChannel, ...] = ("stable", "beta-shadow", "beta-live")
+
 _TIMINGS_MS: dict[str, int] = {}
 
 
@@ -110,6 +122,15 @@ def _launched_at_ms() -> int | None:
         return int(os.environ.get(LAUNCHED_AT_ENV, ""))
     except ValueError:
         return None
+
+
+def engine_channel() -> EngineChannel:
+    """The channel from the environment. A missing or unknown value is stable."""
+    value = os.environ.get(ENGINE_CHANNEL_ENV, "").strip()
+    for channel in _ENGINE_CHANNELS:
+        if value == channel:
+            return channel
+    return "stable"
 
 
 def _api_file_status(status: str) -> str:
@@ -597,8 +618,32 @@ def pregate(context: dict) -> dict:
     return {**outcome, "final": True, "needs_summary": True, "result": pipeline.to_dict()}
 
 
-def run(context: dict) -> dict:
-    """Run the full offline review and return the to_dict() contract."""
+def _shadow_review(pipeline: Pipeline, gate_verdict: str) -> dict:
+    """Review the PR again with the beta reviewer, for analytics only, and return a short summary.
+
+    The copy shares the stable run's PR data, gate results and diff file, and holds its own verdict
+    fields, so the stable result stays exactly as the stable reviewer left it. A failure is recorded
+    and does not propagate, for the same reason.
+    """
+    shadow = copy.copy(pipeline)
+    shadow.engine = "beta"
+    shadow.shadow = True
+    shadow.reviewer_output = None
+    shadow.final_verdict = ""
+    try:
+        shadow._llm_review(gate_verdict)
+    except Exception as exc:
+        print(f"warning: beta shadow review failed ({type(exc).__name__}); the stable verdict stands")
+        pipeline._capture_shadow_failed(exc)
+        return {"error": type(exc).__name__}
+    return {"final_verdict": shadow.final_verdict, "stamphog_version": shadow.version}
+
+
+def run(context: dict, channel: EngineChannel = "stable") -> dict:
+    """Run the full offline review and return the to_dict() contract.
+
+    A beta-shadow run adds a "shadow" summary key, which the server does not read.
+    """
     # The hosted server sets self_driving_review only for PRs it verified came from a self-driving
     # Inbox implementation run. Action contexts never carry it, so bot authors are refused as before.
     # head_checkout: the sandbox clones and checks out the PR head before this runs (see the server's
@@ -610,6 +655,8 @@ def run(context: dict) -> dict:
         review_trigger=str(context.get("review_trigger") or ""),
         head_checkout=True,
     )
+    if channel == "beta-live":
+        pipeline.engine = "beta"
     pipeline.pr = _build_pr_data(context)
     # Without this, the agent-authorship evidence and the stamphog_review_completed provenance
     # properties are null for every hosted review.
@@ -662,11 +709,18 @@ def run(context: dict) -> dict:
             _attach_familiarity(pipeline, context)
         with _timed_phase("llm"):
             pipeline._llm_review(gate_verdict)
+        shadow_summary = None
+        if channel == "beta-shadow":
+            with _timed_phase("shadow"):
+                shadow_summary = _shadow_review(pipeline, gate_verdict)
     finally:
         if pipeline._diff_path is not None:
             pipeline._diff_path.unlink(missing_ok=True)
 
-    return pipeline.to_dict()
+    result = pipeline.to_dict()
+    if shadow_summary is not None:
+        result["shadow"] = shadow_summary
+    return result
 
 
 def _escalate_result(context: dict, exc: Exception) -> dict:
@@ -717,7 +771,7 @@ def main() -> None:
     if launched_at is not None:
         _TIMINGS_MS["launch"] = _now_ms() - launched_at
     try:
-        result = run(context)
+        result = run(context, engine_channel())
     except Exception as exc:  # never let a crash become a silent non-verdict
         result = _escalate_result(context, exc)
 

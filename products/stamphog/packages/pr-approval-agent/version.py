@@ -10,3 +10,7 @@ the version in the verdict table.
 """
 
 STAMPHOG_VERSION = "2.4.0"
+
+# The beta channel's engine (the GPT-6 Luna reviewer). A run reports it when that reviewer produced
+# the verdict, so beta results never mix into the stable version's numbers.
+BETA_VERSION = "2.5.0b1"
