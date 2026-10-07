@@ -1,62 +1,43 @@
 import { useValues } from 'kea'
-import { Fragment } from 'react'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { Link } from 'lib/lemon-ui/Link'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { trimRedundantTail, warehouseSyncDashboardEntries } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
+import { warehouseSyncDashboardSummary } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
 
 import { dashboardLogic } from './dashboardLogic'
 
 export function DashboardWarehouseSyncBanner(): JSX.Element | null {
     const { dashboard, insightTiles } = useValues(dashboardLogic)
-    if (!dashboard) {
+    const summary = dashboard ? warehouseSyncDashboardSummary(insightTiles) : null
+    if (!dashboard || !summary) {
         return null
     }
 
-    const entries = warehouseSyncDashboardEntries(insightTiles)
-    if (entries.length === 0) {
-        return null
-    }
+    const { sources, insightCount, fingerprint } = summary
+    const onlySource = sources.length === 1 ? sources[0] : null
+    const origin = onlySource ? onlySource.sourceType : `${sources.length} warehouse sources`
 
     return (
-        <LemonBanner type="warning" className="mt-4 mb-2" data-attr="dashboard-warehouse-sync-warnings">
-            Some insights on this dashboard read warehouse tables that are out of date, so their results may not be
-            current:
-            <ul className="list-disc pl-5">
-                {entries.map(({ warning, insights }) => (
-                    <li
-                        key={`${warning.source_id ?? warning.source_type}-${warning.schema_name}-${warning.table_name}-${warning.message}`}
-                    >
-                        <span>{trimRedundantTail(warning.message)}</span> Used by{' '}
-                        {insights.map((insight, index) => (
-                            <Fragment key={insight.tileId}>
-                                {index > 0 ? ', ' : ''}
-                                <Link
-                                    to={urls.insightView(insight.shortId)}
-                                    data-attr="dashboard-warehouse-sync-insight"
-                                >
-                                    {insight.name}
-                                </Link>
-                            </Fragment>
-                        ))}
-                        .
-                        {warning.source_id && (
-                            <>
-                                {' '}
-                                <Link
-                                    to={urls.dataWarehouseSource(`managed-${warning.source_id}`)}
-                                    target="_blank"
-                                    data-attr="dashboard-warehouse-sync-manage-source"
-                                >
-                                    Manage source
-                                </Link>
-                            </>
-                        )}
-                    </li>
-                ))}
-            </ul>
+        <LemonBanner
+            type="warning"
+            className="mt-4 mb-2"
+            data-attr="dashboard-warehouse-sync-warnings"
+            // The fingerprint brings a dismissed banner back when another table goes out of date.
+            dismissKey={`dashboard-warehouse-sync-${dashboard.id}-${fingerprint}`}
+            action={
+                onlySource?.sourceId
+                    ? {
+                          children: 'Manage source',
+                          to: urls.dataWarehouseSource(`managed-${onlySource.sourceId}`),
+                          targetBlank: true,
+                          'data-attr': 'dashboard-warehouse-sync-manage-source',
+                      }
+                    : undefined
+            }
+        >
+            {`Data from ${origin} is out of date, so ${pluralize(insightCount, 'insight')} on this dashboard may not show current numbers. Hover the Out of date tag on an insight for details.`}
         </LemonBanner>
     )
 }

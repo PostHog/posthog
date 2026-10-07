@@ -1,7 +1,7 @@
 import { DataWarehouseSyncWarning } from '~/queries/schema/schema-general'
 import { DashboardTile, InsightModel, InsightShortId } from '~/types'
 
-import { trimRedundantTail, warehouseSyncDashboardEntries } from './warehouseSyncWarnings'
+import { trimRedundantTail, warehouseSyncDashboardSummary } from './warehouseSyncWarnings'
 
 function syncWarning(table: string): DataWarehouseSyncWarning {
     return {
@@ -58,35 +58,44 @@ describe('warehouseSyncWarnings', () => {
         })
     })
 
-    it('groups the insights that read an out-of-date table, keeping tiles cached at different times apart', () => {
+    it('summarizes the out-of-date sources behind a dashboard and the insights they affect', () => {
         const invoices = syncWarning('invoices')
-        const entries = warehouseSyncDashboardEntries([
+        const leads: DataWarehouseSyncWarning = {
+            ...syncWarning('leads'),
+            source_id: 'source-2',
+            source_type: 'Hubspot',
+        }
+        const tiles = [
             tile(1, { short_id: 'aaa' as InsightShortId, name: 'Revenue', warnings: [invoices] }),
-            tile(2, {
-                short_id: 'bbb' as InsightShortId,
-                derived_name: 'Revenue by day',
-                warnings: [invoices, syncWarning('charges')],
-            }),
+            tile(2, { short_id: 'bbb' as InsightShortId, name: 'Pipeline', warnings: [invoices, leads] }),
             tile(3, { short_id: 'ccc' as InsightShortId, name: 'Healthy', warnings: null }),
-            tile(4, { short_id: 'ddd' as InsightShortId, name: 'Deleted', warnings: [invoices], deleted: true }),
+            tile(4, { short_id: 'ddd' as InsightShortId, name: 'Deleted', warnings: [leads], deleted: true }),
             tile(5, {
                 short_id: 'eee' as InsightShortId,
                 name: 'Restricted',
                 warnings: [{ type: 'access_control', message: 'Some objects are hidden.', resources: ['insight'] }],
             }),
             tile(6, null),
-            // Cached a day earlier, so its message names a different age for the same table.
-            tile(7, {
-                short_id: 'fff' as InsightShortId,
-                name: 'Older cache',
-                warnings: [{ ...invoices, message: 'Last sync of `invoices` (from Stripe) failed a day ago.' }],
-            }),
-        ])
+        ]
 
-        expect(entries.map(({ warning, insights }) => [warning.table_name, insights.map((i) => i.name)])).toEqual([
-            ['stripe_invoices', ['Revenue', 'Revenue by day']],
-            ['stripe_charges', ['Revenue by day']],
-            ['stripe_invoices', ['Older cache']],
+        const summary = warehouseSyncDashboardSummary(tiles)
+
+        expect(summary?.sources).toEqual([
+            { sourceType: 'Stripe', sourceId: 'source-1' },
+            { sourceType: 'Hubspot', sourceId: 'source-2' },
         ])
+        expect(summary?.insightCount).toEqual(2)
+        expect(warehouseSyncDashboardSummary([tiles[2], tiles[4], tiles[5]])).toBeNull()
+    })
+
+    it('keeps the fingerprint when only the message age changes, and changes it when another table goes out of date', () => {
+        const invoices = syncWarning('invoices')
+        const fingerprint = (warnings: DataWarehouseSyncWarning[]): string | undefined =>
+            warehouseSyncDashboardSummary([tile(1, { short_id: 'aaa' as InsightShortId, warnings })])?.fingerprint
+
+        expect(fingerprint([{ ...invoices, message: 'Last sync of `invoices` failed a day ago.' }])).toEqual(
+            fingerprint([invoices])
+        )
+        expect(fingerprint([invoices, syncWarning('charges')])).not.toEqual(fingerprint([invoices]))
     })
 })

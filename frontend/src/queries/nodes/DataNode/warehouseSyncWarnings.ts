@@ -1,15 +1,22 @@
-import { AnalyticsQueryResponseBase, DataWarehouseSyncWarning } from '~/queries/schema/schema-general'
-import { DashboardTile, InsightShortId } from '~/types'
+import { hashCodeForString } from 'lib/utils/strings'
 
-export interface WarehouseSyncDashboardInsight {
-    tileId: number
-    shortId: InsightShortId
-    name: string
+import { AnalyticsQueryResponseBase, DataWarehouseSyncWarning } from '~/queries/schema/schema-general'
+import { DashboardTile } from '~/types'
+
+export interface WarehouseSyncDashboardSource {
+    sourceType: string
+    /** Null when the warning names no source to link to. */
+    sourceId: string | null
 }
 
-export interface WarehouseSyncDashboardEntry {
-    warning: DataWarehouseSyncWarning
-    insights: WarehouseSyncDashboardInsight[]
+export interface WarehouseSyncDashboardSummary {
+    sources: WarehouseSyncDashboardSource[]
+    insightCount: number
+    /**
+     * Identifies the set of out-of-date tables and their statuses. It ignores the message, whose
+     * "3 days ago" text changes on every recompute.
+     */
+    fingerprint: string
 }
 
 // The backend `message` on a DataWarehouseSyncWarning is kept self-contained (it also feeds
@@ -27,28 +34,33 @@ export function warehouseSyncWarnings(
     return (warnings ?? []).filter((warning): warning is DataWarehouseSyncWarning => warning.type === 'warehouse_sync')
 }
 
-/**
- * One entry per out-of-date table on the dashboard, with every insight that reads it. Each tile's cached
- * results carry the warning from when they were computed, so tiles cached at different times keep
- * separate entries rather than borrowing another tile's message.
- */
-export function warehouseSyncDashboardEntries(tiles: DashboardTile[]): WarehouseSyncDashboardEntry[] {
-    const entries = new Map<string, WarehouseSyncDashboardEntry>()
+/** The out-of-date warehouse sources behind a dashboard's insights, or null when every insight is current. */
+export function warehouseSyncDashboardSummary(tiles: DashboardTile[]): WarehouseSyncDashboardSummary | null {
+    const sources = new Map<string, WarehouseSyncDashboardSource>()
+    const tables = new Set<string>()
+    let insightCount = 0
     for (const tile of tiles) {
         const insight = tile.insight
         if (!insight || insight.deleted) {
             continue
         }
-        for (const warning of warehouseSyncWarnings(insight.warnings)) {
-            const key = `${warning.source_id ?? warning.source_type}:${warning.schema_name}:${warning.table_name}:${warning.message}`
-            const entry = entries.get(key) ?? { warning, insights: [] }
-            entry.insights.push({
-                tileId: tile.id,
-                shortId: insight.short_id,
-                name: insight.name || insight.derived_name || 'Untitled',
-            })
-            entries.set(key, entry)
+        const warnings = warehouseSyncWarnings(insight.warnings)
+        if (warnings.length === 0) {
+            continue
+        }
+        insightCount += 1
+        for (const warning of warnings) {
+            const sourceKey = warning.source_id ?? warning.source_type
+            sources.set(sourceKey, { sourceType: warning.source_type, sourceId: warning.source_id ?? null })
+            tables.add(`${sourceKey}:${warning.schema_name}:${warning.table_name}:${warning.status}`)
         }
     }
-    return [...entries.values()]
+    if (insightCount === 0) {
+        return null
+    }
+    return {
+        sources: [...sources.values()],
+        insightCount,
+        fingerprint: String(hashCodeForString([...tables].sort().join('|'))),
+    }
 }
