@@ -7,7 +7,6 @@ import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { TZLabel } from 'lib/components/TZLabel'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 
 import { TRACING_DATE_FORMAT, TRACING_DISPLAY_TIMEZONE, TRACING_TIME_FORMAT } from '../../dateFormats'
@@ -20,6 +19,7 @@ import type { Span } from '../../types'
 import { TableCell } from '../TableColumns/TableCell'
 import { TableHeaderCell } from '../TableColumns/TableHeaderCell'
 import { ResizableColumns, useResizableColumns } from '../TableColumns/useResizableColumns'
+import { OrphanTraceTag } from './OrphanTraceTag'
 import {
     SpanColumnConfig,
     spanAttributeValue,
@@ -185,13 +185,7 @@ function spanCellContent(column: SpanColumnConfig, span: Span, showRootTag: bool
                             trace
                         </LemonTag>
                     )}
-                    {span.root_missing && (
-                        <Tooltip title="Parent span not found">
-                            <LemonTag type="muted" size="small">
-                                orphan
-                            </LemonTag>
-                        </Tooltip>
-                    )}
+                    {span.root_missing && <OrphanTraceTag />}
                 </span>
             )
         case 'service':

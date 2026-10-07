@@ -25,6 +25,7 @@ import { absoluteTraceUrl } from '../../traceLinks'
 import { buildServiceColorMap, formatDuration, TraceWaterfallView } from '../../TraceWaterfallView'
 import type { Span, SpanInspectorTab } from '../../types'
 import { ExpandedSpanContent } from '../VirtualizedSpanList/ExpandedSpanContent'
+import { OrphanTraceTag } from '../VirtualizedSpanList/OrphanTraceTag'
 import { SpanLogsTab } from './SpanLogsTab'
 import { SpanMetricsTab } from './SpanMetricsTab'
 import { SpanSummaryHeader } from './SpanSummaryHeader'
@@ -115,6 +116,11 @@ export function TraceDrawer({
     // Resolve the inspected span outside render churn: a resize drag re-renders this component on
     // every mousemove, and these scans are O(spans) — memoize so they only run when data/selection change.
     const rootSpan = useMemo(() => spans.find((span) => span.is_root_span) ?? spans[0] ?? null, [spans])
+    // Hidden while loading, so the tag does not flash before the full fetch delivers the root span.
+    const isOrphan = useMemo(
+        () => !loading && realSpans.length > 0 && !realSpans.some((span) => span.is_root_span),
+        [loading, realSpans]
+    )
     const selectedSpan = useMemo(
         () => (selectedSpanId ? (spans.find((span) => span.span_id === selectedSpanId) ?? null) : null),
         [spans, selectedSpanId]
@@ -155,6 +161,7 @@ export function TraceDrawer({
                 <div className="flex items-center gap-2 min-w-0">
                     <span className="truncate">{rootSpan?.name ?? 'Trace'}</span>
                     {rootSpan && <LemonTag>{formatDuration(rootSpan.duration_nano)}</LemonTag>}
+                    {isOrphan && <OrphanTraceTag />}
                     <span className="font-mono text-xs text-muted truncate">{traceId}</span>
                     <LemonButton
                         size="xsmall"
