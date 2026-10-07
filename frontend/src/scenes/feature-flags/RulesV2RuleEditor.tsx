@@ -2,18 +2,20 @@ import { useActions, useValues } from 'kea'
 import { useId } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { FeatureFlagRulesV2DraftRule } from '~/types'
+import { FeatureFlagRulesV2DraftRule, FeatureFlagRulesV2ReturnType } from '~/types'
 
 import { FeatureFlagLogicProps } from './featureFlagLogic'
-import { BOOLEAN_OPTIONS, featureFlagRulesV2EditorLogic, withRuleType } from './featureFlagRulesV2EditorLogic'
+import { featureFlagRulesV2EditorLogic, withRuleType } from './featureFlagRulesV2EditorLogic'
 import { PercentageInput } from './PercentageInput'
+import { RulesV2ValueInput } from './RulesV2ValueInput'
+import { RulesV2VariantSplitGuards, RulesV2VariantsField } from './RulesV2VariantSplitFields'
 
 export function RulesV2RuleEditor({
     id,
@@ -21,17 +23,21 @@ export function RulesV2RuleEditor({
     rule,
     ruleCount,
     ruleKey,
+    returnType,
 }: FeatureFlagLogicProps & {
     index: number
     rule: FeatureFlagRulesV2DraftRule
     ruleCount: number
     ruleKey: number
+    returnType: FeatureFlagRulesV2ReturnType
 }): JSX.Element {
     const { fieldError } = useValues(featureFlagRulesV2EditorLogic({ id }))
     const { updateRule, removeRule, moveRule } = useActions(featureFlagRulesV2EditorLogic({ id }))
     const path = `filters.rules[${index}]`
     const descriptionInputId = useId()
     const rolloutInputId = useId()
+    const valueInputId = useId()
+    const seedError = fieldError(`${path}.seed`)
 
     return (
         <div className="rounded border p-3 bg-surface-primary flex flex-col gap-3" data-attr="rules-v2-rule">
@@ -40,10 +46,11 @@ export function RulesV2RuleEditor({
                 <LemonSelect
                     size="small"
                     value={rule.rule_type}
-                    onChange={(ruleType) => updateRule(index, withRuleType(rule, ruleType))}
+                    onChange={(ruleType) => updateRule(index, withRuleType(rule, ruleType, returnType))}
                     options={[
                         { value: 'targeted_release', label: 'Targeted release' },
                         { value: 'percentage_rollout', label: 'Percentage rollout' },
+                        { value: 'experiment', label: 'Variant split' },
                     ]}
                     data-attr="rules-v2-rule-type"
                 />
@@ -74,6 +81,7 @@ export function RulesV2RuleEditor({
                 />
             </div>
             {fieldError(path) && <LemonBanner type="error">{fieldError(path)}</LemonBanner>}
+            {seedError && <LemonBanner type="error">Assignment seed: {seedError}</LemonBanner>}
             <LemonField.Pure
                 label="Description"
                 htmlFor={descriptionInputId}
@@ -102,7 +110,8 @@ export function RulesV2RuleEditor({
                     addText="Add condition"
                 />
             </LemonField.Pure>
-            {rule.rule_type === 'percentage_rollout' && (
+            {rule.rule_type === 'experiment' && <RulesV2VariantSplitGuards id={id} index={index} rule={rule} />}
+            {rule.rule_type !== 'targeted_release' && (
                 <div className="flex flex-wrap gap-4">
                     <LemonField.Pure
                         label="Rollout percentage"
@@ -130,15 +139,19 @@ export function RulesV2RuleEditor({
                     </LemonField.Pure>
                 </div>
             )}
-            <LemonField.Pure label="Value" error={fieldError(`${path}.value`)}>
-                <LemonSegmentedButton
-                    size="small"
-                    value={String(rule.value)}
-                    onChange={(value) => updateRule(index, { ...rule, value: value === 'true' })}
-                    options={BOOLEAN_OPTIONS}
-                    data-attr="rules-v2-rule-value"
-                />
-            </LemonField.Pure>
+            {rule.rule_type === 'experiment' ? (
+                <RulesV2VariantsField id={id} index={index} rule={rule} returnType={returnType} />
+            ) : (
+                <LemonField.Pure label="Value" htmlFor={valueInputId} error={fieldError(`${path}.value`)}>
+                    <RulesV2ValueInput
+                        id={valueInputId}
+                        returnType={returnType}
+                        value={rule.value}
+                        onChange={(value) => updateRule(index, { ...rule, value })}
+                        data-attr="rules-v2-rule-value"
+                    />
+                </LemonField.Pure>
+            )}
         </div>
     )
 }

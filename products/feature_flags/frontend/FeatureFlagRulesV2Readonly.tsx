@@ -18,6 +18,13 @@ const RULE_TYPE_LABELS: Record<FeatureFlagRulesV2Rule['rule_type'], string> = {
     experiment: 'Experiment',
 }
 
+// An experiment rule without an experiment is what the editor calls a variant split.
+function ruleTypeLabel(rule: FeatureFlagRulesV2Rule): string {
+    return rule.rule_type === 'experiment' && rule.experiment_id === null
+        ? 'Variant split'
+        : RULE_TYPE_LABELS[rule.rule_type]
+}
+
 function JsonValue({ value }: { value: unknown }): JSX.Element {
     return <code className="text-xs break-all">{JSON.stringify(value)}</code>
 }
@@ -40,16 +47,23 @@ function ValueCell({ rule }: { rule: FeatureFlagRulesV2Rule }): JSX.Element {
     if (rule.rule_type !== 'experiment') {
         return <JsonValue value={rule.value} />
     }
+    const { experiment_id, holdout, paused } = rule
     return (
         <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-1">
-                <span>Experiment #{rule.experiment_id}</span>
-                {rule.paused && (
-                    <LemonTag type="warning" size="small">
-                        Paused
-                    </LemonTag>
-                )}
-            </div>
+            {(experiment_id !== null || paused) && (
+                <div className="flex items-center gap-1">
+                    {experiment_id !== null && <span>Experiment #{experiment_id}</span>}
+                    {paused && (
+                        <LemonTag
+                            type="warning"
+                            size="small"
+                            title="Persons this rule targets get the default value while it is paused."
+                        >
+                            Paused
+                        </LemonTag>
+                    )}
+                </div>
+            )}
             {rule.variants.map((variant) => (
                 <div key={variant.key} className="flex items-center gap-2 text-xs">
                     <span className="font-mono">{variant.key}</span>
@@ -57,9 +71,10 @@ function ValueCell({ rule }: { rule: FeatureFlagRulesV2Rule }): JSX.Element {
                     <JsonValue value={variant.value} />
                 </div>
             ))}
-            {rule.holdout && (
+            {holdout && (
                 <span className="text-xs text-muted">
-                    Holdout #{rule.holdout.id} excludes {formatPercentage(rule.holdout.exclusion_percentage)}
+                    {holdout.id === null ? 'Holds out' : `Holdout #${holdout.id} excludes`}{' '}
+                    {formatPercentage(holdout.exclusion_percentage)}
                 </span>
             )}
         </div>
@@ -81,7 +96,7 @@ export function FeatureFlagRulesV2Readonly({ config }: { config: FeatureFlagRule
             width: 0,
             render: (_, rule) => (
                 <LemonTag type="default" className="whitespace-nowrap">
-                    {RULE_TYPE_LABELS[rule.rule_type]}
+                    {ruleTypeLabel(rule)}
                 </LemonTag>
             ),
         },
