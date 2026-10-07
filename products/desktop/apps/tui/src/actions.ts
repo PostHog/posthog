@@ -20,7 +20,7 @@ export function canRun(action: ShowAction): boolean {
 
 export function actionsSheet(offer: ActionsLine): Sheet {
   return {
-    title: "Suggested actions",
+    title: offer.title ?? "Suggested actions",
     items: offer.actions.map((action) => ({
       label: action.label,
       detail: action.kind === "compose" ? action.description : undefined,

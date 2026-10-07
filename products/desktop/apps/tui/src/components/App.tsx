@@ -1,6 +1,7 @@
 import type { CloudRegion, Task } from "@posthog/shared";
 import { Box, type DOMElement, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
+import type { ActionsLine } from "../actions";
 import { currentRepository, type PiChats } from "../chats";
 import { dividerGlyphs } from "../dividers";
 import { useChatPlace } from "../hooks/useChatPlace";
@@ -17,6 +18,7 @@ import { useSheets } from "../hooks/useSheets";
 import { useShell } from "../hooks/useShell";
 import { useSidebar } from "../hooks/useSidebar";
 import { useTerminalInput } from "../hooks/useTerminalInput";
+import { useToday } from "../hooks/useToday";
 import { useTurns } from "../hooks/useTurns";
 import { useWorkList } from "../hooks/useWorkList";
 import {
@@ -29,15 +31,25 @@ import {
   loadLayout,
   type PaneNode,
   paneIds,
+  panes,
   saveLayout,
 } from "../layout";
 import type { LocalSession } from "../local";
 import type { PiControl } from "../models";
 import type { MouseEvents } from "../mouse";
+import { openUrl } from "../openUrl";
 import { loadPrefs, savePrefs } from "../prefs";
 import type { CloudRuns } from "../runs";
 import { repoLabel, statusChips } from "../status";
 import { applyBackground, backgroundFromReply } from "../theme";
+import {
+  reportPrompt,
+  type TodayAction,
+  type TodayClient,
+  type TodayHit,
+  todayHitAt,
+  WALKTHROUGH_PROMPT,
+} from "../today";
 import type { WorkList } from "../work";
 import { Pane } from "./Pane";
 import { DividerColumn, PaneTree } from "./PaneTree";
@@ -51,6 +63,8 @@ export interface Session {
   chats: PiChats;
   control: (taskId: string, runId: string) => PiControl;
   startLocal: (id: string) => Promise<LocalSession>;
+  // Today's briefing; absent in tests that do not need it.
+  today?: TodayClient;
 }
 
 export function App({
@@ -288,6 +302,47 @@ export function App({
   const runsLocally = (paneId: string, taskId: string | null): boolean =>
     isLocal(taskId) || (!taskId && placeFor(paneId) === "local");
 
+  // The main view shows today's briefing while it has no chat and no message on its way.
+  const mainView = layout.workspaces.find(
+    (candidate) => panes(candidate.root).length === 1,
+  );
+  const mainPane = mainView ? panes(mainView.root)[0] : undefined;
+  // Without a briefing to read, such as when signed out, the main view stays a plain new chat.
+  const todayPaneId =
+    session?.today &&
+    mainPane &&
+    mainPane.taskId === null &&
+    !pending.has(mainPane.id)
+      ? mainPane.id
+      : null;
+  const todayState = useToday(
+    session?.today,
+    todayPaneId !== null && workspace.id === mainView?.id,
+  );
+  const todayHits = useRef<TodayHit[]>([]);
+  const [todayOffer, setTodayOffer] = useState<ActionsLine | null>(null);
+  const onTodayAction = (paneId: string, action: TodayAction): void => {
+    const today = session?.today;
+    if (!today) return;
+    if (action.kind === "ask") latestSubmit.current(paneId, WALKTHROUGH_PROMPT);
+    else if (action.kind === "inbox") void today.inboxUrl().then(openUrl);
+    else {
+      const { item } = action;
+      void today.questions(item).then((questions) =>
+        setTodayOffer({
+          kind: "actions",
+          id: `today:${item.key}:${Date.now()}`,
+          title: item.label,
+          actions: questions.map((question) => ({
+            kind: "compose",
+            label: question,
+            prompt: reportPrompt(question, item, today.webUrl(item.url)),
+          })),
+        }),
+      );
+    }
+  };
+
   const { boxes, paneAtDrop, ...pointer } = usePointer({
     rows: sidebar.rows,
     activate: sidebar.activate,
@@ -299,6 +354,12 @@ export function App({
     scrollPane,
     repaint,
     flashNotice,
+    todayAt: (paneId, row, column) => {
+      if (paneId !== todayPaneId) return false;
+      const action = todayHitAt(todayHits.current, row, column);
+      if (action) onTodayAction(paneId, action);
+      return action !== null;
+    },
   });
 
   const { onKey, setOffer, setTurn, pickerFor } = useKeys({
@@ -331,7 +392,8 @@ export function App({
   };
 
   const titleOf = (pane: PaneNode): string => {
-    if (pane.taskId === null) return "New chat";
+    if (pane.taskId === null)
+      return pane.id === todayPaneId ? "Today" : "New chat";
     return (
       titles.get(pane.taskId) ||
       taskOf(pane.taskId)?.title ||
@@ -353,6 +415,11 @@ export function App({
       composer={composerFor(node.id)}
       pending={pending.get(node.taskId ?? node.id) ?? null}
       reopening={node.taskId ? reopening.has(node.taskId) : false}
+      today={node.id === todayPaneId ? todayState : null}
+      onTodayHits={(hits) => {
+        if (node.id === todayPaneId) todayHits.current = hits;
+      }}
+      extraOffer={node.id === todayPaneId ? todayOffer : null}
       repoPicker={repoPicker.pickerFor(node.id) ?? null}
       onUndelivered={(at) =>
         node.taskId && undelivered(node.id, node.taskId, at)

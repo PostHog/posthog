@@ -18,7 +18,8 @@ export type TranscriptLine =
   | { kind: "assistant"; id: string; text: string }
   | ToolLine
   | { kind: "notice"; id: string; text: string; tone: "info" | "error" }
-  | { kind: "actions"; id: string; actions: ShowAction[] }
+  // The sheet is titled "Suggested actions" unless the offer names its own title.
+  | { kind: "actions"; id: string; actions: ShowAction[]; title?: string }
   | ShellLine;
 
 // A message the user sent, with the images that went with it.

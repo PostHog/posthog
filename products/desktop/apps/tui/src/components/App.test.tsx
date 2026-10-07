@@ -26,6 +26,7 @@ import type { MouseEvents } from "../mouse";
 import { loadPrefs } from "../prefs";
 import { type CloudRuns, emptyRunView } from "../runs";
 import { renderInTerminal } from "../testing";
+import type { TodayClient } from "../today";
 import type { WorkList } from "../work";
 import { App } from "./App";
 
@@ -146,6 +147,48 @@ describe("App", () => {
     } finally {
       instance.unmount();
       rmSync(sessions, { recursive: true });
+    }
+  });
+
+  it("shows today's briefing in the main view's new chat, under a Today row", async () => {
+    saveLayout(initialLayout());
+    const today = {
+      load: async () => ({
+        kind: "ready",
+        firstName: "Harley",
+        briefing: {
+          status: "ready",
+          headline: "One report needs your attention.",
+          paragraphs: [],
+          items: [],
+          more_reports_count: 0,
+        },
+      }),
+    } as unknown as TodayClient;
+    const { instance, output } = renderInTerminal(
+      <App
+        session={{
+          work: {
+            listRecent: () => new Promise(() => {}),
+          } as unknown as WorkList,
+          runs: { prefetch: async () => {} } as unknown as CloudRuns,
+          chats: {} as PiChats,
+          control: () => ({}) as PiControl,
+          startLocal: () => Promise.reject(new Error("no local")),
+          today,
+        }}
+        login={async () => {}}
+        logout={() => {}}
+      />,
+    );
+    try {
+      await vi.waitFor(() => {
+        const screen = stripTerminalSequences(output());
+        expect(screen).toContain("☼ Today");
+        expect(screen).toContain(", Harley.");
+      });
+    } finally {
+      instance.unmount();
     }
   });
 

@@ -65,6 +65,7 @@ export function usePointer({
   scrollPane,
   repaint,
   flashNotice,
+  todayAt = () => false,
 }: {
   rows: SidebarRow[];
   activate: (index: number) => void;
@@ -76,6 +77,8 @@ export function usePointer({
   scrollPane: (paneId: string, lines: number) => void;
   repaint: () => void;
   flashNotice: FlashNotice;
+  // A click on the Today briefing in a pane, by cell within its chat area; true when it hit a link.
+  todayAt?: (paneId: string, row: number, column: number) => boolean;
 }): Pointer {
   const sidebarBox = useRef<DOMElement | null>(null);
   const lastMove = useRef<{ at: Click; time: number } | null>(null);
@@ -139,6 +142,7 @@ export function usePointer({
         return;
       }
       if (!box || !hitTest(click, [["chat", box]])) return;
+      if (todayAt(paneId, click.row - box.top, click.column - box.left)) return;
       if (chat.jumpAt(click.row - box.top, click.column - box.left)) {
         repaint();
         return;
