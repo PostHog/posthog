@@ -87,8 +87,50 @@ A stored version 2 row that is not remote-configured and carries no encrypted pa
 - An enabled flag-write approval policy (`feature_flag.enable`, `feature_flag.disable` or `feature_flag.update`, on the team or its organization) denies every version 2 write, disable and delete included, and an approved change cannot be applied to a version 2 row: PH-WRITE-APPROVAL owns that path. Nothing here creates a pending change request; to disable a version 2 flag under such a policy, disable the policy first.
   The final policy lookup and flag mutation share an organization-scoped transaction lock with policy creation and updates, so a policy cannot be enabled between that lookup and commit.
   Flag writes take the lock in shared mode so different flags can update concurrently; policy writes take it in exclusive mode.
-- Each accepted write saves once, increments `version` once, runs the existing cache invalidation and produces one activity log entry through the existing receiver. The entry carries the generic field diff; canonical version 2 summaries and version-history reconstruction are later work.
+- Each accepted write saves once, increments `version` once, runs the existing cache invalidation and produces one activity log entry through the existing receiver. The entry follows the version 2 audit contract in [Activity and version history](#activity-and-version-history).
 
 Rollback turns both flags off. Existing version 2 rows stay readable, disableable and deletable; there is no data conversion, and v1-to-v2 dependency protection is not removed.
 
 A flags service that predates string, number and object values fails such a flag: the flag gets an error entry and the whole `/flags` response sets `errorsWhileComputingFlags`, so posthog-js merges it into its cached flags instead of replacing them. Deploy the flags service that evaluates these types before an admitted project creates one. Turning the writer flags off stops new ones but leaves enabled ones served; disable every enabled string, number and object flag before reverting the flags service.
+
+### Activity and version history
+
+Config version 2 uses the existing activity log and management version endpoint.
+The model signal captures the writer database's before-state inside the locked update and the saved configuration after server-owned IDs and seeds resolve.
+The v2 adapter captures that one activity entry after the tag mixin persists tags, inside the same transaction, without another save or version increment.
+Actor, impersonation, caller triggers and on-commit handling retain the existing activity-log behavior.
+When `ACTIVITY_LOG_TRANSACTION_MANAGEMENT` is enabled, the shared logger inserts the captured entry after commit.
+An audit insert failure does not roll back the committed flag update; historical reads across the missing transition return HTTP 422.
+This path preserves existing audit timing and does not guarantee atomic persistence of the flag and its history.
+
+The reversible contract is a `Change` with `field: "filters"` and complete, unmodified `before` and `after` documents when the configuration changes.
+Those documents retain rule order, IDs, assignment seeds, descriptions and opaque metadata.
+Object-key order alone does not change the configuration; array order and missing, null, false and empty values remain distinct.
+The persisted configuration is never normalized or reordered to generate an activity entry.
+
+`detail.context.filters_version: 2` identifies the v2 audit contract.
+`detail.context.config_changes` uses the existing `Change` shape for a value-free summary:
+
+| Field                | Meaning                                                                                       |
+| -------------------- | --------------------------------------------------------------------------------------------- |
+| Top-level field name | Added, removed or changed configuration field, such as `default_value`                        |
+| `rules/<id>`         | Added or removed rule, identified by its stable ID                                            |
+| `rules/<id>/<field>` | Added, removed or changed rule field, including targeting, rollout, descriptions and metadata |
+| `rule_order`         | Before/after ordered rule-ID lists; includes additions, removals and reordering               |
+
+Field and rule-ID summaries use sorted keys for deterministic output.
+Only `rule_order` carries summary values; all other summary values are null.
+The full configuration change remains the reconstruction source.
+Supported row metadata uses ordinary field changes; v2 version responses also include historical tags.
+
+V2 reconstruction requires a continuous chain of row-version transitions using this contract, including the transition into a non-initial target version.
+Every traversed transition, including the target, must have a valid row-version predecessor and matching `after` values for tracked fields and tags.
+Missing transitions, unsupported configurations or inconsistent configuration/metadata snapshots return the existing incomplete-history error (HTTP 422).
+Earlier entries without the v2 audit contract cannot establish complete v2 history.
+Current-version reads return the supported stored document exactly.
+V1 reconstruction keeps its legacy shape normalization and diff behavior.
+
+Authorized activity and version reads retain the reconstruction data under their existing access controls.
+Outgoing `$activity_log_entry_created` events mask non-v1 configuration values, retaining the value-free summary for notifications and destinations.
+The existing encrypted-payload version-history restrictions remain in force.
+Reading a version grants no permission to restore it: restore, approval replay, scheduling and other unsupported writes remain rejected.

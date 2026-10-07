@@ -114,7 +114,7 @@ class TestActivityLogModel(BaseTest):
         ]
     )
     def test_internal_event_detail_stays_under_kafka_limit(self, _name: str, after: str, truncated: bool) -> None:
-        change = Change(type="FeatureFlag", field="filters", action="changed", before=None, after=after)
+        change = Change(type="Insight", field="query", action="changed", before=None, after=after)
         with (
             patch("posthog.cdp.internal_events.produce_internal_event") as mock_produce,
             self.captureOnCommitCallbacks(execute=True),
@@ -125,16 +125,16 @@ class TestActivityLogModel(BaseTest):
                 user=self.user,
                 was_impersonated=False,
                 item_id=6,
-                scope="FeatureFlag",
+                scope="Insight",
                 activity="updated",
-                detail=Detail(name="my flag", changes=[change]),
+                detail=Detail(name="my insight", changes=[change]),
             )
 
         properties = mock_produce.call_args.kwargs["event"].properties
         assert len(json.dumps(properties).encode("utf-8")) < 1024 * 1024
-        assert properties["detail"]["name"] == "my flag"
+        assert properties["detail"]["name"] == "my insight"
         assert properties.get("detail_truncated", False) is truncated
-        expected_change: dict[str, Any] = {"type": "FeatureFlag", "action": "changed", "field": "filters"}
+        expected_change: dict[str, Any] = {"type": "Insight", "action": "changed", "field": "query"}
         if not truncated:
             expected_change.update(before=None, after=after)
         assert properties["detail"]["changes"] == [expected_change]
