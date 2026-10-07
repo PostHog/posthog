@@ -116,7 +116,7 @@ def apply_source_edits(
             text = _decode_text(source_zip.read(info))
             if text is None:
                 raise SourceEditError(
-                    f"Cannot edit '{file_edit.path}': it is a binary file. Delete it and use set-source to replace it.",
+                    f"Cannot edit '{file_edit.path}': binary files cannot be edited.",
                     file_edit.path,
                 )
             edited[file_edit.path] = _apply_edits(text, file_edit.edits, file_edit.path)
