@@ -30,6 +30,8 @@ Choose a connection in the **Data** panel, then select a table below it. **Run**
 
 **Auto update** is off by default and remembers your choice. Selecting a table alone can run a count when you click **Run**. In wide worksheets, drag the divider between the data and analysis panels to resize the data panel, or drag the analysis panel's right edge to resize that panel independently.
 
+BI usage keeps the existing `sql-editor-bi-mode-selected`, `sql-editor-bi-query-run`, and `sql-editor-bi-query-saved` events. Their properties describe table calculations, Top N, comparisons, formatting, axes, totals, and related/property field counts. The `bi-worksheet-action` event's `action` property defines the funnel: `opened`, `source_selected`, `first_chart`, `saved`, `added_to_dashboard`. The first chart is the first nonempty successful result per editor visit; reruns and failures do not count again. Saved and dashboard steps include `insight_id`. Additional actions record drill-down choices, related-table expansion, and property browsing/search. These events exclude SQL, source names, field names, formulas, search text, filter values, and result contents.
+
 For older saves without worksheet configuration, discarding query edits preserves the current source and shelves.
 
 SQL query-scan advisories are hidden in Business intelligence. Query errors and warnings about stale sources or restricted data remain visible.

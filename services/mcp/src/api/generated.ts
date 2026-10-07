@@ -51177,7 +51177,6 @@ export namespace Schemas {
      * * `broken` - broken
      * * `unstable` - unstable
      * * `at_risk` - at_risk
-     * * `noisy` - noisy
      * * `clean` - clean
      */
     export type FlakinessStateEnum = typeof FlakinessStateEnum[keyof typeof FlakinessStateEnum];
@@ -51187,7 +51186,6 @@ export namespace Schemas {
       Broken: 'broken',
       Unstable: 'unstable',
       AtRisk: 'at_risk',
-      Noisy: 'noisy',
       Clean: 'clean',
     } as const;
 
@@ -51238,12 +51236,11 @@ export namespace Schemas {
          * @nullable
          */
       baseline_moved_day_index?: number | null;
-      /** An urgency ladder, where each rung asks for a different fix. `broken` fails nearly every run, so its baseline is wrong and quarantining it only hides that. `unstable` fails some runs and not others, the classic flake. `at_risk` never fails, but its worst absorbed diff is already touching the threshold, so the next unrelated change turns it red. `noisy` renders variants and absorbs them with room to spare. `clean` matched its baseline on every run in the window.
+      /** An urgency ladder, where each rung asks for a different fix. `broken` fails nearly every run, so its baseline is wrong and quarantining it only hides that. `unstable` fails some runs and not others, the classic flake. `at_risk` never fails, but its worst absorbed diff is already touching the threshold, so the next unrelated change turns it red. `clean` has no gate failure inside the rate span, and any diff it absorbed sits far below the threshold.
        *
        * * `broken` - broken
        * * `unstable` - unstable
        * * `at_risk` - at_risk
-       * * `noisy` - noisy
        * * `clean` - clean */
       flakiness_state: FlakinessStateEnum;
       /** True when an active quarantine has run out, is about to, or covers a snapshot that has stopped failing the gate. All three mean a human has to extend it or lift it. */
@@ -51284,9 +51281,7 @@ export namespace Schemas {
       unstable: number;
       /** Identifiers whose `flakiness_state` is `at_risk`. */
       at_risk: number;
-      /** Identifiers whose `flakiness_state` is `noisy`. */
-      noisy: number;
-      /** Identifiers whose `flakiness_state` is `clean`. They are listed because they carry live variants or older history, and reported here so every listed entry is reachable. */
+      /** Identifiers whose `flakiness_state` is `clean`. They are listed because they carry a quarantine or older gate failures, and reported here so every listed entry is reachable. */
       clean: number;
       /** Listed identifiers per run type, so one suite's noise can be told from another's. */
       by_run_type: FlakinessTotalsByRunType;
