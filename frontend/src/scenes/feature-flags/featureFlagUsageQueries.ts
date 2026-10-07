@@ -5,7 +5,6 @@
 // Titles differ on purpose: update_feature_flag_dashboard looks tiles up by name, so the Python
 // names are pinned, while these use sentence case. The interval here follows the user's date range
 // rather than the template's fixed "day".
-import { dayjs } from 'lib/dayjs'
 import { dateMapping, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
 import { FLAG_EVALUATIONS_TABLE } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { BREAKDOWN_NULL_DISPLAY } from 'scenes/insights/utils'
@@ -35,6 +34,12 @@ import {
     TeamPublicType,
     TeamType,
 } from '~/types'
+
+import {
+    FLAG_EVALUATIONS_RETENTION_DAYS,
+    flagEvaluationsRetentionStart,
+    reachesPastFlagEvaluationsRetention,
+} from './flagEvaluationsRetention'
 
 export interface FlagUsageQueryOptions {
     flagKey: string
@@ -193,29 +198,10 @@ function enrichedSeries(event: '$feature_view' | '$feature_interaction', seriesL
 // editor rejects that key, but the API accepts it.
 const FLAG_EVALUATIONS_VARIANT = `if(response IN ('', 'null'), ${escapeHogQLString(BREAKDOWN_NULL_DISPLAY)}, response)`
 
-/**
- * How long a row stays in flag_evaluations. The events table keeps $feature_flag_called forever.
- * Keep it equal to FLAG_EVALUATIONS_TTL_DAYS in posthog/models/flag_evaluations/sql.py.
- */
-export const FLAG_EVALUATIONS_RETENTION_DAYS = 90
-
 const EVENTS_MODE = FlagEvaluationsModeEnumApi.Number0
 
 export function readsFlagEvaluationsTable(team: TeamPublicType | TeamType | null): boolean {
     return (team?.flag_evaluations_mode ?? EVENTS_MODE) !== EVENTS_MODE
-}
-
-// Start of the oldest day the table still holds. dateStringToDayJs resolves the ranges this is
-// compared to against UTC, so the boundary is UTC too: a browser-local midnight sits hours off it,
-// which drops the 90-day preset in a timezone ahead of UTC.
-function earliestRetainedDay(): dayjs.Dayjs {
-    return dayjs.utc().startOf('day').subtract(FLAG_EVALUATIONS_RETENTION_DAYS, 'day')
-}
-
-export function reachesPastFlagEvaluationsRetention(dateFrom: string | null): boolean {
-    const parsed = dateStringToDayJs(dateFrom)
-    // A null start and "all" are all time, which reaches further than any retained day.
-    return !parsed || parsed.isBefore(earliestRetainedDay())
 }
 
 /** Pulls a range back inside the retention window, where it cannot quietly show fewer rows than the events table. */
@@ -223,7 +209,7 @@ export function clampToFlagEvaluationsRetention(dateRange: DateRange): DateRange
     if (!reachesPastFlagEvaluationsRetention(dateRange.date_from ?? null)) {
         return dateRange
     }
-    const earliest = earliestRetainedDay()
+    const earliest = flagEvaluationsRetentionStart()
     const dateTo = dateStringToDayJs(dateRange.date_to ?? null)
     return {
         date_from: `-${FLAG_EVALUATIONS_RETENTION_DAYS}d`,

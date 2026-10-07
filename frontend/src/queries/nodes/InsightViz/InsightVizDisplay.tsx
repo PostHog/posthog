@@ -64,6 +64,7 @@ import { BoxPlotLegend } from 'products/product_analytics/frontend/insights/tren
 import { BoxPlotResultsTable } from 'products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotResultsTable'
 import { TrendInsight } from 'products/product_analytics/frontend/insights/trends/Trends'
 
+import { FlagCallsRetentionNotice } from './FlagCallsRetentionNotice'
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
@@ -218,6 +219,7 @@ export function InsightVizDisplay({
         validationError,
         validationErrorCode,
         theme,
+        showsFlagCallsRetentionNotice,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
@@ -598,6 +600,7 @@ export function InsightVizDisplay({
                                 </div>
                             )}
 
+                        {!embedded && showsFlagCallsRetentionNotice && <FlagCallsRetentionNotice />}
                         <div
                             className={clsx(
                                 'InsightVizDisplay__content',

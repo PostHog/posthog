@@ -11,12 +11,12 @@ import {
     buildFlagEvaluationsTotalVolumeChart,
     buildFlagEvaluationsUniqueCallersChart,
     clampToFlagEvaluationsRetention,
-    FLAG_EVALUATIONS_RETENTION_DAYS,
     FLAG_EVALUATIONS_VOLUME_ROW_LIMIT,
     flagEvaluationsDateOptions,
     FlagUsageChart,
     FlagUsageQueryOptions,
 } from './featureFlagUsageQueries'
+import { FLAG_EVALUATIONS_RETENTION_DAYS } from './flagEvaluationsRetention'
 
 type TrendsUsageChart = FlagUsageChart<InsightVizNode<TrendsQuery>>
 

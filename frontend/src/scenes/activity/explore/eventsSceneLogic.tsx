@@ -9,10 +9,8 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { applyTestAccountFilter, getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
-import {
-    reachesPastFlagEvaluationsRetention,
-    readsFlagEvaluationsTable,
-} from 'scenes/feature-flags/featureFlagUsageQueries'
+import { readsFlagEvaluationsTable } from 'scenes/feature-flags/featureFlagUsageQueries'
+import { reachesPastFlagEvaluationsRetention } from 'scenes/feature-flags/flagEvaluationsRetention'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'

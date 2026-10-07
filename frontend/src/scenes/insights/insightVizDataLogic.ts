@@ -22,7 +22,8 @@ import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFil
 import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { withFlagCallsAggregationTarget } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
+import { insightReachesPastFlagEvaluationsRetention } from 'scenes/feature-flags/flagEvaluationsRetention'
+import { readsFlagCalls, withFlagCallsAggregationTarget } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -267,6 +268,7 @@ export interface insightVizDataLogicValues {
     samplingFactor: number | null | undefined
     series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined
     shouldShowSessionAnalysisWarning: boolean
+    showsFlagCallsRetentionNotice: boolean
     showAlertThresholdLines: boolean | null | undefined
     showAnnotations: boolean | null | undefined
     showLabelOnSeries: boolean | null | undefined
@@ -1167,6 +1169,7 @@ export interface insightVizDataLogicMeta {
             isUsingSessionAnalysis: boolean | Breakdown,
             query: Node<Record<string, any>> | null
         ) => boolean
+        showsFlagCallsRetentionNotice: (querySource: InsightQueryNode | null) => boolean
         isNonTimeSeriesDisplay: (display: ChartDisplayType | null | undefined) => boolean
         isSingleSeriesOutput: (
             isTrends: boolean,
@@ -2238,6 +2241,16 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 isUsingSessionAnalysis: boolean | import('~/queries/schema/schema-general').Breakdown,
                 query: Node | null
             ) => isUsingSessionAnalysis && !(isInsightVizNode(query) && query.suppressSessionAnalysisWarning),
+        ],
+        showsFlagCallsRetentionNotice: [
+            (s) => [s.querySource],
+            (querySource: InsightQueryNode | null): boolean =>
+                !!querySource &&
+                readsFlagCalls(querySource) &&
+                insightReachesPastFlagEvaluationsRetention(
+                    querySource.dateRange,
+                    'compareFilter' in querySource ? querySource.compareFilter : null
+                ),
         ],
         isNonTimeSeriesDisplay: [
             (s) => [s.display],

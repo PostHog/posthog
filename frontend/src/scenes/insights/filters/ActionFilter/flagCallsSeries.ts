@@ -30,6 +30,16 @@ export const FLAG_EVALUATIONS_SERIES_FIELDS: Required<
     created_at_field: 'timestamp',
 }
 
+export function readsFlagCalls(query: InsightQueryNode): boolean {
+    const nodes: unknown[] =
+        query.kind === NodeKind.RetentionQuery
+            ? [query.retentionFilter?.targetEntity, query.retentionFilter?.returningEntity]
+            : 'series' in query
+              ? (query.series ?? [])
+              : []
+    return nodes.some((node) => (node as { table_name?: string } | undefined)?.table_name === FLAG_EVALUATIONS_TABLE)
+}
+
 /** Sets the actor column of each flag calls series to the query's aggregation: a group key, or the person. */
 export function withFlagCallsAggregationTarget<Q extends InsightQueryNode>(query: Q): Q {
     const groupTypeIndex = 'aggregation_group_type_index' in query ? query.aggregation_group_type_index : null

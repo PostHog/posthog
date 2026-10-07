@@ -4,7 +4,7 @@ import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 import { featureFlagUsageLogic } from './featureFlagUsageLogic'
-import { FLAG_EVALUATIONS_RETENTION_DAYS } from './featureFlagUsageQueries'
+import { FLAG_EVALUATIONS_RETENTION_DAYS } from './flagEvaluationsRetention'
 
 export function FeatureFlagUsageMetrics({ id }: { id: number }): JSX.Element {
     const logic = featureFlagUsageLogic({ id })
