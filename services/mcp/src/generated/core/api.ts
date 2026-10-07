@@ -349,6 +349,8 @@ export const organizationsProjectsCreateBodyMarketingAnalyticsConfigConversionGo
 export const organizationsProjectsCreateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemSixTypeDefault = `data_warehouse`
 export const organizationsProjectsCreateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
+export const organizationsProjectsCreateBodyCustomerAnalyticsConfigDefaultPinnedPropertiesItemIdMax = 64
+
 export const organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMin = 0
 
 export const organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMin = 0
@@ -2716,14 +2718,21 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .array(
                         zod.object({
                             kind: zod
-                                .enum(['custom_property', 'relationship'])
-                                .describe('\* `custom_property` - Custom property\n\* `relationship` - Relationship')
+                                .enum(['custom_property', 'relationship', 'account_field'])
                                 .describe(
-                                    'Definition type for this default pinned account property.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship'
+                                    '\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
+                                )
+                                .describe(
+                                    'Type of this default pinned account property: a custom property, a relationship, or a built-in account field.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
                                 ),
                             id: zod
                                 .string()
-                                .describe('Project-scoped custom property or relationship definition UUID.'),
+                                .max(
+                                    organizationsProjectsCreateBodyCustomerAnalyticsConfigDefaultPinnedPropertiesItemIdMax
+                                )
+                                .describe(
+                                    'Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.'
+                                ),
                         })
                     )
                     .optional()
@@ -3053,6 +3062,8 @@ export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConve
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemFiveTypeDefault = `hogql`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemSixTypeDefault = `data_warehouse`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
+
+export const organizationsProjectsPartialUpdateBodyCustomerAnalyticsConfigDefaultPinnedPropertiesItemIdMax = 64
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMin = 0
 
@@ -5423,14 +5434,21 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .array(
                         zod.object({
                             kind: zod
-                                .enum(['custom_property', 'relationship'])
-                                .describe('\* `custom_property` - Custom property\n\* `relationship` - Relationship')
+                                .enum(['custom_property', 'relationship', 'account_field'])
                                 .describe(
-                                    'Definition type for this default pinned account property.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship'
+                                    '\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
+                                )
+                                .describe(
+                                    'Type of this default pinned account property: a custom property, a relationship, or a built-in account field.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
                                 ),
                             id: zod
                                 .string()
-                                .describe('Project-scoped custom property or relationship definition UUID.'),
+                                .max(
+                                    organizationsProjectsPartialUpdateBodyCustomerAnalyticsConfigDefaultPinnedPropertiesItemIdMax
+                                )
+                                .describe(
+                                    'Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.'
+                                ),
                         })
                     )
                     .optional()

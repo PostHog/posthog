@@ -2245,10 +2245,14 @@ class CustomPropertyValueSuggestionsResponseSerializer(serializers.Serializer):
 class PinnedAccountPropertySerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=ACCOUNT_PROPERTY_PIN_KIND_CHOICES,
-        help_text="Definition type for this pinned account property.",
+        help_text="Type of this pinned account property: a custom property, a relationship, or a built-in account field.",
     )
-    id = serializers.UUIDField(
-        help_text="Team-scoped custom property or relationship definition UUID.",
+    id = serializers.CharField(
+        max_length=64,
+        help_text=(
+            "Team-scoped custom property or relationship definition UUID. "
+            "For an account_field pin, the account field name, such as stripe_customer_id."
+        ),
     )
 
 

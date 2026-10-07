@@ -340,12 +340,13 @@
                     "items": {
                         "properties": {
                             "id": {
-                                "description": "Project-scoped custom property or relationship definition UUID.",
+                                "description": "Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.",
+                                "maxLength": 64,
                                 "type": "string"
                             },
                             "kind": {
-                                "description": "Definition type for this default pinned account property.\n\n* `custom_property` - Custom property\n* `relationship` - Relationship",
-                                "enum": ["custom_property", "relationship"],
+                                "description": "Type of this default pinned account property: a custom property, a relationship, or a built-in account field.\n\n* `custom_property` - Custom property\n* `relationship` - Relationship\n* `account_field` - Account field",
+                                "enum": ["custom_property", "relationship", "account_field"],
                                 "type": "string"
                             }
                         },

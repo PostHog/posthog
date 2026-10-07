@@ -4561,6 +4561,7 @@ export interface PatchedGroupUsageMetricApi {
 /**
  * * `custom_property` - Custom property
  * * `relationship` - Relationship
+ * * `account_field` - Account field
  */
 export type AccountPropertyPinKindEnumApi =
     (typeof AccountPropertyPinKindEnumApi)[keyof typeof AccountPropertyPinKindEnumApi]
@@ -4568,15 +4569,20 @@ export type AccountPropertyPinKindEnumApi =
 export const AccountPropertyPinKindEnumApi = {
     CustomProperty: 'custom_property',
     Relationship: 'relationship',
+    AccountField: 'account_field',
 } as const
 
 export interface PinnedAccountPropertyApi {
-    /** Definition type for this pinned account property.
+    /** Type of this pinned account property: a custom property, a relationship, or a built-in account field.
      *
      * * `custom_property` - Custom property
-     * * `relationship` - Relationship */
+     * * `relationship` - Relationship
+     * * `account_field` - Account field */
     kind: AccountPropertyPinKindEnumApi
-    /** Team-scoped custom property or relationship definition UUID. */
+    /**
+     * Team-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.
+     * @maxLength 64
+     */
     id: string
 }
 

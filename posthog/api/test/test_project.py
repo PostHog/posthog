@@ -1338,7 +1338,10 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             format="json",
         )
         self.assertEqual(definition_response.status_code, status.HTTP_201_CREATED, definition_response.json())
-        default_pins = [{"kind": "custom_property", "id": definition_response.json()["id"]}]
+        default_pins = [
+            {"kind": "custom_property", "id": definition_response.json()["id"]},
+            {"kind": "account_field", "id": "stripe_customer_id"},
+        ]
 
         response = self.client.patch(
             f"/api/projects/{self.project.id}/",

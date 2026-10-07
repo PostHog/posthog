@@ -42,6 +42,7 @@ import {
     AccountRelationshipProperty,
     AccountRelationshipMember,
     AccountSidebarProperty,
+    isAccountPropertyEditable,
     isCustomPropertyEditable,
 } from './components/accountPropertyTypes'
 
@@ -332,12 +333,17 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                         if (values.resolvedPinnedProperties.length === 0) {
                             return null
                         }
-                        const [customValues, relationships] = await Promise.all([
-                            api.accountsCustomPropertyValuesList(String(props.projectId), props.accountId),
-                            api.accountsRelationshipsList(String(props.projectId), props.accountId),
+                        const projectId = String(props.projectId)
+                        const hasAccountFieldPin = values.resolvedPinnedProperties.some(
+                            ({ kind }) => kind === 'account_field'
+                        )
+                        const [customValues, relationships, account] = await Promise.all([
+                            api.accountsCustomPropertyValuesList(projectId, props.accountId),
+                            api.accountsRelationshipsList(projectId, props.accountId),
+                            hasAccountFieldPin ? api.accountsRetrieve(projectId, props.accountId) : null,
                         ])
                         breakpoint()
-                        return { customValues, relationships }
+                        return { customValues, relationships, account }
                     },
                 },
             ],
@@ -445,11 +451,7 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
             editingPropertyKey: [
                 null as string | null,
                 {
-                    editProperty: (state, { property }) =>
-                        property.editable !== false &&
-                        (property.kind === 'relationship' || isCustomPropertyEditable(property.provenance))
-                            ? property.key
-                            : state,
+                    editProperty: (state, { property }) => (isAccountPropertyEditable(property) ? property.key : state),
                     cancelEditing: () => null,
                     persistCustomPropertySuccess: () => null,
                     persistRelationshipSuccess: () => null,
