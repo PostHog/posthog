@@ -10,7 +10,6 @@ from django.http.response import HttpResponseBase
 
 import structlog
 from asgiref.sync import async_to_sync
-from rest_framework import serializers
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.hogql.constants import LimitContext
@@ -184,31 +183,34 @@ def dashboard_has_active_full_subscription(*, team_id: int, dashboard_id: int) -
     ).exists()
 
 
-def check_can_add_insight_to_subscribed_dashboard(
+def blocked_access_for_subscribed_dashboard_tile(
     user: User,
     dashboard: "Dashboard",
     query: Any,
     user_access_control: UserAccessControl | None = None,
-) -> None:
-    """Raise if binding an insight with this query to the dashboard would deliver, through a
-    subscription of the whole dashboard, a query the editor can't run themselves. No-op when no
-    such subscription exists, the org lacks the access control entitlement, or the editor is an
-    org admin. The public link counterpart is check_can_add_insight_to_shared_dashboard."""
+) -> str | None:
+    """The validation message that stops binding an insight with this query to the dashboard,
+    when a subscription delivers the whole dashboard and the editor cannot run the query. None
+    when the tile may be added: no such subscription, the org lacks the access control
+    entitlement, the editor is an org admin, or the editor can run the query. The public link
+    counterpart is check_can_add_insight_to_shared_dashboard in posthog.api.sharing_publish_gate.
+    """
     if not isinstance(query, dict):
-        return
+        return None
     if not dashboard.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
-        return
+        return None
     uac = user_access_control or UserAccessControl(user=user, team=dashboard.team)
     if uac.is_organization_admin:
-        return
+        return None
     if not dashboard_has_active_full_subscription(team_id=dashboard.team_id, dashboard_id=dashboard.id):
-        return
+        return None
     blocked = blocked_access_for_user(user, dashboard.team, [query])
-    if blocked:
-        blocked_list = ", ".join(f"`{name}`" for name in blocked)
-        raise serializers.ValidationError(
-            f"Can't add this insight: you don't have access to {blocked_list}, and a subscription delivers this dashboard."
-        )
+    if not blocked:
+        return None
+    blocked_list = ", ".join(f"`{name}`" for name in blocked)
+    return (
+        f"Can't add this insight: you don't have access to {blocked_list}, and a subscription delivers this dashboard."
+    )
 
 
 # The limit contexts an export writer can pin, keyed by the string it stores in export_context.
