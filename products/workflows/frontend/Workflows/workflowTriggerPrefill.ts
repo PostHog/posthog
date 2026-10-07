@@ -13,12 +13,13 @@ export function urlForNewWorkflowWithTrigger(config: WorkflowTriggerConfig): str
     return combineUrl(urls.workflowNew(), { [TRIGGER_PREFILL_PARAM]: JSON.stringify(config) }).url
 }
 
-export function parseWorkflowTriggerPrefill(raw: string | undefined): WorkflowTriggerConfig | null {
+// kea-router hands over JSON-looking search params already parsed, so accept an object too.
+export function parseWorkflowTriggerPrefill(raw: unknown): WorkflowTriggerConfig | null {
     if (!raw) {
         return null
     }
     try {
-        const result = HogFlowTriggerSchema.safeParse(JSON.parse(raw))
+        const result = HogFlowTriggerSchema.safeParse(typeof raw === 'string' ? JSON.parse(raw) : raw)
         return result.success ? (result.data as WorkflowTriggerConfig) : null
     } catch {
         return null

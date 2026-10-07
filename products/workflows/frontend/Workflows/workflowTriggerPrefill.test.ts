@@ -16,6 +16,7 @@ describe('workflowTriggerPrefill', () => {
         const raw = new URLSearchParams(url.split('?')[1]).get(TRIGGER_PREFILL_PARAM)
 
         expect(parseWorkflowTriggerPrefill(raw ?? undefined)).toEqual(config)
+        expect(parseWorkflowTriggerPrefill(JSON.parse(raw ?? ''))).toEqual(config)
     })
 
     it.each([
