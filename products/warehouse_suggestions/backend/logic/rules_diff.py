@@ -6,7 +6,7 @@ from typing import Any
 from posthog.dataclasses import frozen
 
 from ..facade.enums import WarehouseSuggestionKind
-from .candidates import CandidateResult
+from .candidates.base import CandidateResult
 from .rules import Rules
 
 

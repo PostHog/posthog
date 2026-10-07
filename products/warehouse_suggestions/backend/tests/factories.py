@@ -6,7 +6,7 @@ from uuid import UUID
 
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionSubjectKind
-from products.warehouse_suggestions.backend.logic.candidates import CandidateContext
+from products.warehouse_suggestions.backend.logic.candidates.base import CandidateContext
 from products.warehouse_suggestions.backend.logic.inventory import TeamInventory
 from products.warehouse_suggestions.backend.logic.reads import (
     ReadWindow,

@@ -30,6 +30,12 @@ class SavingsEstimate:
 
 
 @frozen
+class ClassifiedSources:
+    live: tuple[SourceRef, ...]
+    unknown: tuple[SourceRef, ...]
+
+
+@frozen
 class _Proposal:
     payload: MaterializePayload
     estimate: SavingsEstimate
@@ -103,7 +109,7 @@ class MaterializeCandidate(Candidate):
         )
         if estimate is None:
             return "savings stay under the floors at every allowed refresh interval"
-        live_sources, unknown_sources = _classify_sources(context, saved_query.id, frequency)
+        sources = _classify_sources(context, saved_query.id, frequency)
         freshness_today = int(frequency.bounds.floor.value.total_seconds()) if frequency.bounds.floor else None
         interval_seconds = int(estimate.interval.total_seconds())
         return _Proposal(
@@ -114,8 +120,8 @@ class MaterializeCandidate(Candidate):
                 saves_bytes_per_month=estimate.bytes_saved,
                 freshness_today_seconds=freshness_today,
                 freshness_after_seconds=interval_seconds + (freshness_today or 0),
-                live_sources=live_sources,
-                unknown_sources=unknown_sources,
+                live_sources=sources.live,
+                unknown_sources=sources.unknown,
             ),
             estimate=estimate,
         )
@@ -169,7 +175,7 @@ def estimate_savings(context: CandidateContext, reads: SubjectReads, interval: t
 
 def _classify_sources(
     context: CandidateContext, saved_query_id: UUID, frequency: SavedQueryFrequencyBounds
-) -> tuple[tuple[SourceRef, ...], tuple[SourceRef, ...]]:
+) -> ClassifiedSources:
     best_effort_table_ids = {
         identity.warehouse_table_id
         for node_id in frequency.best_effort_source_ids
@@ -184,4 +190,4 @@ def _classify_sources(
             live.append(source)
         elif ref.warehouse_table_id in best_effort_table_ids:
             unknown.append(source)
-    return tuple(live), tuple(unknown)
+    return ClassifiedSources(live=tuple(live), unknown=tuple(unknown))

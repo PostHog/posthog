@@ -15,7 +15,8 @@ from ..facade.enums import (
     WarehouseSuggestionSubjectKind,
 )
 from ..models import WarehouseSuggestion
-from .candidates import CANDIDATES, CandidateContext
+from .candidates.base import CandidateContext
+from .candidates.registry import CANDIDATES
 from .reads import Subject
 from .rules import LifecycleRules
 from .suggestions import transition_to, upsert_suggestions
@@ -30,24 +31,34 @@ class LifecycleResult:
     surfaced: int
 
 
+@frozen
+class Reopened:
+    reproposed: int
+    revived: int
+
+
 def apply_run(
     context: CandidateContext, drafts: Sequence[SuggestionDraft], now: datetime, *, surface: bool
 ) -> LifecycleResult:
     fingerprints = {draft.fingerprint for draft in drafts}
-    reproposed, revived = _reopen(context, drafts)
+    reopened = _reopen(context, drafts)
     upsert_suggestions(context.team_id, drafts)
     auto_resolved = _auto_resolve(context, fingerprints)
     expired = _expire(context, fingerprints, now)
     surfaced = _surface(context.team_id, context.rules.lifecycle, now) if surface else 0
     return LifecycleResult(
-        reproposed=reproposed, revived=revived, auto_resolved=auto_resolved, expired=expired, surfaced=surfaced
+        reproposed=reopened.reproposed,
+        revived=reopened.revived,
+        auto_resolved=auto_resolved,
+        expired=expired,
+        surfaced=surfaced,
     )
 
 
 REVIVABLE_STATUSES = (WarehouseSuggestionStatus.EXPIRED, WarehouseSuggestionStatus.AUTO_RESOLVED)
 
 
-def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft]) -> tuple[int, int]:
+def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft]) -> Reopened:
     drafts_by_fingerprint = {draft.fingerprint: draft for draft in drafts}
     suggestions = WarehouseSuggestion.objects.for_team(context.team_id)
     closed = suggestions.filter(
@@ -65,7 +76,7 @@ def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft]) -> tup
                 reproposed.append(row.id)
     suggestions.filter(id__in=reproposed).update(reproposed_count=F("reproposed_count") + 1)
     suggestions.filter(id__in=[*reproposed, *revived]).update(surfaced_at=None)
-    return len(reproposed), len(revived)
+    return Reopened(reproposed=len(reproposed), revived=len(revived))
 
 
 def _earns_reproposal(row: WarehouseSuggestion, draft: SuggestionDraft, rules: LifecycleRules) -> bool:

@@ -18,7 +18,8 @@ from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionKind,
     WarehouseSuggestionStatus,
 )
-from products.warehouse_suggestions.backend.logic.candidates import CANDIDATES, CandidateContext
+from products.warehouse_suggestions.backend.logic.candidates.base import CandidateContext
+from products.warehouse_suggestions.backend.logic.candidates.registry import CANDIDATES
 from products.warehouse_suggestions.backend.logic.lifecycle import apply_run
 from products.warehouse_suggestions.backend.logic.suggestions import transition_to
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion

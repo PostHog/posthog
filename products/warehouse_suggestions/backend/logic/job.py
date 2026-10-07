@@ -10,7 +10,8 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus
 from ..models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
-from .candidates import CandidateContext, CandidateResult, evaluate_candidates
+from .candidates.base import CandidateContext, CandidateResult
+from .candidates.registry import evaluate_candidates
 from .inventory import load_inventory
 from .lifecycle import LifecycleResult, apply_run
 from .reads import ReadWindow, RollupDays, TeamReads, read_rollup_days, read_team_reads
