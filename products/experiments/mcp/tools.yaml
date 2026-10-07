@@ -562,7 +562,6 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
-        # `health` stays hidden from agents while the experiment-health-findings flag rolls out to people first.
         response:
             exclude:
                 - saved_metrics.*.effective_query
