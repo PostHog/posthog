@@ -6394,6 +6394,10 @@ snapshots:
         hash: v1.k794b7964.f57d81874455ecab234e86bea129aa84be0ab55617e1a3f78e4df5ae0b5bef03.0KX9-_jhsiyC9WxFodb_tR84PkA3Sg_F1zEuQGSIPfw
     products-business-intelligence-comparison-summary--kpi--light:
         hash: v1.k794b7964.cbd703c31c3e4f7b3dfefc7a1e4e1545f194ace8a4244d3622c76567fe24656c.zExqWHMx3BUNt1WBrRgODcRNuA2v4gWex4w9yl8DLwQ
+    products-business-intelligence-comparison-summary--kpi-with-breakdowns--dark:
+        hash: v1.k794b7964.dc16632b182babc1c391d8b029bedbfa8de8e4a98cab8d00e1793cfafe4397ed.sOgPhdkDOGgDyKAH-x05m_zH-gUIBcYqU0whwWLyrf0
+    products-business-intelligence-comparison-summary--kpi-with-breakdowns--light:
+        hash: v1.k794b7964.8d2396d7d7d9793af0dae6c603f021c1b702b6dc99b78304888f6eedfe9e67ac.v4Tl2MJml1p4CBQtPEPZQOIUKnM9vkLL_M3jZwEyehg
     products-business-intelligence-comparison-summary--table--dark:
         hash: v1.k794b7964.4d9cb89cf4df116ff3e473c6484b641d675a0ea9c42f05bf132ae946b8fb5ca8.7gZROaPmb_dBk2rRnqWl_FEMGXi-hHVdsl42uYiZE44
     products-business-intelligence-comparison-summary--table--light:
@@ -10889,7 +10893,7 @@ snapshots:
     scenes-app-inbox-scene--legacy--dark:
         hash: v1.k794b7964.cf7ea7c47bba3a13402d4ffca0936c08040dee5c57ddf01bf8cee89892eb2664.dShBZ3vzzVmp5DadPnsR_vMHw11m5cA6LVA9A2eFOzE
     scenes-app-inbox-scene--legacy--light:
-        hash: v1.k794b7964.f503449990502057e4a2bf6d41dd2c94efad321503856eb11d338084507ed4fb.USiZ5UnWiaNkNJ1ci9aMi6h82TyPLJ1ASTwGfBmidj4
+        hash: v1.k794b7964.4dd5f54403e4b5baac2e7a5e92db534352dd9f65b754812575dc998efeb7d0af.u2XFY-8NWE4llhcIUEumJtEg14luO7tvzT7WAEiakvY
     scenes-app-inbox-scene--legacy-report--dark:
         hash: v1.k794b7964.73179e203433187821ff41208f41221b082f1ca19865fb7b26a751cffffdb633.cNaIyo_D196C9nTyUTVcxfSgwTM5ku-1KroxfCH34_s
     scenes-app-inbox-scene--legacy-report--light:
