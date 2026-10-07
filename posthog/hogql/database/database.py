@@ -3394,6 +3394,20 @@ def _settled_catalog_certifications(
         return {}, {}
 
 
+def _readable_field_names(table: Table, context: HogQLContext) -> list[str]:
+    """The table's field names without the joins to tables the user cannot read, so a denied join
+    does not show up by name in the nested field list of a lazy join either."""
+    names: list[str] = []
+    for name, field in table.fields.items():
+        if isinstance(field, LazyJoin):
+            try:
+                field.resolve_table(context)
+            except TableAccessDeniedError:
+                continue
+        names.append(name)
+    return names
+
+
 def serialize_fields(
     field_input,
     context: HogQLContext,
@@ -3586,7 +3600,7 @@ def serialize_fields(
                     type=type,
                     schema_valid=schema_valid,
                     table=resolved_table.to_printed_hogql(),
-                    fields=list(resolved_table.fields.keys()),
+                    fields=_readable_field_names(resolved_table, context),
                     id=id or field_key,
                 )
             )

@@ -960,13 +960,20 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
             field_name="denied_join",
         )
 
-        def serialized_persons_fields() -> set[str]:
+        def serialized_fields() -> tuple[set[str], set[str]]:
             database = Database.create_for(team=self.team, user=self.user)
             context = HogQLContext(team_id=self.team.pk, team=self.team, database=database, user=self.user)
-            serialized = database.serialize(context, include_only={"persons"}, include_hidden_posthog_tables=True)
-            return set(serialized["persons"].fields.keys())
+            serialized = database.serialize(
+                context, include_only={"persons", "events"}, include_hidden_posthog_tables=True
+            )
+            persons_fields = set(serialized["persons"].fields.keys())
+            # events.person is itself a lazy join, so its nested field list names the persons joins.
+            person_join_fields = set(serialized["events"].fields["person"].fields or [])
+            return persons_fields, person_join_fields
 
-        assert "denied_join" in serialized_persons_fields()
+        persons_fields, person_join_fields = serialized_fields()
+        assert "denied_join" in persons_fields
+        assert "denied_join" in person_join_fields
 
         AccessControl.objects.create(
             team=self.team,
@@ -976,9 +983,10 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
             organization_member=self.membership,
         )
 
-        fields = serialized_persons_fields()
-        assert "denied_join" not in fields
-        assert "id" in fields
+        persons_fields, person_join_fields = serialized_fields()
+        assert "denied_join" not in persons_fields
+        assert "id" in persons_fields
+        assert "denied_join" not in person_join_fields
 
     def test_execute_hogql_query_bypass_warehouse_access_control_skips_denial(self):
         """bypass_warehouse_access_control opt-in should let the query past the access control gate
