@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.utils.timezone import now
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.schema import (
     ActionsNode,
@@ -24,6 +24,7 @@ from posthog.schema import (
     FunnelsDataWarehouseNode,
     FunnelsQuery,
     GroupNode,
+    HogQLQuery,
     InsightActorsQuery,
     InsightVizNode,
     LifecycleQuery,
@@ -38,7 +39,11 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.parser import parse_select
+from posthog.hogql.taxonomy_validation import TaxonomyReferenceVisitor
+
 from posthog.cache_utils import cache_for
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.utils import get_from_dict_or_attr
 
@@ -47,12 +52,45 @@ from products.actions.backend.models.action import Action
 T = TypeVar("T", bound=BaseModel)
 
 
+class QueryPropertyMetadata(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    # PropertyDefinition-style type: event | person | group | session
+    type: str
+    name: str
+
+
 class InsightQueryMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     events: list[str]
+    properties: list[QueryPropertyMetadata] = Field(default_factory=list)
     updated_at: datetime
+
+
+# A single query can reference very many properties (wide HogQL selects); cap the stored
+# metadata so insight rows stay bounded.
+MAX_PROPERTIES_PER_QUERY_METADATA = 100
+
+# Property-filter `type` values that map onto a PropertyDefinition type. The rest
+# (cohort, hogql, data_warehouse, element, ...) have no definition row to attribute usage to.
+PROPERTY_FILTER_TYPE_TO_DEFINITION_TYPE: dict[str, str] = {
+    "event": "event",
+    "feature": "event",  # $feature/* filters are stored as event-type definitions
+    "person": "person",
+    "group": "group",
+    "session": "session",
+}
+
+# math_property_type carries a frontend TaxonomicFilterGroupType value; absent means event property.
+MATH_PROPERTY_TYPE_TO_DEFINITION_TYPE: dict[str, str] = {
+    "numerical_event_properties": "event",
+    "event_properties": "event",
+    "session_properties": "session",
+    "person_properties": "person",
+}
 
 
 class QueryEventsExtractor:
@@ -137,6 +175,9 @@ class QueryEventsExtractor:
 
         elif kind == "EventsNode":
             events = self._get_series_events(self._ensure_model_instance(query, EventsNode))
+
+        elif kind == "HogQLQuery":
+            events = _extract_hogql_references(self._ensure_model_instance(query, HogQLQuery).query).events
 
         return list(set(events))
 
@@ -247,12 +288,126 @@ class QueryEventsExtractor:
             return []
 
 
+@frozen
+class HogQLQueryReferences:
+    events: list[str]
+    properties: list[str]
+
+
+def _extract_hogql_references(query_str: str) -> HogQLQueryReferences:
+    try:
+        select = parse_select(query_str)
+        visitor = TaxonomyReferenceVisitor()
+        visitor.visit(select)
+    except Exception:
+        # Extraction is advisory: an unparseable query contributes no references.
+        return HogQLQueryReferences(events=[], properties=[])
+    return HogQLQueryReferences(
+        events=[reference.name for reference in visitor.event_literals],
+        properties=[reference.name for reference in visitor.property_names],
+    )
+
+
+class QueryPropertiesExtractor:
+    """Collects property references from a query as PropertyDefinition-style (type, name) pairs.
+
+    Walks the query JSON generically instead of dispatching per query kind: property filters
+    are uniform `{key, type}` dicts wherever they appear (series, global filters, funnel
+    exclusions, actors queries), so a recursive walk covers every kind at once.
+    """
+
+    def extract_properties(self, query: dict[str, Any] | BaseModel | None) -> list[QueryPropertyMetadata]:
+        if not query:
+            return []
+        data = query.model_dump(exclude_none=True) if isinstance(query, BaseModel) else query
+        found: dict[tuple[str, str], QueryPropertyMetadata] = {}
+        self._walk(data, found)
+        return [found[key] for key in sorted(found)][:MAX_PROPERTIES_PER_QUERY_METADATA]
+
+    def _walk(self, node: Any, found: dict[tuple[str, str], QueryPropertyMetadata]) -> None:
+        if isinstance(node, list):
+            for item in node:
+                self._walk(item, found)
+            return
+        if not isinstance(node, dict):
+            return
+        self._collect_property_filter(node, found)
+        self._collect_breakdowns(node, found)
+        self._collect_math_property(node, found)
+        self._collect_hogql_properties(node, found)
+        for value in node.values():
+            self._walk(value, found)
+
+    def _collect_property_filter(self, node: dict, found: dict[tuple[str, str], QueryPropertyMetadata]) -> None:
+        key = node.get("key")
+        filter_type = node.get("type")
+        if not isinstance(key, str) or not key or not isinstance(filter_type, str):
+            return
+        definition_type = PROPERTY_FILTER_TYPE_TO_DEFINITION_TYPE.get(filter_type)
+        if definition_type:
+            self._add(found, definition_type, key)
+
+    def _collect_breakdowns(self, node: dict, found: dict[tuple[str, str], QueryPropertyMetadata]) -> None:
+        breakdowns = node.get("breakdowns")
+        if isinstance(breakdowns, list):
+            for entry in breakdowns:
+                if not isinstance(entry, dict):
+                    continue
+                breakdown_property = entry.get("property")
+                entry_type = entry.get("type") or "event"
+                if not isinstance(breakdown_property, str) or not breakdown_property or not isinstance(entry_type, str):
+                    continue
+                definition_type = PROPERTY_FILTER_TYPE_TO_DEFINITION_TYPE.get(entry_type)
+                if definition_type:
+                    self._add(found, definition_type, breakdown_property)
+
+        breakdown = node.get("breakdown")
+        if breakdown is None:
+            return
+        breakdown_type = node.get("breakdown_type") or "event"
+        if not isinstance(breakdown_type, str):
+            return
+        definition_type = PROPERTY_FILTER_TYPE_TO_DEFINITION_TYPE.get(breakdown_type)
+        if not definition_type:
+            return
+        values = breakdown if isinstance(breakdown, list) else [breakdown]
+        for value in values:
+            if isinstance(value, str) and value:
+                self._add(found, definition_type, value)
+
+    def _collect_math_property(self, node: dict, found: dict[tuple[str, str], QueryPropertyMetadata]) -> None:
+        math_property = node.get("math_property")
+        if not isinstance(math_property, str) or not math_property:
+            return
+        math_property_type = node.get("math_property_type") or "numerical_event_properties"
+        if not isinstance(math_property_type, str):
+            return
+        definition_type = MATH_PROPERTY_TYPE_TO_DEFINITION_TYPE.get(math_property_type)
+        if definition_type:
+            self._add(found, definition_type, math_property)
+
+    def _collect_hogql_properties(self, node: dict, found: dict[tuple[str, str], QueryPropertyMetadata]) -> None:
+        if node.get("kind") != "HogQLQuery":
+            return
+        hogql = node.get("query")
+        if not isinstance(hogql, str) or not hogql.strip():
+            return
+        # The visitor is context-free, so `properties.x` is attributed to events; person/group
+        # property accesses in HogQL are not collected.
+        for name in _extract_hogql_references(hogql).properties:
+            self._add(found, "event", name)
+
+    @staticmethod
+    def _add(found: dict[tuple[str, str], QueryPropertyMetadata], definition_type: str, name: str) -> None:
+        found.setdefault((definition_type, name), QueryPropertyMetadata(type=definition_type, name=name))
+
+
 def extract_query_metadata(
     query: dict[str, Any] | BaseModel | None,
     team: Team,
 ) -> InsightQueryMetadata:
     """
-    Extracts metadata from a given query, including the events used in the query.
+    Extracts metadata from a given query: the events and the properties it references.
 
     Args:
         query (dict) | BaseModel | None: The query to extract metadata from. If None, returns an empty metadata object.
@@ -262,9 +417,10 @@ def extract_query_metadata(
         InsightQueryMetadata: An object containing the query metadata
     """
     if not query:
-        return InsightQueryMetadata(events=[], updated_at=now())
+        return InsightQueryMetadata(events=[], properties=[], updated_at=now())
 
     events_extractor = QueryEventsExtractor(team=team)
     events = events_extractor.extract_events(query=query)
+    properties = QueryPropertiesExtractor().extract_properties(query=query)
 
-    return InsightQueryMetadata(events=events, updated_at=now())
+    return InsightQueryMetadata(events=events, properties=properties, updated_at=now())
