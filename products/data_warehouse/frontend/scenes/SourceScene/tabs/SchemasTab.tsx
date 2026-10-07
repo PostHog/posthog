@@ -17,6 +17,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -404,6 +405,9 @@ function ManagedSchemaTable({
                         return (
                             <LemonTableLink
                                 to={urls.dataWarehouseSourceSchema(prefixedSourceId, schema.id)}
+                                // Renders the description outside the anchor, so a click on the copy button
+                                // copies the table name and does not open the schema page.
+                                truncateDescription
                                 title={
                                     <div className="flex items-center gap-1">
                                         <span>{name}</span>
@@ -416,7 +420,17 @@ function ManagedSchemaTable({
                                 }
                                 description={((): JSX.Element | undefined => {
                                     const tableName = schema.table?.hogql_name ?? schema.table?.name
-                                    return tableName ? <code>{tableName}</code> : undefined
+                                    return tableName ? (
+                                        <CopyToClipboardInline
+                                            explicitValue={tableName}
+                                            description="table name"
+                                            selectable
+                                            iconSize="xsmall"
+                                            data-attr="source-schema-table-name-copy"
+                                        >
+                                            <code>{tableName}</code>
+                                        </CopyToClipboardInline>
+                                    ) : undefined
                                 })()}
                             />
                         )
