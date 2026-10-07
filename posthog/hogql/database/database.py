@@ -3404,14 +3404,6 @@ def _resolve_readable_join(join: LazyJoin, context: HogQLContext) -> Table | Non
         return None
 
 
-def _readable_field_names(table: Table, context: HogQLContext) -> list[str]:
-    return [
-        name
-        for name, field in table.fields.items()
-        if not isinstance(field, LazyJoin) or _resolve_readable_join(field, context) is not None
-    ]
-
-
 def serialize_fields(
     field_input,
     context: HogQLContext,
@@ -3600,7 +3592,11 @@ def serialize_fields(
                     type=type,
                     schema_valid=schema_valid,
                     table=resolved_table.to_printed_hogql(),
-                    fields=_readable_field_names(resolved_table, context),
+                    fields=[
+                        name
+                        for name, nested in resolved_table.fields.items()
+                        if not isinstance(nested, LazyJoin) or _resolve_readable_join(nested, context) is not None
+                    ],
                     id=id or field_key,
                 )
             )
