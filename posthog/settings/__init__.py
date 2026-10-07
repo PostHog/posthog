@@ -85,6 +85,11 @@ INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 # empty to use the real Slack email while keeping DEBUG on. Ignored outside DEBUG.
 SLACK_APP_LOCAL_DEV_EMAIL: str = os.getenv("SLACK_APP_LOCAL_DEV_EMAIL", "test@posthog.com")
 
+# Forward GitHub App deliveries onto the internal events topic, where a workflow with a GitHub
+# trigger can pick them up. Off by default: a busy repository is a firehose, and this is the only
+# thing admitting it.
+GITHUB_WORKFLOW_TRIGGERS_ENABLED: bool = get_from_env("GITHUB_WORKFLOW_TRIGGERS_ENABLED", False, type_cast=str_to_bool)
+
 if DEBUG:
     JS_URL: str = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")
 else:
