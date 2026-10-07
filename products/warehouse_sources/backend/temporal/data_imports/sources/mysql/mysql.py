@@ -948,6 +948,25 @@ def _is_transient_no_available_tidb_instances(e: BaseException) -> bool:
     return _TIDB_NO_AVAILABLE_INSTANCES_TOKEN in " ".join(str(arg) for arg in e.args)
 
 
+# ProxySQL accepts the client connection, then raises error 9001 on the first query when it cannot
+# reach a backend server in the target hostgroup before its connect timeout (a backend restart,
+# failover, or momentary network blip). Same proxy-layer pattern as the TiProxy case above: a fresh
+# attempt recovers once a backend is reachable again. Match the code plus the stable phrase, and
+# leave out the hostgroup number and timeout that follow it.
+_PROXYSQL_HOSTGROUP_UNREACHABLE_CODE = 9001
+_PROXYSQL_HOSTGROUP_UNREACHABLE_TOKEN = "Max connect timeout reached while reaching hostgroup"
+
+
+def _is_transient_proxysql_hostgroup_unreachable(e: BaseException) -> bool:
+    """Return True if ProxySQL timed out reaching a backend server in its hostgroup."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    if code != _PROXYSQL_HOSTGROUP_UNREACHABLE_CODE:
+        return False
+    return _PROXYSQL_HOSTGROUP_UNREACHABLE_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
 def _is_transient_metadata_query_reset(e: BaseException) -> bool:
     """Return True if a metadata query's connection was reset mid-query — a transient blip.
 
@@ -984,7 +1003,8 @@ def _retry_on_transient_tablet_unavailable(
     failing sync setup on the first blip and surfacing it as captured error-tracking
     noise. Non-transient errors re-raise immediately — the predicates only match the gRPC
     `Unavailable` status, a mid-reparent primary, a dial-timeout reaching a backend tablet,
-    a TiProxy failover, or a plain peer-reset connection drop, all self-healing.
+    a TiProxy failover, a ProxySQL backend timeout, or a plain peer-reset connection drop,
+    all self-healing.
     """
     attempt = 0
     while True:
@@ -997,6 +1017,7 @@ def _retry_on_transient_tablet_unavailable(
                 or _is_transient_vitess_reparent(e)
                 or _is_transient_vitess_dial_timeout(e)
                 or _is_transient_tiproxy_unavailable(e)
+                or _is_transient_proxysql_hostgroup_unreachable(e)
                 or _is_transient_metadata_query_reset(e)
             ):
                 raise

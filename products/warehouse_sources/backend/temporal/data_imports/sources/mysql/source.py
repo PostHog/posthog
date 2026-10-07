@@ -527,6 +527,13 @@ class MySQLSource(
             # already retries it in-process (see `_is_transient_no_available_tidb_instances` in
             # mysql.py); this is the backstop for the rare case where it exhausts that budget.
             "No available TiDB instances, please make sure TiDB is available",
+            # ProxySQL error 9001: the proxy accepted the connection but timed out reaching a
+            # backend server in its hostgroup. `_retry_on_transient_tablet_unavailable` retries it
+            # in-process during sync metadata discovery (see
+            # `_is_transient_proxysql_hostgroup_unreachable` in mysql.py). Schema discovery has no
+            # in-process retry, so this entry lets Temporal's activity retry recover both paths.
+            # Match the stable phrase and leave out the volatile hostgroup number and timeout.
+            "Max connect timeout reached while reaching hostgroup",
             # Vitess/PlanetScale vtgate error 1105 raised while a streaming query is in flight:
             # vtgate's own gRPC client to the backend vttablet was already closing (a tablet
             # swap during a failover, reparent, or health-check-triggered pool recycle) when the

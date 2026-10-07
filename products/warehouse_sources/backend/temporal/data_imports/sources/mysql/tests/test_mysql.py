@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _is_transient_metadata_query_reset,
     _is_transient_no_available_tidb_instances,
     _is_transient_packet_sequence_error,
+    _is_transient_proxysql_hostgroup_unreachable,
     _is_transient_tablet_unavailable,
     _is_transient_tiproxy_unavailable,
     _is_transient_too_many_connections,
@@ -2007,6 +2008,33 @@ class TestIsTransientNoAvailableTidbInstances:
         )
 
 
+class TestIsTransientProxysqlHostgroupUnreachable:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Max connect timeout reached while reaching hostgroup 0 after 10000ms",
+            "Max connect timeout reached while reaching hostgroup 20 after 3000ms",
+        ],
+    )
+    def test_matches_hostgroup_unreachable(self, message):
+        assert _is_transient_proxysql_hostgroup_unreachable(pymysql.err.OperationalError(9001, message))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (1105, "Max connect timeout reached while reaching hostgroup 0 after 10000ms"),
+            (9001, "Some other ProxySQL error"),
+            (1105, "TiProxy fails to connect to TiDB, please make sure TiDB is available"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_errors(self, code, message):
+        assert not _is_transient_proxysql_hostgroup_unreachable(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_proxysql_hostgroup_unreachable(pymysql.err.OperationalError())
+
+
 class TestIsTransientMetadataQueryReset:
     def test_matches_connection_reset_mid_query(self):
         # A peer reset landing on an already-open connection while a metadata query (e.g.
@@ -2097,6 +2125,17 @@ class TestRetryOnTransientTabletUnavailable:
             "after 1 attempts, reqid=csYTzBMNB2hB8111yzcg4A",
         )
         operation = MagicMock(side_effect=[dial_timeout, "ok"])
+
+        assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
+
+        assert operation.call_count == 2
+
+    def test_retries_proxysql_hostgroup_unreachable_then_succeeds(self, mocker):
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        unreachable = pymysql.err.OperationalError(
+            9001, "Max connect timeout reached while reaching hostgroup 0 after 10000ms"
+        )
+        operation = MagicMock(side_effect=[unreachable, "ok"])
 
         assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
 
@@ -2858,6 +2897,18 @@ class TestMySQLSourceNonRetryableErrors:
         retryable = source.get_retryable_errors()
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"No-available-TiDB-instances error should be classified retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "OperationalError: (9001, 'Max connect timeout reached while reaching hostgroup 0 after 10000ms')",
+            "Max connect timeout reached while reaching hostgroup 0 after 10000ms",
+        ],
+    )
+    def test_proxysql_hostgroup_unreachable_is_classified_retryable(self, source, error_msg):
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"ProxySQL hostgroup-unreachable error should be classified retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
