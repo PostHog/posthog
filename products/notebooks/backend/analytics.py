@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 NOTEBOOK_CREATED_EVENT = "notebook created"
 NOTEBOOK_READ_EVENT = "notebook read"
+NOTEBOOK_WIDGET_PUBLISHED_EVENT = "notebook widget published"
 
 
 class NotebookCreationSource:
@@ -111,3 +112,25 @@ def capture_notebook_read(
         ),
     }
     report_user_action(user, NOTEBOOK_READ_EVENT, props, request=request)
+
+
+def capture_notebook_widget_published(
+    *,
+    request: "Request",
+    user: User,
+    short_id: str,
+    snapshot_id: str,
+    version_id: str,
+    is_refresh: bool,
+    uses_notebook_run: bool,
+) -> None:
+    """Emit `notebook widget published` after a widget snapshot is saved on a dashboard tile.
+    Keep the props to identifiers and flags: never add notebook content, SQL, or widget data."""
+    props = {
+        "short_id": short_id,
+        "snapshot_id": snapshot_id,
+        "version_id": version_id,
+        "operation": "refresh" if is_refresh else "add",
+        "uses_notebook_run": uses_notebook_run,
+    }
+    report_user_action(user, NOTEBOOK_WIDGET_PUBLISHED_EVENT, props, request=request)
