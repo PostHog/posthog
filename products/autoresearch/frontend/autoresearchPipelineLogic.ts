@@ -243,19 +243,19 @@ export interface autoresearchPipelineLogicValues {
     currentTeamId: number | null // teamLogic
     activeScoreRun: AutoresearchRunApi | null
     activeTab: AutoresearchPipelineTab
-    champion: AutoresearchModelApi | null
-    defaultTab: AutoresearchPipelineTab
-    lifecycleSteps: LifecycleStep[] | null
-    selectedTab: AutoresearchPipelineTab | null
     artifactsByRun: Record<string, string[]>
     artifactsByRunLoading: boolean
     breadcrumbs: Breadcrumb[]
+    champion: AutoresearchModelApi | null
     dailyVolume: DailyVolumePoint[] | null
     dailyVolumeError: boolean
     dailyVolumeLoading: boolean
+    defaultTab: AutoresearchPipelineTab
     detailRequested: boolean
     expandedRunId: string | null
+    lifecycleSteps: LifecycleStep[] | null
     models: AutoresearchModelApi[]
+    modelsLoaded: boolean
     modelsLoading: boolean
     onlinePerformanceRows: OnlinePerformanceRow[]
     pipeline: AutoresearchPipelineApi | null
@@ -270,10 +270,12 @@ export interface autoresearchPipelineLogicValues {
     reportByRunLoading: boolean
     runs: AutoresearchRunApi[]
     runsError: boolean
+    runsLoaded: boolean
     runsLoading: boolean
     scoreResult: AutoresearchRunApi | null
     scoreResultLoading: boolean
     scoringCoverage: ScoringCoverage | null
+    selectedTab: AutoresearchPipelineTab | null
     startTrainingResult: AutoresearchTrainingRunApi | null
     startTrainingResultLoading: boolean
     suggestionDraft: string
@@ -549,14 +551,14 @@ export interface autoresearchPipelineLogicActions {
     setPredictionsPeopleView: (view: PredictionsPeopleView) => {
         view: PredictionsPeopleView
     }
-    setTabFromUrl: (tab: AutoresearchPipelineTab | null) => {
-        tab: AutoresearchPipelineTab | null
-    }
     setSuggestionDraft: (draft: string) => {
         draft: string
     }
     setSuggestionPriority: (priority: CreateSuggestionPriorityEnumApi) => {
         priority: CreateSuggestionPriorityEnumApi
+    }
+    setTabFromUrl: (tab: AutoresearchPipelineTab | null) => {
+        tab: AutoresearchPipelineTab | null
     }
     startScorePolling: () => {
         value: true
@@ -652,7 +654,9 @@ export interface autoresearchPipelineLogicMeta {
             pipeline: AutoresearchPipelineApi | null,
             champion: AutoresearchModelApi | null,
             runs: AutoresearchRunApi[],
-            onlinePerformanceRows: OnlinePerformanceRow[]
+            onlinePerformanceRows: OnlinePerformanceRow[],
+            modelsLoaded: any,
+            runsLoaded: any
         ) => LifecycleStep[] | null
     }
 }
@@ -754,6 +758,18 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             {
                 loadTrainingRuns: () => false,
                 loadTrainingRunsFailure: () => true,
+            },
+        ],
+        modelsLoaded: [
+            false,
+            {
+                loadModelsSuccess: () => true,
+            },
+        ],
+        runsLoaded: [
+            false,
+            {
+                loadRunsSuccess: () => true,
             },
         ],
         runsError: [
@@ -1112,14 +1128,17 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             ): AutoresearchPipelineTab => selectedTab ?? defaultTab,
         ],
         lifecycleSteps: [
-            (s) => [s.pipeline, s.champion, s.runs, s.onlinePerformanceRows],
+            (s) => [s.pipeline, s.champion, s.runs, s.onlinePerformanceRows, s.modelsLoaded, s.runsLoaded],
             (
                 pipeline: AutoresearchPipelineApi | null,
                 champion: AutoresearchModelApi | null,
                 runs: AutoresearchRunApi[],
-                onlinePerformanceRows: OnlinePerformanceRow[]
+                onlinePerformanceRows: OnlinePerformanceRow[],
+                modelsLoaded: boolean,
+                runsLoaded: boolean
             ): LifecycleStep[] | null =>
-                pipeline
+                // Before models and runs load, an empty list means "not known yet", not "none".
+                pipeline && modelsLoaded && runsLoaded
                     ? pipelineLifecycle({
                           pipeline,
                           champion,

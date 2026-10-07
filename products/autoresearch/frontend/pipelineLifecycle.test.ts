@@ -14,7 +14,7 @@ const NEW_PIPELINE: LifecycleInput['pipeline'] = {
 }
 
 function scoringRun(day: string): LifecycleInput['runs'][number] {
-    return { run_type: 'inference', status: 'completed', created_at: `${day}T03:00:00Z` }
+    return { run_type: 'inference', status: 'completed', created_at: `${day}T03:00:00Z`, rows_scored: 100, metrics: {} }
 }
 
 function input(overrides: Partial<LifecycleInput>): LifecycleInput {
@@ -24,6 +24,11 @@ function input(overrides: Partial<LifecycleInput>): LifecycleInput {
 describe('pipelineLifecycle', () => {
     it.each<[string, LifecycleInput, LifecycleStepState[]]>([
         ['a draft model', input({}), ['done', 'current', 'upcoming', 'upcoming', 'upcoming']],
+        [
+            'a model whose only attempt failed before any experiment',
+            input({ pipeline: { ...NEW_PIPELINE, training_run_count: 1 } }),
+            ['done', 'current', 'upcoming', 'upcoming', 'upcoming'],
+        ],
         [
             'a model in its first training run',
             input({
@@ -70,6 +75,18 @@ describe('pipelineLifecycle', () => {
             [scoringRun('2026-02-10'), scoringRun('2026-02-11'), scoringRun('2026-02-28')],
             ['2026-02-10', '2026-02-10'],
             '1 of 2 matured dates checked',
+        ],
+        [
+            'skips a scoring run that scored nobody',
+            [scoringRun('2026-02-10'), { ...scoringRun('2026-02-11'), rows_scored: 0 }],
+            ['2026-02-10'],
+            '1 of 1 matured date checked',
+        ],
+        [
+            'counts the prediction date, not the day the run started',
+            [{ ...scoringRun('2026-02-23'), metrics: { prediction_date: '2026-02-22' } }],
+            [],
+            '0 of 1 matured date checked',
         ],
         [
             'says when the first check comes before any date matured',

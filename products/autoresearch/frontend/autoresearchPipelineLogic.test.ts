@@ -194,7 +194,8 @@ describe('autoresearchPipelineLogic', () => {
     describe('tabs', () => {
         async function mountWithPipeline(
             lastScoredAt: string | null,
-            url: string
+            url: string,
+            runsFail = false
         ): Promise<ReturnType<typeof autoresearchPipelineLogic.build>> {
             jest.clearAllMocks()
             initKeaTests()
@@ -204,7 +205,11 @@ describe('autoresearchPipelineLogic', () => {
             })
             mockRetrieve.mockResolvedValue({ id: 'pipeline-1', name: 'Model', last_scored_at: lastScoredAt })
             mockModelsList.mockResolvedValue({ results: [], next: null })
-            mockRunsList.mockResolvedValue({ results: [], next: null })
+            if (runsFail) {
+                mockRunsList.mockRejectedValue(new Error('runs failed'))
+            } else {
+                mockRunsList.mockResolvedValue({ results: [], next: null })
+            }
             router.actions.push(url)
             const logic = autoresearchPipelineLogic({ id: 'pipeline-1' })
             logic.mount()
@@ -232,6 +237,13 @@ describe('autoresearchPipelineLogic', () => {
             const logic = await mountWithPipeline('2026-01-02T00:00:00Z', `/autoresearch/pipeline-1?tab=${oldTab}`)
             expect(router.values.searchParams.tab).toEqual(expectedUrlTab)
             expect(logic.values.activeTab).toEqual(expectedUrlTab ?? 'predictions')
+            logic.unmount()
+        })
+
+        it('keeps the lifecycle unknown when the runs fail to load', async () => {
+            const logic = await mountWithPipeline('2026-01-02T00:00:00Z', '/autoresearch/pipeline-1', true)
+            await expectLogic(logic).toDispatchActions(['loadModelsSuccess', 'loadRunsFailure'])
+            expect(logic.values.lifecycleSteps).toBeNull()
             logic.unmount()
         })
 

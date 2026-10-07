@@ -20,10 +20,16 @@ export interface LifecycleInput {
         'created_at' | 'horizon_days' | 'last_scored_at' | 'training_run_count' | 'experiment_count'
     > & { live_training_run: unknown }
     champion: Pick<AutoresearchModelApi, 'is_preliminary' | 'promoted_at'> | null
-    runs: Pick<AutoresearchRunApi, 'run_type' | 'status' | 'created_at'>[]
+    runs: Pick<AutoresearchRunApi, 'run_type' | 'status' | 'created_at' | 'rows_scored' | 'metrics'>[]
     /** Prediction dates (YYYY-MM-DD) that a validation run checked against real outcomes. */
     validatedDates: string[]
     now: dayjs.Dayjs
+}
+
+/** The date a scoring run predicts for. Validation groups runs by this date, so it is the date to count. */
+function predictionDate(run: LifecycleInput['runs'][number]): string {
+    const recorded = run.metrics?.prediction_date
+    return typeof recorded === 'string' ? recorded : dayjs(run.created_at).utc().format('YYYY-MM-DD')
 }
 
 /** Scored dates whose prediction horizon has passed, so their real outcomes are known. */
@@ -35,8 +41,13 @@ function maturedScoredDates(
     const cutoff = now.subtract(horizonDays ?? 0, 'day')
     const dates = new Set<string>()
     for (const run of runs) {
-        if (run.run_type === 'inference' && run.status === 'completed' && !dayjs(run.created_at).isAfter(cutoff)) {
-            dates.add(dayjs(run.created_at).utc().format('YYYY-MM-DD'))
+        // A run that scored nobody emits no predictions, so validation has nothing to check for its date.
+        if (run.run_type !== 'inference' || run.status !== 'completed' || !run.rows_scored) {
+            continue
+        }
+        const date = predictionDate(run)
+        if (!dayjs.utc(date).isAfter(cutoff)) {
+            dates.add(date)
         }
     }
     return dates
@@ -95,7 +106,8 @@ export function pipelineLifecycle(input: LifecycleInput): LifecycleStep[] {
     ]
     const done: Record<LifecycleStepKey, boolean> = {
         question_set: true,
-        agent_searched: champion != null || (pipeline.training_run_count > 0 && !searching),
+        // A failed attempt counts as a run but records no experiments, so it is not a search.
+        agent_searched: champion != null || (pipeline.experiment_count > 0 && !searching),
         model_live: champion != null,
         scoring: pipeline.last_scored_at != null,
         checked: input.validatedDates.length > 0,

@@ -24,7 +24,7 @@ const SCORED_PIPELINE: LifecycleInput['pipeline'] = {
 }
 
 function scoringRun(day: string): LifecycleInput['runs'][number] {
-    return { run_type: 'inference', status: 'completed', created_at: `${day}T03:00:00Z` }
+    return { run_type: 'inference', status: 'completed', created_at: `${day}T03:00:00Z`, rows_scored: 100, metrics: {} }
 }
 
 function steps(overrides: Partial<LifecycleInput>): ReturnType<typeof pipelineLifecycle> {
