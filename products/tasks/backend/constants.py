@@ -18,6 +18,7 @@ CI_STATUSES = ("passing", "failing", "pending", "none")
 # skips the JSONB scan while a query repeats the predicate verbatim, so readers filtering on the
 # prefix must use this constant rather than a literal of their own.
 GITHUB_PR_URL_PREFIX = "https://github.com/"
+ARTIFACT_OPEN_NETWORK_WRITER_KEY = "written_with_open_network"
 
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
 WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG = "tasks-workflow-dispatch-shadow"

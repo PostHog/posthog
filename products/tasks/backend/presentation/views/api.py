@@ -80,6 +80,7 @@ from products.tasks.backend.facade.access import (
 )
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
 from products.tasks.backend.facade.client_provenance import (
+    get_oauth_access_token,
     get_task_client_provenance,
     is_sandbox_oauth_request,
     is_sandbox_origin_request,
@@ -1733,6 +1734,13 @@ def _sandbox_bound_task_id(request) -> UUID | None:
     return request.successful_authenticator.access_token.sandbox_task_id
 
 
+def _writer_has_open_network(request: Request, team_id: int) -> bool:
+    if not is_sandbox_oauth_request(request):
+        return True
+    token_id = getattr(get_oauth_access_token(request), "id", None)
+    return token_id is not None and tasks_facade.sandbox_token_has_open_network(team_id, token_id)
+
+
 def _hidden_scout_trial_task_ids(request: Request, team_id: int) -> Iterable[UUID]:
     if is_sandbox_oauth_request(request):
         return tasks_facade.scout_trial_task_ids(team_id, visible_task_id=_sandbox_bound_task_id(request))
@@ -2697,6 +2705,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team_id,
             artifacts=request.validated_data["artifacts"],
             uploaded_by="agent" if self._is_sandbox_agent_request(task_id) else "user",
+            written_with_open_network=_writer_has_open_network(request, self.team_id),
         )
         if result is None:
             raise NotFound()
@@ -2808,6 +2817,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             artifacts=request.validated_data["artifacts"],
             uploaded_by="agent" if is_agent_upload else "user",
             uploaded_by_user_id=None if is_agent_upload else self._user_id(),
+            written_with_open_network=_writer_has_open_network(request, self.team_id),
         )
         if finalized_entries is None and error is None:
             raise NotFound()
@@ -3062,7 +3072,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
             if error is not None or content is None or not is_html_artifact(content.name, content.content_type):
                 raise NotFound()
-        scripts_available = tasks_facade.task_run_artifact_scripts_allowed(task_id, self.team_id)
+        scripts_available = tasks_facade.task_run_artifact_scripts_allowed(
+            pk, task_id, self.team_id, artifact_id=artifact_id, version=version
+        )
         if run_scripts and not scripts_available:
             raise PermissionDenied(
                 "Scripts can't run in this artifact because its task run has limited network access."
@@ -4615,6 +4627,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             self.team_id,
             artifact=request.validated_data,
             caller_is_agent=is_sandbox_agent_request(request, task_id),
+            written_with_open_network=_writer_has_open_network(request, self.team_id),
         )
         if artifact is None and error is None:
             raise NotFound()
@@ -4748,6 +4761,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             task_id,
             self.team_id,
             caller_is_agent=is_sandbox_agent_request(request, task_id),
+            written_with_open_network=_writer_has_open_network(request, self.team_id),
             artifact={
                 "name": self._with_png_extension(name),
                 "artifact_type": TaskArtifactType.FILE,
@@ -4830,6 +4844,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             task_id,
             self.team_id,
             caller_is_agent=is_sandbox_agent_request(request, task_id),
+            written_with_open_network=_writer_has_open_network(request, self.team_id),
             artifact_id=pk,
             content=request.validated_data.get("content"),
             content_bytes=request.validated_data.get("content_bytes"),

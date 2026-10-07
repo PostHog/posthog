@@ -9206,6 +9206,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         updated = edit_response.json()
         self.assertEqual(updated["current_version"], 2)
         self.assertEqual([version["version"] for version in updated["versions"]], [1, 2])
+        stored = TaskArtifact.objects.for_team(self.team.id).get(id=artifact["id"])
+        self.assertEqual([version["written_with_open_network"] for version in stored.versions], [True, True])
         self.assertEqual(slack.api_call.call_args_list[0].args[0], "canvases.create")
         self.assertEqual(slack.api_call.call_args_list[1].args[0], "canvases.edit")
 
@@ -10233,6 +10235,15 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "source": "agent_output",
                     "content_type": "text/html",
                     "storage_path": f"tasks/artifacts/team_{self.team.id}/task_{task.id}/run_{uuid.uuid4().hex}/interactive.html",
+                    "written_with_open_network": True,
+                },
+                {
+                    "id": "unmarked-html",
+                    "name": "unmarked.html",
+                    "type": "output",
+                    "source": "agent_output",
+                    "content_type": "text/html",
+                    "storage_path": "tasks/artifacts/unmarked.html",
                 },
                 {
                     "id": "private-html",
@@ -10255,6 +10266,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertIn("script-src 'none'", static_csp)
         self.assertNotIn("allow-scripts", static_csp)
         self.assertEqual(self.client.get(f"{api_path}?scripts=yes").status_code, status.HTTP_400_BAD_REQUEST)
+        unmarked_path = api_path.replace(artifact_id, "unmarked-html")
+        self.assertFalse(self.client.get(unmarked_path).json()["scripts_available"])
+        self.assertEqual(self.client.get(f"{unmarked_path}?scripts=true").status_code, status.HTTP_403_FORBIDDEN)
 
         minted = self.client.get(f"{api_path}?scripts=true")
         self.assertEqual(minted.status_code, status.HTTP_200_OK)
@@ -10307,19 +10321,22 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("no_environment", None, 1, True),
-            ("full_network", SandboxEnvironment.NetworkAccessLevel.FULL, 1, True),
-            ("trusted_network", SandboxEnvironment.NetworkAccessLevel.TRUSTED, 1, False),
-            ("custom_network", SandboxEnvironment.NetworkAccessLevel.CUSTOM, 1, False),
-            ("full_network_changed_after_run", SandboxEnvironment.NetworkAccessLevel.FULL, -1, False),
-            ("deleted_environment", "deleted", 1, False),
+            ("agent_without_environment", "agent", None, 1, True),
+            ("agent_with_full_network", "agent", SandboxEnvironment.NetworkAccessLevel.FULL, 1, True),
+            ("agent_with_trusted_network", "agent", SandboxEnvironment.NetworkAccessLevel.TRUSTED, 1, False),
+            ("agent_with_custom_network", "agent", SandboxEnvironment.NetworkAccessLevel.CUSTOM, 1, False),
+            ("agent_environment_changed_after_run", "agent", SandboxEnvironment.NetworkAccessLevel.FULL, -1, False),
+            ("agent_environment_deleted", "agent", "deleted", 1, False),
+            ("human_on_restricted_run", "human", SandboxEnvironment.NetworkAccessLevel.TRUSTED, 1, True),
         ]
     )
     @override_settings(
         CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]
     )
-    def test_html_artifact_preview_runs_scripts_only_for_unrestricted_runs(
-        self, _name, network_access_level, run_started_minutes_after_environment, scripts_available
+    @patch("posthog.storage.object_storage.write")
+    @patch("posthog.storage.object_storage.tag")
+    def test_html_artifact_scripts_follow_the_network_access_of_the_writer(
+        self, _name, writer, network_access_level, run_started_minutes_after_environment, scripts_available, *_mocks
     ):
         task = self.create_task()
         state: dict[str, Any] = {}
@@ -10327,7 +10344,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         if network_access_level is not None:
             environment = SandboxEnvironment.objects.create(
                 team=self.team,
-                name="Preview env",
+                name="Writer env",
                 created_by=self.user,
                 network_access_level=SandboxEnvironment.NetworkAccessLevel.FULL
                 if network_access_level == "deleted"
@@ -10342,19 +10359,27 @@ class TestTaskRunAPI(BaseTaskAPITest):
             created_at=(environment.updated_at if environment else django_timezone.now())
             + timedelta(minutes=run_started_minutes_after_environment),
         )
+        client = self._sandbox_oauth_client(task.id) if writer == "agent" else self.client
         if network_access_level == "deleted":
             assert environment is not None
             environment.delete()
-        living = self._create_slack_file_living_artifact(task, run)
-        living.name = "interactive.html"
-        versions = living.versions
-        versions[1]["content_type"] = "text/html"
-        living.versions = versions
-        living.save(update_fields=["name", "versions"])
-        api_path = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{living.id}/preview/?version=2"
+        uploaded = client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/",
+            {
+                "artifacts": [
+                    {"name": "report.html", "type": "output", "source": "agent_output", "content": "<p>Report</p>"}
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(uploaded.status_code, status.HTTP_200_OK)
+        api_path = (
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/"
+            f"{uploaded.json()['artifacts'][0]['id']}/preview/"
+        )
 
         static = self.client.get(api_path)
-        scripted = self.client.get(f"{api_path}&scripts=true")
+        scripted = self.client.get(f"{api_path}?scripts=true")
 
         self.assertEqual(static.status_code, status.HTTP_200_OK)
         self.assertEqual(static.json()["scripts_available"], scripts_available)
@@ -10390,19 +10415,20 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("restricted_sibling_run", None),
-            ("restriction_removed_from_state", "remove"),
-            ("restriction_pointed_at_open_environment", "repoint"),
+            ("own_run", "own"),
+            ("sibling_run_without_environment", "sibling"),
+            ("run_of_another_task", "other_task"),
+            ("own_run_after_removing_the_restriction", "removed"),
+            ("own_run_after_pointing_at_an_open_environment", "repointed"),
         ]
     )
     @override_settings(
         CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]
     )
+    @patch("posthog.storage.object_storage.write")
+    @patch("posthog.storage.object_storage.tag")
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
-    def test_html_artifact_preview_refuses_scripts_while_any_task_run_is_restricted(
-        self, _name, state_change, _mock_publish
-    ):
-        task = self.create_task()
+    def test_html_artifact_from_a_restricted_agent_never_runs_scripts(self, _name, target, *_mocks):
         open_environment = SandboxEnvironment.objects.create(
             team=self.team,
             name="Open env",
@@ -10415,39 +10441,43 @@ class TestTaskRunAPI(BaseTaskAPITest):
             created_by=self.user,
             network_access_level=SandboxEnvironment.NetworkAccessLevel.TRUSTED,
         )
-        artifact_id = uuid.uuid4().hex
-        open_run = TaskRun.objects.create(
-            task=task,
-            team=self.team,
-            status=TaskRun.Status.COMPLETED,
-            artifacts=[
-                {
-                    "id": artifact_id,
-                    "name": "report.html",
-                    "type": "output",
-                    "source": "agent_output",
-                    "content_type": "text/html",
-                    "storage_path": f"tasks/artifacts/team_{self.team.id}/task_{task.id}/report.html",
-                }
-            ],
-        )
+        task = self.create_task()
+        other_task = self.create_task()
+        sibling_run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        other_run = TaskRun.objects.create(task=other_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         restricted_run = TaskRun.objects.create(
             task=task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             state={"sandbox_environment_id": str(restricted_environment.id)},
         )
+        agent = self._sandbox_oauth_client(task.id)
+        run_path = f"/api/projects/@current/tasks/{task.id}/runs/{restricted_run.id}/"
+        state_change = {
+            "removed": {"state_remove_keys": ["sandbox_environment_id"]},
+            "repointed": {"state": {"sandbox_environment_id": str(open_environment.id)}},
+        }.get(target)
         if state_change is not None:
-            body = (
-                {"state_remove_keys": ["sandbox_environment_id"]}
-                if state_change == "remove"
-                else {"state": {"sandbox_environment_id": str(open_environment.id)}}
-            )
-            patched = self.client.patch(
-                f"/api/projects/@current/tasks/{task.id}/runs/{restricted_run.id}/", body, format="json"
-            )
-            self.assertEqual(patched.status_code, status.HTTP_200_OK)
-        api_path = f"/api/projects/@current/tasks/{task.id}/runs/{open_run.id}/artifacts/{artifact_id}/preview/"
+            patched = agent.patch(run_path, state_change, format="json")
+            self.assertEqual(patched.status_code, status.HTTP_200_OK, patched.content)
+        target_task, target_run = {
+            "sibling": (task, sibling_run),
+            "other_task": (other_task, other_run),
+        }.get(target, (task, restricted_run))
+        uploaded = agent.post(
+            f"/api/projects/@current/tasks/{target_task.id}/runs/{target_run.id}/artifacts/",
+            {
+                "artifacts": [
+                    {"name": "report.html", "type": "output", "source": "agent_output", "content": "<p>Report</p>"}
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(uploaded.status_code, status.HTTP_200_OK)
+        api_path = (
+            f"/api/projects/@current/tasks/{target_task.id}/runs/{target_run.id}/artifacts/"
+            f"{uploaded.json()['artifacts'][0]['id']}/preview/"
+        )
 
         static = self.client.get(api_path)
         scripted = self.client.get(f"{api_path}?scripts=true")

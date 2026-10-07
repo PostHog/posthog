@@ -35,6 +35,7 @@ from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import get_delivery_image_url
 from products.slack_app.backend.services.slack_messages import post_slack_thread_reply, slack_message_exists
+from products.tasks.backend.constants import ARTIFACT_OPEN_NETWORK_WRITER_KEY
 from products.tasks.backend.facade.contracts import LivingArtifactVersionContent
 from products.tasks.backend.models import TaskArtifact, TaskRun
 
@@ -116,6 +117,7 @@ def create_living_artifact(
     source_storage_path: str | None = None,
     metadata: dict[str, Any] | None = None,
     export_asset_id: int | None = None,
+    written_with_open_network: bool = False,
 ) -> TaskArtifact:
     content_payload = resolve_artifact_content(
         run=run,
@@ -161,7 +163,7 @@ def create_living_artifact(
                 "source_artifact_id": source_artifact_id,
                 "source_storage_path": source_storage_path,
             },
-            versions=[commit.version],
+            versions=[{**commit.version, ARTIFACT_OPEN_NETWORK_WRITER_KEY: written_with_open_network}],
             current_version=1,
             export_asset_id=export_asset_id,
         )
@@ -179,6 +181,7 @@ def edit_living_artifact(
     source_storage_path: str | None = None,
     name: str | None = None,
     metadata: dict[str, Any] | None = None,
+    written_with_open_network: bool = False,
 ) -> TaskArtifact:
     # `run` is the run performing the edit — a follow-up run editing a prior run's artifact
     # must resolve Slack mappings (repointed to the latest run) and storage paths as itself,
@@ -217,7 +220,7 @@ def edit_living_artifact(
     with transaction.atomic():
         locked = TaskArtifact.objects.for_team(artifact.team_id).select_for_update().get(pk=artifact.pk)
         versions = list(locked.versions or [])
-        versions.append(commit.version)
+        versions.append({**commit.version, ARTIFACT_OPEN_NETWORK_WRITER_KEY: written_with_open_network})
         locked.name = next_name
         locked.adapter = commit.adapter
         locked.location = commit.location

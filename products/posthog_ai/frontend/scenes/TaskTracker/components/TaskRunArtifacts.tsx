@@ -244,7 +244,7 @@ function HtmlScriptsBar({
           ? 'Scripts are on. This page can send its content and what you type in it to other sites.'
           : preview.scriptsAvailable
             ? 'Scripts are off. Run them only if you trust this file. A page with scripts can send its content to other sites.'
-            : 'Scripts are off because the task run that made this file has limited network access.'
+            : 'Scripts are off. Only files made with full network access can run scripts.'
     return (
         <div
             className={cn(

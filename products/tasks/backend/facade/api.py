@@ -74,6 +74,7 @@ from products.tasks.backend.constants import (
     ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
     ANALYSIS_TARGET_RUN_ID_STATE_KEY,
     ANALYSIS_TARGET_TASK_ID_STATE_KEY,
+    ARTIFACT_OPEN_NETWORK_WRITER_KEY,
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
     CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG as CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     DEV_STACK_PREVIEW_PORT,
@@ -335,6 +336,7 @@ __all__ = [
     "presign_task_run_living_artifact_version_download",
     "read_task_run_artifact",
     "read_task_run_living_artifact_version",
+    "sandbox_token_has_open_network",
     "task_run_artifact_scripts_allowed",
     "get_task_run_log_urls",
     "get_task_run_log_size",
@@ -4067,6 +4069,7 @@ def _build_artifact_manifest_entry(
     content_type: str,
     storage_path: str,
     uploaded_at: str,
+    written_with_open_network: bool,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     entry: dict[str, Any] = {
@@ -4078,6 +4081,7 @@ def _build_artifact_manifest_entry(
         "content_type": content_type,
         "storage_path": storage_path,
         "uploaded_at": uploaded_at,
+        ARTIFACT_OPEN_NETWORK_WRITER_KEY: written_with_open_network,
     }
     if metadata:
         entry["metadata"] = metadata
@@ -4103,6 +4107,7 @@ def upload_task_run_artifacts(
     *,
     artifacts: list[dict],
     uploaded_by: Literal["agent", "user"] | None = None,
+    written_with_open_network: bool = False,
 ) -> tuple[list[dict], list[dict]] | None:
     """Write artifact bytes to S3 and append them to the run manifest.
 
@@ -4146,6 +4151,7 @@ def upload_task_run_artifacts(
                 content_type=content_type or "",
                 storage_path=storage_path,
                 uploaded_at=django_timezone.now().isoformat(),
+                written_with_open_network=written_with_open_network,
                 metadata=artifact.get("metadata"),
             )
         )
@@ -4341,6 +4347,7 @@ def finalize_task_run_artifact_uploads(
     artifacts: list[dict],
     uploaded_by: Literal["agent", "user"],
     uploaded_by_user_id: int | None,
+    written_with_open_network: bool = False,
 ) -> tuple[list[dict] | None, str | None]:
     """Verify directly-uploaded S3 objects and attach them to the run manifest.
 
@@ -4404,6 +4411,7 @@ def finalize_task_run_artifact_uploads(
             content_type=content_type,
             storage_path=storage_path,
             uploaded_at=django_timezone.now().isoformat(),
+            written_with_open_network=written_with_open_network,
             metadata=artifact.get("metadata"),
         )
         entry["uploaded_by"] = uploaded_by
@@ -4567,6 +4575,7 @@ def create_task_run_living_artifact(
     *,
     artifact: dict,
     caller_is_agent: bool = False,
+    written_with_open_network: bool = False,
 ) -> tuple[dict | None, str | None]:
     from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
         create_living_artifact,
@@ -4577,7 +4586,7 @@ def create_task_run_living_artifact(
     if run is None:
         return None, None
     try:
-        created = create_living_artifact(run=run, **artifact)
+        created = create_living_artifact(run=run, written_with_open_network=written_with_open_network, **artifact)
     except Exception as exc:
         logger.warning("Failed to create living artifact for task run %s: %s", run.id, exc)
         return None, str(exc)
@@ -4593,6 +4602,7 @@ def edit_task_run_living_artifact(
     team_id: int,
     *,
     caller_is_agent: bool = False,
+    written_with_open_network: bool = False,
     artifact_id: str | UUID,
     content: str | None = None,
     content_bytes: bytes | None = None,
@@ -4625,6 +4635,7 @@ def edit_task_run_living_artifact(
             source_storage_path=source_storage_path,
             name=name,
             metadata=metadata,
+            written_with_open_network=written_with_open_network,
         )
     except Exception as exc:
         logger.warning("Failed to edit living artifact %s for task run %s: %s", artifact_id, run.id, exc)
@@ -4742,14 +4753,37 @@ def _run_has_open_network(run: TaskRun) -> bool:
     )
 
 
-def task_run_artifact_scripts_allowed(task_id: str | UUID, team_id: int) -> bool:
-    runs = TaskRun.objects.filter(team_id=team_id, task_id=task_id).select_related("task")
+def sandbox_token_has_open_network(team_id: int, token_id: UUID | int | str) -> bool:
+    runs = TaskRun.objects.filter(team_id=team_id, state__sandbox_oauth_token_ids__contains=[str(token_id)])
     checked = False
-    for run in runs:
+    for run in runs.select_related("task"):
         if not _run_has_open_network(run):
             return False
         checked = True
     return checked
+
+
+def task_run_artifact_scripts_allowed(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str, version: int | None
+) -> bool:
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        get_task_artifact_for_run,
+        resolve_living_artifact_version,
+    )
+
+    if version is None:
+        entry = task_run_artifact_entry(run_id, task_id, team_id, artifact_id=artifact_id)
+        return entry is not None and entry.get(ARTIFACT_OPEN_NETWORK_WRITER_KEY) is True
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return False
+    try:
+        UUID(str(artifact_id))
+    except ValueError:
+        return False
+    artifact = get_task_artifact_for_run(run, artifact_id)
+    location = resolve_living_artifact_version(artifact, version) if artifact is not None else None
+    return location is not None and location.record.get(ARTIFACT_OPEN_NETWORK_WRITER_KEY) is True
 
 
 def task_run_artifact_entry(
