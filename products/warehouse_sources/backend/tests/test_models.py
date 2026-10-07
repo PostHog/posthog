@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     mark_initial_sync_complete,
     mark_schema_running_unless_halted,
     process_incremental_value,
+    staged_handoff_resume_point,
+    staged_handoff_resume_value,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -248,6 +250,49 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
             model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
         schema.refresh_from_db()
         assert schema.sync_type_config["incremental_staged"]["last_value"] == 42
+
+    def test_a_handoff_resume_value_never_moves_the_stored_watermark(self) -> None:
+        schema = self._create(
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field_type": IncrementalFieldType.Integer,
+                "incremental_field_last_value": 10,
+            },
+        )
+        schema.stage_incremental_field_value("wfrun-1-a1", 50)
+        schema.stage_handoff_resume_value("wfrun-1-a1", 40)
+        # The next attempt displaces the first one, which must keep its value in the parked list.
+        schema.stage_handoff_resume_value("wfrun-1-a2", 40)
+        schema.stage_incremental_field_value("wfrun-1-a2", 90)
+
+        schema.refresh_from_db()
+        # The run never completed, so nothing was promoted: the next workflow run starts from 10
+        # and extracts again the rows that this run queued but did not finish loading.
+        assert schema.sync_type_config["incremental_field_last_value"] == 10
+        assert staged_handoff_resume_value(schema.sync_type_config, "wfrun-1") == 40
+        assert staged_handoff_resume_value(schema.sync_type_config, "wfrun-2") is None
+
+        assert schema.promote_staged_incremental_values("wfrun-1-a2")
+        schema.refresh_from_db()
+        assert schema.sync_type_config["incremental_field_last_value"] == 90
+
+    def test_a_resume_value_inherited_without_a_new_batch_keeps_the_earlier_owner(self) -> None:
+        # Attempt a2 inherits a1's resume value before it has queued a batch of its own: the batches
+        # the value describes still belong to a1, so a3 must finalize a1, not a2, if a2 never queues one.
+        schema = self._create(
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field_type": IncrementalFieldType.Integer},
+        )
+        schema.stage_handoff_resume_value("wfrun-1-a1", 40)
+        schema.stage_handoff_resume_value("wfrun-1-a2", 40, owner_run_uuid="wfrun-1-a1")
+
+        schema.refresh_from_db()
+        assert staged_handoff_resume_point(schema.sync_type_config, "wfrun-1") == ("wfrun-1-a1", 40)
+
+        # Once a2 queues a batch of its own, it becomes the owner for any later attempt.
+        schema.stage_handoff_resume_value("wfrun-1-a2", 55)
+        schema.refresh_from_db()
+        assert staged_handoff_resume_point(schema.sync_type_config, "wfrun-1") == ("wfrun-1-a2", 55)
 
     def test_promote_staged_incremental_values_save_skips_activity_log(self) -> None:
         schema = self._create(
@@ -767,7 +812,7 @@ class TestUpdateSyncTypeConfigKeys(BaseTest):
 
 
 class TestMarkInitialSyncComplete(BaseTest):
-    """The shared first-sync-complete transition (V2 pipelines + V3 loader post-load), whose
+    """The first-sync-complete transition (V3 loader post-load), whose
     False→True edge is what moves a CDC schema out of snapshot mode into streaming."""
 
     def setUp(self) -> None:

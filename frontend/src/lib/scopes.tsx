@@ -4,6 +4,89 @@ import type { APIScopeAction, APIScopeObject } from '~/types'
 
 export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
 
+export type ScopeAccessLevel = 'none' | 'read' | 'write'
+
+const SCOPE_ACCESS_LEVELS: readonly ScopeAccessLevel[] = ['none', 'read', 'write']
+
+const SCOPE_ACCESS_LEVEL_LABELS: Record<ScopeAccessLevel, string> = { none: 'no access', read: 'read', write: 'write' }
+
+/**
+ * One scope object in a picker, with the levels it can take. The OAuth consent screen and the key
+ * modal both build this shape, so one group control serves both. A level with no disabled reason is
+ * available. The reason is the text the row's segment shows.
+ */
+export type ScopePickerRow = {
+    key: string
+    label: string
+    value: ScopeAccessLevel
+    disabledReasons: Partial<Record<ScopeAccessLevel, string>>
+    info?: string | JSX.Element
+    warning?: string | JSX.Element
+    /** True when the row is dimmed, for example at no access or when a project scoped key rules it out. */
+    muted?: boolean
+}
+
+export type ScopePickerGroup<Row extends ScopePickerRow = ScopePickerRow> = {
+    label: string
+    rows: Row[]
+}
+
+export const scopeRowAllows = (row: ScopePickerRow, level: ScopeAccessLevel): boolean => !row.disabledReasons[level]
+
+// The nearest available level: the same or a lower one first, so a group set to write holds a
+// read-only row at read, then a higher one, so a row an app requires at read never drops to none.
+export const clampScopeLevel = (row: ScopePickerRow, level: ScopeAccessLevel): ScopeAccessLevel => {
+    const index = SCOPE_ACCESS_LEVELS.indexOf(level)
+    const candidates = [...SCOPE_ACCESS_LEVELS.slice(0, index + 1).reverse(), ...SCOPE_ACCESS_LEVELS.slice(index + 1)]
+    return candidates.find((candidate) => scopeRowAllows(row, candidate)) ?? row.value
+}
+
+// The group shows a level as selected when each row is at that level after the clamp. A level no
+// row can take is never selected, which removes the tie between write and read in a group with no
+// writable row, and between none and read in a group of required rows.
+export const scopeGroupLevel = (rows: ScopePickerRow[]): ScopeAccessLevel | undefined =>
+    [...SCOPE_ACCESS_LEVELS]
+        .reverse()
+        .find(
+            (level) =>
+                rows.some((row) => scopeRowAllows(row, level)) &&
+                rows.every((row) => row.value === clampScopeLevel(row, level))
+        )
+
+// A level is disabled on the group when no row can take it. The reason is the rows' own.
+export const scopeGroupDisabledReasons = (rows: ScopePickerRow[]): Partial<Record<ScopeAccessLevel, string>> =>
+    Object.fromEntries(
+        SCOPE_ACCESS_LEVELS.flatMap((level) => {
+            const reason = rows.find((row) => !scopeRowAllows(row, level))?.disabledReasons[level]
+            return reason && rows.every((row) => !scopeRowAllows(row, level)) ? [[level, reason]] : []
+        })
+    )
+
+// Tooltip on the selected group level, for the rows that sit at another level after the clamp.
+// Each row gives the reason its own segment shows, so the text names the real cause.
+export const scopeGroupTooltip = (rows: ScopePickerRow[], level: ScopeAccessLevel | undefined): string | undefined => {
+    if (!level) {
+        return undefined
+    }
+    const counts = new Map<string, number>()
+    for (const row of rows.filter((row) => row.value !== level)) {
+        const note = `at ${SCOPE_ACCESS_LEVEL_LABELS[row.value]}: ${row.disabledReasons[level] ?? ''}`
+        counts.set(note, (counts.get(note) ?? 0) + 1)
+    }
+    const notes = [...counts].map(
+        ([note, count]) => `${count} of these permissions ${count === 1 ? 'stays' : 'stay'} ${note}.`
+    )
+    return notes.length > 0 ? notes.join(' ') : undefined
+}
+
+export const countScopeRowsByLevel = (rows: { value: ScopeAccessLevel }[]): Record<ScopeAccessLevel, number> => {
+    const counts: Record<ScopeAccessLevel, number> = { none: 0, read: 0, write: 0 }
+    for (const row of rows) {
+        counts[row.value] += 1
+    }
+    return counts
+}
+
 export type APIScope = {
     key: APIScopeObject
     objectName: string
@@ -317,9 +400,23 @@ export const API_KEY_CREATION_DISABLED_SCOPES = new Set(
     API_SCOPES.flatMap(({ key, disabledActions }) => (disabledActions ?? []).map((action) => `${key}:${action}`))
 )
 
-export const AGENT_CLI_API_KEY_SCOPES = AGENT_USE_CASE_SCOPES.filter((scope) =>
-    API_KEY_CREATION_RENDERABLE_SCOPES.has(scope)
-)
+// A preset must not set a level the key picker cannot show, or the picker shows the level on a
+// disabled segment. A write on a write-disabled object falls back to read, which write implies on the
+// server anyway. A scope with no allowed level is dropped.
+export const clampToKeyCreationScopes = (scopes: readonly string[]): string[] => [
+    ...new Set(
+        scopes.flatMap((scope) => {
+            if (API_KEY_CREATION_RENDERABLE_SCOPES.has(scope)) {
+                return [scope]
+            }
+            const [object, action] = scope.split(':')
+            const read = `${object}:read`
+            return action === 'write' && API_KEY_CREATION_RENDERABLE_SCOPES.has(read) ? [read] : []
+        })
+    ),
+]
+
+export const AGENT_CLI_API_KEY_SCOPES = clampToKeyCreationScopes(AGENT_USE_CASE_SCOPES)
 
 export const API_KEY_SCOPE_PRESETS: {
     value: string
@@ -355,9 +452,11 @@ export const API_KEY_SCOPE_PRESETS: {
         value: 'mcp_server',
         label: 'MCP Server',
         // file_system is excluded because the MCP server doesn't request it, not because it's privileged.
-        scopes: API_SCOPES.filter(
-            ({ key, unprivilegedExcluded }) => !unprivilegedExcluded && key !== 'file_system'
-        ).map(({ key }) => `${key}:write`),
+        scopes: clampToKeyCreationScopes(
+            API_SCOPES.filter(({ key, unprivilegedExcluded }) => !unprivilegedExcluded && key !== 'file_system').map(
+                ({ key }) => `${key}:write`
+            )
+        ),
         access_type: 'all',
     },
     {
@@ -369,7 +468,9 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'read_only_access',
         label: 'Read-only access',
-        scopes: API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded).map(({ key }) => `${key}:read`),
+        scopes: clampToKeyCreationScopes(
+            API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded).map(({ key }) => `${key}:read`)
+        ),
     },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]
@@ -568,6 +669,19 @@ const SCOPE_GROUP_LABEL_BY_OBJECT: Record<string, string> = Object.fromEntries(
 
 export const getScopeGroupLabel = (scopeObject: string): string =>
     SCOPE_GROUP_LABEL_BY_OBJECT[scopeObject] ?? OTHER_SCOPE_GROUP_LABEL
+
+// The rows grouped by product area in API_SCOPE_GROUPS order. An object that is in no group goes in
+// the "Other" group at the end, so it still shows. A group with no row is left out.
+export const groupScopeRows = <Row extends ScopePickerRow>(rows: Row[]): ScopePickerGroup<Row>[] => {
+    const rowsByLabel = new Map<string, Row[]>()
+    for (const row of rows) {
+        const label = getScopeGroupLabel(row.key)
+        rowsByLabel.set(label, [...(rowsByLabel.get(label) ?? []), row])
+    }
+    return [...API_SCOPE_GROUPS.map(({ label }) => label), OTHER_SCOPE_GROUP_LABEL]
+        .filter((label) => rowsByLabel.has(label))
+        .map((label) => ({ label, rows: rowsByLabel.get(label) ?? [] }))
+}
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 

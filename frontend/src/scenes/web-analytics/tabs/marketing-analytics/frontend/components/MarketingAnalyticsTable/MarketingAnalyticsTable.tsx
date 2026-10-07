@@ -93,6 +93,7 @@ export const MarketingAnalyticsTable = ({
     const marketingAnalyticsContext: QueryContext = useMemo(
         () => ({
             ...webAnalyticsDataTableQueryContext,
+            dataTableAllowContentScroll: true,
             insightProps,
             columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove, ColumnFeature.canPin],
             rowProps: (record: unknown) => {
@@ -307,7 +308,7 @@ export const MarketingAnalyticsTable = ({
                     <MarketingAnalyticsNotReady />
                 </div>
             ) : (
-                <div className="relative marketing-analytics-table-container">
+                <div className="relative marketing-analytics-table-container max-h-[36rem] overflow-auto">
                     <Query
                         attachTo={attachTo}
                         query={tableQuery}

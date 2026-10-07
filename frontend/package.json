@@ -153,6 +153,7 @@
         "@posthog/products-tracing": "workspace:*",
         "@posthog/products-visual-review": "workspace:*",
         "@posthog/products-warehouse-sources": "workspace:*",
+        "@posthog/products-warehouse-suggestions": "workspace:*",
         "@posthog/products-web-analytics": "workspace:*",
         "@posthog/products-webmcp": "workspace:*",
         "@posthog/products-wizard": "workspace:*",

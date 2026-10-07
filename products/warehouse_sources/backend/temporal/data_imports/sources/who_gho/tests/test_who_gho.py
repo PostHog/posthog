@@ -7,6 +7,9 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.who_gho import (
     MAX_INDICATOR_CODES,
@@ -80,7 +83,7 @@ class TestWhoGhoSourceTransport:
     ) -> tuple[list[dict[str, Any]], list[str], list[list[dict[str, Any]]]]:
         sent_params: list[dict[str, Any]] = []
         sent_urls: list[str] = []
-        response_iter = iter(responses)
+        response_iter = iter([*(dimension_catalog_responses or []), *responses])
 
         def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
             sent_params.append(dict(request.params or {}))
@@ -93,21 +96,17 @@ class TestWhoGhoSourceTransport:
             resource_session.prepare_request.side_effect = lambda request: request
             resource_session.send.side_effect = fake_send
 
-            with patch(WHO_GHO_SESSION_PATH) as MockOwnSession:
-                if dimension_catalog_responses is not None:
-                    MockOwnSession.return_value.get.side_effect = dimension_catalog_responses
-
-                pages = list(
-                    who_gho_source(
-                        endpoint=endpoint,
-                        indicator_codes=indicator_codes or [],
-                        team_id=123,
-                        job_id="job-id",
-                        resumable_source_manager=manager,
-                        should_use_incremental_field=should_use_incremental_field,
-                        since=since,
-                    )
+            pages = list(
+                who_gho_source(
+                    endpoint=endpoint,
+                    indicator_codes=indicator_codes or [],
+                    team_id=123,
+                    job_id="job-id",
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=should_use_incremental_field,
+                    since=since,
                 )
+            )
 
         return sent_params, sent_urls, pages
 
@@ -280,6 +279,7 @@ class TestWhoGhoSourceTransport:
         )
 
         assert sent_urls == [
+            "https://ghoapi.azureedge.net/api/DIMENSION",
             "https://ghoapi.azureedge.net/api/DIMENSION/COUNTRY/DimensionValues",
             "https://ghoapi.azureedge.net/api/DIMENSION/SEX/DimensionValues",
         ]
@@ -292,16 +292,30 @@ class TestWhoGhoSourceTransport:
         catalog_page_one = _http_response({"value": [{"Code": f"DIM{index}"} for index in range(1000)]})
         catalog_page_two = _http_response({"value": [{"Code": "LASTDIM"}]})
 
-        _, sent_urls, _ = self._drive(
+        sent_params, sent_urls, _ = self._drive(
             "dimension_values",
             manager,
             [_http_response({"value": []}) for _ in range(1001)],
             dimension_catalog_responses=[catalog_page_one, catalog_page_two],
         )
 
+        assert [params["$skip"] for params in sent_params[:2]] == [0, 1000]
         # One DimensionValues request per discovered code, including the one from the second
         # discovery page, confirms discovery did not stop after the first (full) page.
         assert sent_urls[-1] == "https://ghoapi.azureedge.net/api/DIMENSION/LASTDIM/DimensionValues"
+
+    def test_dimension_values_fails_cleanly_when_discovery_returns_an_html_page(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        maintenance_page = Response()
+        maintenance_page.status_code = 200
+        maintenance_page._content = b" <!DOCTYPE html><html><head><title>Sorry</title></head></html>"
+        maintenance_page.headers["Content-Type"] = "text/html; charset=utf-8"
+        maintenance_page.url = "https://www.example.com/sorry/"
+
+        with pytest.raises(RESTClientNonRetryableError, match="Non-JSON response from"):
+            self._drive("dimension_values", manager, [], dimension_catalog_responses=[maintenance_page])
 
 
 class TestValidateCredentials:

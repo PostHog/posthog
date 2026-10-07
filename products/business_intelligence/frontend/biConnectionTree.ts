@@ -6,6 +6,8 @@ import { DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema/schem
 import { BIDataPaneFields, getBIDataPaneFields } from 'products/business_intelligence/frontend/biEditorTypes'
 import { resolveFieldTraverserTarget } from 'products/data_warehouse/frontend/shared/fieldTraversal'
 
+import { matchesBIFieldSearch } from './biPropertyFields'
+
 export interface BIConnection {
     id: string
     name: string
@@ -174,8 +176,8 @@ export function filterBIConnections(connections: BIConnection[], search: string)
             return [connection]
         }
         const fields = {
-            dimensions: connection.fields.dimensions.filter((field) => field.name.toLowerCase().includes(term)),
-            measures: connection.fields.measures.filter((field) => field.name.toLowerCase().includes(term)),
+            dimensions: connection.fields.dimensions.filter((field) => matchesBIFieldSearch(field, term)),
+            measures: connection.fields.measures.filter((field) => matchesBIFieldSearch(field, term)),
         }
         const children = filterBIConnections(connection.connections, term)
         return !connection.expanded ||

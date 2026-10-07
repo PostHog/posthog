@@ -530,7 +530,7 @@ export const ProductIconWrapper = ({ type, children, colorOverride }: ProductIco
 export function getFileSystemIconType(item: Pick<FileSystemEntry, 'type' | 'meta'>): FileSystemIconType | undefined {
     if (item.type === 'insight' && typeof item.meta?.insight_type === 'string') {
         const insightIconType = `insight/${item.meta.insight_type}` as FileSystemIconType
-        if (insightIconType in iconTypes) {
+        if (insightIconType in iconTypes || insightIconType in fileSystemTypes) {
             return insightIconType
         }
     }

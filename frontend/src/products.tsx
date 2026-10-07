@@ -21,6 +21,7 @@ import {
     HogQLFilters,
     HogQLQuery,
     HogQLVariable,
+    MetricsQuery,
     Node,
     NodeKind,
     ProductItemCategory,
@@ -111,7 +112,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/autoresearch': ['Autoresearch', 'autoresearch'],
     '/autoresearch/new': ['AutoresearchNew', 'autoresearchNew'],
     '/autoresearch/:id': ['AutoresearchPipeline', 'autoresearchPipeline'],
-    '/bi': ['BusinessIntelligence', 'businessIntelligence'],
+    '/bi': ['BusinessIntelligenceHome', 'businessIntelligence'],
+    '/bi/new': ['BusinessIntelligence', 'businessIntelligenceNew'],
+    '/bi/:insightShortId': ['BusinessIntelligence', 'businessIntelligenceWorksheet'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
     '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
@@ -660,6 +663,7 @@ export const productConfiguration: Record<string, any> = {
     },
     AutoresearchNew: { name: 'New model', projectBased: true },
     AutoresearchPipeline: { name: 'Autoresearch model', projectBased: true },
+    BusinessIntelligenceHome: { name: 'Worksheets', projectBased: true, iconType: 'business_intelligence' },
     BusinessIntelligence: {
         name: 'Business intelligence',
         projectBased: true,
@@ -1310,6 +1314,8 @@ export const productUrls = {
     autoresearch: (): string => '/autoresearch',
     autoresearchNew: (): string => '/autoresearch/new',
     autoresearchPipeline: (id: string): string => `/autoresearch/${id}`,
+    businessIntelligenceNew: (): string => '/bi/new',
+    businessIntelligenceWorksheet: (insightShortId: string): string => `/bi/${encodeURIComponent(insightShortId)}`,
     businessIntelligence: ({
         insightShortId,
         viewId,
@@ -1557,11 +1563,13 @@ export const productUrls = {
         sourceId,
         template,
         intent,
+        format,
     }: {
         type?: 'boolean' | 'multivariate' | 'remote_config'
         sourceId?: number | string | null
         template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
         intent?: 'local-eval' | 'first-page-load'
+        format?: 'rules_v2'
     }): string => {
         const params = new URLSearchParams()
         if (type) {
@@ -1575,6 +1583,9 @@ export const productUrls = {
         }
         if (intent) {
             params.set('intent', intent)
+        }
+        if (format) {
+            params.set('format', format)
         }
         return `/feature_flags/new?${params.toString()}`
     },
@@ -1903,6 +1914,13 @@ export const fileSystemTypes = {
         iconColor: ['var(--color-product-product-analytics-light)'],
         filterKey: 'insight',
     },
+    'insight/bi': {
+        name: 'Worksheet',
+        iconType: 'business_intelligence',
+        href: (ref: string) => urls.businessIntelligenceWorksheet(ref),
+        listHref: () => urls.businessIntelligence(),
+        filterKey: 'insight',
+    },
     notebook: {
         name: 'Notebook',
         iconType: 'notebook',
@@ -2068,6 +2086,17 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         sceneKeys: ['Insight'],
     },
     {
+        path: `Insight/Metrics`,
+        type: 'insight',
+        href: urls.insightNew({
+            query: { kind: NodeKind.MetricsQuery, clauses: [], dateRange: { date_from: '-1h' } } as MetricsQuery,
+        }),
+        flag: FEATURE_FLAGS.METRICS_INSIGHT_BUILDER,
+        iconType: 'metrics',
+        visualOrder: INSIGHT_VISUAL_ORDER.metrics,
+        sceneKeys: ['Insight'],
+    },
+    {
         path: `Insight/Retention`,
         type: 'insight',
         href: urls.insightNew({ type: InsightType.RETENTION }),
@@ -2126,6 +2155,14 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         href: urls.surveyWizard('new'),
         iconType: 'survey',
         iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
+    },
+    {
+        path: 'Worksheet',
+        type: 'insight',
+        iconType: 'business_intelligence',
+        href: `${urls.businessIntelligenceNew()}#q=`,
+        flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
+        sceneKeys: ['BusinessIntelligence', 'BusinessIntelligenceHome'],
     },
 ]
 
@@ -2230,7 +2267,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.businessIntelligence(),
         flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
         sceneKey: 'BusinessIntelligence',
-        sceneKeys: ['BusinessIntelligence'],
+        sceneKeys: ['BusinessIntelligenceHome', 'BusinessIntelligence'],
     },
     {
         path: 'Business knowledge',
@@ -2337,7 +2374,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Relationships', href: urls.dataCatalog('relationships') },
             { name: 'Certifications', href: urls.dataCatalog('certifications') },
         ],
-        tags: ['beta'],
         sceneKey: 'DataCatalog',
         sceneKeys: ['DataCatalog', 'DataCatalogMetric'],
     },

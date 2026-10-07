@@ -162,6 +162,7 @@ export enum Scene {
     SqlVariableEdit = 'SqlVariableEdit',
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
+    ProductAnalyticsHomeTab = 'ProductAnalyticsHomeTab',
     Health = 'Health',
     HealthCategoryDetail = 'HealthCategoryDetail',
     HealthAlerts = 'HealthAlerts',

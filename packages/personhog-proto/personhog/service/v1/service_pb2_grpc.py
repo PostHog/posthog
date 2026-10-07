@@ -336,6 +336,12 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.SetPersonVersionFloorResponse.FromString,
             _registered_method=True,
         )
+        self.EnsurePersonVersionFloors = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/EnsurePersonVersionFloors",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.EnsurePersonVersionFloorsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.EnsurePersonVersionFloorsResponse.FromString,
+            _registered_method=True,
+        )
 
 
 class PersonHogServiceServicer:
@@ -588,8 +594,8 @@ class PersonHogServiceServicer:
 
     def DeletePersons(self, request, context):
         """Person deletes
-        DeletePersons removes the persons in any state. A caller working from an advisory
-        list of tombstoned persons must use DeleteTombstonedPersons instead, which re-checks
+        DeletePersons tombstones the persons and reports the versions written. A caller that
+        hard-deletes tombstoned persons must use DeleteTombstonedPersons instead, which re-checks
         the tombstone under the row lock.
         WARNING: This is a write operation on person data. It should route to the leader
         once personhog-leader supports deletes. Currently routed through the replica
@@ -650,6 +656,14 @@ class PersonHogServiceServicer:
 
     def SetPersonVersionFloor(self, request, context):
         """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def EnsurePersonVersionFloors(self, request, context):
+        """Version floors for the ClickHouse cleanup jobs.
+        The write goes to the primary: same routing caveat as DeletePersons above.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
@@ -901,6 +915,11 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             servicer.SetPersonVersionFloor,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.SetPersonVersionFloorRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.SetPersonVersionFloorResponse.SerializeToString,
+        ),
+        "EnsurePersonVersionFloors": grpc.unary_unary_rpc_method_handler(
+            servicer.EnsurePersonVersionFloors,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.EnsurePersonVersionFloorsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.EnsurePersonVersionFloorsResponse.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler("personhog.service.v1.PersonHogService", rpc_method_handlers)
@@ -2373,6 +2392,36 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/SetPersonVersionFloor",
             personhog_dot_types_dot_v1_dot_person__pb2.SetPersonVersionFloorRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_person__pb2.SetPersonVersionFloorResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def EnsurePersonVersionFloors(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/EnsurePersonVersionFloors",
+            personhog_dot_types_dot_v1_dot_person__pb2.EnsurePersonVersionFloorsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.EnsurePersonVersionFloorsResponse.FromString,
             options,
             channel_credentials,
             insecure,

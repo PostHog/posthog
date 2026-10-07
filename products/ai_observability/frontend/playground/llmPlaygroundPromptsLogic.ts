@@ -929,6 +929,16 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     if (!response.trim() && !toolCalls?.length) {
                         return state
                     }
+                    // A result with tool calls continues with empty tool results to fill in and
+                    // run again (the mock loop); a plain response continues with a user turn.
+                    const nextTurns: Message[] = toolCalls?.length
+                        ? toolCalls.map((toolCall) => ({
+                              role: 'tool',
+                              content: '',
+                              toolCallId: toolCall.id,
+                              toolName: toolCall.name,
+                          }))
+                        : [{ role: 'user', content: '' }]
                     return updatePromptConfigs(state, promptId, (prompt) => ({
                         ...prompt,
                         messages: [
@@ -938,7 +948,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                                 content: response,
                                 ...(toolCalls?.length ? { toolCalls } : {}),
                             },
-                            { role: 'user', content: '' },
+                            ...nextTurns,
                         ],
                     }))
                 },
@@ -1258,6 +1268,12 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         deleteMessage: () => {
             posthog.capture('llma playground message removed', {
                 message_count: values.activePromptConfig?.messages.length ?? 0,
+            })
+        },
+        addResultToConversation: ({ toolCalls }) => {
+            posthog.capture('llma playground result added to conversation', {
+                has_tool_calls: !!toolCalls?.length,
+                tool_call_count: toolCalls?.length ?? 0,
             })
         },
         setTools: ({ tools }) => {

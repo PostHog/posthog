@@ -120,6 +120,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
 
     def _outer_select_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        if self._use_ranked_breakdown_rows:
+            return self._ranked_breakdown_rows_query(inner_query)
+
         if self.breakdown.enabled and self._team_flag_fewer_array_ops():
             if self.breakdown.is_multiple_breakdown:
                 breakdown_count = len(self.breakdown.field_exprs)
@@ -1027,9 +1030,66 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             """
         )
 
+    @cached_property
+    def _use_ranked_breakdown_rows(self) -> bool:
+        return (
+            self.breakdown.enabled
+            and not self.breakdown.is_histogram_breakdown
+            and not self.breakdown.is_cohort_breakdown
+            and isinstance(self.series, (EventsNode, ActionsNode))
+            and self.series.math in (None, "total")
+            and not self._trends_display.should_wrap_inner_query()
+            and (
+                self.query.trendsFilter is None
+                or self.query.trendsFilter.smoothingIntervals is None
+                or self.query.trendsFilter.smoothingIntervals <= 1
+            )
+            and self._team_flag_enabled("trends-breakdown-rank-before-arrays")
+        )
+
+    def _ranked_breakdown_rows_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        # Rank scalar rows so discarded breakdowns never allocate a full date array.
+        return parse_select(
+            """
+            SELECT
+                {all_dates},
+                arrayMap(d -> arraySum(arrayMap((v, dd) -> dd = d ? v : 0, vals, days)), date) AS total,
+                breakdown_value
+            FROM (
+                SELECT groupArray(day_start) AS days, groupArray(value) AS vals, breakdown_value
+                FROM (
+                    SELECT day_start, sum(toFloat(count)) AS value, {breakdown_select}
+                    FROM (
+                        SELECT *, dense_rank() OVER (
+                            ORDER BY {breakdown_order}, breakdown_total DESC, breakdown_value ASC
+                        ) - 1 AS row_number
+                        FROM (
+                            SELECT *, sum(count) OVER (PARTITION BY breakdown_value) AS breakdown_total
+                            FROM {inner_query}
+                        )
+                    )
+                    WHERE {breakdown_filter}
+                    GROUP BY day_start, breakdown_value
+                )
+                GROUP BY breakdown_value
+            )
+            ORDER BY {breakdown_order}, arraySum(total) DESC, breakdown_value ASC
+            """,
+            placeholders={
+                "all_dates": self._get_date_subqueries(),
+                "breakdown_select": self._breakdown_outer_query_select(self.breakdown),
+                "breakdown_filter": self._breakdown_outer_query_filter(self.breakdown),
+                "breakdown_order": self._breakdown_query_order_by(self.breakdown),
+                "inner_query": inner_query,
+            },
+        )
+
     def _team_flag_fewer_array_ops(self) -> bool:
+        return self._team_flag_enabled("trends-breakdown-fewer-array-ops")
+
+    def _team_flag_enabled(self, flag: str) -> bool:
         return feature_enabled_or_false(
-            "trends-breakdown-fewer-array-ops",
+            flag,
             str(self.team.uuid),
             groups={
                 "organization": str(self.team.organization_id),

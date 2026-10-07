@@ -1,3 +1,4 @@
+import uuid
 import itertools
 from collections.abc import Iterable
 from datetime import datetime
@@ -7,6 +8,7 @@ import pytest
 
 from clickhouse_driver.client import Client
 
+from posthog.clickhouse.client import connection
 from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser
 from posthog.dags import clickhouse_cleanup
 from posthog.dags.common import dictionaries
@@ -18,6 +20,7 @@ from posthog.dags.deletes import (
     PendingDeletesDictionary,
     PendingDeletesTable,
 )
+from posthog.dags.person_overrides import PersonOverridesSnapshotDictionary, PersonOverridesSnapshotTable
 from posthog.dataclasses import frozen
 
 
@@ -130,33 +133,36 @@ def _snapshot_dictionary() -> clickhouse_cleanup.SnapshotDictionary:
     )
 
 
+def _person_overrides_snapshot_dictionary() -> PersonOverridesSnapshotDictionary:
+    return PersonOverridesSnapshotDictionary(source=PersonOverridesSnapshotTable(id=uuid.UUID(int=1)))
+
+
 @pytest.mark.parametrize(
-    "make_dictionary,expected_user",
+    "make_dictionary",
     [
-        (_pending_deletes_dictionary, "app_default"),
-        (_adhoc_event_deletes_dictionary, "app_default"),
-        (_snapshot_dictionary, "reader"),
+        _pending_deletes_dictionary,
+        _adhoc_event_deletes_dictionary,
+        _snapshot_dictionary,
+        _person_overrides_snapshot_dictionary,
     ],
 )
-def test_create_reads_the_source_as_each_callers_credentials(
-    monkeypatch: pytest.MonkeyPatch, make_dictionary: Any, expected_user: str
-) -> None:
-    # The GDPR job's dictionaries must keep reading as the default user until dict_reader's
-    # SELECT grants on its per-run tables are proven in every environment; the sweep already
-    # reads as dict_reader. A shared-lifecycle change that flips either breaks a weekly prod job.
-    creds = {
-        ClickHouseUser.DEFAULT: ClickHouseCredentials(user="app_default", password="p1"),
-        ClickHouseUser.DICT_READER: ClickHouseCredentials(user="reader", password="p2"),
-    }
-    monkeypatch.setattr(dictionaries, "get_clickhouse_creds", creds.__getitem__)
-    monkeypatch.setattr(clickhouse_cleanup, "get_clickhouse_creds", creds.__getitem__)
+def test_create_reads_the_source_as_dagster_dict_reader(monkeypatch: pytest.MonkeyPatch, make_dictionary: Any) -> None:
+    # A dictionary that embeds the default user's password keeps that password from being dropped.
+    monkeypatch.setattr(
+        connection,
+        "__user_dict",
+        {
+            ClickHouseUser.DEFAULT: ClickHouseCredentials(user="app_default", password="p1"),
+            ClickHouseUser.DAGSTER_DICT_READER: ClickHouseCredentials(user="reader", password="p2"),
+        },
+    )
 
     client = _ScriptedClient()
     make_dictionary().create(cast(Client, client), shards=1, max_execution_time=0, max_memory_usage=0)
 
     [(query, params)] = client.executed
     assert "CREATE DICTIONARY" in query
-    assert params is not None and params["user"] == expected_user
+    assert params is not None and (params["user"], params["password"]) == ("reader", "p2")
 
 
 def test_create_can_read_a_staged_object_instead_of_the_source() -> None:

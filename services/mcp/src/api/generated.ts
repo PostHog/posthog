@@ -2714,7 +2714,7 @@ export namespace Schemas {
       end_time?: string | null;
       /** If the query failed, this will be set to true. More information can be found in the error_message field. */
       error?: boolean | null;
-      /** Stable machine-readable code for the error (the DRF exception code), when known. */
+      /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
       error_code?: string | null;
       error_message?: string | null;
       expiration_time?: string | null;
@@ -3167,6 +3167,7 @@ export namespace Schemas {
       Person: 'person',
       Event: 'event',
       EventMetadata: 'event_metadata',
+      Element: 'element',
       Group: 'group',
       Session: 'session',
       Hogql: 'hogql',
@@ -3182,6 +3183,7 @@ export namespace Schemas {
       Person: 'person',
       Event: 'event',
       EventMetadata: 'event_metadata',
+      Element: 'element',
       Group: 'group',
       Session: 'session',
       Hogql: 'hogql',
@@ -3224,6 +3226,32 @@ export namespace Schemas {
       Quarter: 'quarter',
       Year: 'year',
     } as const;
+
+    export type MetricsFilterOp = typeof MetricsFilterOp[keyof typeof MetricsFilterOp];
+
+
+    export const MetricsFilterOp = {
+      Eq: 'eq',
+      Neq: 'neq',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+    } as const;
+
+    export type MetricsAttributeScope = typeof MetricsAttributeScope[keyof typeof MetricsAttributeScope];
+
+
+    export const MetricsAttributeScope = {
+      Resource: 'resource',
+      Attribute: 'attribute',
+      Auto: 'auto',
+    } as const;
+
+    export interface MetricsQueryFilter {
+      key: string;
+      op: MetricsFilterOp;
+      scope?: MetricsAttributeScope | null;
+      value: string;
+    }
 
     export interface EventPropertyFilter {
       key: string;
@@ -3506,6 +3534,8 @@ export namespace Schemas {
       filterTestAccounts?: boolean | null;
       /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
       interval?: IntervalType | null;
+      /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
+      metricFilters?: MetricsQueryFilter[] | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
     }
 
@@ -7166,6 +7196,8 @@ export namespace Schemas {
     export interface HogQLFilters {
       /** Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown. */
       breakdownFilter?: BreakdownFilter | null;
+      /** Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}. */
+      compareFilter?: CompareFilter | null;
       dateRange?: DateRange | null;
       filterTestAccounts?: boolean | null;
       /** Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval. */
@@ -8503,6 +8535,7 @@ export namespace Schemas {
       CustomerioWebhook: 'customerio-webhook',
       CustomerioTrack: 'customerio-track',
       Apns: 'apns',
+      AppleAds: 'apple-ads',
       Postgresql: 'postgresql',
       AwsS3: 'aws-s3',
       AwsRedshift: 'aws-redshift',
@@ -10685,6 +10718,45 @@ export namespace Schemas {
       Number50000: 50000,
     } as const;
 
+    export type Operator1 = typeof Operator1[keyof typeof Operator1];
+
+
+    export const Operator1 = {
+      And: 'AND',
+      Or: 'OR',
+    } as const;
+
+    export interface BIConditionGroup {
+      filters: string[];
+      groups: BIConditionGroup[];
+      operator: Operator1;
+    }
+
+    export type Operator2 = typeof Operator2[keyof typeof Operator2];
+
+
+    export const Operator2 = {
+      Equals: 'equals',
+      NotEquals: 'not_equals',
+      GreaterThan: 'greater_than',
+      LessThan: 'less_than',
+      GreaterThanOrEqual: 'greater_than_or_equal',
+      LessThanOrEqual: 'less_than_or_equal',
+      Between: 'between',
+      IsSet: 'is_set',
+      IsNotSet: 'is_not_set',
+    } as const;
+
+    export interface BIResultFilter {
+      enabled?: boolean | null;
+      id: string;
+      /** @minimum 0 */
+      measureIndex: number;
+      operator: Operator2;
+      value: string;
+      valueTo?: string | null;
+    }
+
     export type BISortDirection = typeof BISortDirection[keyof typeof BISortDirection];
 
 
@@ -10696,6 +10768,21 @@ export namespace Schemas {
     export interface BISort {
       direction: BISortDirection;
       key: string;
+    }
+
+    export interface BITopN {
+      /** @minimum 1 */
+      count: number;
+      fieldId: string;
+      includeOther: boolean;
+      /** @minimum 0 */
+      measureIndex: number;
+    }
+
+    export interface BITotals {
+      columns?: boolean | null;
+      rows?: boolean | null;
+      subtotals?: boolean | null;
     }
 
     export type BIAggregation = typeof BIAggregation[keyof typeof BIAggregation];
@@ -10711,25 +10798,54 @@ export namespace Schemas {
       Custom: 'custom',
     } as const;
 
+    export type BITableCalculationType = typeof BITableCalculationType[keyof typeof BITableCalculationType];
+
+
+    export const BITableCalculationType = {
+      PercentOfTotal: 'percent_of_total',
+      RunningTotal: 'running_total',
+      Difference: 'difference',
+      PercentChange: 'percent_change',
+      MovingAverage: 'moving_average',
+      Rank: 'rank',
+    } as const;
+
+    export interface BITableCalculation {
+      /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
+      computeUsing?: string | null;
+      type: BITableCalculationType;
+      /** Number of points, including the current point, in a trailing moving average. */
+      window?: number | null;
+    }
+
     export interface BIValue {
       aggregation: BIAggregation;
       customExpression?: string | null;
+      display?: ChartSettingsDisplay | null;
       field: BIField;
+      formatting?: ChartSettingsFormatting | null;
       label?: string | null;
+      tableCalculation?: BITableCalculation | null;
     }
 
     export interface BIConfig {
       chartType: ChartDisplayType;
       columns: BIField[];
+      compareFilter?: CompareFilter | null;
       /** Column that receives the worksheet and dashboard date range. */
       dateField?: BIField | null;
       dateRange?: DateRange | null;
       filters: BIFilter[];
       limit: BIQueryLimit;
+      resultFilterGroup?: BIConditionGroup | null;
+      resultFilters?: BIResultFilter[] | null;
+      rowFilterGroup?: BIConditionGroup | null;
       rows: BIField[];
       /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
       sort?: BISort | null;
       source?: BIDataSource | null;
+      topN?: BITopN | null;
+      totals?: BITotals | null;
       values: BIValue[];
     }
 
@@ -12508,6 +12624,24 @@ export namespace Schemas {
       totals: AppMetricsTotalsResponseTotals;
     }
 
+    export interface AppSourceFileContract {
+      /** Project-relative path of the file, for example 'app.py' or 'pages/1_Overview.py'. */
+      path: string;
+      /** File size in bytes. */
+      size: number;
+      /** SHA-256 hash of the file bytes, as hex. */
+      sha256: string;
+      /** MIME type guessed from the file extension. */
+      content_type: string;
+      /** True when the file is not UTF-8 text. Binary content is never inlined. */
+      is_binary: boolean;
+      /**
+         * Full text of the file. Null for binary files and for files that the paths filter excludes.
+         * @nullable
+         */
+      content: string | null;
+    }
+
     export interface AppSummaryContract {
       /** User who created this app. */
       created_by?: StreamlitAppUserInfo | null;
@@ -12520,6 +12654,13 @@ export namespace Schemas {
       status: string;
       created_at: string;
       updated_at: string;
+    }
+
+    export interface AppVersionSourceContract {
+      /** Version number that this source belongs to. */
+      version_number: number;
+      /** Every file in the version, sorted by path. The manifest always lists all files. */
+      files: AppSourceFileContract[];
     }
 
     export interface AppfiguresReviewSignalExtra {
@@ -13311,11 +13452,6 @@ export namespace Schemas {
     export type AutoresearchModelModelRecipe = { [key: string]: unknown };
 
     /**
-     * Global feature importance and directionality. Used to explain top drivers on the model card.
-     */
-    export type AutoresearchModelModelExplanation = { [key: string]: unknown };
-
-    /**
      * Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts.
      */
     export type AutoresearchModelMetrics = { [key: string]: unknown };
@@ -13334,6 +13470,57 @@ export namespace Schemas {
       Archived: 'archived',
     } as const;
 
+    /**
+     * * `positive` - Positive
+     * * `negative` - Negative
+     */
+    export type FeatureDirectionEnum = typeof FeatureDirectionEnum[keyof typeof FeatureDirectionEnum];
+
+
+    export const FeatureDirectionEnum = {
+      Positive: 'positive',
+      Negative: 'negative',
+    } as const;
+
+    export interface FeatureImportance {
+      /**
+         * Feature column name, as returned by the feature SQL.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * Non-negative importance, for example the mean holdout AUC drop when the feature is shuffled.
+         * @minimum 0
+         */
+      importance: number;
+      /** 'positive' if a higher value raises the predicted probability, 'negative' if it lowers it.
+       *
+       * * `positive` - Positive
+       * * `negative` - Negative */
+      direction: FeatureDirectionEnum;
+    }
+
+    /**
+     * Global feature importances for the model card.
+     */
+    export interface ModelExplanationField {
+      /**
+         * At most 30 features, strongest first.
+         * @maxItems 30
+         */
+      top_features?: FeatureImportance[];
+      /**
+         * Short description of how the importances were computed, e.g. 'permutation importance on holdout'.
+         * @maxLength 500
+         */
+      method?: string;
+      /**
+         * Optional caveat shown under the chart.
+         * @maxLength 500
+         */
+      note?: string;
+    }
+
     export interface AutoresearchModel {
       /** Unique UUID of this model version. */
       readonly id: string;
@@ -13350,7 +13537,7 @@ export namespace Schemas {
       /** Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata. */
       model_recipe: AutoresearchModelModelRecipe;
       /** Global feature importance and directionality. Used to explain top drivers on the model card. */
-      model_explanation: AutoresearchModelModelExplanation;
+      model_explanation: ModelExplanationField;
       /**
          * AUC on the held-out test split at training time. Preliminary signal before online labels mature.
          * @nullable
@@ -13537,6 +13724,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly champion_realized_auc: number | null;
+      /**
+         * Lift in the top 10% of scores for the current champion model, from its latest validated prediction date. 2.0 means the top 10% converts at twice the average rate.
+         * @nullable
+         */
+      readonly champion_lift_at_10: number | null;
+      /**
+         * True while the current champion model has no realized AUC yet. Null when the pipeline has no champion.
+         * @nullable
+         */
+      readonly champion_is_preliminary: boolean | null;
     }
 
     /**
@@ -23637,11 +23834,6 @@ export namespace Schemas {
     }
 
     /**
-     * Global feature importance / directionality bundle for the champion model card.
-     */
-    export type CompleteTrainingRunModelExplanation = { [key: string]: unknown };
-
-    /**
      * Input for finalizing a training run. The backend selects/promotes the champion.
      */
     export interface CompleteTrainingRun {
@@ -23651,7 +23843,7 @@ export namespace Schemas {
          */
       best_iteration_id?: string | null;
       /** Global feature importance / directionality bundle for the champion model card. */
-      model_explanation?: CompleteTrainingRunModelExplanation;
+      model_explanation?: ModelExplanationField;
       /**
          * What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete; max 2000 characters.
          * @maxLength 2000
@@ -26767,7 +26959,7 @@ export namespace Schemas {
       readonly created_at: string;
       readonly created_by: UserBasic;
       /** @nullable */
-      last_accessed_at?: string | null;
+      readonly last_accessed_at: string | null;
       /** @nullable */
       readonly last_viewed_at: string | null;
       /**
@@ -26802,6 +26994,10 @@ export namespace Schemas {
          */
       data_color_theme_id?: number | null;
       tags?: unknown[];
+      /** Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
+       *
+       * * `21` - Everyone in the project can edit
+       * * `37` - Only those invited to this dashboard can edit */
       restriction_level?: RestrictionLevelEnum;
       readonly effective_restriction_level: RestrictionLevelEnum;
       readonly effective_privilege_level: PrivilegeLevelEnum;
@@ -26892,7 +27088,7 @@ export namespace Schemas {
       readonly deleted: boolean;
       readonly creation_mode: DashboardCreationModeEnum;
       tags?: unknown[];
-      /** Controls who can edit the dashboard.
+      /** Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
        *
        * * `21` - Everyone in the project can edit
        * * `37` - Only those invited to this dashboard can edit */
@@ -27150,6 +27346,131 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+    }
+
+    export type DashboardWriteOpenApiFilters = { [key: string]: unknown };
+
+    /**
+     * @nullable
+     */
+    export type DashboardWriteOpenApiVariables = { [key: string]: unknown } | null;
+
+    /**
+     * @nullable
+     */
+    export type DashboardWriteOpenApiPersistedFilters = { [key: string]: unknown } | null;
+
+    /**
+     * @nullable
+     */
+    export type DashboardWriteOpenApiPersistedVariables = { [key: string]: unknown } | null;
+
+    export type DashboardWriteOpenApiTilesItem = { [key: string]: unknown };
+
+    /**
+     * Serializer mixin that handles tags for objects.
+     */
+    export interface DashboardWriteOpenApi {
+      readonly id: number;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      description?: string;
+      pinned?: boolean;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly last_accessed_at: string | null;
+      /** @nullable */
+      readonly last_viewed_at: string | null;
+      /**
+         * Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.
+         * @nullable
+         */
+      readonly folder: string | null;
+      /**
+         * Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.
+         * @nullable
+         */
+      readonly file_system_id: string | null;
+      /**
+         * Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.
+         * @nullable
+         */
+      readonly file_system_path: string | null;
+      readonly is_shared: boolean;
+      deleted?: boolean;
+      readonly creation_mode: DashboardCreationModeEnum;
+      readonly filters: DashboardWriteOpenApiFilters;
+      /** @nullable */
+      readonly variables: DashboardWriteOpenApiVariables;
+      /**
+         * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
+         * @nullable
+         */
+      breakdown_colors?: BreakdownColorConfig[] | null;
+      /**
+         * ID of the color theme used for chart visualizations.
+         * @nullable
+         */
+      data_color_theme_id?: number | null;
+      tags?: unknown[];
+      /**
+         * Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
+         * @minimum 21
+         * @maximum 21
+         */
+      restriction_level?: number;
+      readonly effective_restriction_level: RestrictionLevelEnum;
+      readonly effective_privilege_level: PrivilegeLevelEnum;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      readonly access_control_version: string;
+      /** @nullable */
+      last_refresh?: string | null;
+      /** @nullable */
+      readonly persisted_filters: DashboardWriteOpenApiPersistedFilters;
+      /** @nullable */
+      readonly persisted_variables: DashboardWriteOpenApiPersistedVariables;
+      readonly team_id: number;
+      /**
+         * List of quick filter IDs associated with this dashboard
+         * @nullable
+         */
+      quick_filter_ids?: string[] | null;
+      /** Dashboard display settings. */
+      readonly customization: DashboardCustomization;
+      /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
+       *
+       * * `tight` - tight
+       * * `condensed` - condensed
+       * * `standard` - standard
+       * * `relaxed` - relaxed
+       * * `wide` - wide */
+      grid_spacing?: TileSpacingEnum;
+      /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+       *
+       * * `vertical` - vertical
+       * * `horizontal` - horizontal
+       * * `stable` - stable */
+      layout_compaction?: LayoutCompactionEnum;
+      /** @nullable */
+      readonly tiles: readonly DashboardWriteOpenApiTilesItem[] | null;
+      /** Template key to create the dashboard from a predefined template. */
+      use_template?: string;
+      /**
+         * ID of an existing dashboard to duplicate.
+         * @nullable
+         */
+      use_dashboard?: number | null;
+      /** When deleting, also delete insights that are only on this dashboard. */
+      delete_insights?: boolean;
+      _create_in_folder?: string;
     }
 
     export interface DataCatalogCertification {
@@ -29042,6 +29363,11 @@ export namespace Schemas {
     export type DataWarehouseSavedQueryMinimalColumnsItem = { [key: string]: unknown };
 
     /**
+     * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+     */
+    export type DataWarehouseSavedQueryMinimalSuspended = {[key: string]: SavedQuerySuspension};
+
+    /**
      * Lightweight serializer for list views - excludes large query field to reduce memory usage.
      */
     export interface DataWarehouseSavedQueryMinimal {
@@ -29067,6 +29393,8 @@ export namespace Schemas {
       readonly folder_name: string | null;
       /** @nullable */
       readonly latest_error: string | null;
+      /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+      readonly suspended: DataWarehouseSavedQueryMinimalSuspended;
       /** @nullable */
       readonly is_materialized: boolean | null;
       /** Whether this view is set up to update incrementally. A run can still rebuild the whole table, for example on the first run or after the query changes. */
@@ -30670,6 +30998,7 @@ export namespace Schemas {
      * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
      * * `WhoGho` - WhoGho
      * * `Whop` - Whop
+     * * `Wistia` - Wistia
      * * `Wiz` - Wiz
      * * `Wompi` - Wompi
      * * `Workiz` - Workiz
@@ -30785,6 +31114,20 @@ export namespace Schemas {
      * * `LettrLabs` - LettrLabs
      * * `GrafanaIRM` - GrafanaIRM
      * * `Tessitura` - Tessitura
+     * * `ChargebackStop` - ChargebackStop
+     * * `Chargeflow` - Chargeflow
+     * * `Dreamdata` - Dreamdata
+     * * `GoogleBusinessProfile` - GoogleBusinessProfile
+     * * `Ledyer` - Ledyer
+     * * `Supermetrics` - Supermetrics
+     * * `SQLite` - SQLite
+     * * `Modal` - Modal
+     * * `Vimeo` - Vimeo
+     * * `Scrunch` - Scrunch
+     * * `Loom` - Loom
+     * * `Arcade` - Arcade
+     * * `Neo4j` - Neo4j
+     * * `TestDino` - TestDino
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -32031,6 +32374,7 @@ export namespace Schemas {
       WhatsappBusinessManagement: 'WhatsappBusinessManagement',
       WhoGho: 'WhoGho',
       Whop: 'Whop',
+      Wistia: 'Wistia',
       Wiz: 'Wiz',
       Wompi: 'Wompi',
       Workiz: 'Workiz',
@@ -32146,6 +32490,20 @@ export namespace Schemas {
       LettrLabs: 'LettrLabs',
       GrafanaIRM: 'GrafanaIRM',
       Tessitura: 'Tessitura',
+      ChargebackStop: 'ChargebackStop',
+      Chargeflow: 'Chargeflow',
+      Dreamdata: 'Dreamdata',
+      GoogleBusinessProfile: 'GoogleBusinessProfile',
+      Ledyer: 'Ledyer',
+      Supermetrics: 'Supermetrics',
+      SQLite: 'SQLite',
+      Modal: 'Modal',
+      Vimeo: 'Vimeo',
+      Scrunch: 'Scrunch',
+      Loom: 'Loom',
+      Arcade: 'Arcade',
+      Neo4j: 'Neo4j',
+      TestDino: 'TestDino',
     } as const;
 
     /**
@@ -33406,6 +33764,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -33520,7 +33879,21 @@ export namespace Schemas {
        * * `ExactOnline` - ExactOnline
        * * `LettrLabs` - LettrLabs
        * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura */
+       * * `Tessitura` - Tessitura
+       * * `ChargebackStop` - ChargebackStop
+       * * `Chargeflow` - Chargeflow
+       * * `Dreamdata` - Dreamdata
+       * * `GoogleBusinessProfile` - GoogleBusinessProfile
+       * * `Ledyer` - Ledyer
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal
+       * * `Vimeo` - Vimeo
+       * * `Scrunch` - Scrunch
+       * * `Loom` - Loom
+       * * `Arcade` - Arcade
+       * * `Neo4j` - Neo4j
+       * * `TestDino` - TestDino */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -36029,6 +36402,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -36143,7 +36517,21 @@ export namespace Schemas {
        * * `ExactOnline` - ExactOnline
        * * `LettrLabs` - LettrLabs
        * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura */
+       * * `Tessitura` - Tessitura
+       * * `ChargebackStop` - ChargebackStop
+       * * `Chargeflow` - Chargeflow
+       * * `Dreamdata` - Dreamdata
+       * * `GoogleBusinessProfile` - GoogleBusinessProfile
+       * * `Ledyer` - Ledyer
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal
+       * * `Vimeo` - Vimeo
+       * * `Scrunch` - Scrunch
+       * * `Loom` - Loom
+       * * `Arcade` - Arcade
+       * * `Neo4j` - Neo4j
+       * * `TestDino` - TestDino */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -36152,6 +36540,34 @@ export namespace Schemas {
          * @nullable
          */
       readonly icon_path: string | null;
+    }
+
+    /**
+     * * `not_useful` - Not useful
+     * * `not_now` - Not now
+     * * `other` - Other
+     */
+    export type WarehouseSuggestionDismissalReasonEnum = typeof WarehouseSuggestionDismissalReasonEnum[keyof typeof WarehouseSuggestionDismissalReasonEnum];
+
+
+    export const WarehouseSuggestionDismissalReasonEnum = {
+      NotUseful: 'not_useful',
+      NotNow: 'not_now',
+      Other: 'other',
+    } as const;
+
+    export interface DismissWarehouseSuggestion {
+      /** Why the suggestion is dismissed.
+       *
+       * * `not_useful` - Not useful
+       * * `not_now` - Not now
+       * * `other` - Other */
+      reason: WarehouseSuggestionDismissalReasonEnum;
+      /**
+         * Optional note about the dismissal.
+         * @maxLength 1000
+         */
+      note?: string;
     }
 
     /**
@@ -37297,6 +37713,39 @@ export namespace Schemas {
       warnings: EditReportWarning[];
       /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
       corroboration_collapsed: boolean;
+    }
+
+    /**
+     * New text files keyed by project-relative path, each value the file's full text (max 1 MB). The path must not exist in the base version.
+     */
+    export type EditVersionSourceInputCreateFiles = {[key: string]: string};
+
+    export interface SourceTextEdit {
+      /** Exact text to find in the file. Must match exactly once. Use an empty string only to fill an empty file. */
+      old: string;
+      /** Replacement text. */
+      new: string;
+    }
+
+    export interface SourceFileEdit {
+      /** Path of an existing text file in the base version, for example 'app.py'. */
+      path: string;
+      /** Find-and-replace operations, applied in order to the file's text. At most 100 edits per request across all files. */
+      edits: SourceTextEdit[];
+    }
+
+    export interface EditVersionSourceInput {
+      /**
+         * Version number that the changes apply to. Must be the active version of the app, otherwise the request fails with 409 and returns the active version number.
+         * @minimum 1
+         */
+      base_version: number;
+      /** Exact text edits to existing text files. Files that no change touches stay byte-for-byte the same. */
+      file_edits?: SourceFileEdit[];
+      /** New text files keyed by project-relative path, each value the file's full text (max 1 MB). The path must not exist in the base version. */
+      create_files?: EditVersionSourceInputCreateFiles;
+      /** Paths of files to remove from the base version. app.py cannot be removed. */
+      delete_files?: string[];
     }
 
     /**
@@ -44687,6 +45136,15 @@ export namespace Schemas {
       session_duration_s?: number | null;
     }
 
+    export type PromptValenceEnum = typeof PromptValenceEnum[keyof typeof PromptValenceEnum];
+
+
+    export const PromptValenceEnum = {
+      Good: 'good',
+      Bad: 'bad',
+      Neutral: 'neutral',
+    } as const;
+
     /**
      * * `schedule` - Schedule
      * * `on_demand` - On demand
@@ -44792,6 +45250,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly prompt_question: string | null;
+      /** For a monitor or scorer: `good` when a yes or a high score is good news for the team, `bad` when it is a problem, `neutral` when neither. Judged by AI from the prompt. Null for other scanner types, when not judged, or when the prompt has changed since this observation was scanned. */
+      readonly prompt_valence: PromptValenceEnum | null;
       /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
        *
        * * `schedule` - Schedule
@@ -47286,6 +47746,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -47400,7 +47861,21 @@ export namespace Schemas {
        * * `ExactOnline` - ExactOnline
        * * `LettrLabs` - LettrLabs
        * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura */
+       * * `Tessitura` - Tessitura
+       * * `ChargebackStop` - ChargebackStop
+       * * `Chargeflow` - Chargeflow
+       * * `Dreamdata` - Dreamdata
+       * * `GoogleBusinessProfile` - GoogleBusinessProfile
+       * * `Ledyer` - Ledyer
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal
+       * * `Vimeo` - Vimeo
+       * * `Scrunch` - Scrunch
+       * * `Loom` - Loom
+       * * `Arcade` - Arcade
+       * * `Neo4j` - Neo4j
+       * * `TestDino` - TestDino */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -48681,6 +49156,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -48795,7 +49271,21 @@ export namespace Schemas {
        * * `ExactOnline` - ExactOnline
        * * `LettrLabs` - LettrLabs
        * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura */
+       * * `Tessitura` - Tessitura
+       * * `ChargebackStop` - ChargebackStop
+       * * `Chargeflow` - Chargeflow
+       * * `Dreamdata` - Dreamdata
+       * * `GoogleBusinessProfile` - GoogleBusinessProfile
+       * * `Ledyer` - Ledyer
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal
+       * * `Vimeo` - Vimeo
+       * * `Scrunch` - Scrunch
+       * * `Loom` - Loom
+       * * `Arcade` - Arcade
+       * * `Neo4j` - Neo4j
+       * * `TestDino` - TestDino */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -50739,7 +51229,6 @@ export namespace Schemas {
      * * `broken` - broken
      * * `unstable` - unstable
      * * `at_risk` - at_risk
-     * * `noisy` - noisy
      * * `clean` - clean
      */
     export type FlakinessStateEnum = typeof FlakinessStateEnum[keyof typeof FlakinessStateEnum];
@@ -50749,7 +51238,6 @@ export namespace Schemas {
       Broken: 'broken',
       Unstable: 'unstable',
       AtRisk: 'at_risk',
-      Noisy: 'noisy',
       Clean: 'clean',
     } as const;
 
@@ -50800,12 +51288,11 @@ export namespace Schemas {
          * @nullable
          */
       baseline_moved_day_index?: number | null;
-      /** An urgency ladder, where each rung asks for a different fix. `broken` fails nearly every run, so its baseline is wrong and quarantining it only hides that. `unstable` fails some runs and not others, the classic flake. `at_risk` never fails, but its worst absorbed diff is already touching the threshold, so the next unrelated change turns it red. `noisy` renders variants and absorbs them with room to spare. `clean` matched its baseline on every run in the window.
+      /** An urgency ladder, where each rung asks for a different fix. `broken` fails nearly every run, so its baseline is wrong and quarantining it only hides that. `unstable` fails some runs and not others, the classic flake. `at_risk` never fails, but its worst absorbed diff is already touching the threshold, so the next unrelated change turns it red. `clean` has no gate failure inside the rate span, and any diff it absorbed sits far below the threshold.
        *
        * * `broken` - broken
        * * `unstable` - unstable
        * * `at_risk` - at_risk
-       * * `noisy` - noisy
        * * `clean` - clean */
       flakiness_state: FlakinessStateEnum;
       /** True when an active quarantine has run out, is about to, or covers a snapshot that has stopped failing the gate. All three mean a human has to extend it or lift it. */
@@ -50846,9 +51333,7 @@ export namespace Schemas {
       unstable: number;
       /** Identifiers whose `flakiness_state` is `at_risk`. */
       at_risk: number;
-      /** Identifiers whose `flakiness_state` is `noisy`. */
-      noisy: number;
-      /** Identifiers whose `flakiness_state` is `clean`. They are listed because they carry live variants or older history, and reported here so every listed entry is reachable. */
+      /** Identifiers whose `flakiness_state` is `clean`. They are listed because they carry a quarantine or older gate failures, and reported here so every listed entry is reachable. */
       clean: number;
       /** Listed identifiers per run type, so one suite's noise can be told from another's. */
       by_run_type: FlakinessTotalsByRunType;
@@ -55047,32 +55532,6 @@ export namespace Schemas {
       HistogramQuantile: 'histogram_quantile',
     } as const;
 
-    export type MetricsFilterOp = typeof MetricsFilterOp[keyof typeof MetricsFilterOp];
-
-
-    export const MetricsFilterOp = {
-      Eq: 'eq',
-      Neq: 'neq',
-      Regex: 'regex',
-      NotRegex: 'not_regex',
-    } as const;
-
-    export type MetricsAttributeScope = typeof MetricsAttributeScope[keyof typeof MetricsAttributeScope];
-
-
-    export const MetricsAttributeScope = {
-      Resource: 'resource',
-      Attribute: 'attribute',
-      Auto: 'auto',
-    } as const;
-
-    export interface MetricsQueryFilter {
-      key: string;
-      op: MetricsFilterOp;
-      scope?: MetricsAttributeScope | null;
-      value: string;
-    }
-
     export interface MetricsQueryGroupBy {
       key: string;
       scope?: MetricsAttributeScope | null;
@@ -55242,11 +55701,9 @@ export namespace Schemas {
       display?: MetricsDisplaySettings | null;
       /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
       formula?: string | null;
-      /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
+      /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
       interval?: string | null;
       kind?: 'MetricsQuery';
-      /** Finest bucket size the query may use, from the same set as `interval`; raises a finer interval or auto pick */
-      minInterval?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: MetricsQueryResponse | null;
@@ -57685,6 +58142,7 @@ export namespace Schemas {
 
     /**
      * * `anthropic` - Anthropic
+     * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
@@ -57739,6 +58197,7 @@ export namespace Schemas {
 
     export const IntegrationKindEnum = {
       Anthropic: 'anthropic',
+      AppleAds: 'apple-ads',
       Apns: 'apns',
       AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
@@ -57793,6 +58252,7 @@ export namespace Schemas {
       /** The kind of integration the member is requesting be connected (e.g. 'slack', 'github').
        *
        * * `anthropic` - Anthropic
+       * * `apple-ads` - Apple Ads
        * * `apns` - Apple Push
        * * `aws-redshift` - Aws Redshift
        * * `aws-s3` - Aws S3
@@ -59442,7 +59902,7 @@ export namespace Schemas {
 
     export interface LeakedKeyReport {
       /**
-         * The leaked PostHog personal API key, project secret API key, or OAuth access/refresh token to revoke.
+         * The leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access/refresh token to revoke.
          * @maxLength 200
          */
       token: string;
@@ -59451,6 +59911,7 @@ export namespace Schemas {
     /**
      * * `personal_api_key` - personal_api_key
      * * `project_secret_api_key` - project_secret_api_key
+     * * `team_secret_token` - team_secret_token
      * * `oauth_access_token` - oauth_access_token
      * * `oauth_refresh_token` - oauth_refresh_token
      */
@@ -59460,17 +59921,19 @@ export namespace Schemas {
     export const LeakedKeyReportResponseTypeEnum = {
       PersonalApiKey: 'personal_api_key',
       ProjectSecretApiKey: 'project_secret_api_key',
+      TeamSecretToken: 'team_secret_token',
       OauthAccessToken: 'oauth_access_token',
       OauthRefreshToken: 'oauth_refresh_token',
     } as const;
 
     export interface LeakedKeyReportResponse {
-      /** Whether a matching PostHog key or token was found and revoked. */
+      /** Whether a matching PostHog key or token was found. It was revoked, or, for team_secret_token, its project admins were told to rotate it. */
       found: boolean;
-      /** The type of key that was found and revoked, or null if no match was found.
+      /** The type of key that was found and revoked, or null if no match was found. team_secret_token means the string is a legacy feature flags secure API key: its migrated project secret API key row was removed, but the legacy key itself cannot be auto-rotated, so project admins are emailed to rotate it.
        *
        * * `personal_api_key` - personal_api_key
        * * `project_secret_api_key` - project_secret_api_key
+       * * `team_secret_token` - team_secret_token
        * * `oauth_access_token` - oauth_access_token
        * * `oauth_refresh_token` - oauth_refresh_token */
       type: LeakedKeyReportResponseTypeEnum | null;
@@ -60007,6 +60470,22 @@ export namespace Schemas {
       enabled: boolean;
     }
 
+    /**
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams
+     * * `pagerduty` - pagerduty
+     */
+    export type LogsAlertDestinationTypeEnum = typeof LogsAlertDestinationTypeEnum[keyof typeof LogsAlertDestinationTypeEnum];
+
+
+    export const LogsAlertDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Pagerduty: 'pagerduty',
+    } as const;
+
     export interface LogsAlertConfiguration {
       /** Unique identifier for this alert. */
       readonly id: string;
@@ -60091,7 +60570,7 @@ export namespace Schemas {
       /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
       readonly state_timeline: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-      readonly destination_types: readonly NotificationDestinationTypeEnum[];
+      readonly destination_types: readonly LogsAlertDestinationTypeEnum[];
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
          * @nullable
@@ -60107,20 +60586,63 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    /**
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info
+     */
+    export type PagerDutySeverityEnum = typeof PagerDutySeverityEnum[keyof typeof PagerDutySeverityEnum];
+
+
+    export const PagerDutySeverityEnum = {
+      Critical: 'critical',
+      Error: 'error',
+      Warning: 'warning',
+      Info: 'info',
+    } as const;
+
+    /**
+     * * `us` - us
+     * * `eu` - eu
+     */
+    export type PagerDutyRegionEnum = typeof PagerDutyRegionEnum[keyof typeof PagerDutyRegionEnum];
+
+
+    export const PagerDutyRegionEnum = {
+      Us: 'us',
+      Eu: 'eu',
+    } as const;
+
     export interface LogsAlertDestinationConfig {
       hog_function_ids: string[];
       /** Notification destination type.
        *
        * * `slack` - slack
        * * `webhook` - webhook
-       * * `teams` - teams */
-      type: NotificationDestinationTypeEnum;
+       * * `teams` - teams
+       * * `pagerduty` - pagerduty */
+      type: LogsAlertDestinationTypeEnum;
       /** Whether every HogFunction in the group is enabled, so the destination notifies for all alert event kinds. This is the stored setting: a destination PostHog stopped delivering to after repeated failures still reads as true. */
       enabled: boolean;
       slack_workspace_id?: number;
       slack_channel_id?: string;
       /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
       webhook_url?: string;
+      /** PagerDuty integration key reduced to its last four characters. */
+      pagerduty_routing_key?: string;
+      /** Severity of the PagerDuty incident.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region the events go to.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
     }
 
     /**
@@ -60211,7 +60733,7 @@ export namespace Schemas {
       /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
       readonly state_timeline: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-      readonly destination_types: readonly NotificationDestinationTypeEnum[];
+      readonly destination_types: readonly LogsAlertDestinationTypeEnum[];
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
          * @nullable
@@ -60234,8 +60756,9 @@ export namespace Schemas {
        *
        * * `slack` - slack
        * * `webhook` - webhook
-       * * `teams` - teams */
-      type: NotificationDestinationTypeEnum;
+       * * `teams` - teams
+       * * `pagerduty` - pagerduty */
+      type: LogsAlertDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -60244,6 +60767,20 @@ export namespace Schemas {
       slack_channel_name?: string;
       /** HTTPS endpoint to post to. Required for webhook and teams. */
       webhook_url?: string;
+      /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. */
+      pagerduty_routing_key?: string;
+      /** Severity PagerDuty records on the incident. Used when type=pagerduty.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region of the account. Used when type=pagerduty.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
     }
 
     export interface LogsAlertDeleteDestination {
@@ -62757,6 +63294,8 @@ export namespace Schemas {
       success: boolean;
       /** Failure category for MCP analytics. */
       error_type?: MCPToolResponseErrorType;
+      /** Machine-readable name of the leaf failure for MCP analytics, such as a ClickHouse error name. */
+      error_code?: string | null;
     }
 
     /**
@@ -63611,6 +64150,8 @@ export namespace Schemas {
       readonly id: string;
       /** Meeting title; may be empty. */
       readonly title: string;
+      /** Whether the meeting belongs to a recurring series. Account meeting lists include all past occurrences and only the next upcoming, non-canceled occurrence of each series. */
+      readonly is_recurring: boolean;
       /**
          * Gong call URL matched through the calendar event id; null when no Gong call is available.
          * @nullable
@@ -64081,10 +64622,12 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `second` - second
+     * * `second_15` - second_15
+     * * `second_30` - second_30
      * * `minute` - minute
      * * `minute_5` - minute_5
      * * `minute_15` - minute_15
+     * * `minute_30` - minute_30
      * * `hour` - hour
      * * `hour_6` - hour_6
      * * `day` - day
@@ -64094,10 +64637,12 @@ export namespace Schemas {
 
 
     export const MetricQueryIntervalEnum = {
-      Second: 'second',
+      Second15: 'second_15',
+      Second30: 'second_30',
       Minute: 'minute',
       Minute5: 'minute_5',
       Minute15: 'minute_15',
+      Minute30: 'minute_30',
       Hour: 'hour',
       Hour6: 'hour_6',
       Day: 'day',
@@ -66258,6 +66803,11 @@ export namespace Schemas {
       readonly created_at: string;
       readonly updated_at: string;
       readonly membership_level: OrganizationMembershipLevelEnum;
+      /**
+         * When the requesting user joined this organization. Null if the user is not a member.
+         * @nullable
+         */
+      readonly membership_joined_at: string | null;
       readonly plugins_access_level: OrganizationPluginsAccessLevelEnum;
       readonly teams: readonly OrganizationTeamsItem[];
       readonly projects: readonly OrganizationProjectsItem[];
@@ -70842,6 +71392,8 @@ export namespace Schemas {
       lifts: ReportRankingLifts;
       /** Heads whose holdout AUC the training run could read. Treat scores of other heads with caution. */
       readable_heads: string[];
+      /** True when the report's title or summary was edited after the text this score read. The score describes the old text: the inbox hides its lift and the model sort treats the report as unscored. */
+      stale: boolean;
     }
 
     export interface SignalReportList {
@@ -73929,6 +74481,174 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: WarehouseColumnStatistics[];
+    }
+
+    export interface WarehouseSuggestionReviewer {
+      /** User id. */
+      id: number;
+      /** User first name. */
+      first_name: string;
+      /** User email. */
+      email: string;
+    }
+
+    /**
+     * * `certify` - Certify
+     * * `deprecate` - Deprecate
+     * * `materialize` - Materialize
+     */
+    export type WarehouseSuggestionKindEnum = typeof WarehouseSuggestionKindEnum[keyof typeof WarehouseSuggestionKindEnum];
+
+
+    export const WarehouseSuggestionKindEnum = {
+      Certify: 'certify',
+      Deprecate: 'deprecate',
+      Materialize: 'materialize',
+    } as const;
+
+    /**
+     * * `saved_query` - Saved query
+     * * `table` - Table
+     */
+    export type WarehouseSuggestionSubjectKindEnum = typeof WarehouseSuggestionSubjectKindEnum[keyof typeof WarehouseSuggestionSubjectKindEnum];
+
+
+    export const WarehouseSuggestionSubjectKindEnum = {
+      SavedQuery: 'saved_query',
+      Table: 'table',
+    } as const;
+
+    /**
+     * * `proposed` - Proposed
+     * * `accepted` - Accepted
+     * * `dismissed` - Dismissed
+     * * `expired` - Expired
+     * * `auto_resolved` - Auto-resolved
+     */
+    export type WarehouseSuggestionStatusEnum = typeof WarehouseSuggestionStatusEnum[keyof typeof WarehouseSuggestionStatusEnum];
+
+
+    export const WarehouseSuggestionStatusEnum = {
+      Proposed: 'proposed',
+      Accepted: 'accepted',
+      Dismissed: 'dismissed',
+      Expired: 'expired',
+      AutoResolved: 'auto_resolved',
+    } as const;
+
+    /**
+     * * `live` - Live
+     * * `deleted` - Deleted
+     * * `unused` - Unused
+     */
+    export type WarehouseSuggestionAssetOutcomeEnum = typeof WarehouseSuggestionAssetOutcomeEnum[keyof typeof WarehouseSuggestionAssetOutcomeEnum];
+
+
+    export const WarehouseSuggestionAssetOutcomeEnum = {
+      Live: 'live',
+      Deleted: 'deleted',
+      Unused: 'unused',
+    } as const;
+
+    /**
+     * What accepting this suggestion would create or change. Shape depends on kind.
+     */
+    export type WarehouseSuggestionPayload = { [key: string]: unknown };
+
+    /**
+     * The usage numbers that led to this suggestion.
+     */
+    export type WarehouseSuggestionEvidence = { [key: string]: unknown };
+
+    /**
+     * What accepting this suggestion created. Null until accepted.
+     * @nullable
+     */
+    export type WarehouseSuggestionCreatedAsset = { [key: string]: unknown } | null;
+
+    export interface WarehouseSuggestion {
+      /** What accepting this suggestion would create or change. Shape depends on kind. */
+      payload: WarehouseSuggestionPayload;
+      /** The usage numbers that led to this suggestion. */
+      evidence: WarehouseSuggestionEvidence;
+      /**
+         * What accepting this suggestion created. Null until accepted.
+         * @nullable
+         */
+      created_asset: WarehouseSuggestionCreatedAsset;
+      /** Who accepted or dismissed this suggestion. Null while it is open. */
+      reviewed_by: WarehouseSuggestionReviewer | null;
+      /** What the suggestion proposes: certify, deprecate or materialize the subject.
+       *
+       * * `certify` - Certify
+       * * `deprecate` - Deprecate
+       * * `materialize` - Materialize */
+      kind: WarehouseSuggestionKindEnum;
+      /** Whether the subject is a saved query (view) or a warehouse table.
+       *
+       * * `saved_query` - Saved query
+       * * `table` - Table */
+      subject_kind: WarehouseSuggestionSubjectKindEnum;
+      /** proposed until someone accepts or dismisses it, or the job expires it.
+       *
+       * * `proposed` - Proposed
+       * * `accepted` - Accepted
+       * * `dismissed` - Dismissed
+       * * `expired` - Expired
+       * * `auto_resolved` - Auto-resolved */
+      status: WarehouseSuggestionStatusEnum;
+      /** Why the suggestion was dismissed.
+       *
+       * * `not_useful` - Not useful
+       * * `not_now` - Not now
+       * * `other` - Other */
+      dismissal_reason: WarehouseSuggestionDismissalReasonEnum | null;
+      /** What happened to the asset an accepted suggestion created.
+       *
+       * * `live` - Live
+       * * `deleted` - Deleted
+       * * `unused` - Unused */
+      asset_outcome: WarehouseSuggestionAssetOutcomeEnum | null;
+      /** Suggestion identifier. */
+      id: string;
+      /** Id of the view or table the suggestion is about. */
+      subject_id: string;
+      /** Version of the payload shape for this kind. */
+      payload_version: number;
+      /** Start of the usage window the evidence covers. */
+      evidence_window_start: string;
+      /** End of the usage window the evidence covers. */
+      evidence_window_end: string;
+      /** When the daily job last found evidence for this suggestion. */
+      last_seen_at: string;
+      /** How strongly the evidence supports the suggestion. Higher comes first. */
+      score: number;
+      /**
+         * When the suggestion was first shown. Null while it waits for a slot.
+         * @nullable
+         */
+      surfaced_at: string | null;
+      /**
+         * When the suggestion was accepted or dismissed.
+         * @nullable
+         */
+      reviewed_at: string | null;
+      /**
+         * Free-text note left when dismissing.
+         * @nullable
+         */
+      dismissal_note: string | null;
+      /** Whether the caller has edit access to the subject and so may accept, dismiss or resume. */
+      can_act: boolean;
+    }
+
+    export interface PaginatedWarehouseSuggestionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WarehouseSuggestion[];
     }
 
     export interface WebAnalyticsFilterPreset {
@@ -78722,7 +79442,7 @@ export namespace Schemas {
       /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
       readonly state_timeline?: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-      readonly destination_types?: readonly NotificationDestinationTypeEnum[];
+      readonly destination_types?: readonly LogsAlertDestinationTypeEnum[];
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
          * @nullable
@@ -79239,6 +79959,11 @@ export namespace Schemas {
       readonly created_at?: string;
       readonly updated_at?: string;
       readonly membership_level?: OrganizationMembershipLevelEnum;
+      /**
+         * When the requesting user joined this organization. Null if the user is not a member.
+         * @nullable
+         */
+      readonly membership_joined_at?: string | null;
       readonly plugins_access_level?: OrganizationPluginsAccessLevelEnum;
       readonly teams?: readonly PatchedOrganizationTeamsItem[];
       readonly projects?: readonly PatchedOrganizationProjectsItem[];
@@ -79412,11 +80137,12 @@ export namespace Schemas {
          */
       data_color_theme_id?: number | null;
       tags?: string[];
-      /** Who can edit this dashboard.
-       *
-       * * `21` - Everyone in the project can edit
-       * * `37` - Only those invited to this dashboard can edit */
-      restriction_level?: RestrictionLevelEnum;
+      /**
+         * Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
+         * @minimum 21
+         * @maximum 21
+         */
+      restriction_level?: number;
       /**
          * List of quick filter IDs associated with this dashboard.
          * @nullable
@@ -80443,6 +81169,11 @@ export namespace Schemas {
          * @nullable
          */
       primary_dashboard?: number | null;
+      /**
+         * ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view.
+         * @nullable
+         */
+      home_tab_dashboard?: number | null;
       /** @nullable */
       live_events_columns?: string[] | null;
       /**
@@ -85319,6 +86050,11 @@ export namespace Schemas {
          * @nullable
          */
       primary_dashboard?: number | null;
+      /**
+         * ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view.
+         * @nullable
+         */
+      home_tab_dashboard?: number | null;
       /** @nullable */
       live_events_columns?: string[] | null;
       /**
@@ -85451,6 +86187,825 @@ export namespace Schemas {
       product_description: string | null;
       /** Registered app URLs for this team (toolbar / replay). The team's actual product surface; complements `$pageview.$host` discovery via `read-data-schema`. */
       app_urls: string[];
+    }
+
+    /**
+     * Settings for Conversations. Must be a JSON object or null.
+     * @nullable
+     */
+    export type ProjectCreateRequestConversationsSettings = { [key: string]: unknown } | null;
+
+    /**
+     * A project and its settings, including the settings that live on its passthrough Team.
+     *
+     * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+     * onto /api/projects/ never loses a field.
+     */
+    export interface ProjectCreateRequest {
+      /**
+         * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
+         * @minLength 1
+         * @maxLength 200
+         */
+      name?: string;
+      /**
+         * Short description of what the project is about. This is helpful to give our AI agents context about your project.
+         * @maxLength 1000
+         * @nullable
+         */
+      product_description?: string | null;
+      /**
+         * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+         * @items.maxLength 255
+         */
+      tags?: string[];
+      /** @items.maxLength 200 */
+      app_urls?: (string | null)[];
+      /** When true, PostHog drops the IP address from every ingested event. */
+      anonymize_ips?: boolean;
+      completed_snippet_onboarding?: boolean;
+      /** Filter groups that identify internal/test traffic to be excluded from insights. */
+      test_account_filters?: unknown;
+      /**
+         * When true, new insights default to excluding internal/test users.
+         * @nullable
+         */
+      test_account_filters_default_checked?: boolean | null;
+      /** Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths. */
+      path_cleaning_filters?: unknown;
+      is_demo?: boolean;
+      /** IANA timezone used for date-based filters and reporting (e.g. `America/Los_Angeles`).
+       *
+       * * `Africa/Abidjan` - Africa/Abidjan
+       * * `Africa/Accra` - Africa/Accra
+       * * `Africa/Addis_Ababa` - Africa/Addis_Ababa
+       * * `Africa/Algiers` - Africa/Algiers
+       * * `Africa/Asmara` - Africa/Asmara
+       * * `Africa/Asmera` - Africa/Asmera
+       * * `Africa/Bamako` - Africa/Bamako
+       * * `Africa/Bangui` - Africa/Bangui
+       * * `Africa/Banjul` - Africa/Banjul
+       * * `Africa/Bissau` - Africa/Bissau
+       * * `Africa/Blantyre` - Africa/Blantyre
+       * * `Africa/Brazzaville` - Africa/Brazzaville
+       * * `Africa/Bujumbura` - Africa/Bujumbura
+       * * `Africa/Cairo` - Africa/Cairo
+       * * `Africa/Casablanca` - Africa/Casablanca
+       * * `Africa/Ceuta` - Africa/Ceuta
+       * * `Africa/Conakry` - Africa/Conakry
+       * * `Africa/Dakar` - Africa/Dakar
+       * * `Africa/Dar_es_Salaam` - Africa/Dar_es_Salaam
+       * * `Africa/Djibouti` - Africa/Djibouti
+       * * `Africa/Douala` - Africa/Douala
+       * * `Africa/El_Aaiun` - Africa/El_Aaiun
+       * * `Africa/Freetown` - Africa/Freetown
+       * * `Africa/Gaborone` - Africa/Gaborone
+       * * `Africa/Harare` - Africa/Harare
+       * * `Africa/Johannesburg` - Africa/Johannesburg
+       * * `Africa/Juba` - Africa/Juba
+       * * `Africa/Kampala` - Africa/Kampala
+       * * `Africa/Khartoum` - Africa/Khartoum
+       * * `Africa/Kigali` - Africa/Kigali
+       * * `Africa/Kinshasa` - Africa/Kinshasa
+       * * `Africa/Lagos` - Africa/Lagos
+       * * `Africa/Libreville` - Africa/Libreville
+       * * `Africa/Lome` - Africa/Lome
+       * * `Africa/Luanda` - Africa/Luanda
+       * * `Africa/Lubumbashi` - Africa/Lubumbashi
+       * * `Africa/Lusaka` - Africa/Lusaka
+       * * `Africa/Malabo` - Africa/Malabo
+       * * `Africa/Maputo` - Africa/Maputo
+       * * `Africa/Maseru` - Africa/Maseru
+       * * `Africa/Mbabane` - Africa/Mbabane
+       * * `Africa/Mogadishu` - Africa/Mogadishu
+       * * `Africa/Monrovia` - Africa/Monrovia
+       * * `Africa/Nairobi` - Africa/Nairobi
+       * * `Africa/Ndjamena` - Africa/Ndjamena
+       * * `Africa/Niamey` - Africa/Niamey
+       * * `Africa/Nouakchott` - Africa/Nouakchott
+       * * `Africa/Ouagadougou` - Africa/Ouagadougou
+       * * `Africa/Porto-Novo` - Africa/Porto-Novo
+       * * `Africa/Sao_Tome` - Africa/Sao_Tome
+       * * `Africa/Timbuktu` - Africa/Timbuktu
+       * * `Africa/Tripoli` - Africa/Tripoli
+       * * `Africa/Tunis` - Africa/Tunis
+       * * `Africa/Windhoek` - Africa/Windhoek
+       * * `America/Adak` - America/Adak
+       * * `America/Anchorage` - America/Anchorage
+       * * `America/Anguilla` - America/Anguilla
+       * * `America/Antigua` - America/Antigua
+       * * `America/Araguaina` - America/Araguaina
+       * * `America/Argentina/Buenos_Aires` - America/Argentina/Buenos_Aires
+       * * `America/Argentina/Catamarca` - America/Argentina/Catamarca
+       * * `America/Argentina/ComodRivadavia` - America/Argentina/ComodRivadavia
+       * * `America/Argentina/Cordoba` - America/Argentina/Cordoba
+       * * `America/Argentina/Jujuy` - America/Argentina/Jujuy
+       * * `America/Argentina/La_Rioja` - America/Argentina/La_Rioja
+       * * `America/Argentina/Mendoza` - America/Argentina/Mendoza
+       * * `America/Argentina/Rio_Gallegos` - America/Argentina/Rio_Gallegos
+       * * `America/Argentina/Salta` - America/Argentina/Salta
+       * * `America/Argentina/San_Juan` - America/Argentina/San_Juan
+       * * `America/Argentina/San_Luis` - America/Argentina/San_Luis
+       * * `America/Argentina/Tucuman` - America/Argentina/Tucuman
+       * * `America/Argentina/Ushuaia` - America/Argentina/Ushuaia
+       * * `America/Aruba` - America/Aruba
+       * * `America/Asuncion` - America/Asuncion
+       * * `America/Atikokan` - America/Atikokan
+       * * `America/Atka` - America/Atka
+       * * `America/Bahia` - America/Bahia
+       * * `America/Bahia_Banderas` - America/Bahia_Banderas
+       * * `America/Barbados` - America/Barbados
+       * * `America/Belem` - America/Belem
+       * * `America/Belize` - America/Belize
+       * * `America/Blanc-Sablon` - America/Blanc-Sablon
+       * * `America/Boa_Vista` - America/Boa_Vista
+       * * `America/Bogota` - America/Bogota
+       * * `America/Boise` - America/Boise
+       * * `America/Buenos_Aires` - America/Buenos_Aires
+       * * `America/Cambridge_Bay` - America/Cambridge_Bay
+       * * `America/Campo_Grande` - America/Campo_Grande
+       * * `America/Cancun` - America/Cancun
+       * * `America/Caracas` - America/Caracas
+       * * `America/Catamarca` - America/Catamarca
+       * * `America/Cayenne` - America/Cayenne
+       * * `America/Cayman` - America/Cayman
+       * * `America/Chicago` - America/Chicago
+       * * `America/Chihuahua` - America/Chihuahua
+       * * `America/Ciudad_Juarez` - America/Ciudad_Juarez
+       * * `America/Coral_Harbour` - America/Coral_Harbour
+       * * `America/Cordoba` - America/Cordoba
+       * * `America/Costa_Rica` - America/Costa_Rica
+       * * `America/Creston` - America/Creston
+       * * `America/Cuiaba` - America/Cuiaba
+       * * `America/Curacao` - America/Curacao
+       * * `America/Danmarkshavn` - America/Danmarkshavn
+       * * `America/Dawson` - America/Dawson
+       * * `America/Dawson_Creek` - America/Dawson_Creek
+       * * `America/Denver` - America/Denver
+       * * `America/Detroit` - America/Detroit
+       * * `America/Dominica` - America/Dominica
+       * * `America/Edmonton` - America/Edmonton
+       * * `America/Eirunepe` - America/Eirunepe
+       * * `America/El_Salvador` - America/El_Salvador
+       * * `America/Ensenada` - America/Ensenada
+       * * `America/Fort_Nelson` - America/Fort_Nelson
+       * * `America/Fort_Wayne` - America/Fort_Wayne
+       * * `America/Fortaleza` - America/Fortaleza
+       * * `America/Glace_Bay` - America/Glace_Bay
+       * * `America/Godthab` - America/Godthab
+       * * `America/Goose_Bay` - America/Goose_Bay
+       * * `America/Grand_Turk` - America/Grand_Turk
+       * * `America/Grenada` - America/Grenada
+       * * `America/Guadeloupe` - America/Guadeloupe
+       * * `America/Guatemala` - America/Guatemala
+       * * `America/Guayaquil` - America/Guayaquil
+       * * `America/Guyana` - America/Guyana
+       * * `America/Halifax` - America/Halifax
+       * * `America/Havana` - America/Havana
+       * * `America/Hermosillo` - America/Hermosillo
+       * * `America/Indiana/Indianapolis` - America/Indiana/Indianapolis
+       * * `America/Indiana/Knox` - America/Indiana/Knox
+       * * `America/Indiana/Marengo` - America/Indiana/Marengo
+       * * `America/Indiana/Petersburg` - America/Indiana/Petersburg
+       * * `America/Indiana/Tell_City` - America/Indiana/Tell_City
+       * * `America/Indiana/Vevay` - America/Indiana/Vevay
+       * * `America/Indiana/Vincennes` - America/Indiana/Vincennes
+       * * `America/Indiana/Winamac` - America/Indiana/Winamac
+       * * `America/Indianapolis` - America/Indianapolis
+       * * `America/Inuvik` - America/Inuvik
+       * * `America/Iqaluit` - America/Iqaluit
+       * * `America/Jamaica` - America/Jamaica
+       * * `America/Jujuy` - America/Jujuy
+       * * `America/Juneau` - America/Juneau
+       * * `America/Kentucky/Louisville` - America/Kentucky/Louisville
+       * * `America/Kentucky/Monticello` - America/Kentucky/Monticello
+       * * `America/Knox_IN` - America/Knox_IN
+       * * `America/Kralendijk` - America/Kralendijk
+       * * `America/La_Paz` - America/La_Paz
+       * * `America/Lima` - America/Lima
+       * * `America/Los_Angeles` - America/Los_Angeles
+       * * `America/Louisville` - America/Louisville
+       * * `America/Lower_Princes` - America/Lower_Princes
+       * * `America/Maceio` - America/Maceio
+       * * `America/Managua` - America/Managua
+       * * `America/Manaus` - America/Manaus
+       * * `America/Marigot` - America/Marigot
+       * * `America/Martinique` - America/Martinique
+       * * `America/Matamoros` - America/Matamoros
+       * * `America/Mazatlan` - America/Mazatlan
+       * * `America/Mendoza` - America/Mendoza
+       * * `America/Menominee` - America/Menominee
+       * * `America/Merida` - America/Merida
+       * * `America/Metlakatla` - America/Metlakatla
+       * * `America/Mexico_City` - America/Mexico_City
+       * * `America/Miquelon` - America/Miquelon
+       * * `America/Moncton` - America/Moncton
+       * * `America/Monterrey` - America/Monterrey
+       * * `America/Montevideo` - America/Montevideo
+       * * `America/Montreal` - America/Montreal
+       * * `America/Montserrat` - America/Montserrat
+       * * `America/Nassau` - America/Nassau
+       * * `America/New_York` - America/New_York
+       * * `America/Nipigon` - America/Nipigon
+       * * `America/Nome` - America/Nome
+       * * `America/Noronha` - America/Noronha
+       * * `America/North_Dakota/Beulah` - America/North_Dakota/Beulah
+       * * `America/North_Dakota/Center` - America/North_Dakota/Center
+       * * `America/North_Dakota/New_Salem` - America/North_Dakota/New_Salem
+       * * `America/Nuuk` - America/Nuuk
+       * * `America/Ojinaga` - America/Ojinaga
+       * * `America/Panama` - America/Panama
+       * * `America/Pangnirtung` - America/Pangnirtung
+       * * `America/Paramaribo` - America/Paramaribo
+       * * `America/Phoenix` - America/Phoenix
+       * * `America/Port-au-Prince` - America/Port-au-Prince
+       * * `America/Port_of_Spain` - America/Port_of_Spain
+       * * `America/Porto_Acre` - America/Porto_Acre
+       * * `America/Porto_Velho` - America/Porto_Velho
+       * * `America/Puerto_Rico` - America/Puerto_Rico
+       * * `America/Punta_Arenas` - America/Punta_Arenas
+       * * `America/Rainy_River` - America/Rainy_River
+       * * `America/Rankin_Inlet` - America/Rankin_Inlet
+       * * `America/Recife` - America/Recife
+       * * `America/Regina` - America/Regina
+       * * `America/Resolute` - America/Resolute
+       * * `America/Rio_Branco` - America/Rio_Branco
+       * * `America/Rosario` - America/Rosario
+       * * `America/Santa_Isabel` - America/Santa_Isabel
+       * * `America/Santarem` - America/Santarem
+       * * `America/Santiago` - America/Santiago
+       * * `America/Santo_Domingo` - America/Santo_Domingo
+       * * `America/Sao_Paulo` - America/Sao_Paulo
+       * * `America/Scoresbysund` - America/Scoresbysund
+       * * `America/Shiprock` - America/Shiprock
+       * * `America/Sitka` - America/Sitka
+       * * `America/St_Barthelemy` - America/St_Barthelemy
+       * * `America/St_Johns` - America/St_Johns
+       * * `America/St_Kitts` - America/St_Kitts
+       * * `America/St_Lucia` - America/St_Lucia
+       * * `America/St_Thomas` - America/St_Thomas
+       * * `America/St_Vincent` - America/St_Vincent
+       * * `America/Swift_Current` - America/Swift_Current
+       * * `America/Tegucigalpa` - America/Tegucigalpa
+       * * `America/Thule` - America/Thule
+       * * `America/Thunder_Bay` - America/Thunder_Bay
+       * * `America/Tijuana` - America/Tijuana
+       * * `America/Toronto` - America/Toronto
+       * * `America/Tortola` - America/Tortola
+       * * `America/Vancouver` - America/Vancouver
+       * * `America/Virgin` - America/Virgin
+       * * `America/Whitehorse` - America/Whitehorse
+       * * `America/Winnipeg` - America/Winnipeg
+       * * `America/Yakutat` - America/Yakutat
+       * * `America/Yellowknife` - America/Yellowknife
+       * * `Antarctica/Casey` - Antarctica/Casey
+       * * `Antarctica/Davis` - Antarctica/Davis
+       * * `Antarctica/DumontDUrville` - Antarctica/DumontDUrville
+       * * `Antarctica/Macquarie` - Antarctica/Macquarie
+       * * `Antarctica/Mawson` - Antarctica/Mawson
+       * * `Antarctica/McMurdo` - Antarctica/McMurdo
+       * * `Antarctica/Palmer` - Antarctica/Palmer
+       * * `Antarctica/Rothera` - Antarctica/Rothera
+       * * `Antarctica/South_Pole` - Antarctica/South_Pole
+       * * `Antarctica/Syowa` - Antarctica/Syowa
+       * * `Antarctica/Troll` - Antarctica/Troll
+       * * `Antarctica/Vostok` - Antarctica/Vostok
+       * * `Arctic/Longyearbyen` - Arctic/Longyearbyen
+       * * `Asia/Aden` - Asia/Aden
+       * * `Asia/Almaty` - Asia/Almaty
+       * * `Asia/Amman` - Asia/Amman
+       * * `Asia/Anadyr` - Asia/Anadyr
+       * * `Asia/Aqtau` - Asia/Aqtau
+       * * `Asia/Aqtobe` - Asia/Aqtobe
+       * * `Asia/Ashgabat` - Asia/Ashgabat
+       * * `Asia/Ashkhabad` - Asia/Ashkhabad
+       * * `Asia/Atyrau` - Asia/Atyrau
+       * * `Asia/Baghdad` - Asia/Baghdad
+       * * `Asia/Bahrain` - Asia/Bahrain
+       * * `Asia/Baku` - Asia/Baku
+       * * `Asia/Bangkok` - Asia/Bangkok
+       * * `Asia/Barnaul` - Asia/Barnaul
+       * * `Asia/Beirut` - Asia/Beirut
+       * * `Asia/Bishkek` - Asia/Bishkek
+       * * `Asia/Brunei` - Asia/Brunei
+       * * `Asia/Calcutta` - Asia/Calcutta
+       * * `Asia/Chita` - Asia/Chita
+       * * `Asia/Choibalsan` - Asia/Choibalsan
+       * * `Asia/Chongqing` - Asia/Chongqing
+       * * `Asia/Chungking` - Asia/Chungking
+       * * `Asia/Colombo` - Asia/Colombo
+       * * `Asia/Dacca` - Asia/Dacca
+       * * `Asia/Damascus` - Asia/Damascus
+       * * `Asia/Dhaka` - Asia/Dhaka
+       * * `Asia/Dili` - Asia/Dili
+       * * `Asia/Dubai` - Asia/Dubai
+       * * `Asia/Dushanbe` - Asia/Dushanbe
+       * * `Asia/Famagusta` - Asia/Famagusta
+       * * `Asia/Gaza` - Asia/Gaza
+       * * `Asia/Harbin` - Asia/Harbin
+       * * `Asia/Hebron` - Asia/Hebron
+       * * `Asia/Ho_Chi_Minh` - Asia/Ho_Chi_Minh
+       * * `Asia/Hong_Kong` - Asia/Hong_Kong
+       * * `Asia/Hovd` - Asia/Hovd
+       * * `Asia/Irkutsk` - Asia/Irkutsk
+       * * `Asia/Istanbul` - Asia/Istanbul
+       * * `Asia/Jakarta` - Asia/Jakarta
+       * * `Asia/Jayapura` - Asia/Jayapura
+       * * `Asia/Jerusalem` - Asia/Jerusalem
+       * * `Asia/Kabul` - Asia/Kabul
+       * * `Asia/Kamchatka` - Asia/Kamchatka
+       * * `Asia/Karachi` - Asia/Karachi
+       * * `Asia/Kashgar` - Asia/Kashgar
+       * * `Asia/Kathmandu` - Asia/Kathmandu
+       * * `Asia/Katmandu` - Asia/Katmandu
+       * * `Asia/Khandyga` - Asia/Khandyga
+       * * `Asia/Kolkata` - Asia/Kolkata
+       * * `Asia/Krasnoyarsk` - Asia/Krasnoyarsk
+       * * `Asia/Kuala_Lumpur` - Asia/Kuala_Lumpur
+       * * `Asia/Kuching` - Asia/Kuching
+       * * `Asia/Kuwait` - Asia/Kuwait
+       * * `Asia/Macao` - Asia/Macao
+       * * `Asia/Macau` - Asia/Macau
+       * * `Asia/Magadan` - Asia/Magadan
+       * * `Asia/Makassar` - Asia/Makassar
+       * * `Asia/Manila` - Asia/Manila
+       * * `Asia/Muscat` - Asia/Muscat
+       * * `Asia/Nicosia` - Asia/Nicosia
+       * * `Asia/Novokuznetsk` - Asia/Novokuznetsk
+       * * `Asia/Novosibirsk` - Asia/Novosibirsk
+       * * `Asia/Omsk` - Asia/Omsk
+       * * `Asia/Oral` - Asia/Oral
+       * * `Asia/Phnom_Penh` - Asia/Phnom_Penh
+       * * `Asia/Pontianak` - Asia/Pontianak
+       * * `Asia/Pyongyang` - Asia/Pyongyang
+       * * `Asia/Qatar` - Asia/Qatar
+       * * `Asia/Qostanay` - Asia/Qostanay
+       * * `Asia/Qyzylorda` - Asia/Qyzylorda
+       * * `Asia/Rangoon` - Asia/Rangoon
+       * * `Asia/Riyadh` - Asia/Riyadh
+       * * `Asia/Saigon` - Asia/Saigon
+       * * `Asia/Sakhalin` - Asia/Sakhalin
+       * * `Asia/Samarkand` - Asia/Samarkand
+       * * `Asia/Seoul` - Asia/Seoul
+       * * `Asia/Shanghai` - Asia/Shanghai
+       * * `Asia/Singapore` - Asia/Singapore
+       * * `Asia/Srednekolymsk` - Asia/Srednekolymsk
+       * * `Asia/Taipei` - Asia/Taipei
+       * * `Asia/Tashkent` - Asia/Tashkent
+       * * `Asia/Tbilisi` - Asia/Tbilisi
+       * * `Asia/Tehran` - Asia/Tehran
+       * * `Asia/Tel_Aviv` - Asia/Tel_Aviv
+       * * `Asia/Thimbu` - Asia/Thimbu
+       * * `Asia/Thimphu` - Asia/Thimphu
+       * * `Asia/Tokyo` - Asia/Tokyo
+       * * `Asia/Tomsk` - Asia/Tomsk
+       * * `Asia/Ujung_Pandang` - Asia/Ujung_Pandang
+       * * `Asia/Ulaanbaatar` - Asia/Ulaanbaatar
+       * * `Asia/Ulan_Bator` - Asia/Ulan_Bator
+       * * `Asia/Urumqi` - Asia/Urumqi
+       * * `Asia/Ust-Nera` - Asia/Ust-Nera
+       * * `Asia/Vientiane` - Asia/Vientiane
+       * * `Asia/Vladivostok` - Asia/Vladivostok
+       * * `Asia/Yakutsk` - Asia/Yakutsk
+       * * `Asia/Yangon` - Asia/Yangon
+       * * `Asia/Yekaterinburg` - Asia/Yekaterinburg
+       * * `Asia/Yerevan` - Asia/Yerevan
+       * * `Atlantic/Azores` - Atlantic/Azores
+       * * `Atlantic/Bermuda` - Atlantic/Bermuda
+       * * `Atlantic/Canary` - Atlantic/Canary
+       * * `Atlantic/Cape_Verde` - Atlantic/Cape_Verde
+       * * `Atlantic/Faeroe` - Atlantic/Faeroe
+       * * `Atlantic/Faroe` - Atlantic/Faroe
+       * * `Atlantic/Jan_Mayen` - Atlantic/Jan_Mayen
+       * * `Atlantic/Madeira` - Atlantic/Madeira
+       * * `Atlantic/Reykjavik` - Atlantic/Reykjavik
+       * * `Atlantic/South_Georgia` - Atlantic/South_Georgia
+       * * `Atlantic/St_Helena` - Atlantic/St_Helena
+       * * `Atlantic/Stanley` - Atlantic/Stanley
+       * * `Australia/ACT` - Australia/ACT
+       * * `Australia/Adelaide` - Australia/Adelaide
+       * * `Australia/Brisbane` - Australia/Brisbane
+       * * `Australia/Broken_Hill` - Australia/Broken_Hill
+       * * `Australia/Canberra` - Australia/Canberra
+       * * `Australia/Currie` - Australia/Currie
+       * * `Australia/Darwin` - Australia/Darwin
+       * * `Australia/Eucla` - Australia/Eucla
+       * * `Australia/Hobart` - Australia/Hobart
+       * * `Australia/LHI` - Australia/LHI
+       * * `Australia/Lindeman` - Australia/Lindeman
+       * * `Australia/Lord_Howe` - Australia/Lord_Howe
+       * * `Australia/Melbourne` - Australia/Melbourne
+       * * `Australia/NSW` - Australia/NSW
+       * * `Australia/North` - Australia/North
+       * * `Australia/Perth` - Australia/Perth
+       * * `Australia/Queensland` - Australia/Queensland
+       * * `Australia/South` - Australia/South
+       * * `Australia/Sydney` - Australia/Sydney
+       * * `Australia/Tasmania` - Australia/Tasmania
+       * * `Australia/Victoria` - Australia/Victoria
+       * * `Australia/West` - Australia/West
+       * * `Australia/Yancowinna` - Australia/Yancowinna
+       * * `Brazil/Acre` - Brazil/Acre
+       * * `Brazil/DeNoronha` - Brazil/DeNoronha
+       * * `Brazil/East` - Brazil/East
+       * * `Brazil/West` - Brazil/West
+       * * `CET` - CET
+       * * `CST6CDT` - CST6CDT
+       * * `Canada/Atlantic` - Canada/Atlantic
+       * * `Canada/Central` - Canada/Central
+       * * `Canada/Eastern` - Canada/Eastern
+       * * `Canada/Mountain` - Canada/Mountain
+       * * `Canada/Newfoundland` - Canada/Newfoundland
+       * * `Canada/Pacific` - Canada/Pacific
+       * * `Canada/Saskatchewan` - Canada/Saskatchewan
+       * * `Canada/Yukon` - Canada/Yukon
+       * * `Chile/Continental` - Chile/Continental
+       * * `Chile/EasterIsland` - Chile/EasterIsland
+       * * `Cuba` - Cuba
+       * * `EET` - EET
+       * * `EST` - EST
+       * * `EST5EDT` - EST5EDT
+       * * `Egypt` - Egypt
+       * * `Eire` - Eire
+       * * `Etc/GMT` - Etc/GMT
+       * * `Etc/GMT+0` - Etc/GMT+0
+       * * `Etc/GMT+1` - Etc/GMT+1
+       * * `Etc/GMT+10` - Etc/GMT+10
+       * * `Etc/GMT+11` - Etc/GMT+11
+       * * `Etc/GMT+12` - Etc/GMT+12
+       * * `Etc/GMT+2` - Etc/GMT+2
+       * * `Etc/GMT+3` - Etc/GMT+3
+       * * `Etc/GMT+4` - Etc/GMT+4
+       * * `Etc/GMT+5` - Etc/GMT+5
+       * * `Etc/GMT+6` - Etc/GMT+6
+       * * `Etc/GMT+7` - Etc/GMT+7
+       * * `Etc/GMT+8` - Etc/GMT+8
+       * * `Etc/GMT+9` - Etc/GMT+9
+       * * `Etc/GMT-0` - Etc/GMT-0
+       * * `Etc/GMT-1` - Etc/GMT-1
+       * * `Etc/GMT-10` - Etc/GMT-10
+       * * `Etc/GMT-11` - Etc/GMT-11
+       * * `Etc/GMT-12` - Etc/GMT-12
+       * * `Etc/GMT-13` - Etc/GMT-13
+       * * `Etc/GMT-14` - Etc/GMT-14
+       * * `Etc/GMT-2` - Etc/GMT-2
+       * * `Etc/GMT-3` - Etc/GMT-3
+       * * `Etc/GMT-4` - Etc/GMT-4
+       * * `Etc/GMT-5` - Etc/GMT-5
+       * * `Etc/GMT-6` - Etc/GMT-6
+       * * `Etc/GMT-7` - Etc/GMT-7
+       * * `Etc/GMT-8` - Etc/GMT-8
+       * * `Etc/GMT-9` - Etc/GMT-9
+       * * `Etc/GMT0` - Etc/GMT0
+       * * `Etc/Greenwich` - Etc/Greenwich
+       * * `Etc/UCT` - Etc/UCT
+       * * `Etc/UTC` - Etc/UTC
+       * * `Etc/Universal` - Etc/Universal
+       * * `Etc/Zulu` - Etc/Zulu
+       * * `Europe/Amsterdam` - Europe/Amsterdam
+       * * `Europe/Andorra` - Europe/Andorra
+       * * `Europe/Astrakhan` - Europe/Astrakhan
+       * * `Europe/Athens` - Europe/Athens
+       * * `Europe/Belfast` - Europe/Belfast
+       * * `Europe/Belgrade` - Europe/Belgrade
+       * * `Europe/Berlin` - Europe/Berlin
+       * * `Europe/Bratislava` - Europe/Bratislava
+       * * `Europe/Brussels` - Europe/Brussels
+       * * `Europe/Bucharest` - Europe/Bucharest
+       * * `Europe/Budapest` - Europe/Budapest
+       * * `Europe/Busingen` - Europe/Busingen
+       * * `Europe/Chisinau` - Europe/Chisinau
+       * * `Europe/Copenhagen` - Europe/Copenhagen
+       * * `Europe/Dublin` - Europe/Dublin
+       * * `Europe/Gibraltar` - Europe/Gibraltar
+       * * `Europe/Guernsey` - Europe/Guernsey
+       * * `Europe/Helsinki` - Europe/Helsinki
+       * * `Europe/Isle_of_Man` - Europe/Isle_of_Man
+       * * `Europe/Istanbul` - Europe/Istanbul
+       * * `Europe/Jersey` - Europe/Jersey
+       * * `Europe/Kaliningrad` - Europe/Kaliningrad
+       * * `Europe/Kiev` - Europe/Kiev
+       * * `Europe/Kirov` - Europe/Kirov
+       * * `Europe/Kyiv` - Europe/Kyiv
+       * * `Europe/Lisbon` - Europe/Lisbon
+       * * `Europe/Ljubljana` - Europe/Ljubljana
+       * * `Europe/London` - Europe/London
+       * * `Europe/Luxembourg` - Europe/Luxembourg
+       * * `Europe/Madrid` - Europe/Madrid
+       * * `Europe/Malta` - Europe/Malta
+       * * `Europe/Mariehamn` - Europe/Mariehamn
+       * * `Europe/Minsk` - Europe/Minsk
+       * * `Europe/Monaco` - Europe/Monaco
+       * * `Europe/Moscow` - Europe/Moscow
+       * * `Europe/Nicosia` - Europe/Nicosia
+       * * `Europe/Oslo` - Europe/Oslo
+       * * `Europe/Paris` - Europe/Paris
+       * * `Europe/Podgorica` - Europe/Podgorica
+       * * `Europe/Prague` - Europe/Prague
+       * * `Europe/Riga` - Europe/Riga
+       * * `Europe/Rome` - Europe/Rome
+       * * `Europe/Samara` - Europe/Samara
+       * * `Europe/San_Marino` - Europe/San_Marino
+       * * `Europe/Sarajevo` - Europe/Sarajevo
+       * * `Europe/Saratov` - Europe/Saratov
+       * * `Europe/Simferopol` - Europe/Simferopol
+       * * `Europe/Skopje` - Europe/Skopje
+       * * `Europe/Sofia` - Europe/Sofia
+       * * `Europe/Stockholm` - Europe/Stockholm
+       * * `Europe/Tallinn` - Europe/Tallinn
+       * * `Europe/Tirane` - Europe/Tirane
+       * * `Europe/Tiraspol` - Europe/Tiraspol
+       * * `Europe/Ulyanovsk` - Europe/Ulyanovsk
+       * * `Europe/Uzhgorod` - Europe/Uzhgorod
+       * * `Europe/Vaduz` - Europe/Vaduz
+       * * `Europe/Vatican` - Europe/Vatican
+       * * `Europe/Vienna` - Europe/Vienna
+       * * `Europe/Vilnius` - Europe/Vilnius
+       * * `Europe/Volgograd` - Europe/Volgograd
+       * * `Europe/Warsaw` - Europe/Warsaw
+       * * `Europe/Zagreb` - Europe/Zagreb
+       * * `Europe/Zaporozhye` - Europe/Zaporozhye
+       * * `Europe/Zurich` - Europe/Zurich
+       * * `GB` - GB
+       * * `GB-Eire` - GB-Eire
+       * * `GMT` - GMT
+       * * `GMT+0` - GMT+0
+       * * `GMT-0` - GMT-0
+       * * `GMT0` - GMT0
+       * * `Greenwich` - Greenwich
+       * * `HST` - HST
+       * * `Hongkong` - Hongkong
+       * * `Iceland` - Iceland
+       * * `Indian/Antananarivo` - Indian/Antananarivo
+       * * `Indian/Chagos` - Indian/Chagos
+       * * `Indian/Christmas` - Indian/Christmas
+       * * `Indian/Cocos` - Indian/Cocos
+       * * `Indian/Comoro` - Indian/Comoro
+       * * `Indian/Kerguelen` - Indian/Kerguelen
+       * * `Indian/Mahe` - Indian/Mahe
+       * * `Indian/Maldives` - Indian/Maldives
+       * * `Indian/Mauritius` - Indian/Mauritius
+       * * `Indian/Mayotte` - Indian/Mayotte
+       * * `Indian/Reunion` - Indian/Reunion
+       * * `Iran` - Iran
+       * * `Israel` - Israel
+       * * `Jamaica` - Jamaica
+       * * `Japan` - Japan
+       * * `Kwajalein` - Kwajalein
+       * * `Libya` - Libya
+       * * `MET` - MET
+       * * `MST` - MST
+       * * `MST7MDT` - MST7MDT
+       * * `Mexico/BajaNorte` - Mexico/BajaNorte
+       * * `Mexico/BajaSur` - Mexico/BajaSur
+       * * `Mexico/General` - Mexico/General
+       * * `NZ` - NZ
+       * * `NZ-CHAT` - NZ-CHAT
+       * * `Navajo` - Navajo
+       * * `PRC` - PRC
+       * * `PST8PDT` - PST8PDT
+       * * `Pacific/Apia` - Pacific/Apia
+       * * `Pacific/Auckland` - Pacific/Auckland
+       * * `Pacific/Bougainville` - Pacific/Bougainville
+       * * `Pacific/Chatham` - Pacific/Chatham
+       * * `Pacific/Chuuk` - Pacific/Chuuk
+       * * `Pacific/Easter` - Pacific/Easter
+       * * `Pacific/Efate` - Pacific/Efate
+       * * `Pacific/Enderbury` - Pacific/Enderbury
+       * * `Pacific/Fakaofo` - Pacific/Fakaofo
+       * * `Pacific/Fiji` - Pacific/Fiji
+       * * `Pacific/Funafuti` - Pacific/Funafuti
+       * * `Pacific/Galapagos` - Pacific/Galapagos
+       * * `Pacific/Gambier` - Pacific/Gambier
+       * * `Pacific/Guadalcanal` - Pacific/Guadalcanal
+       * * `Pacific/Guam` - Pacific/Guam
+       * * `Pacific/Honolulu` - Pacific/Honolulu
+       * * `Pacific/Johnston` - Pacific/Johnston
+       * * `Pacific/Kanton` - Pacific/Kanton
+       * * `Pacific/Kiritimati` - Pacific/Kiritimati
+       * * `Pacific/Kosrae` - Pacific/Kosrae
+       * * `Pacific/Kwajalein` - Pacific/Kwajalein
+       * * `Pacific/Majuro` - Pacific/Majuro
+       * * `Pacific/Marquesas` - Pacific/Marquesas
+       * * `Pacific/Midway` - Pacific/Midway
+       * * `Pacific/Nauru` - Pacific/Nauru
+       * * `Pacific/Niue` - Pacific/Niue
+       * * `Pacific/Norfolk` - Pacific/Norfolk
+       * * `Pacific/Noumea` - Pacific/Noumea
+       * * `Pacific/Pago_Pago` - Pacific/Pago_Pago
+       * * `Pacific/Palau` - Pacific/Palau
+       * * `Pacific/Pitcairn` - Pacific/Pitcairn
+       * * `Pacific/Pohnpei` - Pacific/Pohnpei
+       * * `Pacific/Ponape` - Pacific/Ponape
+       * * `Pacific/Port_Moresby` - Pacific/Port_Moresby
+       * * `Pacific/Rarotonga` - Pacific/Rarotonga
+       * * `Pacific/Saipan` - Pacific/Saipan
+       * * `Pacific/Samoa` - Pacific/Samoa
+       * * `Pacific/Tahiti` - Pacific/Tahiti
+       * * `Pacific/Tarawa` - Pacific/Tarawa
+       * * `Pacific/Tongatapu` - Pacific/Tongatapu
+       * * `Pacific/Truk` - Pacific/Truk
+       * * `Pacific/Wake` - Pacific/Wake
+       * * `Pacific/Wallis` - Pacific/Wallis
+       * * `Pacific/Yap` - Pacific/Yap
+       * * `Poland` - Poland
+       * * `Portugal` - Portugal
+       * * `ROC` - ROC
+       * * `ROK` - ROK
+       * * `Singapore` - Singapore
+       * * `Turkey` - Turkey
+       * * `UCT` - UCT
+       * * `US/Alaska` - US/Alaska
+       * * `US/Aleutian` - US/Aleutian
+       * * `US/Arizona` - US/Arizona
+       * * `US/Central` - US/Central
+       * * `US/East-Indiana` - US/East-Indiana
+       * * `US/Eastern` - US/Eastern
+       * * `US/Hawaii` - US/Hawaii
+       * * `US/Indiana-Starke` - US/Indiana-Starke
+       * * `US/Michigan` - US/Michigan
+       * * `US/Mountain` - US/Mountain
+       * * `US/Pacific` - US/Pacific
+       * * `US/Samoa` - US/Samoa
+       * * `UTC` - UTC
+       * * `Universal` - Universal
+       * * `W-SU` - W-SU
+       * * `WET` - WET
+       * * `Zulu` - Zulu */
+      timezone?: string;
+      /** Element attributes that posthog-js should capture as action identifiers (e.g. `['data-attr']`). */
+      data_attributes?: unknown;
+      /**
+         * Ordered list of person properties used to render a human-friendly display name in the UI.
+         * @nullable
+         * @items.maxLength 400
+         */
+      person_display_name_properties?: string[] | null;
+      correlation_config?: unknown;
+      /**
+         * Disables posthog-js autocapture (clicks, page views) when true.
+         * @nullable
+         */
+      autocapture_opt_out?: boolean | null;
+      /**
+         * Enables automatic capture of JavaScript exceptions via the SDK.
+         * @nullable
+         */
+      autocapture_exceptions_opt_in?: boolean | null;
+      /**
+         * Enables automatic capture of Core Web Vitals performance metrics.
+         * @nullable
+         */
+      autocapture_web_vitals_opt_in?: boolean | null;
+      autocapture_web_vitals_allowed_metrics?: unknown;
+      autocapture_exceptions_errors_to_ignore?: unknown;
+      /**
+         * Enables capturing browser console logs alongside session replays.
+         * @nullable
+         */
+      capture_console_log_opt_in?: boolean | null;
+      /**
+         * Enables capturing performance timing and network requests.
+         * @nullable
+         */
+      capture_performance_opt_in?: boolean | null;
+      /** Enables session replay recording for this project. */
+      session_recording_opt_in?: boolean;
+      /**
+         * Fraction of sessions to record, as a decimal string between `0.00` and `1.00` (e.g. `0.1` = 10%).
+         * @nullable
+         * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
+         */
+      session_recording_sample_rate?: string | null;
+      /**
+         * Skip saving sessions shorter than this many milliseconds.
+         * @minimum 0
+         * @maximum 30000
+         * @nullable
+         */
+      session_recording_minimum_duration_milliseconds?: number | null;
+      session_recording_linked_flag?: unknown;
+      session_recording_network_payload_capture_config?: unknown;
+      session_recording_masking_config?: unknown;
+      /** @nullable */
+      session_recording_url_trigger_config?: unknown[] | null;
+      /** @nullable */
+      session_recording_url_blocklist_config?: unknown[] | null;
+      /** @nullable */
+      session_recording_event_trigger_config?: (string | null)[] | null;
+      /**
+         * @maxLength 24
+         * @nullable
+         */
+      session_recording_trigger_match_type_config?: string | null;
+      /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
+      session_recording_trigger_groups?: unknown;
+      /** How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).
+       *
+       * * `30d` - 30 Days
+       * * `90d` - 90 Days
+       * * `1y` - 1 Year
+       * * `5y` - 5 Years */
+      session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
+      session_replay_config?: unknown;
+      survey_config?: unknown;
+      access_control?: boolean;
+      /** First day of the week for date range filters. 0 = Sunday, 1 = Monday.
+       *
+       * * `0` - Sunday
+       * * `1` - Monday */
+      week_start_day?: WeekStartDayEnum | null;
+      /**
+         * ID of the dashboard shown as the project's default landing dashboard.
+         * @nullable
+         */
+      primary_dashboard?: number | null;
+      /** @nullable */
+      live_events_columns?: string[] | null;
+      /**
+         * Origins permitted to record session replays and heatmaps. Empty list allows all origins.
+         * @nullable
+         * @items.maxLength 200
+         */
+      recording_domains?: (string | null)[] | null;
+      /** @nullable */
+      inject_web_apps?: boolean | null;
+      extra_settings?: unknown;
+      modifiers?: unknown;
+      has_completed_onboarding_for?: unknown;
+      /**
+         * Enables displaying surveys via posthog-js on allowed origins.
+         * @nullable
+         */
+      surveys_opt_in?: boolean | null;
+      /**
+         * Enables heatmap recording on pages that host posthog-js.
+         * @nullable
+         */
+      heatmaps_opt_in?: boolean | null;
+      /**
+         * Default value for the `persist` option on newly created feature flags.
+         * @nullable
+         */
+      flags_persistence_default?: boolean | null;
+      /** @nullable */
+      receive_org_level_activity_logs?: boolean | null;
+      /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
+       *
+       * * `b2b` - B2B
+       * * `b2c` - B2C
+       * * `other` - Other */
+      business_model?: BusinessModelEnum | BlankEnum | null;
+      /**
+         * Enables the customer conversations / live chat product for this project.
+         * @nullable
+         */
+      conversations_enabled?: boolean | null;
+      /**
+         * Settings for Conversations. Must be a JSON object or null.
+         * @nullable
+         */
+      conversations_settings?: ProjectCreateRequestConversationsSettings;
+      logs_settings?: unknown;
+      /** @nullable */
+      proactive_tasks_enabled?: boolean | null;
+      revenue_analytics_config?: TeamRevenueAnalyticsConfig;
+      marketing_analytics_config?: TeamMarketingAnalyticsConfig;
+      customer_analytics_config?: TeamCustomerAnalyticsConfig;
+      workflows_config?: TeamWorkflowsConfig;
+      feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
+      base_currency?: BaseCurrencyEnum;
+      /**
+         * Enables capturing clicks that had no effect (rage-click detection).
+         * @nullable
+         */
+      capture_dead_clicks?: boolean | null;
+      cookieless_server_hash_mode?: CookielessServerHashModeEnum | null;
+      /** @nullable */
+      human_friendly_comparison_periods?: boolean | null;
+      /** @nullable */
+      feature_flag_confirmation_enabled?: boolean | null;
+      /** @nullable */
+      feature_flag_confirmation_message?: string | null;
+      /**
+         * Whether to automatically apply default evaluation contexts to new feature flags
+         * @nullable
+         */
+      default_evaluation_contexts_enabled?: boolean | null;
+      /**
+         * Whether to require at least one evaluation context tag when creating new feature flags
+         * @nullable
+         */
+      require_evaluation_contexts?: boolean | null;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      default_data_theme?: number | null;
+      onboarding_tasks?: unknown;
+      /** @nullable */
+      web_analytics_pre_aggregated_tables_enabled?: boolean | null;
     }
 
     /**
@@ -97162,6 +98717,8 @@ export namespace Schemas {
       caption?: string | null;
       /** Names of the sibling fields whose values the account listing needs. The form sends exactly these, and the listing endpoint accepts exactly these. */
       credentialFields: string[];
+      /** Name of an OAuth integration id field that lists the same accounts, for a source offering both a typed-in credential and a connected account. The form sends this instead of `credentialFields` when it holds a value, and the listing endpoint accepts it on the same allowlist. */
+      integrationField?: string | null;
       label: string;
       name: string;
       placeholder?: string | null;
@@ -98557,6 +100114,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -98671,7 +100229,21 @@ export namespace Schemas {
        * * `ExactOnline` - ExactOnline
        * * `LettrLabs` - LettrLabs
        * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura */
+       * * `Tessitura` - Tessitura
+       * * `ChargebackStop` - ChargebackStop
+       * * `Chargeflow` - Chargeflow
+       * * `Dreamdata` - Dreamdata
+       * * `GoogleBusinessProfile` - GoogleBusinessProfile
+       * * `Ledyer` - Ledyer
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal
+       * * `Vimeo` - Vimeo
+       * * `Scrunch` - Scrunch
+       * * `Loom` - Loom
+       * * `Arcade` - Arcade
+       * * `Neo4j` - Neo4j
+       * * `TestDino` - TestDino */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -98683,6 +100255,21 @@ export namespace Schemas {
     export interface SourceDestinations {
       /** Destinations every table on this source syncs to. */
       destination_ids: string[];
+    }
+
+    export interface SourceEditError {
+      /** Why the change could not be applied. */
+      detail: string;
+      /**
+         * Path of the file that caused the error, if any.
+         * @nullable
+         */
+      path: string | null;
+      /**
+         * Zero-based index of the failed edit inside that file's edits, if any.
+         * @nullable
+         */
+      edit_index: number | null;
     }
 
     export interface SourceMappingSuggestion {
@@ -99968,6 +101555,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -100082,7 +101670,21 @@ export namespace Schemas {
        * * `ExactOnline` - ExactOnline
        * * `LettrLabs` - LettrLabs
        * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura */
+       * * `Tessitura` - Tessitura
+       * * `ChargebackStop` - ChargebackStop
+       * * `Chargeflow` - Chargeflow
+       * * `Dreamdata` - Dreamdata
+       * * `GoogleBusinessProfile` - GoogleBusinessProfile
+       * * `Ledyer` - Ledyer
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal
+       * * `Vimeo` - Vimeo
+       * * `Scrunch` - Scrunch
+       * * `Loom` - Loom
+       * * `Arcade` - Arcade
+       * * `Neo4j` - Neo4j
+       * * `TestDino` - TestDino */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -101361,6 +102963,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -101475,7 +103078,21 @@ export namespace Schemas {
        * * `ExactOnline` - ExactOnline
        * * `LettrLabs` - LettrLabs
        * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura */
+       * * `Tessitura` - Tessitura
+       * * `ChargebackStop` - ChargebackStop
+       * * `Chargeflow` - Chargeflow
+       * * `Dreamdata` - Dreamdata
+       * * `GoogleBusinessProfile` - GoogleBusinessProfile
+       * * `Ledyer` - Ledyer
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal
+       * * `Vimeo` - Vimeo
+       * * `Scrunch` - Scrunch
+       * * `Loom` - Loom
+       * * `Arcade` - Arcade
+       * * `Neo4j` - Neo4j
+       * * `TestDino` - TestDino */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -101791,7 +103408,7 @@ export namespace Schemas {
     }
 
     export interface StaffFlagEvaluationsModeMutation {
-      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab charts, and the table is available in SQL. 2 also reads it for the per-project counts on a flag's Projects tab and for events lists filtered to only $feature_flag_called, and stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations.
+      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -101873,7 +103490,7 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
-      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab charts, and the table is available in SQL. 2 also reads it for the per-project counts on a flag's Projects tab and for events lists filtered to only $feature_flag_called, such as the Activity page and the Usage tab log. On 2, ingestion stops writing $feature_flag_called to events for the teams it writes to flag_evaluations. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -107125,6 +108742,13 @@ export namespace Schemas {
       code: string;
     }
 
+    export interface VersionConflict {
+      /** Why the change was refused. */
+      detail: string;
+      /** Active version number of the app. Read it and retry. */
+      current_version: number;
+    }
+
     export interface ViewLinkValidation {
       /**
          * Name of the table or view being joined onto the source table.
@@ -109651,7 +111275,7 @@ export namespace Schemas {
     }
 
     export interface _LogsFacetValuesBody {
-      /** Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own filter is excluded so counts reflect the other active filters.
+      /** Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts come from a rollup with 5-minute buckets, so the window widens to the buckets that contain date_from and date_to. The rollup honours severityLevels and serviceNames, but not body search, log-attribute filters, or resource-attribute filters. When personId or sessionId is set, counts come from the logs table with the exact window and every other filter. Both paths exclude this facet's own filter.
        *
        * * `severity_text` - severity_text
        * * `service_name` - service_name */
@@ -110617,10 +112241,12 @@ export namespace Schemas {
       bucketStart: string;
       /** Bucket size the point was plotted at. Must match the query that produced it, or the decomposition explains a different span.
        *
-       * * `second` - second
+       * * `second_15` - second_15
+       * * `second_30` - second_30
        * * `minute` - minute
        * * `minute_5` - minute_5
        * * `minute_15` - minute_15
+       * * `minute_30` - minute_30
        * * `hour` - hour
        * * `hour_6` - hour_6
        * * `day` - day
@@ -110710,10 +112336,12 @@ export namespace Schemas {
       groupBy?: _MetricGroupBy[];
       /** Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).
        *
-       * * `second` - second
+       * * `second_15` - second_15
+       * * `second_30` - second_30
        * * `minute` - minute
        * * `minute_5` - minute_5
        * * `minute_15` - minute_15
+       * * `minute_30` - minute_30
        * * `hour` - hour
        * * `hour_6` - hour_6
        * * `day` - day
@@ -113337,6 +114965,7 @@ export namespace Schemas {
      * * `TableCertification` - TableCertification
      * * `DataQualityCheck` - DataQualityCheck
      * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
+     * * `WarehouseSuggestion` - WarehouseSuggestion
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -113442,6 +115071,7 @@ export namespace Schemas {
       TableCertification: 'TableCertification',
       DataQualityCheck: 'DataQualityCheck',
       DataQualityCheckSchedule: 'DataQualityCheckSchedule',
+      WarehouseSuggestion: 'WarehouseSuggestion',
       Billing: 'Billing',
       Loop: 'Loop',
       StamphogRepoConfig: 'StamphogRepoConfig',
@@ -113533,6 +115163,7 @@ export namespace Schemas {
      * * `TableCertification` - TableCertification
      * * `DataQualityCheck` - DataQualityCheck
      * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
+     * * `WarehouseSuggestion` - WarehouseSuggestion
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -113626,6 +115257,7 @@ export namespace Schemas {
       TableCertification: 'TableCertification',
       DataQualityCheck: 'DataQualityCheck',
       DataQualityCheckSchedule: 'DataQualityCheckSchedule',
+      WarehouseSuggestion: 'WarehouseSuggestion',
       Billing: 'Billing',
       Loop: 'Loop',
       StamphogRepoConfig: 'StamphogRepoConfig',
@@ -119830,6 +121462,10 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Exclude Business intelligence worksheets from the insight list.
+     */
+    exclude_bi?: boolean;
+    /**
      * Include this parameter (any value) to restrict results to insights marked as favorited.
      */
     favorited?: boolean;
@@ -119839,7 +121475,7 @@ export namespace Schemas {
      */
     include_dashboards?: boolean;
     /**
-     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
+     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries; `BI` matches editable worksheets.
      */
     insight?: InsightsListInsight;
     /**
@@ -119858,6 +121494,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort by an insight field, with a leading minus for descending order. Supports last_modified_at and last_viewed_at.
+     */
+    order?: string;
     /**
      *
      * Whether to refresh the retrieved insights, how aggressively, and if sync or async:
@@ -119901,6 +121541,7 @@ export namespace Schemas {
 
 
     export const InsightsListInsight = {
+      Bi: 'BI',
       Funnels: 'FUNNELS',
       Journeys: 'JOURNEYS',
       Json: 'JSON',
@@ -120218,6 +121859,7 @@ export namespace Schemas {
     export type IntegrationsListParams = {
     /**
      * * `anthropic` - Anthropic
+     * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
@@ -120284,6 +121926,7 @@ export namespace Schemas {
     export const IntegrationsListKind = {
       Anthropic: 'anthropic',
       Apns: 'apns',
+      AppleAds: 'apple-ads',
       AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
       AzureBlob: 'azure-blob',
@@ -123536,6 +125179,19 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type StreamlitAppsSourceRetrieveParams = {
+    /**
+     * Comma-separated file paths whose content to return, for example 'app.py,utils.py'. Other files appear in the manifest without content. Defaults to all text files.
+     * @minLength 1
+     */
+    paths?: string;
+    /**
+     * Version number to read. Defaults to the active version.
+     * @minimum 1
+     */
+    version_number?: number;
+    };
+
     export type SubscriptionsListParams = {
     /**
      * Filter by creator user UUID.
@@ -125391,6 +127047,57 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type WarehouseSuggestionsListParams = {
+    /**
+     * Only return suggestions of this kind.
+     *
+     * * `certify` - Certify
+     * * `deprecate` - Deprecate
+     * * `materialize` - Materialize
+     * @minLength 1
+     */
+    kind?: WarehouseSuggestionsListKind;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return suggestions in this status.
+     *
+     * * `proposed` - Proposed
+     * * `accepted` - Accepted
+     * * `dismissed` - Dismissed
+     * * `expired` - Expired
+     * * `auto_resolved` - Auto-resolved
+     * @minLength 1
+     */
+    status?: WarehouseSuggestionsListStatus;
+    };
+
+    export type WarehouseSuggestionsListKind = typeof WarehouseSuggestionsListKind[keyof typeof WarehouseSuggestionsListKind];
+
+
+    export const WarehouseSuggestionsListKind = {
+      Certify: 'certify',
+      Deprecate: 'deprecate',
+      Materialize: 'materialize',
+    } as const;
+
+    export type WarehouseSuggestionsListStatus = typeof WarehouseSuggestionsListStatus[keyof typeof WarehouseSuggestionsListStatus];
+
+
+    export const WarehouseSuggestionsListStatus = {
+      Proposed: 'proposed',
+      Accepted: 'accepted',
+      Dismissed: 'dismissed',
+      Expired: 'expired',
+      AutoResolved: 'auto_resolved',
+    } as const;
 
     export type WarehouseTablesListParams = {
     /**
