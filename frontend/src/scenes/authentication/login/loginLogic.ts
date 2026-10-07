@@ -663,7 +663,7 @@ export const loginLogic = kea<loginLogicType>([
             },
         },
     })),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         submitLoginSuccess: () => {
             // A logged-in session reads the address from the user, so drop the stored one
             clearPendingVerificationEmail()
@@ -697,6 +697,9 @@ export const loginLogic = kea<loginLogicType>([
                 // Dynamic import to avoid circular dependency
                 const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
                 breakpoint()
+                // The login scene can render after the precheck resolves (e.g. a `?email=` deep link),
+                // so do not rely on it to mount passkeyLogic. Keep it mounted while this logic lives.
+                cache.disposables.add(() => passkeyLogic.mount(), undefined, { pauseOnPageHidden: false })
                 passkeyLogic.actions.beginPasskeyLogin(precheckResponse.webauthn_credentials)
                 return
             }

@@ -143,11 +143,9 @@ describe('loginLogic', () => {
             router.actions.push('/login')
             logic = loginLogic()
             logic.mount()
-            passkeyLogic().mount()
         })
 
         afterEach(() => {
-            passkeyLogic().unmount()
             logic.unmount()
             setVendor(originalVendor)
             jest.clearAllMocks()
@@ -155,6 +153,8 @@ describe('loginLogic', () => {
 
         it('auto-triggers the passkey prompt on non-WebKit browsers', async () => {
             logic.actions.precheck({ email: 'user@example.com' })
+            // passkeyLogic is not mounted up front: the precheck listener must mount it before it dispatches.
+            await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
             // Drain the whole passkey flow (begin request included) so nothing leaks into the next test.
             await expectLogic(passkeyLogic)
                 .toDispatchActions(['beginPasskeyLogin', 'startPasskeyAuthenticationSuccess'])
