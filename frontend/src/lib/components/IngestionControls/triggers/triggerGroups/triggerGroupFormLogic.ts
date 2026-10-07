@@ -23,6 +23,25 @@ function isValidRegex(pattern: string): boolean {
     }
 }
 
+export type UrlPatternResult = { url: string } | { error: 'empty' | 'invalid' | 'duplicate' }
+
+export function prepareUrlPattern(raw: string, existing: UrlTriggerConfig[]): UrlPatternResult {
+    const trimmedUrl = raw.trim()
+    if (!trimmedUrl) {
+        return { error: 'empty' }
+    }
+    if (!isValidRegex(trimmedUrl)) {
+        return { error: 'invalid' }
+    }
+    const anchoredUrl = ensureAnchored(trimmedUrl)
+    if (existing.some((u) => u.url === anchoredUrl)) {
+        return { error: 'duplicate' }
+    }
+    return { url: anchoredUrl }
+}
+
+const INVALID_REGEX_MESSAGE = 'Invalid regex pattern. Please check your syntax.'
+
 /** Normalize stored events to the object format for the form */
 function normalizeEvents(events: (string | EventTriggerConfig)[] | undefined): EventTriggerConfig[] {
     return (events || []).map((e) => (typeof e === 'string' ? { name: e } : e))
@@ -293,7 +312,7 @@ export const triggerGroupFormLogic = kea<triggerGroupFormLogicType>([
             },
         ],
     }),
-    forms(({ props }) => ({
+    forms(({ props, values }) => ({
         triggerGroup: {
             defaults: {
                 name: props.group?.name || '',
@@ -322,6 +341,17 @@ export const triggerGroupFormLogic = kea<triggerGroupFormLogicType>([
                 name: !name?.trim() ? 'Group name is required' : undefined,
             }),
             submit: async (formValues) => {
+                // A pattern still in the input counts as added, so one Save is enough
+                const pendingUrl = prepareUrlPattern(values.newUrl, formValues.urls)
+                if ('error' in pendingUrl && pendingUrl.error === 'invalid') {
+                    lemonToast.error(INVALID_REGEX_MESSAGE, { hideButton: true })
+                    return
+                }
+                const urls =
+                    'url' in pendingUrl
+                        ? [...formValues.urls, { url: pendingUrl.url, matching: 'regex' as const }]
+                        : formValues.urls
+
                 const savedGroup: SessionRecordingTriggerGroup = {
                     id: props.group?.id || uuid(),
                     name: formValues.name.trim(),
@@ -330,7 +360,7 @@ export const triggerGroupFormLogic = kea<triggerGroupFormLogicType>([
                     conditions: {
                         matchType: formValues.matchType,
                         events: formValues.events.length > 0 ? formValues.events : undefined,
-                        urls: formValues.urls.length > 0 ? formValues.urls : undefined,
+                        urls: urls.length > 0 ? urls : undefined,
                         flag: formValues.flag || undefined,
                         properties: formValues.properties.length > 0 ? formValues.properties : undefined,
                     },
@@ -341,26 +371,19 @@ export const triggerGroupFormLogic = kea<triggerGroupFormLogicType>([
     })),
     listeners(({ actions, values }) => ({
         addUrl: ({ url }) => {
-            const trimmedUrl = url.trim()
-            if (!trimmedUrl) {
-                return
-            }
-
-            if (!isValidRegex(trimmedUrl)) {
-                lemonToast.error('Invalid regex pattern. Please check your syntax.', { hideButton: true })
-                return
-            }
-
-            const anchoredUrl = ensureAnchored(trimmedUrl)
-
-            if (values.triggerGroup.urls.find((u) => u.url === anchoredUrl)) {
-                lemonToast.warning('This URL pattern has already been added')
+            const result = prepareUrlPattern(url, values.triggerGroup.urls)
+            if ('error' in result) {
+                if (result.error === 'invalid') {
+                    lemonToast.error(INVALID_REGEX_MESSAGE, { hideButton: true })
+                } else if (result.error === 'duplicate') {
+                    lemonToast.warning('This URL pattern has already been added')
+                }
                 return
             }
 
             actions.setTriggerGroupValue('urls', [
                 ...values.triggerGroup.urls,
-                { url: anchoredUrl, matching: 'regex' as const },
+                { url: result.url, matching: 'regex' as const },
             ])
         },
         removeUrl: ({ url }) => {
