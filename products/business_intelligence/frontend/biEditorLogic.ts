@@ -410,7 +410,6 @@ export interface biEditorLogicActions {
     setCompareFilter: (compareFilter: CompareFilter) => {
         compareFilter: CompareFilter
     }
-    setMissingDates: (missingDates: BIConfig['missingDates']) => { missingDates: BIConfig['missingDates'] }
     setDataPaneSearch: (search: string) => {
         search: string
     }
@@ -477,6 +476,9 @@ export interface biEditorLogicActions {
     }
     setLimit: (limit: BIQueryLimit) => {
         limit: BIQueryLimit
+    }
+    setMissingDates: (missingDates: BIConfig['missingDates']) => {
+        missingDates: 'gap' | 'zero' | undefined
     }
     setShowMeOpen: (showMeOpen: boolean) => {
         showMeOpen: boolean
