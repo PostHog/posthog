@@ -441,10 +441,8 @@ pub struct Config {
     // Only this timer bounds the request then. On expiry, the flags that need persons data
     // return an error and the other flags evaluate normally. The budget starts just before
     // evaluation. With no permit wait, the default leaves 2s of the 4.5s REQUEST_TIMEOUT_MS for
-    // the rest of the request. The request timeout starts earlier, when the request arrives. A
-    // long wait for a concurrency permit uses up that 2s. The deadline is therefore never later
-    // than 500ms (`Config::PERSONS_DB_DEADLINE_RESERVE`) before the request timeout ends. The
-    // rest of the request then has 500ms to finish. 0 disables the deadline.
+    // the rest of the request. `Config::persons_db_deadline` caps the deadline when a long wait
+    // for a concurrency permit uses up that 2s. 0 disables the deadline.
     #[envconfig(from = "PERSONS_DB_DEADLINE_MS", default = "2500")]
     pub persons_db_deadline_ms: u64,
 
@@ -1340,8 +1338,11 @@ impl Config {
     const PERSONS_DB_DEADLINE_RESERVE: std::time::Duration = std::time::Duration::from_millis(500);
 
     /// The instant when all persons DB work in one flag evaluation stops, or `None` when disabled.
-    /// When `request_timeout_ms` is not more than the reserve, the deadline is the arrival time
-    /// and every persons DB call fails.
+    /// The request timeout starts at `request_entered_at`, before the wait for a concurrency
+    /// permit. The deadline is never later than `PERSONS_DB_DEADLINE_RESERVE` before the request
+    /// timeout ends, so the rest of the request has that long to finish. When
+    /// `request_timeout_ms` is not more than the reserve, the deadline is the arrival time and
+    /// every persons DB call fails.
     pub fn persons_db_deadline(
         &self,
         request_entered_at: tokio::time::Instant,
@@ -1728,15 +1729,17 @@ mod tests {
         #[case] permit_wait_ms: u64,
         #[case] expected_ms_after_arrival: Option<u64>,
     ) {
+        use std::time::Duration;
+
         let mut config = Config::default_test_config();
         config.persons_db_deadline_ms = persons_db_deadline_ms;
         config.request_timeout_ms = request_timeout_ms;
         let arrival = tokio::time::Instant::now();
-        tokio::time::advance(std::time::Duration::from_millis(permit_wait_ms)).await;
+        tokio::time::advance(Duration::from_millis(permit_wait_ms)).await;
 
         assert_eq!(
             config.persons_db_deadline(arrival),
-            expected_ms_after_arrival.map(|ms| arrival + std::time::Duration::from_millis(ms))
+            expected_ms_after_arrival.map(|ms| arrival + Duration::from_millis(ms))
         );
     }
 

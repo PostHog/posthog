@@ -12,9 +12,7 @@
 //!
 //! Layer wiring lives in `router::router` — see the comment block there.
 //! Both shims are no-ops when their counterpart is missing, so they can be
-//! rolled out / reverted independently without breaking requests. Without
-//! [`record_concurrency_enter`], the `flags` handler cannot cap the persons
-//! DB deadline at the request timeout.
+//! rolled out / reverted independently without breaking requests.
 //!
 //! # Load-bearing axum invariant
 //!
@@ -42,7 +40,9 @@ use tokio::time::Instant;
 
 /// Wall-clock instant captured immediately before the request enters
 /// `ConcurrencyLimitLayer`. Read by [`record_concurrency_wait`] to compute
-/// permit-acquisition latency. `Copy` so the shim doesn't need to clone.
+/// permit-acquisition latency. The `flags` handler also reads it to cap the
+/// persons DB deadline at the request timeout. `Copy` so the shim doesn't
+/// need to clone.
 #[derive(Clone, Copy, Debug)]
 pub struct ConcurrencyEnterTime(pub Instant);
 
