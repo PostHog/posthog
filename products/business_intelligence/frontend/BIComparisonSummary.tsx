@@ -70,21 +70,32 @@ export function BIComparisonSummary({
     if (card) {
         return (
             <div className="flex flex-col gap-4 p-4 w-full min-w-0" data-attr="bi-comparison-kpi">
-                {measures.map((measure) => (
-                    <div key={measure.column} className="flex flex-col gap-2">
-                        <div className="text-sm font-medium">{measure.label}</div>
-                        <div className="flex flex-wrap gap-x-8 gap-y-4">
-                            {summaries.map(({ key, label }) => (
-                                <div key={key} className="min-w-0 flex flex-col gap-1">
-                                    <span className="text-xs text-secondary">{label}</span>
-                                    <span className={key === 'current' ? 'text-3xl font-semibold' : 'text-xl'}>
-                                        {rows[0] ? cell(rows[0], measure, key) : '—'}
-                                    </span>
+                {(rows.length ? rows : [{ key: 'empty', dimensions: [] }]).flatMap((row) =>
+                    measures.map((measure) => (
+                        <div key={`${row.key}:${measure.column}`} className="flex flex-col gap-2">
+                            {row.dimensions.length > 0 && (
+                                <div className="text-xs text-secondary break-words">
+                                    {row.dimensions
+                                        .map(
+                                            (value, index) => `${dimensions[index].name}: ${String(value ?? '(empty)')}`
+                                        )
+                                        .join(' · ')}
                                 </div>
-                            ))}
+                            )}
+                            <div className="text-sm font-medium">{measure.label}</div>
+                            <div className="flex flex-wrap gap-x-8 gap-y-4">
+                                {summaries.map(({ key, label }) => (
+                                    <div key={key} className="min-w-0 flex flex-col gap-1">
+                                        <span className="text-xs text-secondary">{label}</span>
+                                        <span className={key === 'current' ? 'text-3xl font-semibold' : 'text-xl'}>
+                                            {cell(row, measure, key)}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
-                    </div>
-                ))}
+                    ))
+                )}
             </div>
         )
     }

@@ -173,7 +173,7 @@ describe('BI analysis queries', () => {
         expect(result.query).toContain("['1', 'Other']")
         expect(result.query).toContain("' (category)'")
         expect(result.query).not.toMatch(/sum\((average|count_distinct)/)
-        expect(result.query).toContain('grouping(bi_row_timestamp, bi_column_event)')
+        expect(result.query).toContain('grouping(toStartOfDay(timestamp), if((event IN (SELECT bi_key FROM bi_top)')
         expect(buildBIQuery({ ...worksheet, topN: undefined, totals: undefined })!.query).toContain(
             "startsWith(toString(bi_column_event), 'Total')"
         )
@@ -202,7 +202,7 @@ describe('BI analysis queries', () => {
         expect(probe.query).toMatch(/LIMIT 101$/)
     })
 
-    it('probes beyond the combined comparison limit without changing the saved query', () => {
+    it('limits complete comparison groups and probes one extra group without changing the saved query', () => {
         const worksheet: BIConfig = {
             ...config,
             limit: 100,
@@ -211,11 +211,12 @@ describe('BI analysis queries', () => {
         }
         const saved = buildBIQuery(worksheet)!
         const probe = buildBIQuery(worksheet, true)!
-        expect(saved.query).toMatch(/^SELECT \* FROM \(/)
-        expect(saved.query).toMatch(/\)\) LIMIT 100$/)
+        expect(saved.query).toContain('bi_comparison_rank <= 50')
+        expect(saved.query).toMatch(/LIMIT 100$/)
         expect(probe.query).toContain('UNION ALL')
-        expect(probe.query.match(/LIMIT 101/g)).toHaveLength(3)
-        expect(probe.query).toMatch(/\)\) LIMIT 101$/)
+        expect(probe.query.match(/LIMIT /g)).toHaveLength(1)
+        expect(probe.query).toContain('bi_comparison_rank <= 51')
+        expect(probe.query).toMatch(/LIMIT 102$/)
     })
 
     it.each([undefined, '-1y'])(

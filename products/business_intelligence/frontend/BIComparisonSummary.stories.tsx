@@ -70,3 +70,21 @@ export const Table: StoryObj<typeof BIComparisonSummary> = {
         ],
     },
 }
+
+export const KPIWithBreakdowns: StoryObj<typeof BIComparisonSummary> = {
+    args: {
+        ...KPI.args,
+        config: {
+            ...config,
+            rows: [{ ...field, id: 'country', name: 'country', expression: 'country', type: 'string' }],
+            columns: [{ ...field, id: 'device', name: 'device', expression: 'device', type: 'string' }],
+        },
+        columns: ['bi_row_country', 'bi_column_device', 'sum_revenue', 'bi_comparison'],
+        results: [
+            ['France', 'Mobile', 12500, 'Current period'],
+            ['France', 'Mobile', 10000, 'Previous period'],
+            ['Germany', 'Desktop', 3500, 'Current period'],
+            ['Germany', 'Desktop', 4000, 'Previous period'],
+        ],
+    },
+}

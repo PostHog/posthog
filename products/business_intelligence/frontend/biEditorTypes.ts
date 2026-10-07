@@ -37,6 +37,7 @@ import {
     isBITableCalculation,
 } from './biAnalysis'
 import { biComparisonCategory, getBIComparisonDisabledReason, getBIComparisonDateExpression } from './biComparison'
+import { limitBIComparisonQuery } from './biComparisonLimit'
 import {
     buildBIConditionExpression,
     isBIConditionGroup,
@@ -1326,11 +1327,20 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                 `FROM ${escapePropertyAsHogQLIdentifier(config.source!.table)}`,
                 `WHERE\n    ${[previous ? placeholder.replace('{filters', '{filters.previous') : placeholder, ...filters.map((filter) => `(${filter})`)].join('\n    AND ')}`,
                 ...(expressions.length ? [`GROUP BY ${[...expressions, 'bi_comparison'].join(', ')}`] : []),
-                ...(comparisonOrder ? [`ORDER BY ${comparisonOrder}`] : []),
-                `LIMIT ${resultLimit}`,
             ].join('\n')
         }
-        query = `SELECT * FROM ((${buildPeriod(false)})\nUNION ALL\n(${buildPeriod(true)})) LIMIT ${resultLimit}`
+        query = limitBIComparisonQuery({
+            query: `(${buildPeriod(false)})\nUNION ALL\n(${buildPeriod(true)})`,
+            config,
+            columns: [
+                ...dimensions.map(({ alias }) => alias),
+                ...(configuredValues.length ? configuredValues.map(({ alias }) => alias) : ['count']),
+                'bi_comparison',
+            ],
+            dimensions: dimensions.map(({ alias }) => alias),
+            order: comparisonOrder,
+            probe: probeForMoreRows,
+        })
         seriesSettings = {
             xAxis: { column: xDimension?.alias ?? 'bi_comparison' },
             xAxisLabel: xDimension ? getBIFieldPillLabel(xDimension.field) : 'Period',

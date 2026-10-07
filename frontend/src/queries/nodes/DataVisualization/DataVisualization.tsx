@@ -418,8 +418,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 ) : null}
                 {!responseLoading && response && 'hasMore' in response && response.hasMore ? (
                     <LemonBanner type="info">
-                        This worksheet reached its {query.config.limit.toLocaleString()} row limit. Increase the limit
-                        or narrow the filters to see all results.
+                        {query.config.compareFilter?.compare
+                            ? `This worksheet reached its ${(query.config.limit / 2).toLocaleString()} comparison group limit. Space is reserved for both periods within the ${query.config.limit.toLocaleString()} row limit.`
+                            : `This worksheet reached its ${query.config.limit.toLocaleString()} row limit.`}{' '}
+                        Increase the limit or narrow the filters to see all results.
                     </LemonBanner>
                 ) : null}
                 {component}

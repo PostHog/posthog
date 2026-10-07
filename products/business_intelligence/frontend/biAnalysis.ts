@@ -3,6 +3,7 @@ import { escapeHogQLString, escapeRawPropertyAsHogQLIdentifier } from '~/queries
 import { ChartDisplayType } from '~/types'
 
 import { biComparisonCategory } from './biComparison'
+import { limitBIComparisonQuery } from './biComparisonLimit'
 import { buildBIFilledPeriod, getBIMissingDatesDisabledReason } from './biTimeSeries'
 
 export const BI_TABLE_CALCULATIONS: { value: BITableCalculation['type']; label: string }[] = [
@@ -197,25 +198,25 @@ export function buildBIAnalysisQuery(config: BIConfig, input: BIAnalysisInput): 
         ? `(${topDimension.expression} IN (SELECT bi_key FROM bi_top) OR (${topDimension.expression} IS NULL AND (SELECT count(*) FROM bi_top WHERE bi_key IS NULL) > 0))`
         : ''
     for (const previous of periods) {
-        const projection = dimensions.map((dimension, index) => {
+        const expressions = dimensions.map((dimension, index) => {
             let expression = previous ? input.previousDimensions![index] : dimension.expression
             if (config.topN && dimension === topDimension && config.topN.includeOther) {
                 // A tagged array keeps an actual category named "Other" distinct from the remainder.
                 expression = `if(${topMember}, ['0', toString(${expression})], ['1', 'Other'])`
             }
-            return `${expression} AS ${dimension.alias}`
+            return expression
         })
         const where = previous ? input.previousWhere! : input.where
         const topFilter = config.topN && topDimension && !config.topN.includeOther ? ` AND ${topMember}` : ''
         const select = [
-            ...projection,
+            ...expressions.map((expression, index) => `${expression} AS ${aliases[index]}`),
             ...input.measures.map(
                 (measure) => `${measure.expression} AS ${escapeRawPropertyAsHogQLIdentifier(measure.alias)}`
             ),
             ...(totals
                 ? [
-                      `grouping(${aliases.join(', ')}) AS bi_grouping`,
-                      ...aliases.map((alias, index) => `grouping(${alias}) AS ${groupingFlags[index]}`),
+                      `grouping(${expressions.join(', ')}) AS bi_grouping`,
+                      ...expressions.map((expression, index) => `grouping(${expression}) AS ${groupingFlags[index]}`),
                   ]
                 : []),
         ]
@@ -284,6 +285,18 @@ export function buildBIAnalysisQuery(config: BIConfig, input: BIAnalysisInput): 
         if (order === `${dimension.expression} ASC` || order === `${dimension.expression} DESC`) {
             order = `${dimension.alias} ${order.endsWith(' ASC') ? 'ASC' : 'DESC'}`
         }
+    }
+    if (input.previousWhere) {
+        const query = `WITH ${ctes.join(',\n')} SELECT ${[...select, ...(totals ? ['bi_grouping AS bi_comparison_grouping'] : [])].join(', ')} FROM ${results}`
+        return limitBIComparisonQuery({
+            query,
+            config,
+            columns: [...aliases, ...input.measures.map(({ alias }) => alias), 'bi_comparison'],
+            dimensions: aliases,
+            order,
+            probe: (input.resultLimit ?? config.limit) > config.limit,
+            grouping: totals ? 'bi_comparison_grouping' : undefined,
+        })
     }
     if (totals) {
         // Reserve at least half the result budget for detail cells when summaries alone exceed it.
