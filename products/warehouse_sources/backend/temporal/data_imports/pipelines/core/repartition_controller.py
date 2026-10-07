@@ -592,7 +592,7 @@ async def maybe_flag_for_repartition(
         if target is None:
             # Needs repartition but nothing finer to do (datetime at hour, numerical can't shrink, unpartitionable).
             # `reason` is reported on the metric + event so a skipped table is diagnosable.
-            DELTA_REPARTITION_SKIP_TOTAL.labels(team_id=str(schema.team_id), reason=reason).inc()
+            DELTA_REPARTITION_SKIP_TOTAL.labels(reason=reason).inc()
             props = base_event_props(schema, source, str(job.id))
             props.update(
                 {
