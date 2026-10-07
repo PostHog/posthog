@@ -254,7 +254,7 @@ export function sidebarRows({
 }
 
 // Workspace rows only label their group; the keyboard moves between chats.
-const isSelectable = (row: SidebarRow): boolean =>
+export const isSelectable = (row: SidebarRow): boolean =>
   row.kind === "task" || row.kind === "today" || row.kind === "viewMore";
 
 export function moveSelection(
