@@ -109,8 +109,12 @@ const dnsNegativeCache =
               ttl: requestConfig.EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS,
           })
 
+// dns.lookup returns an IP literal without a DNS query. With a trailing dot it treats '1.1.1.1.' as a name, and that
+// query fails with ENOTFOUND.
 function dnsLookupName(hostname: string): string {
-    return requestConfig.EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP && !hostname.endsWith('.') ? `${hostname}.` : hostname
+    return requestConfig.EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP && !hostname.endsWith('.') && net.isIP(hostname) === 0
+        ? `${hostname}.`
+        : hostname
 }
 
 // NOTE: This isn't exactly fetch - it's meant to be very close but limited to only options we actually want to expose

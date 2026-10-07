@@ -456,8 +456,13 @@ describe('DNS lookup settings', () => {
 
             await request.raiseIfUserProvidedUrlUnsafe('https://example.com/path')
             await request.raiseIfUserProvidedUrlUnsafe('https://already-absolute.com./path')
+            await request.raiseIfUserProvidedUrlUnsafe('https://1.1.1.1/path')
 
-            expect(lookup.mock.calls.map(([hostname]) => hostname)).toEqual(['example.com.', 'already-absolute.com.'])
+            expect(lookup.mock.calls.map(([hostname]) => hostname)).toEqual([
+                'example.com.',
+                'already-absolute.com.',
+                '1.1.1.1',
+            ])
         })
     })
 
