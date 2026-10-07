@@ -1,9 +1,13 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from queue import Queue
+from time import monotonic
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
-from products.error_tracking.backend.logic import get_issue
+from django.db import close_old_connections, connection, transaction
+
 from products.error_tracking.backend.logic.issue_mutations import (
     assign_issue,
     bulk_update_issues,
@@ -59,22 +63,6 @@ class TestIssueChangeRecording(BaseTest):
             "first_seen": EARLY.isoformat(),
         }
         assert (changes[0].actor_type, changes[0].actor_user_id, changes[0].bulk) == ("user", self.user.id, False)
-
-    def test_update_records_the_status_it_replaced_when_ingestion_reopened_the_issue_meanwhile(self, _flag) -> None:
-        issue = self._create_issue({"fp": EARLY}, status=ErrorTrackingIssue.Status.RESOLVED)
-
-        def read_then_reopen(*, issue_id, team_id):
-            read = get_issue(issue_id=issue_id, team_id=team_id)
-            ErrorTrackingIssue.objects.filter(id=issue_id).update(status=ErrorTrackingIssue.Status.ACTIVE)
-            return read
-
-        with patch("products.error_tracking.backend.logic.issue_mutations.get_issue", side_effect=read_then_reopen):
-            update_issue(
-                self.team.id, issue.id, fields={"status": "suppressed"}, user=self.user, was_impersonated=False
-            )
-
-        [change] = self._changes()
-        assert (change.data, change.snapshot["status"]) == ({"previous": "active"}, "suppressed")
 
     def test_bulk_status_change_records_the_new_status_as_one_bulk_operation(self, _flag) -> None:
         issues = [self._create_issue({f"fp{i}": EARLY}) for i in range(2)]
@@ -152,3 +140,50 @@ class TestIssueChangeRecording(BaseTest):
         update_issue(self.team.id, issue.id, fields={"status": "resolved"}, user=self.user, was_impersonated=False)
 
         assert self._changes() == []
+
+
+@patch("products.error_tracking.backend.logic.issue_changes.issue_change_log_enabled", return_value=True)
+class TestIssueChangeRecordingConcurrency(NonAtomicBaseTest):
+    def test_update_records_a_concurrent_committed_status_before_taking_the_row_lock(self, _flag) -> None:
+        issue = ErrorTrackingIssue.objects.create(team=self.team, status=ErrorTrackingIssue.Status.RESOLVED)
+        backend_pid: Queue[int] = Queue()
+
+        def update() -> None:
+            close_old_connections()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '10s'")
+                    cursor.execute("SET statement_timeout = '15s'")
+                    cursor.execute("SELECT pg_backend_pid()")
+                    backend_pid.put(cursor.fetchone()[0])
+                update_issue(
+                    self.team.id,
+                    issue.id,
+                    fields={"status": "suppressed"},
+                    user=self.user,
+                    was_impersonated=False,
+                )
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            with transaction.atomic():
+                ErrorTrackingIssue.objects.filter(team_id=self.team.id, id=issue.id).update(
+                    status=ErrorTrackingIssue.Status.ACTIVE
+                )
+                pending = executor.submit(update)
+                pid = backend_pid.get(timeout=10)
+                deadline = monotonic() + 10
+                with connection.cursor() as cursor:
+                    while True:
+                        if pending.done():
+                            pending.result()
+                            self.fail("update completed before waiting for the concurrent status commit")
+                        cursor.execute("SELECT cardinality(pg_blocking_pids(%s)) > 0", [pid])
+                        if cursor.fetchone()[0]:
+                            break
+                        self.assertLess(monotonic(), deadline, "update did not wait for the issue row lock")
+            pending.result(timeout=10)
+
+        [change] = ErrorTrackingIssueChange.objects.for_team(self.team.id).all()
+        assert (change.data, change.snapshot["status"]) == ({"previous": "active"}, "suppressed")
