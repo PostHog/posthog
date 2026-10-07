@@ -4,6 +4,7 @@ import { LemonBanner, LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { CaptureEngagementEventsSwitch } from './CaptureEngagementEventsSwitch'
 import { TestSendOutcome, firstRunMakeItYoursLogic } from './firstRunMakeItYoursLogic'
 
 export function MakeItYoursActions({ templateId }: { templateId: string }): JSX.Element {
@@ -69,6 +70,7 @@ export function MakeItYoursActions({ templateId }: { templateId: string }): JSX.
                 data-attr="first-run-enable-switch"
             />
             <span className="text-xs text-secondary">{enableHelp(enableWorkflow, firstRunSender?.display_name)}</span>
+            <CaptureEngagementEventsSwitch templateId={templateId} />
         </div>
     )
 }

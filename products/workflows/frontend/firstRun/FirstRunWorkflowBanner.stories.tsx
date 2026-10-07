@@ -1,8 +1,11 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { App } from 'scenes/App'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -98,5 +101,16 @@ export const DraftNarrow: Story = {
 
 export const SendingNarrow: Story = {
     render: () => <NarrowBanner />,
+    decorators: [mswDecorator(workflowWithStatus('active'))],
+}
+
+export const SendingAsMember: Story = {
+    render: function SendingAsMember(): JSX.Element {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            effective_membership_level: OrganizationMembershipLevel.Member,
+        })
+        return <App />
+    },
     decorators: [mswDecorator(workflowWithStatus('active'))],
 }

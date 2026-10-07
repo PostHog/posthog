@@ -9,6 +9,7 @@ import { pluralize } from 'lib/utils/strings'
 import { isEmailAction } from '../Workflows/hogflows/steps/types'
 import type { HogFlow } from '../Workflows/hogflows/types'
 import { workflowLogic } from '../Workflows/workflowLogic'
+import { EnableEngagementEventsAction } from './EnableEngagementEventsAction'
 import { firstRunWorkflowBannerLogic } from './firstRunWorkflowBannerLogic'
 
 function triggerEventOf(workflow: HogFlow): string | null {
@@ -79,6 +80,7 @@ export function FirstRunWorkflowBanner(): JSX.Element | null {
                 <span className="font-normal">
                     <WorkflowSummary workflow={originalWorkflow} /> The Metrics tab shows what it has sent.
                 </span>
+                <EnableEngagementEventsAction />
             </div>
         </LemonBanner>
     )

@@ -1,8 +1,11 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { App } from 'scenes/App'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -83,6 +86,16 @@ export const NoSender: Story = {
 export const ViewerAccess: Story = {
     render: function ViewerAccess(): JSX.Element {
         ;(window as any).POSTHOG_APP_CONTEXT.resource_access_control.hog_flow = 'viewer'
+        return <App />
+    },
+}
+
+export const MemberAccess: Story = {
+    render: function MemberAccess(): JSX.Element {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            effective_membership_level: OrganizationMembershipLevel.Member,
+        })
         return <App />
     },
 }

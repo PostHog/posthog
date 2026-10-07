@@ -1,13 +1,16 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -171,9 +174,15 @@ describe('firstRunMakeItYoursLogic', () => {
     let invocations: Record<string, any>[]
     let invocationResponse: Record<string, unknown>
     let completedSetupTasks: string[]
+    let teamUpdates: Record<string, any>[]
+    let requestOrder: string[]
+    let persistedTeam: typeof MOCK_DEFAULT_TEAM
 
     beforeEach(() => {
         completedSetupTasks = []
+        teamUpdates = []
+        requestOrder = []
+        persistedTeam = { ...MOCK_DEFAULT_TEAM }
         integrations = [SENDER]
         createdWorkflows = []
         createResponse = [201, { id: 'wf-1', status: 'active' }]
@@ -197,6 +206,7 @@ describe('firstRunMakeItYoursLogic', () => {
             },
             post: {
                 '/api/projects/:team_id/hog_flows/': async ({ request }) => {
+                    requestOrder.push('create workflow')
                     createdWorkflows.push((await request.json()) as Partial<HogFlow>)
                     return createResponse
                 },
@@ -207,11 +217,18 @@ describe('firstRunMakeItYoursLogic', () => {
             },
             patch: {
                 '/api/projects/:team_id/': async ({ request }) => {
-                    const { onboarding_tasks } = (await request.json()) as { onboarding_tasks: Record<string, string> }
-                    completedSetupTasks = Object.keys(onboarding_tasks).filter(
-                        (taskId) => onboarding_tasks[taskId] === 'completed'
-                    )
-                    return [200, {}]
+                    const update = (await request.json()) as Record<string, any>
+                    if (update.workflows_config) {
+                        requestOrder.push('update team')
+                        teamUpdates.push(update)
+                    }
+                    if (update.onboarding_tasks) {
+                        completedSetupTasks = Object.keys(update.onboarding_tasks).filter(
+                            (taskId) => update.onboarding_tasks[taskId] === 'completed'
+                        )
+                    }
+                    persistedTeam = { ...persistedTeam, ...update }
+                    return [200, persistedTeam]
                 },
             },
         })
@@ -314,6 +331,7 @@ describe('firstRunMakeItYoursLogic', () => {
             expect(capture).toHaveBeenCalledWith('workflows first run workflow created', {
                 template_id: 'onboarding-sequence',
                 enabled,
+                engagement_events: true,
             })
             expect(completedSetupTasks.includes(SetupTaskId.LaunchWorkflow)).toBe(completesLaunchTask)
         }
@@ -398,6 +416,54 @@ describe('firstRunMakeItYoursLogic', () => {
         expect(logic.values.createdWorkflowLoading).toBe(false)
         expect(router.values.location.pathname).toBe(pathnameBefore)
         expect(window.localStorage.getItem('workflows-first-run-workflow-id')).toBeNull()
+        expect(teamUpdates).toEqual([])
+    })
+
+    describe('capture engagement events', () => {
+        async function createAndSettle(): Promise<void> {
+            logic.actions.createWorkflow()
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(teamLogic).toFinishAllListeners()
+        }
+
+        it('turns the setting on with one update of only that field, after the workflow is created', async () => {
+            await open('onboarding-sequence')
+            expect(logic.values.captureEngagementEvents).toBe(true)
+
+            await createAndSettle()
+
+            expect(requestOrder).toEqual(['create workflow', 'update team'])
+            expect(teamUpdates).toEqual([{ workflows_config: { capture_workflows_engagement_events: true } }])
+            expect(teamLogic.values.currentTeam?.workflows_config?.capture_workflows_engagement_events).toBe(true)
+        })
+
+        it('leaves the setting off when the switch is off', async () => {
+            await open('onboarding-sequence')
+            logic.actions.setCaptureEngagementEvents(false)
+
+            await createAndSettle()
+
+            expect(createdWorkflows).toHaveLength(1)
+            expect(teamUpdates).toEqual([])
+        })
+
+        it('shows a member the switch off and disabled with a reason, and sends no update', async () => {
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                effective_membership_level: OrganizationMembershipLevel.Member,
+            })
+            await open('onboarding-sequence')
+
+            expect(logic.values.captureEngagementEvents).toBe(false)
+            expect(logic.values.captureEngagementEventsDisabledReason).toBe(
+                'Only project admins can turn on engagement events.'
+            )
+
+            await createAndSettle()
+
+            expect(createdWorkflows).toHaveLength(1)
+            expect(teamUpdates).toEqual([])
+        })
     })
 
     describe('while the editor still holds a canvas edit it has not exported', () => {
