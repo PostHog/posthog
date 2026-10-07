@@ -230,6 +230,10 @@ class TestQualityGateBranching:
         started = [call.args[0].__name__ for call in execute_activity.await_args_list]
         assert "publish_queryable_table_activity" in started
         assert "succeed_materialization_activity" in started
+        materialize_call = next(
+            call for call in execute_activity.await_args_list if call.args[0].__name__ == "materialize_view_activity"
+        )
+        assert "ClickHouseUserQueryError" in materialize_call.kwargs["retry_policy"].non_retryable_error_types
 
     async def test_an_audit_that_reached_no_verdict_leaves_the_node_to_the_sweep(self):
         # Returning zero here would publish and also claim the node was audited, so the DAG's
