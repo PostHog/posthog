@@ -43,7 +43,7 @@ export const VIEW_TYPE_INFO = Object.fromEntries(VIEW_TYPES.map((info) => [info.
 >
 
 // Component canvases are widgets that grids place, not views a person opens.
-export const LISTED_CANVAS_KINDS = ['freeform'] as const
+export const LISTED_CANVAS_KIND = 'freeform'
 
 export interface ViewItem {
     type: ViewType
@@ -106,30 +106,6 @@ export function dashboardToView(dashboard: DashboardBasicApi): ViewItem {
         createdByUuid: dashboard.created_by?.uuid ?? null,
         firstBuildTaskId: null,
     }
-}
-
-export interface ViewSources {
-    canvases: CanvasApi[]
-    notebooks: NotebookMinimalApi[]
-    dashboards: DashboardBasicApi[]
-    spaceNames: Record<string, string>
-}
-
-/** Every view in one list, most recent first. */
-export function mergeViews({ canvases, notebooks, dashboards, spaceNames }: ViewSources): ViewItem[] {
-    const items = [
-        ...canvases
-            .filter((canvas) => (LISTED_CANVAS_KINDS as readonly string[]).includes(canvas.kind))
-            .map((canvas) => canvasToView(canvas, spaceNames)),
-        ...notebooks.filter((notebook) => !notebook.deleted).map(notebookToView),
-        ...dashboards.filter((dashboard) => !dashboard.deleted).map(dashboardToView),
-    ]
-    const time = (item: ViewItem): number => (item.timestamp ? new Date(item.timestamp).getTime() : 0)
-    return items.sort((first, second) => time(second) - time(first) || first.name.localeCompare(second.name))
-}
-
-export function filterViews(items: ViewItem[], filter: ViewTypeFilter): ViewItem[] {
-    return filter === 'all' ? items : items.filter((item) => item.type === filter)
 }
 
 /**

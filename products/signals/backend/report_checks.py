@@ -26,6 +26,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
@@ -372,6 +373,10 @@ class CheckSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    existing_check_id: UUID | None = Field(
+        default=None, description="ID of the existing check being retained or revised. Omit for a new check."
+    )
+
     title: str = Field(
         max_length=MAX_CHECK_TITLE_LENGTH,
         description="Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.",
@@ -389,7 +394,8 @@ class CheckSpec(BaseModel):
         le=MAX_CHECK_SOAK_HOURS,
         description=(
             "How long after the report is resolved to wait before measuring. The fix has to have "
-            f"been live a while for the result to mean anything. Defaults to {DEFAULT_CHECK_SOAK_HOURS} hours."
+            f"been live a while for the result to mean anything. Defaults to {DEFAULT_CHECK_SOAK_HOURS} hours "
+            "for a new check; omission preserves an existing check’s wait."
         ),
     )
 

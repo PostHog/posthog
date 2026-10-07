@@ -528,7 +528,11 @@ class EndpointMaterializationService:
             # frontend uses execution_query only as a presence flag and renders the display variant.
             if version.is_materialized:
                 execution_query_str = to_printed_hogql(
-                    _build_exec_preview(version.materialized_view_name), team=self.team
+                    _build_exec_preview(version.materialized_view_name),
+                    team=self.team,
+                    # Display-only text for the endpoint's own materialized view, and no rows are read.
+                    # Without the bypass, the userless database denies the view and the print fails.
+                    bypass_warehouse_access_control=True,
                 )
             else:
                 execution_query_str = print_prepared_ast(

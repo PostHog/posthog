@@ -1225,6 +1225,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "implementation_replacement",
         "implementation_handover",
         "ranking_score",
+        "impact_measurement_plan",
     }
 )
 

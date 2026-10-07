@@ -87,7 +87,6 @@ class Product(StrEnum):
     SQL_EDITOR = "sql_editor"
     SURVEYS = "surveys"
     TRACING = "tracing"
-    USER_INTERVIEWS = "user_interviews"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
@@ -285,6 +284,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_QUERY
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY
             | NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY
+            | NodeKind.MARKETING_ANALYTICS_SEARCH_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
         case (
@@ -338,6 +338,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.LIFECYCLE_DATA_WAREHOUSE_NODE
             | NodeKind.DATA_TABLE_NODE
             | NodeKind.DATA_VISUALIZATION_NODE
+            | NodeKind.BI_VISUALIZATION_NODE
             | NodeKind.SAVED_INSIGHT_NODE
             | NodeKind.INSIGHT_VIZ_NODE
         ):
@@ -542,6 +543,9 @@ class QueryTags(BaseModel):
     table_id: Optional[uuid.UUID] = None
     warehouse_query: Optional[bool] = None
     saved_query_ids: Optional[list[str]] = None
+    warehouse_table_ids: Optional[list[str]] = None
+    directly_read_ids: Optional[list[str]] = None
+    materialized_saved_query_id: Optional[str] = None
 
     trend_volume_type: Optional[str] = None
 
@@ -575,6 +579,7 @@ class QueryTags(BaseModel):
     user_email: Optional[str] = None
 
     is_impersonated: Optional[bool] = None
+    is_scout_experiment: Optional[bool] = None
 
     # request source and MCP metadata
     source: Optional[str] = None
@@ -902,6 +907,12 @@ def tags_context(**tags_to_set: Any) -> Generator[None]:
     finally:
         if tags_copy:
             query_tags.set(tags_copy)
+
+
+@contextmanager
+def private_capture_context() -> Generator[None]:
+    with tags_context(is_scout_experiment=True):
+        yield
 
 
 # Stack inspection for source_file / source_line tagging

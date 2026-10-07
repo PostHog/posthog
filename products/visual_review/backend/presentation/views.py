@@ -53,6 +53,7 @@ from .serializers import (
     CreateRepoInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
+    ErrorDetailSerializer,
     FinalizeResultSerializer,
     FinalizeRunInputSerializer,
     FlakinessOverviewSerializer,
@@ -334,7 +335,15 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @validated_request(
         request_serializer=UnquarantineQuerySerializer,
-        responses={204: None},
+        responses={
+            204: None,
+            400: OpenApiResponse(response=ErrorDetailSerializer, description="No GitHub integration."),
+            429: OpenApiResponse(response=ErrorDetailSerializer, description="GitHub rate limit. See Retry-After."),
+            503: OpenApiResponse(
+                response=ErrorDetailSerializer,
+                description="GitHub cannot name the default branch head. The quarantine stays.",
+            ),
+        },
     )
     @action(detail=True, methods=["post"], url_path=r"quarantine/(?P<run_type>[^/]+)/expire")
     def unquarantine(self, request: TypedRequest, pk: str, run_type: str, **kwargs) -> Response:
@@ -348,6 +357,23 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.GitHubIntegrationNotFoundError:
+            return Response(
+                {"detail": "No GitHub integration configured. Please install the GitHub App for this team."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except api.GitHubRateLimitError as e:
+            response = Response(
+                {"detail": "GitHub API rate limit exceeded. Please retry later.", "code": "rate_limited"},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+            if e.retry_after:
+                response["Retry-After"] = str(e.retry_after)
+            return response
+        except api.LiftCommitUnknownError as e:
+            return Response(
+                {"detail": str(e), "code": "lift_commit_unknown"}, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(

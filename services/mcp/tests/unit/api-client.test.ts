@@ -9,6 +9,28 @@ import { GENERATED_TOOLS } from '@/tools/generated/skills'
 import type { Context } from '@/tools/types'
 
 describe('ApiClient', () => {
+    it.each([200, 403, 500])('reads privacy only from the API response before handling status %s', async (status) => {
+        const shared = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+        const suppress = vi.fn()
+        const scoped = shared.withAnalyticsSuppression(suppress)
+        for (const header of [undefined, 'false', 'true']) {
+            vi.stubGlobal(
+                'fetch',
+                vi.fn(
+                    async () =>
+                        new Response(JSON.stringify({ detail: 'Synthetic response' }), {
+                            status,
+                            headers: header ? { 'X-PostHog-Suppress-Analytics': header } : {},
+                        })
+                )
+            )
+            await scoped.request({ method: 'GET', path: '/api/projects/1/tasks/' }).catch(() => undefined)
+        }
+        expect(suppress).toHaveBeenCalledOnce()
+        expect(shared.config.onPrivateResponse).toBeUndefined()
+        vi.unstubAllGlobals()
+    })
+
     it('should create ApiClient with required config', () => {
         const client = new ApiClient({
             apiToken: 'test-token',

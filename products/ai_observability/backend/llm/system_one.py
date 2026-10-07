@@ -1,7 +1,4 @@
-import math
 from collections.abc import Mapping
-from datetime import UTC, datetime
-from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit
 
 import httpx
@@ -17,22 +14,24 @@ from posthog.llm.system_one import (
 )
 from posthog.models import Team
 from posthog.ph_client import get_feature_flag_or_none
-from posthog.security.pinned_httpx import pinned_client
 from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import has_authority_bypass_chars, validate_url_and_pin_ips
 
 from products.ai_observability.backend.llm.errors import (
+    RESPONSE_LIMIT_MESSAGE,
     AuthenticationError,
     ContextWindowExceededError,
     LLMError,
     ModelNotFoundError,
     ModelPermissionError,
     ProviderConnectionError,
+    ProviderRequestRejectedError,
     RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
 )
-from products.ai_observability.backend.llm.providers._diagnostics import _tag_response
+from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
 
 
 def system_one_evaluations_enabled(team_id: int, *, base_url: str) -> bool:
@@ -54,7 +53,7 @@ def system_one_evaluations_enabled(team_id: int, *, base_url: str) -> bool:
     )
 
 
-class SystemOneRequestRejectedError(LLMError):
+class SystemOneRequestRejectedError(ProviderRequestRejectedError):
     pass
 
 
@@ -62,20 +61,9 @@ class SystemOneEndpointBlockedError(LLMError):
     pass
 
 
-class SystemOneRateLimitError(RateLimitError):
+class SystemOneRateLimitError(RetryableRateLimitError):
     def __init__(self, retry_after: str | None) -> None:
-        super().__init__("The System One endpoint is temporarily unavailable. Try again later.")
-        self.retry_after: float | None = None
-        if retry_after:
-            try:
-                delay = float(retry_after)
-            except ValueError:
-                try:
-                    delay = (parsedate_to_datetime(retry_after) - datetime.now(UTC)).total_seconds()
-                except (ValueError, TypeError, OverflowError):
-                    return
-            if math.isfinite(delay):
-                self.retry_after = max(1, min(delay, 60))
+        super().__init__("The System One endpoint is temporarily unavailable. Try again later.", retry_after)
 
 
 class SystemOneClient:
@@ -118,13 +106,11 @@ class SystemOneClient:
             verdict = validate_url_and_pin_ips(base_url)
             if not verdict.allowed:
                 raise SSRFBlockedError(verdict.reason)
-            with pinned_client(
-                base_url,
-                verdict.pinned_ips,
+            with tagged_http_client(
+                pin=(base_url, verdict.pinned_ips),
                 timeout=timeout,
                 total_timeout=timeout,
                 follow_redirects=False,
-                event_hooks={"response": [_tag_response]},
             ) as client:
                 response = client.post(
                     f"{base_url}/systemone",
@@ -134,10 +120,7 @@ class SystemOneClient:
         except SSRFBlockedError as error:
             raise SystemOneEndpointBlockedError("This endpoint is not allowed. Use a public HTTPS endpoint.") from error
         except httpx.DecodingError as error:
-            raise SystemOneRequestRejectedError(
-                "The endpoint returned a compressed or oversized response. "
-                "Configure it to return uncompressed responses no larger than 1 MiB."
-            ) from error
+            raise SystemOneRequestRejectedError(RESPONSE_LIMIT_MESSAGE) from error
         except httpx.RequestError as error:
             raise ProviderConnectionError("Could not reach the System One endpoint. Try again.") from error
 

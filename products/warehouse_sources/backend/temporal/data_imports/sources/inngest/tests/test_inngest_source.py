@@ -63,6 +63,11 @@ class TestInngestSource:
             # small inventory with no server-side timestamp filter and syncs as full refresh.
             ("events", False, True, ["received_at"]),
             ("function_runs", True, False, ["event_received_at"]),
+            ("runs", True, False, ["queuedAt"]),
+            ("functions", False, False, []),
+            ("session_keys", False, False, []),
+            ("sessions", False, False, []),
+            ("session_runs", False, False, []),
             ("cancellations", False, False, []),
             ("environments", False, False, []),
             ("webhooks", False, False, []),
@@ -78,10 +83,11 @@ class TestInngestSource:
         assert schema.supports_append is supports_append
         assert [f["field"] for f in schema.incremental_fields] == incremental_fields
 
-    def test_function_runs_re_read_a_trailing_window(self) -> None:
+    @parameterized.expand([("function_runs",), ("runs",)])
+    def test_run_tables_re_read_a_trailing_window(self, endpoint: str) -> None:
         # Runs fetched while still Running keep a stale status unless each incremental sync
         # re-reads a trailing window; dropping the default lookback would freeze them forever.
-        schema = next(s for s in self.source.get_schemas(MagicMock(), team_id=1) if s.name == "function_runs")
+        schema = next(s for s in self.source.get_schemas(MagicMock(), team_id=1) if s.name == endpoint)
         assert schema.default_incremental_lookback_seconds == 3600
 
     @parameterized.expand([("valid", True, True), ("invalid", False, False)])

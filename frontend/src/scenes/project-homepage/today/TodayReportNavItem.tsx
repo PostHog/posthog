@@ -6,12 +6,13 @@ import type { TodayReportPreview } from '~/layout/today/todayPreviewCards'
 import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
 
 import { SignalReport } from 'products/signals/frontend/inbox/types'
+import { displayConventionalCommitTitle } from 'products/signals/frontend/inbox/utils/reportPresentation'
 
 import { itemStateLabel } from './todayBriefingItems'
 import { TodayIcon } from './TodayIcon'
 import { TodayReportOpenSource, todayLogic } from './todayLogic'
 import { TodayNavItem } from './TodayNavItem'
-import { reportIcon, reportMeta, reportSource, reportTitle } from './todaySignalReports'
+import { reportIcon, reportMeta, reportSource } from './todaySignalReports'
 
 interface TodayReportNavItemProps {
     report: SignalReport
@@ -27,7 +28,7 @@ export function TodayReportNavItem({ report, preview, source, dataAttr }: TodayR
     return (
         <TodayPreviewTrigger payload={preview}>
             <TodayNavItem
-                title={reportTitle(report)}
+                title={displayConventionalCommitTitle(report.title, 'Untitled report')}
                 meta={itemStateLabel({ state: reportStateOverrides[report.id] ?? 'open' }) ?? reportMeta(report)}
                 color={reportSource(report).color}
                 icon={<TodayIcon icon={reportIcon(report)} />}

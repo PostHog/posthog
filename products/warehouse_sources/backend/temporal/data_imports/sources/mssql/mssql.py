@@ -20,7 +20,9 @@ import pymssql
 import structlog
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_PRECISION,
@@ -33,6 +35,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     incremental_type_to_initial_value,
     incremental_type_to_operator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.deadline import (
+    DeadlineExceededError,
+    run_with_deadline,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
@@ -61,7 +67,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
 __all__ = [
     "MSSQLColumn",
@@ -76,6 +82,44 @@ _IDENTIFIER_QUOTER = BracketIdentifierQuoter()
 SYSTEM_MSSQL_SCHEMAS = ("sys", "guest", "INFORMATION_SCHEMA")
 
 _T = TypeVar("_T")
+
+# FreeTDS applies this limit to the TCP connect and to the login.
+MSSQL_LOGIN_TIMEOUT_SECONDS = 5
+
+# The longest a metadata statement waits for a lock before SQL Server ends it with error 1222. The
+# catalog views wait behind a schema modification lock, so an open DDL transaction on the server
+# blocks them without limit. Set on the metadata connections only. The connection that reads the
+# rows keeps the server default.
+MSSQL_METADATA_LOCK_TIMEOUT_MS = 60_000
+
+# Client-side limits on the work that runs before the first row is read. pymssql has no limit that
+# can do this job: its `timeout` argument calls the DB-Library function `dbsettime`, which applies
+# to every connection in the process, so it would also end the row read of each other MSSQL import
+# on this worker. The work runs under `run_with_deadline` instead.
+#
+# Schema discovery must end before the 10 minute `start_to_close_timeout` of its Temporal activity.
+MSSQL_SCHEMA_DISCOVERY_DEADLINE_SECONDS = 300
+MSSQL_TABLE_SETUP_DEADLINE_SECONDS = 300
+MSSQL_ROW_COUNT_DEADLINE_SECONDS = 120
+
+# Stable prefix, matched by `MSSQLSource.get_non_retryable_errors`.
+MSSQL_METADATA_TIMEOUT_ERROR = "SQL Server did not answer in time"
+
+
+class MSSQLMetadataTimeoutError(NonReportableError):
+    """SQL Server gave no answer to the connect or to a metadata query before the deadline."""
+
+    def __init__(self, action: str, timeout_seconds: float) -> None:
+        super().__init__(f"{MSSQL_METADATA_TIMEOUT_ERROR} while PostHog {action} (waited {timeout_seconds:g} seconds)")
+
+
+def run_metadata_with_deadline(operation: Callable[[], _T], *, action: str, timeout_seconds: float) -> _T:
+    """Run connect-and-read metadata work, and raise `MSSQLMetadataTimeoutError` when it hangs."""
+    try:
+        return run_with_deadline(operation, timeout_seconds=timeout_seconds, thread_name="mssql-metadata")
+    except DeadlineExceededError as e:
+        raise MSSQLMetadataTimeoutError(action, timeout_seconds) from e
+
 
 # DB-Lib error 20047 — "DBPROCESS is dead or not enabled". The TDS connection died mid-stream (an
 # idle cull, a failover, a brief network blip), leaving pymssql's dbprocess dead so the in-flight
@@ -349,6 +393,18 @@ class MSSQLColumn(Column):
         return pa.field(self.name, arrow_type, nullable=self.nullable)
 
 
+@frozen
+class MSSQLTableSetup:
+    """Everything `build_pipeline` learns about a table before it can stream rows."""
+
+    primary_keys: list[str] | None
+    projection: TableProjection[MSSQLColumn]
+    inner_query: str
+    inner_query_args: dict[str, Any]
+    chunk_size: int
+    partition_settings: PartitionSettings | None
+
+
 class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Connection, pymssql.Cursor]):  # ty: ignore[invalid-type-arguments]
     """MSSQL driver implementation paired with `MSSQLSource`.
 
@@ -365,11 +421,20 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
     # ------------------------------------------------------------------
 
     @contextmanager
-    def connect(self, config: MSSQLSourceConfig, *, team_id: int | None = None) -> Iterator[pymssql.Connection]:
+    def connect(
+        self,
+        config: MSSQLSourceConfig,
+        *,
+        team_id: int | None = None,
+        lock_timeout_ms: int | None = MSSQL_METADATA_LOCK_TIMEOUT_MS,
+    ) -> Iterator[pymssql.Connection]:
         """Open a pymssql connection for the duration of the context.
 
         Opens the SSH tunnel (if configured) once, then connects with the
-        MSSQL-wide conventions: 5s login timeout.
+        MSSQL-wide conventions: `MSSQL_LOGIN_TIMEOUT_SECONDS` login timeout.
+
+        `lock_timeout_ms` limits how long each statement on this connection waits for a lock.
+        The default suits metadata work. Pass None for the connection that reads the rows.
 
         The hostname goes to pymssql as is. `pymssql.connect` takes one `server`, which FreeTDS
         uses both to dial and as the login server name, so there is no way to dial a pinned
@@ -384,8 +449,11 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                 database=config.database,
                 user=config.user,
                 password=config.password,
-                login_timeout=5,
+                login_timeout=MSSQL_LOGIN_TIMEOUT_SECONDS,
             ) as conn:
+                if lock_timeout_ms is not None:
+                    with conn.cursor() as cursor:
+                        cursor.execute(f"SET LOCK_TIMEOUT {int(lock_timeout_ms)}")
                 yield conn
 
     @contextmanager
@@ -921,37 +989,74 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                 incremental_field=incremental_field,
             )
 
-        with self.connect(config, team_id=inputs.team_id) as connection:
-            with connection.cursor() as cursor:
-                primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
-                full_table = self.get_table_metadata(cursor, schema, table_name)
+        def _read_table_setup() -> MSSQLTableSetup:
+            with self.connect(config, team_id=inputs.team_id) as connection:
+                with connection.cursor() as cursor:
+                    primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
+                    full_table = self.get_table_metadata(cursor, schema, table_name)
 
-                # Resolve PKs before projection so SELECT and Arrow schema agree.
-                if primary_keys is None and "id" in full_table:
-                    primary_keys = ["id"]
+                    # Resolve PKs before projection so SELECT and Arrow schema agree.
+                    if primary_keys is None and "id" in full_table:
+                        primary_keys = ["id"]
 
-                setup_projection = _resolve_projection(full_table, primary_keys)
-                logger.debug(f"Source schema: {setup_projection.table.to_arrow_schema()}")
+                    projection = _resolve_projection(full_table, primary_keys)
+                    logger.debug(f"Source schema: {projection.table.to_arrow_schema()}")
 
-                inner_query, inner_query_args = _build_query(
-                    schema,
-                    table_name,
-                    should_use_incremental_field,
-                    incremental_field,
-                    incremental_field_type,
-                    db_incremental_field_last_value,
-                    enabled_columns=setup_projection.enabled_columns,
-                    primary_keys=primary_keys,
-                    row_filters=row_filters,
-                )
+                    inner_query, inner_query_args = _build_query(
+                        schema,
+                        table_name,
+                        should_use_incremental_field,
+                        incremental_field,
+                        incremental_field_type,
+                        db_incremental_field_last_value,
+                        enabled_columns=projection.enabled_columns,
+                        primary_keys=primary_keys,
+                        row_filters=row_filters,
+                    )
 
-                rows_to_sync = self.get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
-                chunk_size = self.get_chunk_size(cursor, schema, table_name, inner_query, inner_query_args, logger)
-                partition_settings = (
-                    self.get_partition_settings(cursor, schema, table_name, logger)
-                    if should_use_incremental_field
-                    else None
-                )
+                    return MSSQLTableSetup(
+                        primary_keys=primary_keys,
+                        projection=projection,
+                        inner_query=inner_query,
+                        inner_query_args=inner_query_args,
+                        chunk_size=self.get_chunk_size(
+                            cursor, schema, table_name, inner_query, inner_query_args, logger
+                        ),
+                        partition_settings=(
+                            self.get_partition_settings(cursor, schema, table_name, logger)
+                            if should_use_incremental_field
+                            else None
+                        ),
+                    )
+
+        setup = run_metadata_with_deadline(
+            _read_table_setup,
+            action="read the table's columns and keys",
+            timeout_seconds=MSSQL_TABLE_SETUP_DEADLINE_SECONDS,
+        )
+        primary_keys = setup.primary_keys
+        setup_projection = setup.projection
+
+        def _count_rows() -> int:
+            with self.connect(config, team_id=inputs.team_id) as connection:
+                with connection.cursor() as cursor:
+                    return self.get_rows_to_sync(cursor, setup.inner_query, setup.inner_query_args, logger)
+
+        # The count is only a progress estimate, and on a large table without a useful index it can
+        # run for longer than the read itself. It has its own connection and deadline, so a slow
+        # count costs the estimate and not the import.
+        try:
+            rows_to_sync = run_with_deadline(
+                _count_rows, timeout_seconds=MSSQL_ROW_COUNT_DEADLINE_SECONDS, thread_name="mssql-row-count"
+            )
+        except DeadlineExceededError:
+            logger.debug("get_rows_to_sync: the count did not finish in time. Using 0 as rows to sync")
+            rows_to_sync = 0
+        except Exception as e:
+            # A fault on this connection is not a fault of the import. If it is a real one, the
+            # connection that reads the rows hits it too, and it is classified there.
+            logger.debug(f"get_rows_to_sync: could not open the count connection: {e}. Using 0 as rows to sync")
+            rows_to_sync = 0
 
         def _refreshed_projection(connection: pymssql.Connection) -> TableProjection[MSSQLColumn]:
             """Re-read the catalog on the streaming connection, right before the read query.
@@ -969,7 +1074,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
 
         def get_rows() -> Iterator[Any]:
             binary_reporter = BinaryColumnReporter(logger)
-            with self.connect(config, team_id=inputs.team_id) as streaming_connection:
+            with self.connect(config, team_id=inputs.team_id, lock_timeout_ms=None) as streaming_connection:
                 projection = _refreshed_projection(streaming_connection)
                 arrow_schema = projection.table.to_arrow_schema()
                 with streaming_connection.cursor() as cursor:
@@ -997,9 +1102,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                     # the schema to what came back instead of failing the Arrow build.
                     read_schema = restrict_schema_to_columns(arrow_schema, column_names)
 
-                    for rows in fetch_row_batches(
-                        cursor.fetchmany, max_rows=chunk_size, byte_bounded=inputs.byte_bounded_extraction
-                    ):
+                    for rows in fetch_row_batches(cursor.fetchmany, max_rows=setup.chunk_size):
                         yield table_from_iterator(
                             (dict(zip(column_names, row)) for row in rows),
                             read_schema,
@@ -1011,7 +1114,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             name=location.response_name,
             items=get_rows,
             primary_keys=primary_keys,
-            partition_count=partition_settings.partition_count if partition_settings else None,
-            partition_size=partition_settings.partition_size if partition_settings else None,
+            partition_count=setup.partition_settings.partition_count if setup.partition_settings else None,
+            partition_size=setup.partition_settings.partition_size if setup.partition_settings else None,
             rows_to_sync=rows_to_sync,
         )

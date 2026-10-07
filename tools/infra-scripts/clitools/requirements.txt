@@ -2,4 +2,4 @@
 # https://posthog.com/docs/libraries/python
 # >=3 required: the `Posthog` client class doesn't exist in older 1.x/2.x releases.
 -c constraints.txt
-posthog>=7.62.0
+posthog>=7.63.0

@@ -152,6 +152,7 @@ export interface RoleLookupResponseApi {
 
 /**
  * * `anthropic` - Anthropic
+ * * `apple-ads` - Apple Ads
  * * `apns` - Apple Push
  * * `aws-redshift` - Aws Redshift
  * * `aws-s3` - Aws S3
@@ -206,6 +207,7 @@ export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeo
 
 export const IntegrationKindEnumApi = {
     Anthropic: 'anthropic',
+    AppleAds: 'apple-ads',
     Apns: 'apns',
     AwsRedshift: 'aws-redshift',
     AwsS3: 'aws-s3',
@@ -346,6 +348,20 @@ export interface PatchedIntegrationConfigApi {
     readonly installation_shared?: boolean | null
     /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
     readonly installation_status?: InstallationStatusEnumApi | null
+}
+
+export interface IntegrationAssigneeApi {
+    /** Provider user identifier to pass as error tracking config.assignee: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID. */
+    id: string
+    /** User display name. */
+    name: string
+}
+
+export interface IntegrationAssigneesResponseApi {
+    /** Users who can be assigned an issue, up to 100. */
+    users: IntegrationAssigneeApi[]
+    /** True when the connection lacks the permission to list users. Reconnecting the integration grants it. */
+    reconnect_required: boolean
 }
 
 export interface GitHubBranchesResponseApi {
@@ -582,6 +598,7 @@ export interface IntegrationAccessRequestApi {
     /** The kind of integration the member is requesting be connected (e.g. 'slack', 'github').
      *
      * * `anthropic` - Anthropic
+     * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
@@ -748,6 +765,7 @@ export type RoleExternalReferencesLookupRetrieveParams = {
 export type IntegrationsListParams = {
     /**
      * * `anthropic` - Anthropic
+     * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
@@ -814,6 +832,7 @@ export type IntegrationsListKind = (typeof IntegrationsListKind)[keyof typeof In
 export const IntegrationsListKind = {
     Anthropic: 'anthropic',
     Apns: 'apns',
+    AppleAds: 'apple-ads',
     AwsRedshift: 'aws-redshift',
     AwsS3: 'aws-s3',
     AzureBlob: 'azure-blob',
@@ -866,6 +885,14 @@ export const IntegrationsListKind = {
 
 export type IntegrationsChannelsRetrieveParams = {
     /**
+     * Look up one channel directly by Slack channel ID (e.g. C0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that channel.
+     */
+    channel_id?: string
+    /**
+     * Bypass the 1 hour channel cache, including for a `channel_id` lookup, which is how a caller reads the channel's current membership after inviting the app to it. Honored only for browser session callers; API key, OAuth, and MCP callers always read through the cache.
+     */
+    force_refresh?: boolean
+    /**
      * Maximum number of channels to return per request (max 200).
      * @minimum 1
      * @maximum 200
@@ -878,6 +905,18 @@ export type IntegrationsChannelsRetrieveParams = {
     offset?: number
     /**
      * Optional case-insensitive channel name or ID search query.
+     */
+    search?: string
+}
+
+export type IntegrationsGithubAssigneesRetrieveParams = {
+    /**
+     * Repository name, or owner/name, whose assignable users to list.
+     * @minLength 1
+     */
+    repository: string
+    /**
+     * Optional case-insensitive name search. Leave blank to list the first users.
      */
     search?: string
 }
@@ -943,6 +982,37 @@ export type IntegrationsGithubTeamsRetrieveParams = {
      * Optional case-insensitive team name or slug search query.
      */
     search?: string
+}
+
+export type IntegrationsGitlabMembersRetrieveParams = {
+    /**
+     * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string
+}
+
+export type IntegrationsJiraAssignableUsersRetrieveParams = {
+    /**
+     * Jira project key whose assignable users to list.
+     * @minLength 1
+     */
+    project_key: string
+    /**
+     * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string
+}
+
+export type IntegrationsLinearTeamMembersRetrieveParams = {
+    /**
+     * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string
+    /**
+     * Linear team ID whose members to list.
+     * @minLength 1
+     */
+    team_id: string
 }
 
 export type IntegrationsUsersRetrieveParams = {

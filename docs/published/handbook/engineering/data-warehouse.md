@@ -6,11 +6,82 @@ showTitle: true
 
 This is an internal guide to setting up and working with the data warehouse for PostHog engineers. If you're a PostHog user, check out our [data warehouse docs](https://posthog.com/docs/data-warehouse) instead.
 
+## Model namespace reservation
+
+The shared PostHog catalog reserves `models.*` for authored data models. New warehouse tables, endpoint saved queries, and managed viewsets cannot claim that namespace. The bare name `models` is reserved for the namespace container; use a name such as `models.revenue` for a model. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
+
+Existing reserved-name rows remain queryable, editable, and deletable. Model validation enforces the reservation on creation and renaming, during saves and `full_clean()`. Authored models can use private materialization backing tables with their model names.
+
+Direct-connection catalogs contain no authored models and are exempt from the reservation. Upstream tables and schemas named `models` remain available there, including case variants resolved by Snowflake and Trino.
+
+This reservation does not add qualified names to existing models or require a namespace on new models.
+
 ## SQL editor drafts
 
 The SQL editor keeps unrun edits in browser storage, scoped to the user, project, and saved query. Explicit logout clears these drafts.
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
+
+## Choosing data in Business intelligence
+
+**Business intelligence** opens a visual worksheet at `/bi`, separately from the SQL editor, when the `sql-editor-bi-mode` feature flag is enabled. Both products keep their own unsaved working copies, including edits to the same saved view, insight, or draft. Existing SQL working copies remain available. Worksheet breadcrumbs preserve the visual configuration, and existing SQL editor links with `mode=bi` open in Business intelligence.
+
+Choose a connection in the **Data** panel, then select a table below it. **Run** is the first toolbar action, before **Swap rows and columns**.
+
+For older saves without worksheet configuration, discarding query edits preserves the current source and shelves.
+
+SQL query-scan advisories are hidden in Business intelligence. Query errors and warnings about stale sources or restricted data remain visible.
+
+Saving a worksheet as an insight preserves its connection, table, shelves, measures, filters, chart type, limit, sort order, and visualization settings in a `BIVisualizationNode`. The wrapper contains the worksheet configuration and a plain `HogQLQuery` source. Saved insights use the normal insight view; **Edit** reopens Business intelligence when the feature is enabled, including from a dashboard. **Discard changes** restores the saved worksheet. **Save as SQL view** exports only the generated SQL to a warehouse view; save an insight to retain editable worksheet state.
+
+Older saves containing only SQL still open in the SQL editor. Their original shelves cannot be reconstructed without the worksheet configuration from a draft or shared URL.
+
+The worksheet date picker supports rolling windows, fixed ranges, this/last month and quarter, and year to date. **Date** selects the column that receives dashboard date ranges; **No date column** explicitly opts out. A dashboard range replaces the worksheet range. Dashboard property filters combine with worksheet conditions. Event-based tables retain standard PostHog property filtering with any date-column selection, using `{filters.native(date_expression)}` or `{filters.native(null)}` when overriding the default date column. Other tables bind dashboard property keys to worksheet fields, including the property key in a field such as `properties.plan`. Unmapped or ambiguous property keys produce a query error instead of silently applying the wrong filter. Reopen and save older BI worksheets to update their generated SQL with dashboard-aware placeholders.
+
+The comparison picker adds the previous period or a custom offset, including one year earlier. Tables, bar, line, and area charts support comparisons with up to two dimensions. Previous-period dates align to the current axis, and the legend identifies each period. Both periods use the effective dashboard date range and property filters. Comparisons require a bounded range and turn off when the worksheet switches to all time or an unsupported chart.
+
+Generated comparison queries use `{filters.previous}` (or its column-bound form) for the comparison range and `{filters.compareDate(expr)}` to align date dimensions. Custom native date columns use `{filters.previous.native(expr)}`. Month, quarter, and year dimensions pass their bucket as a second argument to `compareDate`, so month lengths and leap years do not move points into the wrong bucket. `HogQLFilters.compareFilter` supplies the comparison offset; missing offsets use the previous period.
+
+Use the table picker in the data pane to browse PostHog, warehouse, view, and system tables, with direct-connection tables grouped by schema.
+The selected table is highlighted; expanding a folder does not select it.
+Direct connections group tables by schema. Search matches table and folder names without changing the sidebar search.
+
+**Related tables** exposes existing lazy joins, virtual tables, and configured warehouse joins as expandable nodes. Fields reached through a relation keep the original source and a qualified path, so adding a customer's field to a charges worksheet does not switch tables. PostHog property fields, including `person.properties` under events, expand into searchable, paginated property definitions. Numeric definitions become measures; other definitions become dimensions. Restricted and hidden properties are excluded. Warehouse relationships use the existing join configuration; the worksheet does not create joins or infer arbitrary JSON keys.
+
+**Search fields** also searches property definitions in the selected table and expanded related tables. Search for `$browser`, `$pathname`, or a custom property name to open matching property groups, then drag or double-click a property onto a shelf. Clearing the search restores each group's previous expansion and local search. Searching for a group's name, such as `properties`, shows all its definitions.
+
+## Calculated measures in BI mode
+
+The **Marks** card offers table calculations per measure: percent of total, running total, difference or percent change from the preceding point, trailing moving average, and rank. **Compute using** selects the dimension to traverse, with the date dimension chosen by default; other dimensions partition the calculation. Moving averages count returned points, including the current point. Missing date buckets are not filled. Calculations run before the result limit, and zero denominators produce empty cells.
+
+The **Analysis** card ranks **Top N** categories by a selected measure across the full current date range. **Include "Other"** combines the remaining source rows and re-aggregates them, including averages and distinct counts. Removing the ranking measure turns Top N off. Previous-period comparisons use the current period's category selection. Tables offer a grand total; pivot tables offer row and column grand totals. Both support hierarchy subtotals when an axis has multiple dimensions. Totals re-aggregate source rows; table-calculation cells remain blank on total rows. Summary rows can occupy at most half the result limit, reserving room for detail cells. The BI visualization requests an extra row to determine whether more results exist, then removes it before building tables and charts. Saved SQL and exports retain the worksheet's configured limit. A notice appears only when the response confirms more results beyond that limit, which also applies across comparison periods. Cached results and execution caps may prevent the extra row from being returned.
+
+With `SQL_EDITOR_BI_MODE` enabled, open **Business intelligence**, select a table and choose **Add calculated measure** in the data pane.
+Enter a name and an aggregate SQL formula, such as `sum(revenue) / nullIf(count(DISTINCT user_id), 0)` for average revenue per user.
+Use field names from the selected table. Filters apply before the formula runs for each group on the worksheet.
+
+The measure appears on Rows. Its menu lets you edit the name and formula, sort by the measure, or remove it.
+Cancel discards the draft. Names and formulas persist with the worksheet's BI configuration; measures are not shared across worksheets.
+Calculated measures cannot become dimensions or row filters.
+If a measure name conflicts with a field or another result column, the generated query adds a numeric suffix to its column name. The worksheet keeps the name you entered on the measure pill and sort menu.
+
+## Filters in BI mode
+
+Drop a field onto the compact Filters shelf beside or below the data pane. Quick filters on the right
+show the current selection; click a value to edit it, or use the checkbox beside its name to toggle it.
+Wider worksheets show quick filters in two columns. In tight scenes, click a filter pill on the left
+to edit its values and settings. String fields start with
+**Is any of**: select several values, or type a value and press Enter. **Is none of** excludes the
+selected values. An empty selection leaves all values included. Suggestions load when the picker
+opens, respect the other applied filters, and show up to 100 distinct values; additional values can
+always be entered manually.
+
+Use **Between** for numeric or date fields. Both bounds are inclusive, and either can be left empty
+for an open-ended range. Date-time fields include the time. Uncheck **Apply filter** in the editor to temporarily
+ignore a filter without losing its settings. Click the field pill to edit the field expression, date
+part, or custom SQL condition, or to remove the filter. Filter changes respect the worksheet's
+auto-update setting and are preserved with its saved configuration.
+Numeric filters preserve the precision of entered values. Invalid numbers show an error and prevent the worksheet from running until corrected or disabled.
 
 ## Apple Ads in Marketing analytics
 
@@ -198,3 +269,18 @@ You'll need to install MS SQL drivers for the PostHog app to connect to a MS SQL
 ```text
 symbol not found in flat namespace '_bcp_batch'
 ```
+
+## Connected fields in BI mode
+
+Below Dimensions and Measures, **Connections** lists the selected table's linked tables and views.
+Expand a connection to load its dimensions, measures, and nested connections. Inside connections,
+fields and further links appear without section headings.
+
+Drag connected fields onto a shelf, double-click them, or press Enter or Space to add dimensions to Rows and measures to Values.
+Measures are aggregated automatically. The worksheet keeps its original source table and uses the full
+connection path in queries and shelf labels, such as `person.company.name`.
+Connections expand on demand, including repeated links to the same table. Search filters the fields
+inside expanded connections, and a failed field load has a Retry button.
+Aliases load any intermediate tables automatically. Loading and failed connections stay visible during search.
+Virtual connections expose the field names provided by the existing schema as dimensions. The schema does
+not include their field types or nested link definitions, so these connections do not infer measures or further links.

@@ -108,13 +108,21 @@ class TestResolveTableAndFolderNames:
 
 
 class TestRefreshCumulativeRowCount:
-    def test_updates_row_count_on_success(self) -> None:
+    @parameterized.expand(
+        [
+            ("counts_the_files_without_a_log_count", None, 42, True),
+            ("uses_the_log_count", 40_000_000, 40_000_000, False),
+            ("uses_a_log_count_of_zero", 0, 0, False),
+        ]
+    )
+    def test_updates_row_count(self, _name: str, live_row_count: int | None, expected: int, counts_files: bool) -> None:
         table = MagicMock(row_count=1)
         table.get_count.return_value = 42
 
-        _refresh_cumulative_row_count(table, MagicMock(), "orders (schema-1)")
+        _refresh_cumulative_row_count(table, MagicMock(), "orders (schema-1)", live_row_count)
 
-        assert table.row_count == 42
+        assert table.row_count == expected
+        assert table.get_count.called is counts_files
 
     def test_keeps_previous_row_count_when_get_count_fails(self) -> None:
         # get_count() raises when both the chdb and ClickHouse-cluster reads of the S3 dataset
@@ -637,6 +645,25 @@ class TestValidateSchemaAndUpdateTable:
         schema.refresh_from_db()
         assert schema.sync_type_config[REGISTERED_SCHEMA_FINGERPRINT_KEY]
 
+    def test_records_the_introspected_column_order(self, team):
+        schema, job = self._schema_and_job(team)
+        table = self._linked_table(team, schema, job, queryable_folder="orders__query_a")
+        introspected = {
+            "customer_name": {"clickhouse": "String", "hogql": "x"},
+            "id": {"clickhouse": "Int64", "hogql": "x"},
+            "total": {"clickhouse": "Float64", "hogql": "x"},
+        }
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value=introspected),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            self._register(team, schema, job, queryable_folder="orders__query_a", delta_schema_json="{}")
+
+        table.refresh_from_db()
+        assert table.column_order == ["customer_name", "id", "total"]
+        assert [name for name, _ in table.hogql_definition().fields.items()][:3] == ["customer_name", "id", "total"]
+
     def test_a_failed_introspection_leaves_no_fingerprint_behind(self, team):
         # get_columns() can fail on a table with no committed files (tolerated, see above). The next
         # sync must introspect again rather than trust a fingerprint for columns that were never written.
@@ -853,7 +880,6 @@ class TestSetInitialSyncComplete(BaseTest):
             sync_type="cdc",
             config={"cdc_mode": "snapshot", "cdc_snapshot_lane": "buffer"},
             initial_sync_complete=False,
-            job_inputs={"cdc_ingest_mode": "buffered"},
         )
 
         with patch(
@@ -883,7 +909,6 @@ class TestSnapshotHandoverHoldsTheRowLock(NonAtomicBaseTest):
             connection_id=str(uuid.uuid4()),
             status="Completed",
             source_type="Postgres",
-            job_inputs={"cdc_ingest_mode": "buffered"},
         )
         schema = ExternalDataSchema.objects.create(
             team_id=self.team.pk,

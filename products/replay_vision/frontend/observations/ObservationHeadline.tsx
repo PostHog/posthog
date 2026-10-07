@@ -1,5 +1,5 @@
 import { IconCheckCircle, IconQuestion, IconSparkles, IconXCircle } from '@posthog/icons'
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { LabeledRow } from '../components/LabeledRow'
 import { ObservationPrimaryOutput } from '../components/ObservationCard'
@@ -8,14 +8,13 @@ import { configFromSnapshot, type ScorerScannerConfig } from '../replay_scanners
 import {
     type MonitorVerdict,
     VERDICT_LABEL,
-    confidenceLevel,
-    readConfidence,
     readFixedTags,
     readFreeformTags,
     readModelOutput,
     readScore,
     readVerdict,
 } from '../utils/observation'
+import { ConfidenceBadge } from './ConfidenceBadge'
 
 // Filled, so each category stays visible in dark mode, where a tag's outline alone fades into the card.
 const CATEGORY_CLASS =
@@ -74,19 +73,6 @@ function scoreColor(score: number, min: number, max: number): string {
     return position < 0.5
         ? `color-mix(in oklab, var(--warning) ${Math.round(position * 200)}%, var(--danger))`
         : `color-mix(in oklab, var(--success) ${Math.round((position - 0.5) * 200)}%, var(--warning))`
-}
-
-function ConfidenceBadge({ observation }: { observation: ReplayObservationApi }): JSX.Element | null {
-    const confidence = readConfidence(observation)
-    if (confidence === null) {
-        return null
-    }
-    const { type, label } = confidenceLevel(confidence)
-    return (
-        <LemonTag type={type} size="small" data-attr="vision-observation-confidence">
-            {`${label} confidence · ${Math.round(confidence * 100)}%`}
-        </LemonTag>
-    )
 }
 
 function HeadlineValue({
@@ -175,13 +161,19 @@ function HeadlineValue({
 export function ObservationHeadline({
     observation,
     onSeek,
+    hideLabel = false,
 }: {
     observation: ReplayObservationApi
     onSeek: (timestampMs: number) => void
+    /** For when a tab around the headline already names it. */
+    hideLabel?: boolean
 }): JSX.Element | null {
     const scannerType = observation.scanner_snapshot?.scanner_type
     if (!scannerType || !readModelOutput(observation)) {
         return null
+    }
+    if (hideLabel) {
+        return <HeadlineValue observation={observation} scannerType={scannerType} onSeek={onSeek} />
     }
     return (
         // The badge sits on the heading's line, so it has the same place for every scanner type.

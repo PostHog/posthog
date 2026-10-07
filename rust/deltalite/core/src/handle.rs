@@ -262,6 +262,27 @@ impl TableHandle {
         }
     }
 
+    /// Compact small files (see [`crate::compact`]) against a refreshed snapshot, then
+    /// adopt the committed state so later writes through this handle see it.
+    pub async fn compact(
+        &mut self,
+        opts: crate::compact::CompactOptions,
+        multipart: MultipartConfig,
+    ) -> Result<crate::compact::CompactStats> {
+        self.refresh().await?;
+        let view = wrap_multipart(self.table.clone(), multipart);
+        let (stats, state) = crate::compact::compact(&view, opts).await?;
+        if let Some(state) = state {
+            if self.adopt_commit_snapshot {
+                self.table.state = Some(state);
+                self.prefetch.clear();
+            } else {
+                self.refresh().await?;
+            }
+        }
+        Ok(stats)
+    }
+
     /// The open cost, handed out once so per-upsert stats sum to the handle's total.
     fn take_initial_open_ms(&mut self) -> u64 {
         if self.initial_open_reported {

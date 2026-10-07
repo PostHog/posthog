@@ -122,8 +122,7 @@ The client emits Prometheus metrics at multiple layers:
 **gRPC request metrics** (`interceptor.py`):
 
 - `personhog_django_grpc_request_duration_seconds` — request latency histogram
-- `personhog_django_grpc_requests_total` — request count by method and status
-- `personhog_django_grpc_timeouts_total` — deadline exceeded count
+- `personhog_django_grpc_requests_total` — request count by method and status (timeouts are `status="DEADLINE_EXCEEDED"`)
 
 **Channel metrics** (`client.py`):
 

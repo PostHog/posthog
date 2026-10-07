@@ -12,7 +12,6 @@ import experimentGetByFlagKey from './experiments/getByFlagKey'
 import getExperimentResults from './experiments/getResults'
 // Feature flags
 import featureFlagGetDefinitionByKey from './featureFlags/getDefinitionByKey'
-import updateFeatureFlagPreservingGroups from './featureFlags/updateFeatureFlag'
 // Feedback
 import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
@@ -54,8 +53,6 @@ import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
 import updatePathCleaning from './projects/updatePathCleaning'
 import updatePropertyDefinition from './projects/updatePropertyDefinition'
-// Replay
-import getSessionRecording from './replay/getSessionRecording'
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
 import { SKILL_DEPRECATED_ALIASES } from './skills/deprecatedAliases'
 import { tasksArtifactsList, tasksCommentsList, tasksCommentsRetrieve } from './tasksContext'
@@ -92,7 +89,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Feature flags (get-definition-by-key is hand-written; get-definition by numeric id is codegen)
     'feature-flag-get-definition-by-key': featureFlagGetDefinitionByKey,
-    'update-feature-flag': updateFeatureFlagPreservingGroups,
 
     'path-cleaning-rules-update': updatePathCleaning,
 
@@ -136,9 +132,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // PostHog AI tools
     [EXECUTE_SQL_TOOL_NAME]: executeSql,
     'read-data-schema': readDataSchema,
-
-    // Replay
-    'session-recording-get': getSessionRecording,
 
     // Data warehouse (custom handlers for non-standard request shapes)
     'external-data-sources-db-schema': externalDataSourcesDbSchema,

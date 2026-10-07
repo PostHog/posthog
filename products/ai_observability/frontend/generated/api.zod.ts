@@ -2617,6 +2617,7 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
  */
 export const llmAnalyticsSummarizationCreateBodyModeDefault = `minimal`
 export const llmAnalyticsSummarizationCreateBodyForceRefreshDefault = false
+export const llmAnalyticsSummarizationCreateBodyCompactContextDefault = false
 
 export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
     summarize_type: zod
@@ -2643,6 +2644,12 @@ export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(llmAnalyticsSummarizationCreateBodyForceRefreshDefault)
         .describe('Force regenerate summary, bypassing cache'),
+    compact_context: zod
+        .boolean()
+        .default(llmAnalyticsSummarizationCreateBodyCompactContextDefault)
+        .describe(
+            'Bound the input to a cost-conscious size instead of the full model context window. Use it when you summarize many traces at once and need only a short result such as the title.'
+        ),
     model: zod.string().nullish().describe('LLM model to use (defaults based on provider)'),
     trace_id: zod
         .string()

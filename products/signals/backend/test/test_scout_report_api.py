@@ -915,6 +915,7 @@ class TestScoutReportAPI(APIBaseTest):
             )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["supersedes_implementation"] is False
+        assert [warning["field"] for warning in response.json()["warnings"]] == ["supersedes_implementation"]
         assert (
             self._latest_artefact(created["report_id"], SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION)
             is None
@@ -1037,6 +1038,101 @@ class TestScoutReportAPI(APIBaseTest):
         content = json.loads(decision.content)
         assert len(content["targets"]) == 1
         assert "summary" in content["reason"] and "updated_at" not in content["reason"]
+
+    @parameterized.expand(
+        [
+            # A scout first judged the report blocked on a person; new evidence makes it fixable.
+            (
+                "promotion",
+                {"actionability": "requires_human_input"},
+                {
+                    "actionability": "immediately_actionable",
+                    "actionability_explanation": "The failing handler is now identified.",
+                    "priority": "P1",
+                    "priority_explanation": "Checkout errors doubled after the incident escalated.",
+                },
+                ["actionability", "priority"],
+                ("immediately_actionable", False, "P1"),
+            ),
+            # A fix landed elsewhere, so autostart must not open a competing pull request.
+            (
+                "demotion",
+                {"priority": "P2", "priority_explanation": "Moderate impact."},
+                {
+                    "actionability": "immediately_actionable",
+                    "actionability_explanation": "A merged change fixed the handler.",
+                    "already_addressed": True,
+                },
+                ["actionability"],
+                ("immediately_actionable", True, "P2"),
+            ),
+            # Raising priority on a report that never had a pull request.
+            (
+                "priority_only",
+                {},
+                {"priority": "P0", "priority_explanation": "The incident now blocks every checkout."},
+                ["priority"],
+                ("immediately_actionable", False, "P0"),
+            ),
+            # A re-send of the stored decision changes nothing and must not re-run autostart.
+            (
+                "unchanged",
+                {"priority": "P2", "priority_explanation": "Moderate impact."},
+                {"priority": "P2", "priority_explanation": "Moderate impact."},
+                [],
+                ("immediately_actionable", False, "P2"),
+            ),
+        ]
+    )
+    def test_edit_replaces_the_work_decision_and_reruns_autostart(
+        self, _name: str, emitted: dict, edit: dict, expected_fields: list[str], expected: tuple
+    ) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(**emitted), format="json").json()
+        report_id = created["report_id"]
+        status_before = SignalReport.objects.get(id=report_id).status
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+            response = self.client.post(
+                self._edit_url(str(run.id)), data={"report_id": report_id, **edit}, format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["decision_fields_set"] == expected_fields
+        assert autostart.await_count == (1 if expected_fields else 0)
+        actionability = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT)
+        priority = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT)
+        assert actionability is not None and priority is not None
+        actionability_content = json.loads(actionability.content)
+        assert (
+            actionability_content["actionability"],
+            actionability_content["already_addressed"],
+            json.loads(priority.content)["priority"],
+        ) == expected
+        assert SignalReport.objects.get(id=report_id).status == status_before
+        notes = SignalReportArtefact.objects.filter(report_id=report_id, type="note", content__contains="Set ")
+        assert notes.count() == len(expected_fields)
+
+    @parameterized.expand(
+        [
+            ("actionability_without_explanation", {"actionability": "not_actionable"}),
+            ("already_addressed_alone", {"already_addressed": True}),
+            ("priority_without_explanation", {"priority": "P1"}),
+            ("explanation_without_priority", {"priority_explanation": "Escalated."}),
+        ]
+    )
+    def test_incomplete_work_decision_is_rejected_before_any_write(self, _name: str, edit: dict) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with _safe_judge() as judge:
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "summary": "A rewrite riding along.", **edit},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        judge.assert_not_awaited()
+        assert SignalReport.objects.get(id=created["report_id"]).summary == self._payload()["summary"]
 
     @parameterized.expand([("note",), ("unchanged",), ("over_cap",)])
     def test_ineligible_supersede_does_not_query_github(self, shape: str) -> None:
@@ -2876,7 +2972,7 @@ class TestEmitReportMetricGoalFields(SimpleTestCase):
         serializer = EmitReportRequestSerializer(data=self._payload(**goal))
 
         assert not serializer.is_valid()
-        assert "impact_measurement_plan" in str(serializer.errors["metrics"])
+        assert "follow-up checks" in str(serializer.errors["metrics"])
 
     @parameterized.expand(
         [("no_goal_fields", {}), ("goal_grain_default_from_an_older_client", {"goal_grain": "whole_window"})]

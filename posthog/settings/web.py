@@ -91,6 +91,7 @@ PRODUCTS_APPS = [
     "products.metrics.backend.apps.MetricsConfig",
     "products.apm.backend.apps.ApmConfig",
     "products.notifications.backend.apps.NotificationsConfig",
+    "products.cross_project_dashboards.backend.apps.CrossProjectDashboardsConfig",
     "products.dashboards.backend.apps.DashboardsConfig",
     "products.messaging.backend.apps.MessagingConfig",
     "products.mcp_analytics.backend.apps.McpAnalyticsConfig",
@@ -105,6 +106,7 @@ PRODUCTS_APPS = [
     "products.warehouse_sources.backend.apps.WarehouseSourcesConfig",
     "products.data_tools.backend.apps.DataToolsConfig",
     "products.alerts.backend.apps.AlertsConfig",
+    "products.alerts_platform.backend.apps.AlertsPlatformConfig",
     "products.actions.backend.apps.ActionsConfig",
     "products.autoresearch.backend.apps.AutoresearchConfig",
     "products.product_analytics.backend.apps.ProductAnalyticsConfig",
@@ -605,6 +607,9 @@ SPECTACULAR_SETTINGS = {
             "TicketPriorityEnum": "products.conversations.backend.models.constants.Priority",
             # ExperimentMetricsRecalculation and ExperimentTimeseriesRecalculation both define this Status.
             "MetricsRecalculationStatusEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status",
+            # tasks' SpaceGoalPeriod measures a goal over day/week/month and alerts_platform's
+            # recurrence unit repeats on one, so the pairs match and neither name fits both.
+            "CalendarUnitEnum": "products.alerts_platform.backend.facade.enums.PlatformAlertConfigurationRecurrenceUnit.choices",
             # Matches tasks' LoopVisibility (personal/team).
             "MCPAgentGrantScopeEnum": "products.mcp_store.backend.models.AGENT_GRANT_SCOPE_CHOICES",
             # Matches Subscription frequency (daily/weekly/monthly).
@@ -665,6 +670,9 @@ SPECTACULAR_SETTINGS = {
             "DiagnosticSeverityEnum": ["error", "warning"],
             "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
             "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
+            "LogsAlertDestinationTypeEnum": ["slack", "webhook", "teams", "pagerduty"],
+            "PagerDutySeverityEnum": ["critical", "error", "warning", "info"],
+            "PagerDutyRegionEnum": ["us", "eu"],
             # growth's identity-matching tier and the signals scout suggestion confidence.
             "ConfidenceTierEnum": ["low", "medium", "high"],
             #
@@ -837,6 +845,7 @@ SPECTACULAR_SETTINGS = {
             "ClaudeRuntimeAdapterEnum": ["claude"],
             "CodexRuntimeAdapterEnum": ["codex"],
             "StaffCacheKindEnum": ["evaluation", "definitions"],
+            "TrialEvidenceSourceKindEnum": ["instructions", "context", "summary", "report", "memory", "trace"],
             #
             # One single-value discriminator enum per dashboard widget.
             # bin/build-dashboard-widget-types.py checks these against WIDGET_SPECS.

@@ -3,7 +3,9 @@ from typing import Any
 
 from django.conf import settings
 
+import pyarrow as pa
 import deltalake as deltalake
+import pyarrow.compute as pc
 import deltalake.exceptions
 from structlog.types import FilteringBoundLogger
 
@@ -148,6 +150,30 @@ def delta_storage_options() -> dict[str, str]:
     if settings.DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME:
         options["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true"
     return options
+
+
+def live_row_count(delta_table: deltalake.DeltaTable) -> int | None:
+    """Rows in the table's live files, summed from the `numRecords` statistic of each Add action.
+
+    The query folder holds a copy of exactly the live files, so this sum is the number a `count()`
+    over that folder returns, without a read of any data file. Deletion vectors do not change this,
+    because the copied files also keep every physical row.
+
+    None when a live file has no statistic or the log cannot give the statistics. The caller then
+    counts the files instead.
+    """
+    try:
+        add_actions = pa.table(delta_table.get_add_actions(flatten=False))
+    except Exception:
+        # The stats of a large table can overflow Arrow's 32-bit string offsets (see
+        # repartition.measure_partition_bytes), and the fallback count gives the same number.
+        return None
+    if "num_records" not in add_actions.column_names:
+        return None
+    num_records = add_actions.column("num_records")
+    if num_records.null_count:
+        return None
+    return int(pc.sum(num_records).as_py() or 0)
 
 
 class DeltaTableRef:
@@ -432,3 +458,15 @@ class DeltaTableRef:
             return []
 
         return await asyncio.to_thread(delta_table.file_uris)
+
+    async def get_live_row_count(self) -> int | None:
+        """The table's row count from the Delta log, or None when the log cannot give it (see
+        `live_row_count`)."""
+        delta_table = await self.get_delta_table()
+        if delta_table is None:
+            return None
+
+        row_count = await asyncio.to_thread(live_row_count, delta_table)
+        if row_count is None:
+            await self._logger.adebug("The Delta log has no complete row count, counting the published files")
+        return row_count

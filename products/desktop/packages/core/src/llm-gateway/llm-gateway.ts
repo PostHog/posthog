@@ -60,9 +60,17 @@ type SendOptions = {
 
 // The Go gateway's model for a helper prompt, picked from the token's pin
 // so a free-tier token never spends a round trip on a refused model.
+// A paid pin is the whole product list; Go enforces it in canonical spelling,
+// which a bare requested id never string-matches.
 function pickGoModel(route: GoRoute, requested: string): string {
   const allowed = route.allowedModels;
-  if (allowed === null || allowed.includes(requested)) return requested;
+  if (
+    allowed === null ||
+    route.plan === "paid" ||
+    allowed.includes(requested)
+  ) {
+    return requested;
+  }
   if (route.plan === "free" && allowed.includes(FREE_TIER_GATEWAY_MODEL)) {
     return FREE_TIER_GATEWAY_MODEL;
   }

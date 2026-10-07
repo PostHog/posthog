@@ -259,14 +259,6 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         help_text="The experiment this scanner's targeting watches, if any.",
     )
 
-    # Shape: feedback_themes.build_feedback_themes. Not version-tracked: themes describe the
-    # ratings, not the scanner's behavior.
-    feedback_themes = models.JSONField(
-        null=True,
-        blank=True,
-        help_text="AI summary of the team's written thumbs-down feedback into recurring failure modes.",
-    )
-
     estimated_monthly_observations = models.PositiveIntegerField(
         null=True,
         blank=True,
@@ -336,7 +328,7 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
     admission_budget_used = models.IntegerField(
         null=True,
         blank=True,
-        help_text="Credits counted against credit_limit at the last admission-budget refresh: settled receipts, in-flight reservations, and running evaluations.",
+        help_text="Credits counted against credit_limit at the last admission-budget refresh: settled receipts and in-flight reservations.",
     )
     admission_budget_refreshed_at = models.DateTimeField(
         null=True,

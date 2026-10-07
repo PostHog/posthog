@@ -1340,9 +1340,9 @@ export const SpaceSetupKindEnumApi = {
  * * `week` - Week
  * * `month` - Month
  */
-export type SpaceGoalPeriodEnumApi = (typeof SpaceGoalPeriodEnumApi)[keyof typeof SpaceGoalPeriodEnumApi]
+export type CalendarUnitEnumApi = (typeof CalendarUnitEnumApi)[keyof typeof CalendarUnitEnumApi]
 
-export const SpaceGoalPeriodEnumApi = {
+export const CalendarUnitEnumApi = {
     Day: 'day',
     Week: 'week',
     Month: 'month',
@@ -1373,7 +1373,7 @@ export interface SpaceGoalWriteApi {
      * * `day` - Day
      * * `week` - Week
      * * `month` - Month */
-    period?: SpaceGoalPeriodEnumApi
+    period?: CalendarUnitEnumApi
     /** Whether the target is a floor ('at_least') or a ceiling ('at_most').
      *
      * * `at_least` - At least
@@ -4901,10 +4901,16 @@ export interface TasksResolvedAIRunDefaultsApi {
  * The requesting user's per-project task defaults, shared by PostHog Desktop and the web app.
  */
 export interface TasksTaskDefaultsApi {
-    /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
-    start_in_plan_mode: boolean
-    /** When true, a cloud run that changes code always opens a draft pull request. */
-    auto_publish_cloud_runs: boolean
+    /**
+     * When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it.
+     * @nullable
+     */
+    start_in_plan_mode: boolean | null
+    /**
+     * When true, a cloud run that changes code always opens a draft pull request. Null when you never set it.
+     * @nullable
+     */
+    auto_publish_cloud_runs: boolean | null
 }
 
 /**
@@ -4936,9 +4942,9 @@ export interface TasksAgentInstructionsApi {
  * A partial update of the requesting user's task defaults. Fields left out keep their stored value.
  */
 export interface TasksTaskDefaultsUpdateApi {
-    /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
+    /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it. */
     start_in_plan_mode?: boolean
-    /** When true, a cloud run that changes code always opens a draft pull request. */
+    /** When true, a cloud run that changes code always opens a draft pull request. Null when you never set it. */
     auto_publish_cloud_runs?: boolean
 }
 
@@ -6158,6 +6164,13 @@ export type TasksRunsStreamTokenRetrieveParams = {
      * Set to true when the client can rebuild the run from its durable log after the agent-proxy reports a trimmed stream cursor. Without it, runs that keep only a short live tail in Redis are read from the Django endpoint, which replays the durable backlog itself.
      */
     resync?: boolean
+}
+
+export type TasksRunsLivingArtifactsVersionContentParams = {
+    /**
+     * Set to true to save the version. A stored file then redirects to a short-lived presigned URL, so a large file never passes through the app. Leave unset for an inline preview.
+     */
+    download?: boolean
 }
 
 export type TasksThreadMessagesListParams = {

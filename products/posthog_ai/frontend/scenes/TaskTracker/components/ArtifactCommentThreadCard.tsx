@@ -1,15 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconCheck, IconPin, IconRefresh } from '@posthog/icons'
-import { Badge, Button, Text, ThreadItemAction, ThreadItemGroup, cn } from '@posthog/quill-primitives'
+import { IconPin } from '@posthog/icons'
+import { Badge, Button, Text, cn } from '@posthog/quill-primitives'
 
-import { ArtifactCommentThread } from '../artifactComments'
+import { ArtifactCommentThread, threadAnchorLabel } from '../artifactComments'
 import { TaskArtifactCommentsLogicProps, taskArtifactCommentsLogic } from '../taskArtifactCommentsLogic'
+import { taskRunArtifactsLogic } from '../taskRunArtifactsLogic'
 import { ArtifactCommentComposer } from './ArtifactCommentComposer'
-import { ArtifactCommentEntry } from './ArtifactCommentEntry'
+import { ArtifactCommentThreadEntries } from './ArtifactCommentThreadEntries'
 
-/** One comment thread: what it is about, its comments, and a reply box. */
+/** One comment thread in the comments menu: what it is about, its comments, and a reply box. */
 export function ArtifactCommentThreadCard({
     logicProps,
     thread,
@@ -18,9 +19,8 @@ export function ArtifactCommentThreadCard({
     thread: ArtifactCommentThread
 }): JSX.Element {
     const { activeThreadId, writing, drafts } = useValues(taskArtifactCommentsLogic(logicProps))
-    const { activateThread, setThreadResolved, replyToThread, setDraft } = useActions(
-        taskArtifactCommentsLogic(logicProps)
-    )
+    const { activateThread, replyToThread, setDraft } = useActions(taskArtifactCommentsLogic(logicProps))
+    const { todayPhone } = useValues(taskRunArtifactsLogic({ taskId: logicProps.taskId }))
     const ref = useRef<HTMLElement>(null)
     const rootId = thread.root.id
     const active = activeThreadId === rootId
@@ -33,29 +33,10 @@ export function ArtifactCommentThreadCard({
         }
     }, [active])
 
-    const resolveAction = (
-        <ThreadItemAction
-            label={thread.resolved ? 'Reopen thread' : 'Resolve thread'}
-            variant="default"
-            loading={writing === rootId}
-            disabled={!!writing && writing !== rootId}
-            onClick={() => setThreadResolved(rootId, !thread.resolved)}
-            data-attr={thread.resolved ? 'task-artifact-comment-reopen' : 'task-artifact-comment-resolve'}
-        >
-            {thread.resolved ? <IconRefresh /> : <IconCheck />}
-        </ThreadItemAction>
-    )
-    const anchorLabel =
-        anchor?.kind === 'text'
-            ? `Comments on "${anchor.quote}"`
-            : thread.pinNumber
-              ? `Comments on pin ${thread.pinNumber}`
-              : 'Comments on this file'
-
     return (
         <section
             ref={ref}
-            aria-label={anchorLabel}
+            aria-label={threadAnchorLabel(thread)}
             data-selected={active || undefined}
             className={cn('flex flex-col gap-1 rounded-md py-2', active && 'bg-fill-selected')}
             data-attr="task-artifact-comment-thread"
@@ -92,12 +73,7 @@ export function ArtifactCommentThreadCard({
                     {thread.resolved && <Badge variant="completed">Resolved</Badge>}
                 </div>
             )}
-            <ThreadItemGroup>
-                <ArtifactCommentEntry comment={thread.root} actions={resolveAction} />
-                {thread.replies.map((reply) => (
-                    <ArtifactCommentEntry key={reply.id} comment={reply} />
-                ))}
-            </ThreadItemGroup>
+            <ArtifactCommentThreadEntries logicProps={logicProps} thread={thread} />
             {/* Like Desktop, the reply box opens on the picked thread, so a long list stays short. */}
             {/* pl-9 lines the reply controls up with the comment text, past the avatar gutter. */}
             {!thread.resolved && !active && !drafts[rootId] && (
@@ -124,6 +100,7 @@ export function ArtifactCommentThreadCard({
                         placeholder="Reply"
                         submitLabel="Reply"
                         rows={1}
+                        showShortcut={!todayPhone}
                         dataAttr="task-artifact-comment-reply"
                     />
                 </div>

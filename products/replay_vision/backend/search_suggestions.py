@@ -16,7 +16,7 @@ from itertools import zip_longest
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import DateTimeField, Exists, F, OuterRef, Q, QuerySet, Subquery, Value
+from django.db.models import DateTimeField, DurationField, Exists, F, OuterRef, Q, QuerySet, Subquery, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -65,6 +65,8 @@ FIRST_PHRASES_RETRY = dt.timedelta(minutes=10)
 # The view stamp is one Postgres write per scope per this window, whatever the page traffic.
 _VIEW_STAMP_THROTTLE = dt.timedelta(hours=1)
 _EPOCH = dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
+# Longer than the apply workflow's execution timeout, so a row created this long before a watermark completed before it.
+COMPLETION_LAG = dt.timedelta(hours=2)
 # Daily model-call counter across every refresh run, the backstop against a bug that makes every scanner look stale.
 _BUDGET_TTL_S = 2 * 24 * 3600
 # Cross-scanner search merges phrases from this many of the team's most recently active scanners.
@@ -220,23 +222,32 @@ def stale_team_candidates(limit: int) -> list[int]:
     """Teams whose cross-scanner phrases are due: AI processing on, past their back-off, and with enough new
     observations across the scanners that may feed them. Counted across the team, because a team sample draws
     from several scanners at once."""
-    config = TeamReplayVisionConfig.objects.filter(team_id=OuterRef("team_id"))
-    team_watermark = Coalesce(
-        Subquery(config.values("search_suggestions_watermark")[:1]), Value(_EPOCH), output_field=DateTimeField()
-    )
-    newer = _team_rows().filter(
-        team_id=OuterRef("team_id"),
-        scanner__in=_team_sources(),
-        completed_at__gt=team_watermark,
-    )
     not_due = TeamReplayVisionConfig.objects.exclude(_due()).values("team_id")
-    return list(
+    sources = (
         _team_sources()
         .filter(team__organization__is_ai_data_processing_approved=True)
         .exclude(team_id__in=not_due)
+        .values("team_id")
+    )
+    watermark = Coalesce(
+        Subquery(
+            TeamReplayVisionConfig.objects.filter(team_id=OuterRef("pk")).values("search_suggestions_watermark")[:1]
+        ),
+        Value(_EPOCH),
+        output_field=DateTimeField(),
+    )
+    newer = _team_rows().filter(
+        team_id=OuterRef("pk"),
+        scanner__in=_team_sources(),
+        completed_at__gt=OuterRef("watermark"),
+        created_at__gt=OuterRef("created_floor"),
+    )
+    return list(
+        Team.objects.filter(pk__in=sources)
+        .annotate(watermark=watermark)
+        .annotate(created_floor=F("watermark") - Value(COMPLETION_LAG, output_field=DurationField()))
         .filter(_has_enough_new_rows(newer))
-        .values_list("team_id", flat=True)
-        .distinct()[:limit]
+        .values_list("pk", flat=True)[:limit]
     )
 
 

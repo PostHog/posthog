@@ -7,7 +7,7 @@ During a run, the sandbox agent has no other write path. It records iterations, 
 ## What lives here
 
 - `tools.yaml`
-  The whole surface: 22 enabled tools, `category: Autoresearch`, `feature: autoresearch`, `url_prefix: /autoresearch`. The family must stay at or below 25 tools: above that the exec tool's compact domain index splits it into sub-domains, and the serialized exec schema crosses the claude.ai registry cap (see `services/mcp/tests/unit/instructions-formatter-snapshot.test.ts`). Duplicative tools (`suggestions-retrieve`, `templates-list`, `validate-online-create`, `artifacts-delete-create`) are disabled rather than removed. `resolve-template-create` names every template key, so it replaces `templates-list` as the template entry point.
+  The whole surface: 24 enabled tools, `category: Autoresearch`, `feature: autoresearch`, `url_prefix: /autoresearch`. The family must stay at or below 25 tools: above that the exec tool's compact domain index splits it into sub-domains, and the serialized exec schema crosses the claude.ai registry cap (see `services/mcp/tests/unit/instructions-formatter-snapshot.test.ts`). Duplicative tools (`suggestions-retrieve`, `templates-list`, `validate-online-create`, `artifacts-delete-create`) are disabled rather than removed. `resolve-template-create` names every template key, so it replaces `templates-list` as the template entry point.
   Each entry names an `operation` (an operation id from the OpenAPI spec), an `enabled` flag, required `scopes` (`autoresearch:read` / `autoresearch:write`, plus every extra scope the endpoint's `required_scopes` names, such as `query:read`: MCP hides a tool whose scopes the key lacks), `annotations` (`readOnly`, `destructive`, `idempotent`), and a `title` + `description`.
 
 Tool entries are scaffolded from the OpenAPI schema — `pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all` keeps the tool list and operation ids in sync. Everything editorial (description, title, `enrich_url`, `exclude_params`) is yours to write.
@@ -20,7 +20,7 @@ Tool entries are scaffolded from the OpenAPI schema — `pnpm --filter=@posthog/
 
 **Bring-your-own agents** — an agent that trains outside PostHog (for example on a laptop) calls `autoresearch-training-runs-create` to open a run, then the agent-facing tools above except `-materialize-features`, which writes into a PostHog sandbox; it pulls data with `execute-sql` instead. A sandbox request to open a run is refused.
 
-**User-facing** — creating and inspecting pipelines: `autoresearch-resolve-template-create`, `-validate-create`, `-create`, `-train-create`, `-score-create`, `-list`, `-retrieve`, `-training-runs-list`, `-suggestions-create`, `-suggestions-list` (to read the agent's response).
+**User-facing** — creating and inspecting pipelines: `autoresearch-resolve-template-create`, `-validate-create`, `-create`, `-train-create`, `-score-create`, `-list`, `-retrieve`, `-training-runs-list`, `-online-performance-retrieve` (realized metrics per model per validated date), `-suggestions-create`, `-suggestions-list` (to read the agent's response).
 
 `autoresearch-score-create` scores today's prediction date on demand, so an MCP caller does not have to wait for the daily run after a champion is promoted. The training sandbox never sees it, because `TRAINING_MCP_SCOPES` has no `person:write`.
 

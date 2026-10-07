@@ -29,6 +29,7 @@ import {
 } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
 
 const ADA = {
@@ -537,6 +538,60 @@ function clearTodayStorage(
     return <Story />
 }
 
+function mockReportPage(reportId: string): ReportPageApi {
+    const report = REPORTS.find((candidate) => candidate.id === reportId) ?? REPORTS[0]
+    const signals = mockSignals(reportId, 6).map((signal) => {
+        const firstLine = signal.content.split('\n')[0]
+        return {
+            signal_id: signal.signal_id,
+            content: signal.content,
+            source_product: signal.source_product,
+            source_type: signal.source_type,
+            source_id: signal.source_id,
+            timestamp: signal.timestamp,
+            extra: { ...signal.extra },
+            headline: firstLine,
+            lead: firstLine,
+            meta: '',
+            cited: signal.source_product === 'signals_scout' ? ('code' as const) : null,
+            recording: null,
+            link: null,
+            preview: {
+                hint: 'Show the description',
+                code: [],
+                block: [],
+                text: signal.content,
+                facts: [],
+                link: null,
+                link_label: null,
+            },
+        }
+    })
+    return {
+        lead: report.summary_lead ?? '',
+        proposal: report.suggested_prompts?.[0] ?? '',
+        impact_sentence: '',
+        named_pull_request: null,
+        solution_names_pull_request: false,
+        evidence: signals.slice(0, 3),
+        source_count: signals.length,
+        impact_numbers:
+            report.id === 'report-1'
+                ? [
+                      {
+                          key: 'tickets',
+                          value: '4',
+                          sentence: 'support tickets over 3 days.',
+                          signal: signals[0],
+                          values: [],
+                          working: null,
+                      },
+                  ]
+                : [],
+        last_seen: null,
+    }
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Project Homepage/Today',
@@ -553,15 +608,11 @@ const meta: Meta = {
                     REPORTS.find((report) => report.id === req.params.id) ?? REPORTS[0],
                 ],
                 '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
-                '/api/projects/:team_id/signals/reports/:id/signals/': (req) => [
-                    200,
-                    // Error tracking signals fetch their issue, which these stories do not mock.
-                    {
-                        signals: mockSignals(String(req.params.id), 6).filter(
-                            (signal) => signal.source_product !== 'error_tracking'
-                        ),
-                    },
-                ],
+                '/api/projects/:team_id/today/reports/:id/page/': (req) => [200, mockReportPage(String(req.params.id))],
+                '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [], count: 0, next: null },
+                '/api/projects/:team_id/signals/reports/:id/checks/': { results: [], count: 0, next: null },
+                '/api/users/@me/integrations/': { results: [] },
+                '/api/users/@me/integrations/slack/linkable_workspaces/': { results: [] },
                 '/api/projects/:team_id/today/briefing/': () => [404, { detail: 'Not found.' }],
                 '/api/projects/:team_id/task_channels/': SPACES,
                 '/api/projects/:team_id/task_channels/:id/': (req) => [
@@ -589,7 +640,9 @@ const meta: Meta = {
                         ? channel === 'space-checkout'
                             ? CANVASES
                             : []
-                        : VIEW_CANVASES.filter((canvas) => canvas.kind === params.get('kind'))
+                        : VIEW_CANVASES.filter((canvas) => canvas.kind === params.get('kind')).sort((first, second) =>
+                              second.updated_at.localeCompare(first.updated_at)
+                          )
                     return [200, { results, count: results.length, next: null, previous: null }]
                 },
                 '/api/projects/:team_id/task_activity/': {
@@ -743,13 +796,25 @@ export const ReportWithPullRequest: Story = {
     parameters: { pageUrl: urls.todayReport('report-1') },
 }
 
-export const ReportWithSuggestedPrompts: Story = {
+export const ReportProposingItsFirstPrompt: Story = {
     parameters: { pageUrl: urls.todayReport('report-2') },
 }
 
-// One chart placed in the summary, one trailing it. Charts resolve without the Inbox detail logic.
-export const ReportWithCharts: Story = {
+export const ReportWithAnImpactMetric: Story = {
     parameters: { pageUrl: urls.todayReport('report-4') },
+}
+
+export const ReportWithTicketsAndEvidenceDetail: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1') },
+}
+
+export const ReportThatFailsToLoad: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1') },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/today/reports/:id/page/': () => [500, {}] } })],
+}
+
+export const ReportInANarrowWindow: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1'), testOptions: { viewport: { width: 800, height: 900 } } },
 }
 
 export const SpacesPane: Story = {
@@ -776,6 +841,11 @@ export const SpacesPaneHoveringSpaceRow: Story = {
 
 export const SpacePage: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
+}
+
+// New session opens this page. It files into the personal space until the user picks another one.
+export const NewSessionPage: Story = {
+    parameters: { pageUrl: urls.taskNewSession() },
 }
 
 // A Cmd-click pick can't be held in a static story, so the play step selects a pinned and a recent row through the logic.
@@ -894,7 +964,7 @@ export const LibraryAllObjects: Story = {
 }
 
 export const LibraryFeatureFlags: Story = {
-    parameters: { pageUrl: urls.library('feature_flag') },
+    parameters: { pageUrl: urls.featureFlags() },
 }
 
 export const ToolsPane: Story = {
@@ -914,13 +984,24 @@ export const NarrowWindowWithSidebar: Story = {
     },
 }
 
+export const PhoneWidth: Story = {
+    parameters: { testOptions: { viewport: { width: 390, height: 844 } } },
+}
+
+export const PhoneWidthMorePane: Story = {
+    parameters: { testOptions: { viewport: { width: 390, height: 844 } } },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByRole('button', { name: 'More' }))
+    },
+}
+
 // The card opens on hover, which a static story can't hold, so these render its contents in the same frame.
 const noop = (): void => {}
 
 function HoverCardFrame({ children }: { children: ReactNode }): JSX.Element {
     return (
         <div className="p-4">
-            <Card size="sm" className="w-72 gap-0 border border-border py-0 shadow-md">
+            <Card size="sm" className="w-72 gap-0 border border-border py-0 shadow-[var(--shadow-md)]">
                 {children}
             </Card>
         </div>
@@ -1047,6 +1128,7 @@ export const ViewsEmpty: Story = {
 export const ViewsNewMenu: Story = {
     parameters: { pageUrl: urls.views() },
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByText('New…'))
+        const [newView] = await within(canvasElement).findAllByText('New view')
+        await userEvent.click(newView)
     },
 }

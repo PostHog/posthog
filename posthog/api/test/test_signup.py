@@ -841,14 +841,37 @@ class TestSignupAPI(APIBaseTest):
                 response, "/login?error_code=no_new_organizations"
             )  # show the user an error; operation not permitted
 
+    @parameterized.expand(
+        [
+            (
+                "without_next",
+                {},
+                "/organization/confirm-creation?organization_name=HogFlix&first_name=John%20Doe&email=testemail%40posthog.com",
+                "same-origin",
+            ),
+            (
+                "with_vercel_connect_next",
+                {"next": "/connect/vercel/link?session=abc"},
+                "/organization/confirm-creation?organization_name=HogFlix&first_name=John%20Doe&email=testemail%40posthog.com&next=%2Fconnect%2Fvercel%2Flink%3Fsession%3Dabc",
+                "unsafe-none",
+            ),
+        ]
+    )
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @pytest.mark.ee
-    def test_api_social_login_to_create_organization(self, mock_request):
+    def test_api_social_login_to_create_organization(
+        self,
+        _name: str,
+        begin_params: dict[str, str],
+        expected_location: str,
+        expected_coop: str,
+        mock_request: mock.MagicMock,
+    ) -> None:
         with self.settings(
             SOCIAL_AUTH_GITHUB_KEY="github_123",
             SOCIAL_AUTH_GITHUB_SECRET="github_secret",
         ):
-            response = self.client.get(reverse("social:begin", kwargs={"backend": "github"}))
+            response = self.client.get(reverse("social:begin", kwargs={"backend": "github"}), begin_params)
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         session = self.client.session
@@ -864,10 +887,8 @@ class TestSignupAPI(APIBaseTest):
 
         response = self.client.get(url, follow=True)
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
-        self.assertRedirects(
-            response,
-            "/organization/confirm-creation?organization_name=HogFlix&first_name=John%20Doe&email=testemail%40posthog.com",
-        )  # page where user will create a new org
+        self.assertRedirects(response, expected_location)  # page where user will create a new org
+        self.assertEqual(response["Cross-Origin-Opener-Policy"], expected_coop)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")

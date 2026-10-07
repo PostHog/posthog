@@ -274,6 +274,9 @@ class MetricSeriesTable(Table):
         "last_seen": DateTimeDatabaseField(
             name="timestamp", nullable=False, description="Most recent sample timestamp seen for this series."
         ),
+        "time_bucket": DateTimeDatabaseField(
+            name="time_bucket", nullable=False, description="Start of the UTC hour that contains `last_seen`."
+        ),
         "original_expiry_timestamp": DateTimeDatabaseField(
             name="original_expiry_timestamp", nullable=False, description="When the series leaves retention."
         ),

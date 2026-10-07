@@ -8,11 +8,16 @@ must still be 0) and the snapshot `horizon_days` later (the label). The report's
 exception: it has no earlier scoring moment, so an outcome already visible there is a future
 positive for that moment rather than an outcome of an earlier one, and the label may already be 1.
 
+Every head reads the `everyone` cohort, so each `p_<head>` is a probability over the
+same reports and the heads can be compared and combined. Impressions are not a label gate: only the
+cloud inbox list emits them, and a report reached from Slack, the desktop app or MCP often has none.
+The dataset keeps them for position bias and the shadow grades.
+
 `action` counts intent from any surface: the inbox UI, external coding agents over MCP, the CLI,
 Slack and the desktop app. Self-driving's own `task` and `system` writes are excluded, because
 they are internal operational work and not a person acting on the report.
 
-Mirrors the workspace `heads.py` (random-dev-internal, `inbox-ranking/`). Seven heads are dense
+Mirrors the workspace `heads.py` (random-dev-internal, `inbox-ranking/`). Nine heads are dense
 enough to read on the holdout. `thumbs_up` and `reviewer_fix` are the explicit human-feedback pair:
 they are rare, so they are carried for the pooled newborn grade and as scorer inputs rather than
 for a holdout AUC. The rest stay workspace-only.
@@ -29,10 +34,6 @@ from products.signals.dags.inbox_ranking.common import WRONG_DISMISSAL_REASONS
 
 def _count(frame: pd.DataFrame, column: str) -> pd.Series:
     return frame[column].fillna(0).astype(int) if column in frame else pd.Series(0, index=frame.index)
-
-
-def impressed(frame: pd.DataFrame) -> pd.Series:
-    return _count(frame, "impression_unit_count") > 0
 
 
 def everyone(frame: pd.DataFrame) -> pd.Series:
@@ -82,6 +83,14 @@ def dismissed_as_wrong(frame: pd.DataFrame) -> pd.Series:
     if "dismissal_reason" not in frame:
         return pd.Series(False, index=frame.index)
     return frame["dismissal_reason"].isin(WRONG_DISMISSAL_REASONS)
+
+
+def fixed(frame: pd.DataFrame) -> pd.Series:
+    return _count(frame, "fixed_count") > 0
+
+
+def dismissed_as_low_value(frame: pd.DataFrame) -> pd.Series:
+    return _count(frame, "lowvalue_dismissal_count") > 0
 
 
 def pr_created(frame: pd.DataFrame) -> pd.Series:
@@ -141,13 +150,15 @@ HEADS: tuple[Head, ...] = (
         label_columns=ACTION_LABEL_COLUMNS,
         status_labels=True,
     ),
-    # Of the reports users saw, which were dismissed as wrong / unclear / intentional - the
-    # precision-failure negative. already_fixed and wontfix_irrelevant are deliberately not here.
+    # Which reports were dismissed as wrong / unclear / intentional - the precision-failure negative.
+    # already_fixed and wontfix_irrelevant are deliberately not here. Cohort is every report: a
+    # dismissal from another surface often has no list impression. A dismissal with a reason lands
+    # late, so 21 days labels fewer late dismissals as negatives than 14 did.
     Head(
         name="dismiss_wrong",
-        cohort=impressed,
+        cohort=everyone,
         label=dismissed_as_wrong,
-        horizon_days=14,
+        horizon_days=21,
         min_holdout_positives=30,
         status_labels=True,
     ),
@@ -163,11 +174,24 @@ HEADS: tuple[Head, ...] = (
         min_holdout_positives=30,
         label_columns=("pr_merged_count",),
     ),
-    # Of the reports users saw, which drew a discuss? A subset of the action head, which is fine - each
-    # head trains independently.
+    # Which reports flagged a real problem that then got fixed, by anyone and on any surface? Reads
+    # only the status stream: a tracked PR merge, a hand-marked fix, or a dismissal as already
+    # fixed all count. 21 days because fixes marked by hand arrive about two weeks after birth.
+    Head(
+        name="fixed",
+        cohort=everyone,
+        label=fixed,
+        horizon_days=21,
+        min_holdout_positives=30,
+        label_columns=("fixed_count",),
+        status_labels=True,
+    ),
+    # Which reports drew a discuss? Cohort is every report: a discuss from Slack, the desktop app or
+    # MCP often has no list impression. A subset of the action head, which is fine - each head trains
+    # independently.
     Head(
         name="discuss",
-        cohort=impressed,
+        cohort=everyone,
         label=discussed,
         horizon_days=7,
         min_holdout_positives=30,
@@ -185,27 +209,42 @@ HEADS: tuple[Head, ...] = (
         min_holdout_positives=20,
         label_columns=("refund_count",),
     ),
-    # Of the reports someone opened, which drew a thumbs up at the end of the body? Every thumbed
-    # report was opened first, so the cohort loses nothing. About one opened report in a hundred
-    # gets one, so the holdout AUC stays noise for weeks and the pooled newborn grade is the read.
+    # Which reports drew a thumbs up at the end of the body? Cohort is every report, so the
+    # probability is on the same population as the other heads. Every thumbed report was opened,
+    # so this loses no positives and only adds negatives. The label is rare, so the holdout AUC
+    # stays noise for weeks and the pooled newborn grade is the read.
     Head(
         name="thumbs_up",
-        cohort=opened,
+        cohort=everyone,
         label=thumbed_up,
         horizon_days=7,
         min_holdout_positives=10,
         label_columns=("feedback_positive_count",),
     ),
-    # Of the reports users saw, which had their suggested reviewers corrected? An add and a remove
-    # are one label: a removal alone is housekeeping that usually follows a PR, while the pair reads
-    # as "a person corrected the reviewers". As slow to land as dismiss_wrong, hence the 14 days.
+    # Which reports had their suggested reviewers corrected? Cohort is every report: a correction
+    # from another surface often has no list impression. An add and a remove are one label: a
+    # removal alone is housekeeping that usually follows a PR, while the pair reads as "a person
+    # corrected the reviewers". Slow to land, hence the 14 days.
     Head(
         name="reviewer_fix",
-        cohort=impressed,
+        cohort=everyone,
         label=reviewer_fixed,
         horizon_days=14,
         min_holdout_positives=20,
         label_columns=("reviewer_add_count", "reviewer_remove_count"),
+    ),
+    # Which reports get dismissed as real but not worth fixing - the relevance-failure negative.
+    # dismiss_wrong says the report was wrong; this head says it was right but not worth anyone's
+    # time. Cohort is everyone, because agents over MCP dismiss reports that no list ever showed.
+    # Many of these dismissals land after 14 days, hence the 21 days.
+    Head(
+        name="dismiss_lowvalue",
+        cohort=everyone,
+        label=dismissed_as_low_value,
+        horizon_days=21,
+        min_holdout_positives=30,
+        label_columns=("lowvalue_dismissal_count",),
+        status_labels=True,
     ),
 )
 

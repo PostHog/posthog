@@ -271,6 +271,9 @@ class BaseScanner(BaseModel, frozen=True):
 
     prompt: str
     emits_signals: bool = False
+    # Learned from the team's ratings and loaded per scan. `exclude=True` keeps them out of every dump.
+    project_rules: list[str] = Field(default_factory=list, exclude=True)
+    scanner_rules: list[str] = Field(default_factory=list, exclude=True)
 
     # Shared opening turn (footer, events tool, calibration, session metadata), rendered once and cached with the video.
     preamble_template: ClassVar[str] = "preamble.jinja"
@@ -278,8 +281,8 @@ class BaseScanner(BaseModel, frozen=True):
     core_step_template: ClassVar[str] = ""
     # Names of free-text output fields that may contain `(t <sec>)` citations.
     citation_fields: ClassVar[tuple[str, ...]] = ()
-    # Fields `bind_session` sets per scan, which a saved scanner config must never carry.
-    session_fields: ClassVar[frozenset[str]] = frozenset()
+    # Fields set per scan, which a saved scanner config must never carry.
+    session_fields: ClassVar[frozenset[str]] = frozenset({"project_rules", "scanner_rules"})
     # Persisted output class — subclasses override to stamp their `scanner_type` discriminator.
     output_cls: ClassVar[type["BaseScannerOutput"] | None] = None
 
@@ -305,6 +308,7 @@ class BaseScanner(BaseModel, frozen=True):
         event_descriptions: dict[str, str] | None = None,
         tool_budget: int = DEFAULT_MAX_TOOL_ITERATIONS,
         network_state: Literal["available", "clean", "none"] = "none",
+        touch: bool = False,
     ) -> str:
         """The conversation's shared opening: framing, footer, events tool, calibration, navigation timeline, and
         session metadata and identity. `navigation` and `session_identity` take dumped model dicts (plain dicts keep
@@ -312,6 +316,7 @@ class BaseScanner(BaseModel, frozen=True):
         return render_prompt(
             self.preamble_template,
             team_name=team_name,
+            project_rules=self.project_rules,
             session_metadata=session_metadata or {},
             session_identity=session_identity or None,
             navigation=navigation or [],
@@ -322,13 +327,16 @@ class BaseScanner(BaseModel, frozen=True):
             tool_budget=tool_budget,
             default_tool_budget=DEFAULT_MAX_TOOL_ITERATIONS,
             network_state=network_state,
+            touch=touch,
         )
 
     def core_steps(self) -> list[MissionStep]:
         """The task turn(s) that produce this scanner's primary output. Default: one `core` step."""
         if not self.core_step_template:
             raise NotImplementedError(f"{type(self).__name__} must set `core_step_template`")
-        instruction = render_prompt(self.core_step_template, user_prompt=self.prompt, **self.prompt_context())
+        instruction = render_prompt(
+            self.core_step_template, user_prompt=self.prompt, scanner_rules=self.scanner_rules, **self.prompt_context()
+        )
         return [
             MissionStep(
                 name=STEP_CORE,
