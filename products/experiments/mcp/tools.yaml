@@ -71,6 +71,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-calculate-running-time:
         operation: experiments_calculate_running_time_create
         enabled: true
@@ -407,6 +410,9 @@ tools:
                 aliases:
                     - experimentId
                     - experiment_id
+        response:
+            exclude:
+                - health
     experiment-end:
         operation: experiments_end_create
         enabled: true
@@ -463,6 +469,9 @@ tools:
                     or the team's only connected repository. When several repositories are connected and no default is
                     set, the cleanup is skipped unless this is provided.
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-freeze-exposure:
         operation: experiments_freeze_exposure_create
         enabled: true
@@ -517,6 +526,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-get:
         operation: experiments_retrieve
         enabled: true
@@ -553,6 +565,7 @@ tools:
         response:
             exclude:
                 - saved_metrics.*.effective_query
+                - health
     experiment-holdouts-create:
         operation: experiment_holdouts_create
         enabled: true
@@ -966,6 +979,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-pause:
         operation: experiments_pause_create
         enabled: true
@@ -1000,6 +1016,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-prompt-templates:
         operation: experiments_prompt_templates_retrieve
         enabled: true
@@ -1049,6 +1068,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-resume:
         operation: experiments_resume_create
         enabled: true
@@ -1082,6 +1104,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-saved-metrics-create:
         operation: experiment_saved_metrics_create
         enabled: true
@@ -1311,6 +1336,9 @@ tools:
                     or the team's only connected repository. When several repositories are connected and no default is
                     set, the cleanup is skipped unless this is provided.
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-stats:
         operation: experiments_stats_retrieve
         enabled: true
@@ -1398,6 +1426,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-unfreeze-exposure:
         operation: experiments_unfreeze_exposure_create
         enabled: true
@@ -1440,6 +1471,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-update:
         operation: experiments_partial_update
         enabled: true
