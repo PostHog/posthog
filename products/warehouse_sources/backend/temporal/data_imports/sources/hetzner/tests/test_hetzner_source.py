@@ -80,6 +80,7 @@ class TestHetznerSource:
             ("list", "servers", ["id"]),
             ("server_metrics", "server_metrics", ["server_id", "metric", "timestamp"]),
             ("load_balancer_metrics", "load_balancer_metrics", ["load_balancer_id", "metric", "timestamp"]),
+            ("network_members", "network_members", ["network_id", "type", "id"]),
         ]
     )
     def test_source_for_pipeline_routes_schema(self, _name: str, schema_name: str, primary_keys: list[str]) -> None:

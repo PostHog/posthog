@@ -130,6 +130,7 @@ ActivityScope = Literal[
     "TableCertification",
     "DataQualityCheck",
     "DataQualityCheckSchedule",
+    "WarehouseSuggestion",
     "Billing",
     "Loop",
     "StamphogRepoConfig",
@@ -360,6 +361,7 @@ common_field_exclusions = [
 
 field_with_masked_contents: dict[AuditableScope, list[str]] = {
     "AccountView": ["name", "content", "text_content"],
+    "WarehouseSuggestion": ["dismissal_note"],
     "HogFunction": [
         "inputs",
         "mappings",
@@ -733,6 +735,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "metric",
         "saved_query",
         "table",
+    ],
+    "WarehouseSuggestion": [
+        "evidence",
+        "score_inputs",
+        "payload",
     ],
     "Loop": [
         # FK relations are not JSON-serializable for the change detail (same reason

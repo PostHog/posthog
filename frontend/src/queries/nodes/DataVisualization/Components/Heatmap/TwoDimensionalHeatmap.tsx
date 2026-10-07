@@ -2,13 +2,13 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { SortingIndicator, getNextSorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
-import { HeatmapSettings } from '~/queries/schema/schema-general'
+import { HeatmapSettings, NodeKind } from '~/queries/schema/schema-general'
 
 import { getContrastingTextClass } from '../../colorUtils'
 import { dataVisualizationLogic, formatDataWithSettings } from '../../dataVisualizationLogic'
@@ -23,6 +23,7 @@ import {
     stretchGradientStopsToValues,
 } from './heatmapUtils'
 import {
+    getDistinctHeatmapLabels,
     getHeatmapSettingsWithSorting,
     getSortingFromHeatmapSettings,
     HEATMAP_ROW_LABEL_SORT_KEY,
@@ -61,7 +62,8 @@ type HeatmapDataSettings = Pick<
 const buildHeatmapData = (
     rows: any[],
     heatmapSettings: HeatmapDataSettings,
-    columnIndexes: Record<string, number>
+    columnIndexes: Record<string, number>,
+    axisLabels?: { x: Map<unknown, string>; y: Map<unknown, string> }
 ): HeatmapData => {
     const xValues: string[] = []
     const yValues: string[] = []
@@ -92,8 +94,8 @@ const buildHeatmapData = (
     const nullLabel = getHeatmapNullLabel(heatmapSettings)
 
     rows.forEach((row) => {
-        const xLabel = formatHeatmapLabel(row[xIndex], nullLabel)
-        const yLabel = formatHeatmapLabel(row[yIndex], nullLabel)
+        const xLabel = axisLabels?.x.get(row[xIndex]) ?? formatHeatmapLabel(row[xIndex], nullLabel)
+        const yLabel = axisLabels?.y.get(row[yIndex]) ?? formatHeatmapLabel(row[yIndex], nullLabel)
         const numericValue = parseNumericValue(row[valueIndex])
 
         if (!xIndexMap.has(xLabel)) {
@@ -110,7 +112,7 @@ const buildHeatmapData = (
             cellValues[yLabel] = Object.create(null)
         }
 
-        const cellKey = `${yLabel}||${xLabel}`
+        const cellKey = JSON.stringify([yLabel, xLabel])
         if (seenCells.has(cellKey)) {
             duplicateCellCount += 1
         }
@@ -162,8 +164,14 @@ const getNextSortingTitle = (currentSorting: Sorting | null, columnKey: string, 
     return `Click to sort rows ${nextSorting.order === 1 ? 'ascending' : 'descending'}`
 }
 
-export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: boolean }): JSX.Element {
-    const { response, columns, chartSettings } = useValues(dataVisualizationLogic)
+export function TwoDimensionalHeatmap({
+    allowSorting = true,
+    onInspect,
+}: {
+    allowSorting?: boolean
+    onInspect?: (record: Record<string, unknown>) => void
+}): JSX.Element {
+    const { response, columns, chartSettings, query } = useValues(dataVisualizationLogic)
     const { updateChartSettings } = useActions(dataVisualizationLogic)
 
     const heatmapSettings = chartSettings.heatmap ?? {}
@@ -185,6 +193,35 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
             {} as Record<string, number>
         )
     }, [columns])
+    const axisLabels = useMemo(
+        () =>
+            (onInspect || query.kind === NodeKind.BIVisualizationNode) && xAxisColumn && yAxisColumn
+                ? {
+                      x: getDistinctHeatmapLabels(
+                          rows.map((row: unknown[]) => row[columnIndexes[xAxisColumn]]),
+                          getHeatmapNullLabel(heatmapSettings)
+                      ),
+                      y: getDistinctHeatmapLabels(
+                          rows.map((row: unknown[]) => row[columnIndexes[yAxisColumn]]),
+                          getHeatmapNullLabel(heatmapSettings)
+                      ),
+                  }
+                : undefined,
+        [rows, columnIndexes, xAxisColumn, yAxisColumn, heatmapSettings, onInspect, query.kind]
+    )
+    const sourceRowsByCell = useMemo(() => {
+        const cells = new Map<string, unknown[] | null>()
+        if (onInspect && xAxisColumn && yAxisColumn) {
+            for (const row of rows) {
+                const key = JSON.stringify([
+                    axisLabels?.x.get(row[columnIndexes[xAxisColumn]]),
+                    axisLabels?.y.get(row[columnIndexes[yAxisColumn]]),
+                ])
+                cells.set(key, cells.has(key) ? null : row)
+            }
+        }
+        return cells
+    }, [rows, columnIndexes, xAxisColumn, yAxisColumn, axisLabels, onInspect])
 
     const hasSelection = selectedColumns.every(Boolean)
     const hasValidColumns = selectedColumns.every((columnName) => {
@@ -206,7 +243,12 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
             }
         }
 
-        return buildHeatmapData(rows, { xAxisColumn, yAxisColumn, valueColumn, nullLabel, nullValue }, columnIndexes)
+        return buildHeatmapData(
+            rows,
+            { xAxisColumn, yAxisColumn, valueColumn, nullLabel, nullValue },
+            columnIndexes,
+            axisLabels
+        )
     }, [
         rows,
         hasSelection,
@@ -217,6 +259,7 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
         nullLabel,
         nullValue,
         columnIndexes,
+        axisLabels,
     ])
 
     useEffect(() => {
@@ -379,6 +422,17 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
                                         cellValue === null
                                             ? 'transparent'
                                             : interpolateHeatmapColor(cellValue, scaledGradientStops)
+                                    const formattedValue =
+                                        typeof cellValue === 'number' && valueSettings
+                                            ? String(
+                                                  formatDataWithSettings(
+                                                      cellValue *
+                                                          (valueSettings.formatting?.style === 'percent' ? 100 : 1),
+                                                      valueSettings
+                                                  )
+                                              )
+                                            : formatHeatmapValue(cellValue, nullValueDisplay)
+                                    const sourceRow = sourceRowsByCell.get(JSON.stringify([xValue, yValue]))
 
                                     return (
                                         <td
@@ -389,15 +443,28 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
                                             )}
                                             style={{ backgroundColor: cellColor }}
                                         >
-                                            {typeof cellValue === 'number' && valueSettings
-                                                ? String(
-                                                      formatDataWithSettings(
-                                                          cellValue *
-                                                              (valueSettings.formatting?.style === 'percent' ? 100 : 1),
-                                                          valueSettings
-                                                      )
-                                                  )
-                                                : formatHeatmapValue(cellValue, nullValueDisplay)}
+                                            {onInspect && sourceRow ? (
+                                                <LemonButton
+                                                    type="tertiary"
+                                                    size="xsmall"
+                                                    className="w-full justify-center !text-inherit"
+                                                    tooltip="Explore this result"
+                                                    onClick={() =>
+                                                        onInspect(
+                                                            Object.fromEntries(
+                                                                columns.map((column) => [
+                                                                    column.name,
+                                                                    sourceRow[column.dataIndex],
+                                                                ])
+                                                            )
+                                                        )
+                                                    }
+                                                >
+                                                    {formattedValue}
+                                                </LemonButton>
+                                            ) : (
+                                                formattedValue
+                                            )}
                                         </td>
                                     )
                                 })}

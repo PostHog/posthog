@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.
     BRAINTREE_VERSION_2026_07_14,
     BRAINTREE_VERSION_2026_08_04,
     BRAINTREE_VERSION_2026_08_13,
+    BRAINTREE_VERSION_2026_10_06,
     MAX_PAGE_SIZE,
     BraintreeGraphQLError,
     BraintreeResumeConfig,
@@ -307,6 +308,7 @@ class TestGetRows:
             BRAINTREE_VERSION_2026_07_14,
             BRAINTREE_VERSION_2026_08_04,
             BRAINTREE_VERSION_2026_08_13,
+            BRAINTREE_VERSION_2026_10_06,
         ],
     )
     @mock.patch(f"{_MODULE}.make_tracked_session")

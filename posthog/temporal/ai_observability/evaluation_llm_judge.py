@@ -44,7 +44,7 @@ from posthog.temporal.ai_observability.metrics import (
     increment_user_errors,
 )
 from posthog.temporal.ai_observability.model_resolution import model_spec
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest, Usage
@@ -772,7 +772,9 @@ def call_llm_judge(
         )
     except RetryableRateLimitError as e:
         increment_errors("rate_limit", provider=provider)
-        raise ApplicationError(
+        # A retry usually gets through, so only an outage that outlasts every attempt reaches error tracking.
+        error_class = ApplicationError if _is_last_judge_attempt() else NonReportableApplicationError
+        raise error_class(
             str(e),
             {"error_type": "provider_unavailable", "provider": provider},
             next_retry_delay=timedelta(seconds=e.retry_after) if e.retry_after is not None else None,

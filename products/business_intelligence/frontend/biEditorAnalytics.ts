@@ -8,6 +8,7 @@ export const BI_EDITOR_EVENTS = {
     MODE_SELECTED: 'sql-editor-bi-mode-selected',
     QUERY_RUN: 'sql-editor-bi-query-run',
     QUERY_SAVED: 'sql-editor-bi-query-saved',
+    WORKSHEET_ACTION: 'bi-worksheet-action',
 } as const
 
 export type BIEditorSaveType = 'endpoint' | 'insight' | 'metric' | 'view'
@@ -43,9 +44,58 @@ function getBIEditorConfigProperties(config: BIConfig): Record<string, unknown> 
             fields.flatMap((field) => (field.dateBucket === undefined ? [] : [field.dateBucket]))
         ),
         custom_expression_count: customExpressionCount,
+        table_calculation_types: uniqueSorted(
+            config.values.flatMap((value) => (value.tableCalculation ? [value.tableCalculation.type] : []))
+        ),
+        top_n_enabled: !!config.topN,
+        top_n_count: config.topN?.count ?? null,
+        top_n_include_other: config.topN?.includeOther ?? false,
+        comparison_enabled: !!config.compareFilter?.compare,
+        comparison_period: config.compareFilter?.compare
+            ? config.compareFilter.compare_to
+                ? 'custom_offset'
+                : 'previous_period'
+            : null,
+        formatted_measure_count: config.values.filter((value) => value.formatting).length,
+        measure_display_types: uniqueSorted(
+            config.values.flatMap((value) => (value.display?.displayType ? [value.display.displayType] : []))
+        ),
+        secondary_axis_count: config.values.filter((value) => value.display?.yAxisPosition === 'right').length,
+        totals_enabled: !!(config.totals?.rows || config.totals?.columns || config.totals?.subtotals),
+        related_field_count: fields.filter((field) => field.name.includes('.') && !field.name.startsWith('properties.'))
+            .length,
+        property_field_count: fields.filter(
+            (field) => field.name.startsWith('properties.') || field.name.includes('.properties.')
+        ).length,
         sort_kind: config.sort ? 'manual' : 'auto',
         sort_direction: config.sort?.direction ?? null,
     }
+}
+
+export type BIWorksheetAction =
+    | 'opened'
+    | 'source_selected'
+    | 'first_chart'
+    | 'saved'
+    | 'added_to_dashboard'
+    | 'drilldown_opened'
+    | 'underlying_rows_viewed'
+    | 'drilldown_worksheet_opened'
+    | 'drilldown_sql_opened'
+    | 'related_table_expanded'
+    | 'properties_browsed'
+    | 'properties_searched'
+
+export function captureBIWorksheetAction(
+    action: BIWorksheetAction,
+    config: BIConfig,
+    context: { insight_id?: number; previous_period?: boolean; result_count?: number } = {}
+): void {
+    posthog.capture(BI_EDITOR_EVENTS.WORKSHEET_ACTION, {
+        action,
+        ...getBIEditorConfigProperties(config),
+        ...context,
+    })
 }
 
 export function captureBIEditorModeSelected(editorView: BIEditorView, config: BIConfig): void {

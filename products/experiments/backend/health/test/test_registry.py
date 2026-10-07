@@ -15,8 +15,20 @@ from products.experiments.backend.health.context import ExposureTotals, FlagStat
 from products.experiments.backend.health.registry import evaluate
 
 RUNNING_UNEVEN_SPLIT = HealthContext(
+    is_launched=True,
     has_ended=False,
-    flag=FlagState(variants=(FlagVariant(rollout_percentage=80), FlagVariant(rollout_percentage=20))),
+    archived=False,
+    flag=FlagState(
+        active=True,
+        deleted=False,
+        release_groups=(),
+        variants=(
+            FlagVariant(key="control", rollout_percentage=80),
+            FlagVariant(key="test", rollout_percentage=20),
+        ),
+    ),
+    primary_metric_count=1,
+    secondary_metric_count=0,
     exposures=ExposureTotals(
         total_exposures={"control": 800, "test": 200, "$multiple": 20},
         multiple_variant_handling=MultipleVariantHandling.EXCLUDE,

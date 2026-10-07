@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
@@ -13,6 +14,7 @@ import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { claimConnectionScope, releaseConnectionScope } from 'products/data_warehouse/frontend/shared/connectionScope'
 
+import { BI_EDITOR_EVENTS } from './biEditorAnalytics'
 import { biEditorLogic } from './biEditorLogic'
 import { BIEditorView, buildBIQuery } from './biEditorTypes'
 import { biSceneLogic } from './biSceneLogic'
@@ -113,9 +115,48 @@ describe('biSceneLogic', () => {
         logic = biSceneLogic({ tabId: 'bi-test' })
         logic.mount()
         editor = biEditorLogic({ tabId: 'bi-test' })
-        editor.actions.setAutoUpdate(false)
     })
     afterEach(() => logic.unmount())
+
+    it('waits for Run after selecting a table unless auto update is enabled', async () => {
+        editor.actions.setDataSource({ table: 'events' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.lastRunQuery).toBeNull()
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.source.query).toContain('count(*) AS count')
+        logic.actions.setLastRunQuery(null)
+        await expectLogic(editor, () => editor.actions.setAutoUpdate(true)).toFinishAllListeners()
+        expect(logic.values.lastRunQuery?.source.query).toContain('count(*) AS count')
+    })
+
+    it('tracks the first successful chart once, without counting empty results or reruns', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        logic.actions.restoreWorksheet(worksheet())
+        const data = dataNodeLogic({
+            key: logic.values.dataNodeKey,
+            query: logic.values.worksheet.source,
+            autoLoad: false,
+        })
+        data.mount()
+        try {
+            data.actions.loadDataSuccess({ results: [], columns: ['count'], types: ['Int64'] })
+            expect(capture).not.toHaveBeenCalledWith(
+                BI_EDITOR_EVENTS.WORKSHEET_ACTION,
+                expect.objectContaining({ action: 'first_chart' })
+            )
+            data.actions.loadDataSuccess({ results: [[3]], columns: ['count'], types: ['Int64'] })
+            data.actions.loadDataSuccess({ results: [[4]], columns: ['count'], types: ['Int64'] })
+            expect(
+                capture.mock.calls.filter(
+                    ([event, properties]) =>
+                        event === BI_EDITOR_EVENTS.WORKSHEET_ACTION && properties?.action === 'first_chart'
+                )
+            ).toHaveLength(1)
+        } finally {
+            capture.mockRestore()
+            data.unmount()
+        }
+    })
 
     it.each([false, true])('releases its connection scope without disrupting another owner: %s', async (shared) => {
         const database = databaseTableListLogic()
