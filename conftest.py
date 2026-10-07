@@ -18,7 +18,7 @@ from posthog.test.events_schema_prune import EventsSchemaPruner
 from posthog.test.isolated_databases import (
     IsolatedRunConflict,
     clone_test_databases,
-    configure_isolated_product_databases,
+    configure_product_test_databases,
     isolated_run,
 )
 from posthog.test.junit import set_junit_report_location
@@ -334,10 +334,10 @@ def django_db_modify_db_settings(
     django_db_createdb: bool,
 ) -> None:
     # Keep this override at the root because ee/ and products/ star-import posthog/conftest.py.
+    configure_product_test_databases()
     if _isolated_test_run is None:
         return
 
-    configure_isolated_product_databases()
     if not django_db_keepdb or django_db_createdb:
         return
 

@@ -31,9 +31,10 @@ class IsolatedRunConflict(Exception):
     pass
 
 
-def configure_isolated_product_databases() -> None:
+def configure_product_test_databases() -> None:
     # pytest-django appends the worker suffix last, but product setup appends the product name last.
-    database = settings.DATABASES["default"]["TEST"]["NAME"]
+    default = settings.DATABASES["default"]
+    database = default["TEST"]["NAME"] or f"test_{default['NAME']}"
     for route in load_product_db_routes(settings.BASE_DIR):
         alias = f"{route.database}_db_writer"
         if alias in settings.DATABASES:
