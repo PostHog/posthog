@@ -1,4 +1,5 @@
 import json
+import inspect
 from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
 from types import SimpleNamespace
@@ -779,6 +780,14 @@ class TestSingleTableRunIsUntouched:
         assert v3_pipeline_class(MagicMock(lanes=None)) is PipelineV3
         assert v3_pipeline_class(MagicMock(lanes=[])) is PipelineV3
         assert v3_pipeline_class(MagicMock(lanes=[OutputLane(name="users_cdc")])) is LanedPipelineV3
+
+    def test_the_laned_pipeline_takes_every_argument_the_base_takes(self) -> None:
+        # The activity builds both classes with one call, so an argument added to the base
+        # alone fails every run of a source with lanes.
+        base = inspect.signature(PipelineV3.__init__).parameters
+        laned = inspect.signature(LanedPipelineV3.__init__).parameters
+
+        assert set(base) - set(laned) == set()
 
 
 class TestFinalizeStagesTheWatermarkFirst:

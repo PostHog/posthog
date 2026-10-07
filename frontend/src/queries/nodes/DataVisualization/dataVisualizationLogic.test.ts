@@ -880,6 +880,13 @@ describe('dataVisualizationLogic', () => {
 
     it.each<[string, number, AxisSeriesSettings | undefined, string]>([
         [
+            'pads currency decimal places',
+            12.5,
+            { formatting: { style: 'number', prefix: '$', decimalPlaces: 2 } },
+            '$12.50',
+        ],
+        ['pads percentage decimal places', 25, { formatting: { style: 'percent', decimalPlaces: 1 } }, '25.0%'],
+        [
             'formats zero decimal places under the none style',
             42.195,
             { formatting: { style: 'none', decimalPlaces: 0 } },

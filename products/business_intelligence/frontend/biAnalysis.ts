@@ -2,6 +2,8 @@ import { BIConfig, BIField, BITableCalculation, BIValue } from '~/queries/schema
 import { escapeHogQLString, escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { biComparisonCategory } from './biComparison'
+
 export const BI_TABLE_CALCULATIONS: { value: BITableCalculation['type']; label: string }[] = [
     { value: 'percent_of_total', label: 'Percent of total' },
     { value: 'running_total', label: 'Running total' },
@@ -235,7 +237,7 @@ export function buildBIAnalysisQuery(config: BIConfig, input: BIAnalysisInput): 
             input.rows[0]
         const breakdown = dimensions.find((dimension) => dimension !== xDimension)
         select.push(
-            `${breakdown ? `concat(bi_period, ' · ', toString(${displayed[dimensions.indexOf(breakdown)]}))` : 'bi_period'} AS bi_comparison`
+            `${breakdown ? `concat(bi_period, ' · ', ${biComparisonCategory(displayed[dimensions.indexOf(breakdown)])})` : 'bi_period'} AS bi_comparison`
         )
     }
     let order = input.orderBy

@@ -1348,11 +1348,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
         self.team.primary_dashboard_id = dashboard_id
         self.team.save()
+        self.team.home_tab_dashboard = Dashboard.objects.get(pk=dashboard_id)
 
         self.dashboard_api.soft_delete(dashboard_id, "dashboards")
 
         self.team.refresh_from_db()
         assert self.team.primary_dashboard is None
+        assert self.team.home_tab_dashboard is None
+
+    def test_home_dashboard_ignores_bulk_soft_deleted_dashboard(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Home")
+        self.team.home_tab_dashboard = dashboard
+
+        Dashboard.objects.filter(pk=dashboard.pk).update(deleted=True)
+
+        assert self.team.home_tab_dashboard is None
 
     def test_delete_dashboard_resets_group_type_detail_dashboard_if_needed(self):
         group_type = create_group_type_mapping_without_created_at(

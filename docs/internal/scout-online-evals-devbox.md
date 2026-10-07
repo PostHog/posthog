@@ -49,6 +49,8 @@ The rubric stays fixed across scout edits, and saved results retain the rubric u
 
 Suggestion generation captures the complete scout instructions and reference files for judging, while keeping the generator's prompt bounded. If an older saved reference is incomplete, generate suggestions again, review and use the new reference, then save. You can keep your existing criteria.
 
+Variants and retries share a saved copy of the project's scout memory, notes and recent scout runs. This starting context lives in private object storage and can exceed the 16 MiB limit on launch settings without being shortened.
+
 Each completed scout run gets its own judge sandbox. The judge reads the saved rubric and searches attached copies of the complete rubric reference, run log, reports, summary, candidate instructions and starting context. These files live in private object storage; Temporal receives only their identifiers. Evidence larger than 128 MiB is refused explicitly instead of being silently shortened.
 
 The judge has no live project tools, external MCP connections or repository credentials. It returns one verdict per rubric check, with quotes checked against the original saved files. Missing evidence gives an unknown verdict. A judge failure is shown separately from a failed rubric check, and incomplete results cannot win. Judging has a 15-minute runtime limit per run; saved results never rerun the judge when viewed.
