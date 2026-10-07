@@ -1251,18 +1251,6 @@ describe('insightVizDataLogic', () => {
 
             expect(builtInsightVizDataLogic.values.supportsCompare).toBe(expected)
         })
-
-        it.each([
-            [ChartDisplayType.ActionsPie, true],
-            [ChartDisplayType.ActionsProportionBar, false],
-        ])('trends %s display -> %s', (display, expected) => {
-            builtInsightVizDataLogic.actions.updateQuerySource({
-                ...trendsQueryDefault,
-                trendsFilter: { display },
-            } as TrendsQuery)
-
-            expect(builtInsightVizDataLogic.values.supportsCompare).toBe(expected)
-        })
     })
 
     describe('allEventNames', () => {

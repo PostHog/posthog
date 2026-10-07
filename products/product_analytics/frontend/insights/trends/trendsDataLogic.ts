@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import type { Intervals } from 'lib/components/IntervalFilter/intervals'
-import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
+import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { isMultiSeriesFormula } from 'lib/utils/strings'
 import {
@@ -612,7 +612,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     })
                 } else if (
                     display &&
-                    (display === ChartDisplayType.ActionsBarValue || PART_OF_WHOLE_DISPLAY_TYPES.includes(display))
+                    (display === ChartDisplayType.ActionsBarValue || PIE_DISPLAY_TYPES.includes(display))
                 ) {
                     indexedResults.sort((a, b) => {
                         const aValue =

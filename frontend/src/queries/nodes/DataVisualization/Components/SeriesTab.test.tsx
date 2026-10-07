@@ -1,100 +1,19 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
-import { HogQLQueryResponse, VisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { VisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
 import { dataNodeLogic } from '../../DataNode/dataNodeLogic'
 import { DataVisualizationLogicProps, dataVisualizationLogic } from '../dataVisualizationLogic'
-import { SeriesTab, YSeriesDisplayTab, YSeriesFormattingTab } from './SeriesTab'
+import { YSeriesDisplayTab, YSeriesFormattingTab } from './SeriesTab'
 import { YSeriesLogicProps } from './ySeriesLogic'
 
 describe('SeriesTab', () => {
-    afterEach(() => {
-        cleanup()
-    })
-
-    it.each([
-        {
-            name: 'lists every value column for a proportion bar with no label column',
-            display: ChartDisplayType.ActionsProportionBar,
-            xAxis: undefined,
-            valueColumns: ['signups', 'logins'],
-            listsEveryValueColumn: true,
-            labelDisabled: true,
-        },
-        {
-            name: 'lists every value column and disables the label when several value columns ignore it',
-            display: ChartDisplayType.ActionsProportionBar,
-            xAxis: { column: 'day' },
-            valueColumns: ['signups', 'logins'],
-            listsEveryValueColumn: true,
-            labelDisabled: true,
-        },
-        {
-            name: 'picks one value column for a proportion bar grouped by a label column',
-            display: ChartDisplayType.ActionsProportionBar,
-            xAxis: { column: 'day' },
-            valueColumns: ['signups'],
-            listsEveryValueColumn: false,
-            labelDisabled: false,
-        },
-        {
-            name: 'picks one value column for a pie grouped by a label column',
-            display: ChartDisplayType.ActionsPie,
-            xAxis: { column: 'day' },
-            valueColumns: ['signups'],
-            listsEveryValueColumn: false,
-            labelDisabled: false,
-        },
-    ])('$name', ({ display, xAxis, valueColumns, listsEveryValueColumn, labelDisabled }) => {
-        initKeaTests()
-        const cachedResults: HogQLQueryResponse = {
-            results: [['Mon', 3, 5]],
-            columns: ['day', 'signups', 'logins'],
-            types: [
-                ['day', 'String'],
-                ['signups', 'Float64'],
-                ['logins', 'Float64'],
-            ],
-        }
-        const query: VisualizationNode = {
-            kind: NodeKind.DataVisualizationNode,
-            source: { kind: NodeKind.HogQLQuery, query: 'select day, signups, logins from daily' },
-            display,
-            chartSettings: { xAxis, yAxis: valueColumns.map((column) => ({ column })) },
-        }
-        const props: DataVisualizationLogicProps = {
-            key: `series-tab-part-of-whole-${display}-${!!xAxis}-${valueColumns.length}`,
-            query,
-            cachedResults,
-            dataNodeCollectionId: 'series-tab-part-of-whole',
-            setQuery: jest.fn(),
-        }
-        dataNodeLogic({
-            key: props.key,
-            query: query.source,
-            cachedResults,
-            dataNodeCollectionId: props.dataNodeCollectionId,
-        }).mount()
-        dataVisualizationLogic(props).mount()
-
-        const { container } = render(
-            <BindLogic logic={dataVisualizationLogic} props={props}>
-                <SeriesTab />
-            </BindLogic>
-        )
-
-        expect(screen.queryAllByText('Values').length > 0).toBe(listsEveryValueColumn)
-        expect(container.querySelector('[data-attr="part-of-whole-label-column"]')?.getAttribute('aria-disabled')).toBe(
-            String(labelDisabled)
-        )
-    })
-
     it('persists table column formatting changes immediately', async () => {
         initKeaTests()
 

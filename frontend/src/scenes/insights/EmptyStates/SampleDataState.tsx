@@ -6,14 +6,8 @@ import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
 import { LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
-import { BarChart, LineChart, PieChart, ProportionBar } from '@posthog/quill-charts'
-import type {
-    BarChartConfig,
-    LineChartConfig,
-    PieChartConfig,
-    ProportionBarConfig,
-    Series,
-} from '@posthog/quill-charts'
+import { BarChart, LineChart, PieChart } from '@posthog/quill-charts'
+import type { BarChartConfig, LineChartConfig, PieChartConfig, Series } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
@@ -23,7 +17,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { setupWizardStatusLogic } from 'scenes/onboarding/shared/setupWizardStatusLogic'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 
-export type SampleDataVariant = 'line' | 'bar' | 'pie' | 'proportionBar' | 'funnel' | 'number' | 'table'
+export type SampleDataVariant = 'line' | 'bar' | 'pie' | 'funnel' | 'number' | 'table'
 
 const WEEK_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const LINE_SERIES: Series[] = [
@@ -55,7 +49,6 @@ const NO_TOOLTIP = { enabled: false } as const
 const LINE_CONFIG: LineChartConfig = { showGrid: true, showCrosshair: true, tooltip: NO_TOOLTIP }
 const BAR_CONFIG: BarChartConfig = { barCornerRadius: 2, tooltip: NO_TOOLTIP }
 const PIE_CONFIG: PieChartConfig = { tooltip: NO_TOOLTIP }
-const PROPORTION_BAR_CONFIG: ProportionBarConfig = { tooltip: NO_TOOLTIP, legend: { show: false } }
 
 function SampleNumber({ animate }: { animate: boolean }): JSX.Element {
     const [valueIndex, setValueIndex] = useState(0)
@@ -130,8 +123,6 @@ function SampleChart({ variant }: { variant: Exclude<SampleDataVariant, 'number'
                 <BarChart series={BAR_SERIES} labels={WEEK_LABELS} theme={theme} config={BAR_CONFIG} />
             ) : variant === 'funnel' ? (
                 <BarChart series={FUNNEL_SERIES} labels={FUNNEL_LABELS} theme={theme} config={BAR_CONFIG} />
-            ) : variant === 'proportionBar' ? (
-                <ProportionBar series={PIE_SERIES} theme={theme} config={PROPORTION_BAR_CONFIG} />
             ) : (
                 <PieChart series={PIE_SERIES} theme={theme} config={PIE_CONFIG} />
             )}

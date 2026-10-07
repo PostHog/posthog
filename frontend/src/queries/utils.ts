@@ -1,5 +1,5 @@
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { MAX_DEFAULT_PROPORTION_LEGEND_PARTS, PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
+import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 
@@ -650,15 +650,11 @@ export const getAggregationGroupTypeIndex = (query: InsightQueryNode): GroupType
     return undefined
 }
 
-const isProportionBarQuery = (query: TrendsQuery): boolean =>
-    query.trendsFilter?.display === ChartDisplayType.ActionsProportionBar
-
-export const getShowLegend = (query: InsightQueryNode, partCount?: number): boolean | undefined => {
+export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
     if (isStickinessQuery(query)) {
         return query.stickinessFilter?.showLegend
     } else if (isTrendsQuery(query)) {
-        const showsByDefault = isProportionBarQuery(query) && (partCount ?? 0) <= MAX_DEFAULT_PROPORTION_LEGEND_PARTS
-        return query.trendsFilter?.showLegend ?? (showsByDefault ? true : undefined)
+        return query.trendsFilter?.showLegend
     } else if (isLifecycleQuery(query)) {
         return query.lifecycleFilter?.showLegend
     } else if (isFunnelsQuery(query)) {
@@ -671,7 +667,7 @@ export const getShowLegend = (query: InsightQueryNode, partCount?: number): bool
 // serialize an inline string-literal union and emits a broken type; consumers narrow as needed.
 export const getLegendPosition = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.legendPosition ?? (isProportionBarQuery(query) ? 'bottom' : undefined)
+        return query.trendsFilter?.legendPosition
     } else if (isStickinessQuery(query)) {
         return query.stickinessFilter?.legendPosition
     } else if (isLifecycleQuery(query)) {

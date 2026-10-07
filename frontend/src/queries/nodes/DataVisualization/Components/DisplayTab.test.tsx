@@ -338,44 +338,4 @@ describe('DisplayTab', () => {
             )
         })
     })
-
-    it.each([
-        [ChartDisplayType.ActionsPie, 'Show total below chart'],
-        [ChartDisplayType.ActionsDonut, 'Show total in center'],
-        [ChartDisplayType.ActionsProportionBar, 'Show total below chart'],
-    ])('honors the legacy top-level showPieTotal when pie.showTotal is unset (%s)', async (display, switchLabel) => {
-        initKeaTests()
-
-        const key = `display-tab-legacy-show-total-test-${display}`
-        const query: VisualizationNode = {
-            kind: NodeKind.DataVisualizationNode,
-            source: {
-                kind: NodeKind.HogQLQuery,
-                query: 'select label, total from numbers(2)',
-            },
-            display,
-            chartSettings: { showPieTotal: false },
-        }
-
-        const props: DataVisualizationLogicProps = {
-            key,
-            query,
-            dataNodeCollectionId: key,
-            setQuery: jest.fn(),
-        }
-
-        dataVisualizationLogic(props).mount()
-        displayLogic({ key }).mount()
-
-        render(
-            <BindLogic logic={dataVisualizationLogic} props={props}>
-                <BindLogic logic={displayLogic} props={{ key }}>
-                    <DisplayTab />
-                </BindLogic>
-            </BindLogic>
-        )
-
-        const toggle = (await screen.findByText(switchLabel)).closest('div')?.querySelector('[role="switch"]')
-        expect(toggle).toHaveAttribute('aria-checked', 'false')
-    })
 })

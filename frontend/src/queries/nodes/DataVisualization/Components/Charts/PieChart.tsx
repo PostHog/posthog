@@ -3,10 +3,10 @@ import { ChartDisplayType } from '~/types'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
+import { SqlChartProps } from './SqlChart'
 import { SqlPieGraph } from './SqlPieGraph'
-import { SqlProportionBar } from './SqlProportionBar'
 
-export interface PartOfWholeChartProps {
+export interface PieChartProps {
     xData: AxisSeries<string> | null
     yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number | null>[]
     visualizationType: ChartDisplayType
@@ -15,10 +15,15 @@ export interface PartOfWholeChartProps {
     className?: string
 }
 
-export function PartOfWholeChart(props: PartOfWholeChartProps): JSX.Element {
-    return props.visualizationType === ChartDisplayType.ActionsProportionBar ? (
-        <SqlProportionBar {...props} />
-    ) : (
-        <SqlPieGraph {...props} />
-    )
+export function PieChart(props: PieChartProps): JSX.Element {
+    const sqlPieProps: SqlChartProps = {
+        xData: props.xData,
+        yData: props.yData,
+        visualizationType: props.visualizationType,
+        chartSettings: props.chartSettings,
+        presetChartHeight: props.presetChartHeight,
+        className: props.className,
+    }
+
+    return <SqlPieGraph {...sqlPieProps} />
 }

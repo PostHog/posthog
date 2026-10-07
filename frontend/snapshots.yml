@@ -3844,10 +3844,6 @@ snapshots:
         hash: v1.k794b7964.c47d48ad6a252d8a5dfc135b3d269bc028523df242a7b79c5b96d9d111ae0376._DhCXEiBO9wMl5fx3iWvB8BVIaxe19bUBzUQb55bkAo
     insights-sqlpiegraph--legend-at-bottom--light:
         hash: v1.k794b7964.edbf042650a6322573f4e64763cd4409162aca5fce5a35b2a51689d0b45a3867.KCSWIbrsWY4EZKnAeZHXdZXnZLEs0_oT1CnSBS-PmQE
-    insights-sqlpiegraph--proportion-bar--dark:
-        hash: v1.k794b7964.a41cdc3dee8148bb6a8f887c32163c27813091bced9d31b7598fb2ba059221ab.s9k_65oKELtHb-A48wZE9UnUDxKYFBX6qQwi5qZ7oug
-    insights-sqlpiegraph--proportion-bar--light:
-        hash: v1.k794b7964.fd3e9559a02a02108b81cf7115b10be5683a536557ead1a30d6183bedea406c1.aPPqn1LGZDvCsk4KSGaWOO5V_AFoYlPPZ80RYA--p3o
     insights-sqlpiegraph--with-legend--dark:
         hash: v1.k794b7964.d15af2bc969e9e442db3d5520d7b4c26a29f82dd001f9a3656da9cb838cd904e.HU5scx_5_NP2zMcUStE930Oaa1UgjhjHkEOUjAZ-u3w
     insights-sqlpiegraph--with-legend--light:
@@ -3992,10 +3988,6 @@ snapshots:
         hash: v1.k794b7964.9b44378c8b23c54996de740b079e0029d0a474c9ca7f977b7d7aab07eece7f8e.DH5BI-XTKBTeGu8xAITjb7Ktz0BulqIqgPauao-MDpU
     insights-trendspiechart--min-height-parent--light:
         hash: v1.k794b7964.cd52243e5d45d2eb6397a1efffcb6b6c9a5f98ef4a265fab0abc5974c69c0999.17OfM6Hht52excrKELBhQIdviX7ue6tytC6UMA-KrMk
-    insights-trendspiechart--proportion-bar--dark:
-        hash: v1.k794b7964.7d8e5824f3e200d837b72df83ca34eb07fa32a71bc09893be709710eda989bc5.2I-jkk3nlpECbj08GhT8PYgpilzZIqVlrd2RdNGPWhk
-    insights-trendspiechart--proportion-bar--light:
-        hash: v1.k794b7964.536923258c65b36537c2d66c08c0a91a49d323e87da8868b2217e5ae5bd4716b.Z30-Z_ndUXxEOLRLw8tyR53GVW2td8-_825J1Y5vIpE
     insights-trendsslopechart--default--dark:
         hash: v1.k794b7964.f843b256c76c813e822e3c899d5bb4302f8970671422576d82eab10dba5cec17.QicU0ACrmlNYm9zJKICNpTr7h41TZAYTe4xNsHoy2so
     insights-trendsslopechart--default--light:

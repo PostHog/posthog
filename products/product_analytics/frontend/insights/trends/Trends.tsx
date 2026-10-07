@@ -23,7 +23,6 @@ import { TrendsBarChart } from 'products/product_analytics/frontend/insights/tre
 import { TrendsLifecycleChart } from 'products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/TrendsLifecycleChart'
 import { TrendsLineChart } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChart'
 import { TrendsPieChart } from 'products/product_analytics/frontend/insights/trends/TrendsPieChart/TrendsPieChart'
-import { TrendsProportionBar } from 'products/product_analytics/frontend/insights/trends/TrendsProportionBar/TrendsProportionBar'
 import { TrendsSlopeChart } from 'products/product_analytics/frontend/insights/trends/TrendsSlopeChart/TrendsSlopeChart'
 
 import { trendsDataLogic } from './trendsDataLogic'
@@ -89,15 +88,6 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         }
         if (display && PIE_DISPLAY_TYPES.includes(display)) {
             return <TrendsPieChart context={context} inSharedMode={inSharedMode} showPersonsModal={showPersonsModal} />
-        }
-        if (display === ChartDisplayType.ActionsProportionBar) {
-            return (
-                <TrendsProportionBar
-                    context={context}
-                    inSharedMode={inSharedMode}
-                    showPersonsModal={showPersonsModal}
-                />
-            )
         }
         if (display === ChartDisplayType.ActionsBarValue) {
             return <TrendsBarChart context={context} inSharedMode={inSharedMode} embedded={embedded} />

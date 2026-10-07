@@ -141,8 +141,7 @@ export interface chartAlternativesLogicMeta {
             isSingleSeriesOutput: boolean,
             trendsSource: TrendsQuery | null,
             series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined,
-            featureFlags: FeatureFlagsSet,
-            currentDisplay: ChartDisplayType
+            featureFlags: FeatureFlagsSet
         ) => ChartDisplayOptionGroup[]
         alternatives: (options: ChartDisplayOptionGroup[], trendsSource: TrendsQuery | null) => ChartDisplayOption[]
         currentOption: (
@@ -231,14 +230,13 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
             ): TrendsQuery | null => (querySource && isTrendsQuery(querySource) ? querySource : null),
         ],
         options: [
-            (s) => [s.isTrends, s.isSingleSeriesOutput, s.trendsSource, s.series, s.featureFlags, s.currentDisplay],
+            (s) => [s.isTrends, s.isSingleSeriesOutput, s.trendsSource, s.series, s.featureFlags],
             (
                 isTrends: boolean,
                 isSingleSeriesOutput: boolean,
                 trendsSource: TrendsQuery | null,
                 series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined,
-                featureFlags: FeatureFlagsSet,
-                currentDisplay: ChartDisplayType
+                featureFlags: FeatureFlagsSet
             ): ChartDisplayOptionGroup[] =>
                 getChartDisplayOptions({
                     isTrends,
@@ -248,9 +246,6 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
                     breakdowns: trendsSource?.breakdownFilter?.breakdowns,
                     boxPlotMissingProperty: isBoxPlotMissingProperty(series as TrendsQuery['series']),
                     hasMetricInsight: !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT],
-                    hasProportionBarChart: !!featureFlags[FEATURE_FLAGS.PROPORTION_BAR_CHART],
-                    currentDisplay,
-                    isComparing: !!trendsSource?.compareFilter?.compare,
                 }),
         ],
         alternatives: [

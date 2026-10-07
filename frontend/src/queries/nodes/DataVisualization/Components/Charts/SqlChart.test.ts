@@ -38,7 +38,7 @@ describe('sqlChartComponentFor', () => {
         ['bar', ChartDisplayType.ActionsBar, 'SqlBarGraph'],
         ['horizontal bar', ChartDisplayType.ActionsBarValue, 'SqlBarGraph'],
         // Pie is not routed here — it has its own wrapper (see PieChart.test.tsx).
-        ['pie (handled by PartOfWholeChart, not here)', ChartDisplayType.ActionsPie, 'SqlLineGraph'],
+        ['pie (handled by the PieChart wrapper, not here)', ChartDisplayType.ActionsPie, 'SqlLineGraph'],
     ])('routes %s to the right component', (_name, visualizationType, expected) => {
         expect(sqlChartComponentFor(baseProps(visualizationType)).name).toBe(expected)
     })
