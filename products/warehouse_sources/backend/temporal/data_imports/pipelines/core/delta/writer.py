@@ -707,6 +707,31 @@ class DeltaWriter:
 
         return delta_table
 
+    async def restore(self, version: int, commit_metadata: dict[str, str] | None = None) -> dict[str, Any]:
+        """Put the table back to the data and schema it had at `version`.
+
+        The restore is one commit that removes the files added after `version` and adds back the
+        files removed after it. It reads and writes the log only. It fails when a file of `version`
+        is gone, which a vacuum can cause.
+        """
+        delta_table = await self._table.get_delta_table()
+        if delta_table is None:
+            return {}
+        commit_properties: deltalake.CommitProperties | None = (
+            deltalake.CommitProperties(custom_metadata=commit_metadata) if commit_metadata else None
+        )
+        restore_target = delta_table
+        restore_metrics = await execute_with_conflict_retry(
+            delta_table,
+            lambda: restore_target.restore(version, commit_properties=commit_properties),
+            "restore",
+            self._logger,
+            conflict_retries=0,
+        )
+        # The deltalite handle of this table still describes the files that the restore removed.
+        self._table.invalidate_cached_table()
+        return restore_metrics
+
     async def has_commit_with_metadata(self, match: dict[str, str], *, scan_limit: int = 50) -> bool:
         """Check whether any recent delta commit has custom metadata matching all entries in `match`.
 
