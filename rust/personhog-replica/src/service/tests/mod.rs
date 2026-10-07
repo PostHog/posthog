@@ -13,6 +13,7 @@ use personhog_proto::personhog::types::v1::{
     EnsurePersonVersionFloorsRequest, GetGroupRequest, GetPersonRequest,
     GetPersonsByDistinctIdsInTeamRequest, InsertCohortMembersRequest, ListCohortMemberIdsRequest,
     PersonVersionFloor, UpdateGroupRequest, UpdateGroupTypeMappingRequest,
+    UpsertHashKeyOverridesRequest,
 };
 use rstest::rstest;
 use tonic::Request;
@@ -1136,4 +1137,26 @@ async fn test_ensure_person_version_floors_storage_error(
     let result = ensure_person_floors(&service, uuid_keys(1), 0).await;
 
     assert_eq!(result.unwrap_err().code(), expected_code);
+}
+
+// ============================================================
+// UpsertHashKeyOverrides tests
+// ============================================================
+
+#[tokio::test]
+async fn test_upsert_hash_key_overrides_rejects_the_cookieless_sentinel() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let status = service
+        .upsert_hash_key_overrides(Request::new(UpsertHashKeyOverridesRequest {
+            team_id: 1,
+            distinct_ids: vec!["user".to_string()],
+            hash_key: "$posthog_cookieless".to_string(),
+            feature_flag_keys: vec!["flag".to_string()],
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("hash_key"));
 }

@@ -6,7 +6,7 @@ import { BIField } from '~/queries/schema/schema-business-intelligence'
 import { initKeaTests } from '~/test/init'
 
 import { buildBIQuery, DEFAULT_BI_CONFIG } from './biEditorTypes'
-import { getBIPropertyTarget } from './biPropertyFields'
+import { getBIPropertyTarget, matchesBIFieldSearch } from './biPropertyFields'
 import { biPropertyFieldsLogic } from './biPropertyFieldsLogic'
 
 const field: BIField = {
@@ -21,7 +21,7 @@ const definition = (
     property_type: EnterprisePropertyDefinitionApi['property_type'] = 'String'
 ): EnterprisePropertyDefinitionApi => ({ name, property_type }) as EnterprisePropertyDefinitionApi
 
-describe('BI related properties', () => {
+describe('BI properties', () => {
     beforeEach(() => initKeaTests())
 
     it('loads related properties on expansion, pages, searches, and keeps the root table in generated SQL', async () => {
@@ -57,6 +57,22 @@ describe('BI related properties', () => {
             await expectLogic(logic, () => logic.actions.setSearch('annual')).toFinishAllListeners()
             expect(list).toHaveBeenLastCalledWith('997', expect.objectContaining({ search: 'annual', offset: 0 }))
             expect(logic.values.fields).toHaveLength(1)
+            const localPage = logic.values.page
+            logic.actions.toggleExpanded()
+            list.mockResolvedValue({ count: 1, results: [definition('plan')] })
+            await expectLogic(logic, () => {
+                biPropertyFieldsLogic({ tabId: 'properties', field, dataPaneSearch: 'plan' })
+            }).toFinishAllListeners()
+            expect(logic.values.fields[0].name).toContain('plan')
+            const callsBeforeClear = list.mock.calls.length
+            await expectLogic(logic, () => {
+                biPropertyFieldsLogic({ tabId: 'properties', field, dataPaneSearch: '' })
+            }).toFinishAllListeners()
+            expect(logic.values.expanded).toBe(false)
+            expect(logic.values.page).toEqual(localPage)
+            await expectLogic(logic, () => logic.actions.toggleExpanded()).toFinishAllListeners()
+            expect(list).toHaveBeenCalledTimes(callsBeforeClear)
+            expect(logic.values.fields[0].name).toContain('annual_spend')
         } finally {
             logic.unmount()
             list.mockRestore()
@@ -75,6 +91,73 @@ describe('BI related properties', () => {
             await expectLogic(logic, () => logic.actions.loadPage({ offset: 0 })).toFinishAllListeners()
             expect(logic.values.error).toBeNull()
             expect(logic.values.page).toEqual({ count: 0, results: [] })
+        } finally {
+            logic.unmount()
+            list.mockRestore()
+        }
+    })
+
+    it.each([
+        ['events', 'properties', 'event', '$browser'],
+        ['persons', 'properties', 'person', 'profile.country'],
+        ['events', 'person.properties', 'person', 'plan'],
+    ])('finds %s %s through the Data pane search', async (table, name, type, property) => {
+        const rootField: BIField = { ...field, name, expression: name, type: 'json', source: { table } }
+        const list = jest.spyOn(api, 'propertyDefinitionsList').mockResolvedValue({
+            count: 1,
+            results: [definition(property)],
+        })
+        const logicProps = { tabId: 'search', field: rootField }
+        const logic = biPropertyFieldsLogic({ ...logicProps, dataPaneSearch: property })
+        expect(matchesBIFieldSearch(rootField, property)).toBe(true)
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        try {
+            expect(logic.values.expanded).toBe(true)
+            expect(list).toHaveBeenLastCalledWith(
+                '997',
+                expect.objectContaining({
+                    type,
+                    search: property,
+                    offset: 0,
+                    exclude_hidden: true,
+                    exclude_restricted: true,
+                })
+            )
+            const propertyField = logic.values.fields[0]
+            expect(propertyField.source).toEqual({ table })
+            expect(buildBIQuery({ ...DEFAULT_BI_CONFIG, source: { table }, rows: [propertyField] })?.query).toContain(
+                `FROM ${table}`
+            )
+            expect(propertyField.expression).toBe(`${name}.${property.includes('.') ? `"${property}"` : property}`)
+
+            list.mockResolvedValue({ count: 1, results: [definition('$pathname')] })
+            await expectLogic(logic, () => {
+                biPropertyFieldsLogic({ ...logicProps, dataPaneSearch: '$pathname' })
+            }).toFinishAllListeners()
+            expect(logic.values.fields.map((field) => field.expression)).toEqual([`${name}.$pathname`])
+            expect(list).toHaveBeenLastCalledWith('997', expect.objectContaining({ search: '$pathname', offset: 0 }))
+
+            const callsBeforeClear = list.mock.calls.length
+            await expectLogic(logic, () => {
+                biPropertyFieldsLogic({ ...logicProps, dataPaneSearch: '' })
+            }).toFinishAllListeners()
+            expect(logic.values.expanded).toBe(false)
+            expect(logic.values.page).toBeNull()
+            expect(list).toHaveBeenCalledTimes(callsBeforeClear)
+            await expectLogic(logic, () => logic.actions.toggleExpanded()).toFinishAllListeners()
+            expect(list).toHaveBeenLastCalledWith('997', expect.objectContaining({ search: undefined, offset: 0 }))
+            await expectLogic(logic, () => logic.actions.setSearch('local')).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                biPropertyFieldsLogic({ ...logicProps, dataPaneSearch: 'PROPERTIES' })
+            }).toFinishAllListeners()
+            expect(list).toHaveBeenLastCalledWith('997', expect.objectContaining({ search: undefined }))
+            await expectLogic(logic, () => {
+                biPropertyFieldsLogic({ ...logicProps, dataPaneSearch: '' })
+            }).toFinishAllListeners()
+            expect(logic.values.expanded).toBe(true)
+            expect(logic.values.search).toBe('local')
         } finally {
             logic.unmount()
             list.mockRestore()

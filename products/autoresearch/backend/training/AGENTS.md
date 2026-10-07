@@ -48,7 +48,7 @@ The other half is `../inference/`, which consumes what this package produces and
   `shadow_set(pipeline)` computes the models worth scoring side by side. Nothing stores the set.
   It holds the champion, the previous champion (the newest archived bundle-backed row with `promoted_at` set), and up to `SHADOW_CHALLENGER_LIMIT` (3) fitted bundle-backed challengers. No two members share a `recipe_hash`.
   A challenger younger than `horizon_days + SHADOW_MIN_MATURED_DATES` days keeps its place, so a new challenger cannot displace it. Past that age, a newer challenger displaces it. A challenger that does not enter at completion is never fitted, so it cannot enter later.
-  The models API exposes membership as `in_shadow_set`. Nothing scores or promotes from the set yet.
+  The models API exposes membership as `in_shadow_set`. Every live scoring cadence scores the set (see `../inference/AGENTS.md`). Nothing promotes from the set yet.
 - `artifacts.py`
   Object storage for the bundle: `features.sql`, `train.py`, `predict.py`, plus the fitted `model.pkl` written at completion.
   Keys are prefixed by team / pipeline / training-run (`bundle_prefix()`), so history is preserved naturally and bundles can never collide across tenants.
@@ -80,7 +80,7 @@ Two things routinely surprise people:
 
 - **Launched by** — the `train` API action in `../presentation/views/views.py`, the `autoresearch_train` management command, and `activity_kickoff_training` in `../temporal/workflows.py`.
 - **Finalized by** — the `complete` action on the training-run viewset, or `ingestion.py` via the `TaskRun` `post_save` signal wired in `../apps.py`.
-- **Consumed by** — `../inference/`, which reads the champion's `artifact_prefix` and runs its bundle. `fit_champion_model()` in `../inference/sandbox.py` is what actually fits and persists `model.pkl` at completion time, for the champion and for a challenger that enters the shadow set.
+- **Consumed by** — `../inference/`, which reads the champion's `artifact_prefix` and runs its bundle. `fit_champion_model()` in `../inference/sandbox.py` is what actually fits and persists `model.pkl` at completion time, for the champion and for a challenger that enters the shadow set. Shadow scoring loads that `model.pkl` the same way the champion's scoring does.
 - **Agent-facing surface** — the `autoresearch-training-runs-*` MCP tools in `../../mcp/tools.yaml`, backed by the viewsets in `../presentation/views/views.py`. The sandbox agent has no other way to write.
 - **Labels and features** — `../dataset/labeling.py` builds the training population the bundle is fitted against.
 

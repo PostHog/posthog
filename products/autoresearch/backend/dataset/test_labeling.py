@@ -23,6 +23,7 @@ from products.autoresearch.backend.dataset.labeling import (
     LABELER_QUERY_MODIFIERS,
     PREDICTION_EVENT_NAME,
     ROLLING_SCORE_LIMIT,
+    SHADOW_MODEL_ROLE,
     RollingSelection,
     TrainingSample,
     TrainingSampleTooLarge,
@@ -732,6 +733,14 @@ class TestAnchoredPopulationsAgainstClickhouse(ClickhouseTestMixin, APIBaseTest)
             distinct_id="scored_by_another_pipeline",
             timestamp=first_cutoff - timedelta(days=1),
             properties={"$autoresearch_pipeline_id": "22222222-2222-2222-2222-222222222222"},
+        )
+        # A shadow model's prediction is not a score of the person, so it must not move them down the ranking.
+        _create_event(
+            team=self.team,
+            event=PREDICTION_EVENT_NAME,
+            distinct_id="active_never_scored",
+            timestamp=first_cutoff - timedelta(days=1),
+            properties={"$autoresearch_pipeline_id": pipeline_id, "$autoresearch_model_role": SHADOW_MODEL_ROLE},
         )
         flush_persons_and_events()
 

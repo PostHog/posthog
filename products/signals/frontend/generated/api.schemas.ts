@@ -605,6 +605,8 @@ export interface ReportRankingApi {
     lifts: ReportRankingApiLifts
     /** Heads whose holdout AUC the training run could read. Treat scores of other heads with caution. */
     readable_heads: string[]
+    /** True when the report's title or summary was edited after the text this score read. The score describes the old text: the inbox hides its lift and the model sort treats the report as unscored. */
+    stale: boolean
 }
 
 export interface SignalReportListApi {
