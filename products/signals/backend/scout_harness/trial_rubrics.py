@@ -52,5 +52,5 @@ class SavedScoutRubricReader:
         return {
             "config_id": str(document.config_id),
             "skill_name": document.skill_name,
-            **state.model_dump(mode="json"),
+            **state.model_dump(mode="json", exclude={"generation"}),
         }

@@ -470,7 +470,16 @@ class TestScoutTrialEvaluation(BaseTest):
             ).model_dump(mode="json"),
         }
         self.config.save(update_fields=["rubrics"])
-        snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        with patch(f"{MODULE}.MAX_EVALUATION_BYTES", 4 * 1024 * 1024):
+            prepared = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+            assert read_trial_evaluation(self.team.id, prepared.evaluation_id) == prepared
+            snapshot = _read_trial_judge_input(self.team.id, prepared.evaluation_id, self.launch.id)
+            assert snapshot is not None
+            assert (
+                finish_trial_evaluation(self.team.id, prepared.evaluation_id).rubric_reference_context == self.reference
+            )
+        self.config.refresh_from_db()
+        assert self.config.rubrics == rubric
         assert snapshot.rubric_reference_context == self.reference
         assert snapshot.rubric_reference_generation_id == rubric["reference_generation_id"]
         assert {criterion.id for criterion in snapshot.criteria} == {criterion.id for criterion in default_criteria()}

@@ -612,7 +612,6 @@ def prepare_trial_evaluation(
         request=request,
         request_hash=request_hash,
         rubric_document=rubric,
-        rubric_reference_context=rubric_reference_context,
         rubric_reference_generation_id=cast(str, rubric["reference_generation_id"]),
         criteria=criteria,
         judge_model=judge_model,
