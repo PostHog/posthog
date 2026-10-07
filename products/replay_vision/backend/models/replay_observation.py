@@ -170,6 +170,12 @@ class ReplayObservation(UUIDModel):
                 name="rlo_team_in_flight_idx",
                 condition=models.Q(status__in=("pending", "running")),
             ),
+            # Serves the orphan reaper's oldest-first listing of in-flight rows, which must finish under its query budget.
+            models.Index(
+                fields=["created_at"],
+                name="rlo_in_flight_created_idx",
+                condition=models.Q(status__in=("pending", "running")),
+            ),
             # Serves the per-backfill observation filter and progress counts; partial since live rows never match.
             models.Index(
                 fields=["backfill"],
