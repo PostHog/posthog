@@ -1,6 +1,7 @@
 from collections import Counter, defaultdict, deque
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from datetime import datetime, time, timedelta
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db.models import F
@@ -15,45 +16,71 @@ from ..facade.enums import (
     WarehouseSuggestionSubjectKind,
 )
 from ..models import WarehouseSuggestion
+from .analytics import SuggestionOutcome, report_outcomes
 from .candidates.base import CandidateContext
 from .candidates.registry import CANDIDATES
 from .reads import Subject
 from .rules import LifecycleRules, kind_position
 from .suggestions import transition_to, upsert_suggestions
 
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
 
 @frozen
 class LifecycleResult:
+    created: int
     reproposed: int
     revived: int
     auto_resolved: int
     expired: int
     surfaced: int
+    assets_reconciled: int
 
 
 @frozen
 class Reopened:
-    reproposed: int
-    revived: int
+    reproposed: tuple[WarehouseSuggestion, ...]
+    revived: tuple[WarehouseSuggestion, ...]
 
 
 def apply_run(
-    context: CandidateContext, drafts: Sequence[SuggestionDraft], now: datetime, *, surface: bool
+    context: CandidateContext, team: "Team", drafts: Sequence[SuggestionDraft], now: datetime, *, surface: bool
 ) -> LifecycleResult:
     """Apply one run's drafts to the stored suggestions, then show new ones when `surface` is set."""
     fingerprints = {draft.fingerprint for draft in drafts}
     reopened = _reopen(context, drafts)
-    upsert_suggestions(context.team_id, drafts)
+    created = _upsert(context.team_id, drafts)
     auto_resolved = _auto_resolve(context, fingerprints)
     expired = _expire(context, fingerprints, now)
-    surfaced = _surface(context.team_id, context.rules.lifecycle, now) if surface else 0
+    surfaced = _surface(context.team_id, context.rules.lifecycle, now) if surface else []
+    assets_reconciled = _reconcile_assets(context)
+    for outcome, rows in (
+        (SuggestionOutcome.CREATED, created),
+        (SuggestionOutcome.REPROPOSED, reopened.reproposed),
+        (SuggestionOutcome.REVIVED, reopened.revived),
+        (SuggestionOutcome.AUTO_RESOLVED, auto_resolved),
+        (SuggestionOutcome.EXPIRED, expired),
+        (SuggestionOutcome.SURFACED, surfaced),
+    ):
+        report_outcomes(outcome, rows, team=team)
     return LifecycleResult(
-        reproposed=reopened.reproposed,
-        revived=reopened.revived,
-        auto_resolved=auto_resolved,
-        expired=expired,
-        surfaced=surfaced,
+        created=len(created),
+        reproposed=len(reopened.reproposed),
+        revived=len(reopened.revived),
+        auto_resolved=len(auto_resolved),
+        expired=len(expired),
+        surfaced=len(surfaced),
+        assets_reconciled=assets_reconciled,
     )
+
+
+def _upsert(team_id: int, drafts: Sequence[SuggestionDraft]) -> list[WarehouseSuggestion]:
+    suggestions = WarehouseSuggestion.objects.for_team(team_id)
+    fingerprints = {draft.fingerprint for draft in drafts}
+    existing = set(suggestions.filter(fingerprint__in=fingerprints).values_list("fingerprint", flat=True))
+    upsert_suggestions(team_id, drafts)
+    return list(suggestions.filter(fingerprint__in=fingerprints - existing))
 
 
 REVIVABLE_STATUSES = (WarehouseSuggestionStatus.EXPIRED, WarehouseSuggestionStatus.AUTO_RESOLVED)
@@ -67,18 +94,16 @@ def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft]) -> Reo
         fingerprint__in=drafts_by_fingerprint,
         status__in=[WarehouseSuggestionStatus.DISMISSED, *REVIVABLE_STATUSES],
     )
-    reproposed: list[UUID] = []
-    revived: list[UUID] = []
+    reproposed: list[WarehouseSuggestion] = []
+    revived: list[WarehouseSuggestion] = []
     for row in closed:
         if row.status in REVIVABLE_STATUSES:
-            if _move(row, context.team_id, WarehouseSuggestionStatus.PROPOSED):
-                revived.append(row.id)
+            revived.extend(_moved(row, context.team_id, WarehouseSuggestionStatus.PROPOSED))
         elif _earns_reproposal(row, drafts_by_fingerprint[row.fingerprint], context.rules.lifecycle):
-            if _move(row, context.team_id, WarehouseSuggestionStatus.PROPOSED):
-                reproposed.append(row.id)
-    suggestions.filter(id__in=reproposed).update(reproposed_count=F("reproposed_count") + 1)
-    suggestions.filter(id__in=[*reproposed, *revived]).update(surfaced_at=None)
-    return Reopened(reproposed=len(reproposed), revived=len(revived))
+            reproposed.extend(_moved(row, context.team_id, WarehouseSuggestionStatus.PROPOSED))
+    suggestions.filter(id__in=[row.id for row in reproposed]).update(reproposed_count=F("reproposed_count") + 1)
+    suggestions.filter(id__in=[row.id for row in (*reproposed, *revived)]).update(surfaced_at=None)
+    return Reopened(reproposed=tuple(reproposed), revived=tuple(revived))
 
 
 def _earns_reproposal(row: WarehouseSuggestion, draft: SuggestionDraft, rules: LifecycleRules) -> bool:
@@ -91,25 +116,26 @@ def _earns_reproposal(row: WarehouseSuggestion, draft: SuggestionDraft, rules: L
     )
 
 
-def _auto_resolve(context: CandidateContext, refreshed_fingerprints: Collection[str]) -> int:
+def _auto_resolve(context: CandidateContext, refreshed_fingerprints: Collection[str]) -> list[WarehouseSuggestion]:
     """Auto-resolve proposed suggestions with no draft this run whose subject no longer needs them."""
     open_rows = (
         WarehouseSuggestion.objects.for_team(context.team_id)
         .filter(status=WarehouseSuggestionStatus.PROPOSED)
         .exclude(fingerprint__in=refreshed_fingerprints)
     )
-    return sum(
-        _move(row, context.team_id, WarehouseSuggestionStatus.AUTO_RESOLVED)
-        for row in open_rows
-        if CANDIDATES[WarehouseSuggestionKind(row.kind)].is_resolved(context, _subject(row))
+    resolved = (
+        row for row in open_rows if CANDIDATES[WarehouseSuggestionKind(row.kind)].is_resolved(context, _subject(row))
     )
+    return _move_all(resolved, context.team_id, WarehouseSuggestionStatus.AUTO_RESOLVED)
 
 
-def _expire(context: CandidateContext, refreshed_fingerprints: Collection[str], now: datetime) -> int:
+def _expire(
+    context: CandidateContext, refreshed_fingerprints: Collection[str], now: datetime
+) -> list[WarehouseSuggestion]:
     """Expire proposed suggestions with no draft for `expire_after_days`, unless the read data is too short to tell."""
     rules = context.rules.lifecycle
     if context.reads.recent_days_with_data < rules.expire_after_days:
-        return 0
+        return []
     stale = (
         WarehouseSuggestion.objects.for_team(context.team_id)
         .filter(
@@ -117,11 +143,11 @@ def _expire(context: CandidateContext, refreshed_fingerprints: Collection[str], 
         )
         .exclude(fingerprint__in=refreshed_fingerprints)
     )
-    return sum(_move(row, context.team_id, WarehouseSuggestionStatus.EXPIRED) for row in stale)
+    return _move_all(stale, context.team_id, WarehouseSuggestionStatus.EXPIRED)
 
 
-def _surface(team_id: int, rules: LifecycleRules, now: datetime) -> int:
-    """Show waiting suggestions within the daily, open and per-kind limits, and return how many were shown."""
+def _surface(team_id: int, rules: LifecycleRules, now: datetime) -> list[WarehouseSuggestion]:
+    """Show waiting suggestions within the daily, open and per-kind limits, and return the ones shown."""
     suggestions = WarehouseSuggestion.objects.for_team(team_id)
     start_of_day = datetime.combine(now.date(), time.min, tzinfo=now.tzinfo)
     open_kinds = Counter(
@@ -134,7 +160,7 @@ def _surface(team_id: int, rules: LifecycleRules, now: datetime) -> int:
         rules.max_open - open_kinds.total(),
     )
     if slots <= 0:
-        return 0
+        return []
     first_week = not suggestions.filter(
         surfaced_at__lt=start_of_day - timedelta(days=rules.first_week_runs - 1)
     ).exists()
@@ -148,7 +174,8 @@ def _surface(team_id: int, rules: LifecycleRules, now: datetime) -> int:
         open_kinds,
         rules.max_open_per_kind,
     )
-    return suggestions.filter(id__in=chosen).update(surfaced_at=now)
+    suggestions.filter(id__in=chosen).update(surfaced_at=now)
+    return list(suggestions.filter(id__in=chosen))
 
 
 def _pick_in_turns(
@@ -175,13 +202,30 @@ def _pick_in_turns(
     return chosen
 
 
-def _move(row: WarehouseSuggestion, team_id: int, status: WarehouseSuggestionStatus) -> bool:
-    """Move a suggestion to `status` as the system, and return False when a person already decided it."""
+def _reconcile_assets(context: CandidateContext) -> int:
+    suggestions = WarehouseSuggestion.objects.for_team(context.team_id)
+    changed = 0
+    for row in suggestions.filter(status=WarehouseSuggestionStatus.ACCEPTED).only(
+        "id", "kind", "subject_kind", "subject_id", "asset_outcome"
+    ):
+        outcome = CANDIDATES[WarehouseSuggestionKind(row.kind)].asset_outcome(context, _subject(row))
+        if outcome != row.asset_outcome:
+            changed += suggestions.filter(id=row.id).update(asset_outcome=outcome)
+    return changed
+
+
+def _move_all(
+    rows: Iterable[WarehouseSuggestion], team_id: int, status: WarehouseSuggestionStatus
+) -> list[WarehouseSuggestion]:
+    return [moved for row in rows for moved in _moved(row, team_id, status)]
+
+
+def _moved(row: WarehouseSuggestion, team_id: int, status: WarehouseSuggestionStatus) -> list[WarehouseSuggestion]:
+    """The suggestion moved to `status` as the system, or nothing when a person already decided it."""
     try:
-        transition_to(row.id, team_id, status, user_id=None)
+        return [transition_to(row.id, team_id, status, user_id=None)]
     except SuggestionAlreadyDecidedError:
-        return False
-    return True
+        return []
 
 
 def _subject(row: WarehouseSuggestion) -> Subject:

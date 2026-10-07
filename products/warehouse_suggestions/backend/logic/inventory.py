@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 class TeamInventory:
     saved_queries: Mapping[UUID, SavedQueryDefinition]
     table_names: Mapping[UUID, str]
-    certified: frozenset[Subject]
+    certifications: Mapping[Subject, str]
     direct_table_ids: frozenset[UUID]
 
     def name_of(self, subject: Subject) -> str | None:
@@ -36,16 +36,18 @@ def load_inventory(team: "Team") -> TeamInventory:
     return TeamInventory(
         saved_queries={saved_query.id: saved_query for saved_query in saved_query_definitions(team.pk)},
         table_names={table_id: name for table_id, name in table_names.items() if table_id not in backing_table_ids},
-        certified=frozenset(_certified_subjects(team)),
+        certifications=_certifications(team),
         direct_table_ids=frozenset(direct_access_table_ids(team.pk)),
     )
 
 
-def _certified_subjects(team: "Team") -> list[Subject]:
-    subjects = []
-    for saved_query_id, table_id in certifications_for_team(team).values_list("saved_query_id", "table_id"):
+def _certifications(team: "Team") -> dict[Subject, str]:
+    certifications = {}
+    for saved_query_id, table_id, status in certifications_for_team(team).values_list(
+        "saved_query_id", "table_id", "status"
+    ):
         if saved_query_id is not None:
-            subjects.append(Subject(kind=WarehouseSuggestionSubjectKind.SAVED_QUERY, id=saved_query_id))
+            certifications[Subject(kind=WarehouseSuggestionSubjectKind.SAVED_QUERY, id=saved_query_id)] = status
         if table_id is not None:
-            subjects.append(Subject(kind=WarehouseSuggestionSubjectKind.TABLE, id=table_id))
-    return subjects
+            certifications[Subject(kind=WarehouseSuggestionSubjectKind.TABLE, id=table_id)] = status
+    return certifications

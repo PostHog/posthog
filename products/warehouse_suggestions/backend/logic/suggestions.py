@@ -60,6 +60,7 @@ def transition_to(
     user_id: int | None,
     reason: WarehouseSuggestionDismissalReason | None = None,
     note: str | None = None,
+    created_asset: Mapping[str, Any] | None = None,
     transitions: Transitions = ALLOWED_TRANSITIONS,
 ) -> WarehouseSuggestion:
     with transaction.atomic():
@@ -74,6 +75,8 @@ def transition_to(
             _record_review(suggestion, user_id)
         if new_status == WarehouseSuggestionStatus.DISMISSED:
             _record_dismissal(suggestion, reason, note)
+        if created_asset is not None:
+            suggestion.created_asset = dict(created_asset)
         suggestion.save()
     return suggestion
 

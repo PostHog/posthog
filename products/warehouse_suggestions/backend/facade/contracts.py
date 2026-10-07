@@ -157,3 +157,17 @@ class SuggestionAlreadyDecidedError(Exception):
 class UnsupportedPayloadVersionError(Exception):
     def __init__(self, payload_version: int) -> None:
         super().__init__(f"Suggestion payload version {payload_version} is not supported.")
+
+
+class SuggestionSubjectGoneError(Exception):
+    def __init__(self, subject_kind: WarehouseSuggestionSubjectKind) -> None:
+        super().__init__(subject_kind)
+        self.subject_kind = subject_kind
+
+
+class RefreshIntervalRefusedError(Exception):
+    pass
+
+
+class AcceptFailedError(Exception):
+    pass

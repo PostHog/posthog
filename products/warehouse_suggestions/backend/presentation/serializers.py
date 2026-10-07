@@ -194,3 +194,11 @@ class DismissWarehouseSuggestionSerializer(serializers.Serializer):
     note = serializers.CharField(
         required=False, allow_blank=True, max_length=1000, help_text="Optional note about the dismissal."
     )
+
+
+class AcceptWarehouseSuggestionSerializer(serializers.Serializer):
+    refresh_interval_seconds = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Materialize only: refresh interval to use instead of the proposed one, in seconds.",
+    )

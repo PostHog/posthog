@@ -57,7 +57,7 @@ class TestCertifyCandidate(SimpleTestCase):
         reads = team_reads({subject: busy_reads(**{**AT_CERTIFY_FLOORS, **overrides})}, days_with_data=days_with_data)
 
         result = CertifyCandidate().evaluate(
-            context(reads, views=[view(VIEW_ID)], certified=frozenset({subject}) if certified else frozenset())
+            context(reads, views=[view(VIEW_ID)], certifications={subject: "proposed"} if certified else {})
         )
 
         assert [draft.subject_id for draft in result.drafts] == ([VIEW_ID] if expect_draft else [])

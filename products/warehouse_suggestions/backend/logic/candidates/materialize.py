@@ -15,7 +15,7 @@ from products.data_modeling.backend.facade.api import (
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 
 from ...facade.contracts import MaterializePayload, SourceRef
-from ...facade.enums import WarehouseSuggestionKind, WarehouseSuggestionSubjectKind
+from ...facade.enums import WarehouseSuggestionAssetOutcome, WarehouseSuggestionKind, WarehouseSuggestionSubjectKind
 from ..reads import Subject, SubjectReads
 from .base import DAYS_PER_MONTH, MILLISECONDS_PER_SECOND, Candidate, CandidateContext, CandidateResult, Rejection
 
@@ -72,6 +72,14 @@ class MaterializeCandidate(Candidate):
                 )
             )
         return CandidateResult(drafts=tuple(drafts), rejections=tuple(rejections))
+
+    def asset_outcome(self, context: CandidateContext, subject: Subject) -> WarehouseSuggestionAssetOutcome:
+        saved_query = context.inventory.saved_queries.get(subject.id)
+        if saved_query is None or not saved_query.is_materialized:
+            return WarehouseSuggestionAssetOutcome.DELETED
+        if subject in context.reads.subjects:
+            return WarehouseSuggestionAssetOutcome.LIVE
+        return WarehouseSuggestionAssetOutcome.UNUSED
 
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool:
         saved_query = context.inventory.saved_queries.get(subject.id)

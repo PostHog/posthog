@@ -86,7 +86,7 @@ def context(
     *,
     views: Sequence[SavedQueryDefinition] = (),
     table_names: Mapping[UUID, str] | None = None,
-    certified: frozenset[Subject] = frozenset(),
+    certifications: Mapping[Subject, str] | None = None,
     direct_table_ids: frozenset[UUID] = frozenset(),
     team_id: int = 1,
     rules: Rules = RULES,
@@ -97,7 +97,7 @@ def context(
         inventory=TeamInventory(
             saved_queries={saved_query.id: saved_query for saved_query in views},
             table_names=table_names or {},
-            certified=certified,
+            certifications=certifications or {},
             direct_table_ids=direct_table_ids,
         ),
         rules=rules,

@@ -162,6 +162,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         [
             ("dismiss_a_dismissed_one", WarehouseSuggestionStatus.DISMISSED, "dismiss"),
             ("resume_an_expired_one", WarehouseSuggestionStatus.EXPIRED, "resume"),
+            ("accept_a_dismissed_one", WarehouseSuggestionStatus.DISMISSED, "accept"),
         ]
     )
     def test_a_move_people_may_not_make_conflicts(
@@ -298,17 +299,18 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         assert [row["id"] for row in listed.json()["results"]] == [str(suggestion.id)]
         assert dismissed.status_code == expected_dismiss_status, dismissed.json()
 
-    def test_a_viewer_of_the_subject_cannot_dismiss_its_suggestion(self) -> None:
+    @parameterized.expand([("dismiss",), ("accept",)])
+    def test_a_viewer_of_the_subject_cannot_decide_its_suggestion(self, action: str) -> None:
         suggestion = self._suggest(self.view.id)
         self._restrict("warehouse_view", self.view.id, "viewer")
 
         listed = self.client.get(f"{self.url}/")
-        dismissed = self.client.post(
-            f"{self.url}/{suggestion.id}/dismiss/", {"reason": WarehouseSuggestionDismissalReason.NOT_USEFUL}
+        decided = self.client.post(
+            f"{self.url}/{suggestion.id}/{action}/", {"reason": WarehouseSuggestionDismissalReason.NOT_USEFUL}
         )
 
         assert listed.json()["results"][0]["can_act"] is False
-        assert dismissed.status_code == status.HTTP_403_FORBIDDEN, dismissed.json()
+        assert decided.status_code == status.HTTP_403_FORBIDDEN, decided.json()
         suggestion.refresh_from_db()
         assert suggestion.status == WarehouseSuggestionStatus.PROPOSED
 

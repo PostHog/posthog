@@ -1,11 +1,13 @@
 """Facade for warehouse_suggestions."""
 
 from collections.abc import Sequence
+from datetime import timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from ..logic import suggestions
+from ..logic import accept, suggestions
 from ..logic.access import SubjectAccess, readable_table_ids, visible_suggestions
+from ..logic.analytics import SuggestionOutcome, report_outcomes
 from ..logic.flags import is_warehouse_suggestions_enabled
 from ..logic.payloads import payload_from_json, payload_view, source_table_ids
 from ..logic.rules import RULES
@@ -29,9 +31,12 @@ from .enums import (
 )
 
 if TYPE_CHECKING:
+    from posthog.models import Team, User
+
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 __all__ = [
+    "accept_suggestion",
     "dismiss_suggestion",
     "get_suggestion",
     "is_warehouse_suggestions_enabled",
@@ -74,59 +79,79 @@ def suggestion_status(team_id: int) -> SuggestionStatus:
 
 def get_suggestion(team_id: int, user_access_control: "UserAccessControl", suggestion_id: UUID) -> Suggestion:
     row, access = _visible_suggestion(team_id, user_access_control, suggestion_id)
-    (suggestion,) = _to_contracts(team_id, user_access_control, [row], access)
-    return suggestion
+    return _single_contract(team_id, user_access_control, row, access)
 
 
 def dismiss_suggestion(
-    team_id: int,
+    team: "Team",
     user_access_control: "UserAccessControl",
     suggestion_id: UUID,
     *,
-    user_id: int,
+    user: "User",
     reason: WarehouseSuggestionDismissalReason,
     note: str | None,
 ) -> Suggestion:
-    return _decide(
-        team_id,
-        user_access_control,
-        suggestion_id,
-        WarehouseSuggestionStatus.DISMISSED,
-        user_id=user_id,
-        reason=reason,
-        note=note,
-    )
-
-
-def resume_suggestion(
-    team_id: int, user_access_control: "UserAccessControl", suggestion_id: UUID, *, user_id: int
-) -> Suggestion:
-    return _decide(team_id, user_access_control, suggestion_id, WarehouseSuggestionStatus.PROPOSED, user_id=user_id)
-
-
-def _decide(
-    team_id: int,
-    user_access_control: "UserAccessControl",
-    suggestion_id: UUID,
-    new_status: WarehouseSuggestionStatus,
-    *,
-    user_id: int,
-    reason: WarehouseSuggestionDismissalReason | None = None,
-    note: str | None = None,
-) -> Suggestion:
-    row, access = _visible_suggestion(team_id, user_access_control, suggestion_id)
-    if not access.can_act_on(row):
-        raise SubjectEditAccessRequiredError(WarehouseSuggestionSubjectKind(row.subject_kind))
-    decided = suggestions.transition_to(
+    row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id)
+    dismissed = suggestions.transition_to(
         row.id,
-        team_id,
-        new_status,
-        user_id=user_id,
+        team.pk,
+        WarehouseSuggestionStatus.DISMISSED,
+        user_id=user.id,
         reason=reason,
         note=note,
         transitions=suggestions.HUMAN_TRANSITIONS,
     )
-    (suggestion,) = _to_contracts(team_id, user_access_control, [decided], access)
+    report_outcomes(SuggestionOutcome.DISMISSED, [dismissed], team=team, user=user)
+    return _single_contract(team.pk, user_access_control, dismissed, access)
+
+
+def resume_suggestion(
+    team: "Team", user_access_control: "UserAccessControl", suggestion_id: UUID, *, user: "User"
+) -> Suggestion:
+    row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id)
+    resumed = suggestions.transition_to(
+        row.id, team.pk, WarehouseSuggestionStatus.PROPOSED, user_id=user.id, transitions=suggestions.HUMAN_TRANSITIONS
+    )
+    report_outcomes(SuggestionOutcome.RESUMED, [resumed], team=team, user=user)
+    return _single_contract(team.pk, user_access_control, resumed, access)
+
+
+def accept_suggestion(
+    team: "Team",
+    user_access_control: "UserAccessControl",
+    suggestion_id: UUID,
+    *,
+    user: "User",
+    refresh_interval: timedelta | None,
+    was_impersonated: bool,
+) -> Suggestion:
+    row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id)
+    was_accepted = row.status == WarehouseSuggestionStatus.ACCEPTED
+    accepted = accept.accept(
+        team.pk,
+        row.id,
+        accept.AcceptRequest(
+            team=team, user=user, refresh_interval=refresh_interval, was_impersonated=was_impersonated
+        ),
+    )
+    if not was_accepted:
+        report_outcomes(SuggestionOutcome.ACCEPTED, [accepted], team=team, user=user)
+    return _single_contract(team.pk, user_access_control, accepted, access)
+
+
+def _actionable_suggestion(
+    team_id: int, user_access_control: "UserAccessControl", suggestion_id: UUID
+) -> tuple[WarehouseSuggestion, SubjectAccess]:
+    row, access = _visible_suggestion(team_id, user_access_control, suggestion_id)
+    if not access.can_act_on(row):
+        raise SubjectEditAccessRequiredError(WarehouseSuggestionSubjectKind(row.subject_kind))
+    return row, access
+
+
+def _single_contract(
+    team_id: int, user_access_control: "UserAccessControl", row: WarehouseSuggestion, access: SubjectAccess
+) -> Suggestion:
+    (suggestion,) = _to_contracts(team_id, user_access_control, [row], access)
     return suggestion
 
 

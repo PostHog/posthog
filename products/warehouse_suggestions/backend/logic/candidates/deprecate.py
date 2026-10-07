@@ -1,12 +1,20 @@
 from uuid import UUID
 
+from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.api import dependent_saved_query_ids, upstream_table_refs
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 
 from ...facade.contracts import DeprecatePayload
-from ...facade.enums import WarehouseSuggestionKind, WarehouseSuggestionSubjectKind
+from ...facade.enums import WarehouseSuggestionAssetOutcome, WarehouseSuggestionKind, WarehouseSuggestionSubjectKind
 from ..reads import Subject
-from .base import MILLISECONDS_PER_SECOND, Candidate, CandidateContext, CandidateResult, Rejection
+from .base import (
+    MILLISECONDS_PER_SECOND,
+    Candidate,
+    CandidateContext,
+    CandidateResult,
+    Rejection,
+    certification_outcome,
+)
 
 
 class DeprecateCandidate(Candidate):
@@ -55,6 +63,9 @@ class DeprecateCandidate(Candidate):
                 )
             )
         return CandidateResult(drafts=tuple(drafts), rejections=tuple(rejections))
+
+    def asset_outcome(self, context: CandidateContext, subject: Subject) -> WarehouseSuggestionAssetOutcome:
+        return certification_outcome(context, subject, CertificationStatus.DEPRECATED)
 
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool:
         saved_query = context.inventory.saved_queries.get(subject.id)
