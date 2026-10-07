@@ -7,8 +7,9 @@
  * Each incoming condition set is attributed to the existing set it came from. A set keeps the
  * existing set at its own index when the two share a property key. A moved set that shares a key
  * with the set now at its index therefore keeps that set as its source. Otherwise a set takes the
- * existing set that shares the most keys with it, when exactly one set does. A set with no key
- * match falls back to elimination, and then to position.
+ * existing set that shares the most keys with it, when exactly one set does. A set that shares
+ * the most keys with two existing sets equally gets no source. A set with no key match falls back
+ * to elimination, and then to position.
  *
  * A set's aggregation then decides its property types, in both directions. A group-aggregated
  * set types its untyped properties as `group` against the set's own group type index. A
@@ -146,6 +147,9 @@ function attributeSourceSets(
     const incoming = incomingGroups.map((group) => (isRecord(group) ? indexProperties(group.properties) : undefined))
     const sources: (ExistingSet | undefined)[] = incomingGroups.map(() => undefined)
     const claimed = new Set<number>()
+    // A tied set shares keys with two existing sets equally. The elimination and position passes
+    // skip it, because they would pair it with a set that shares none of its keys.
+    const tied = new Set<number>()
 
     const claim = (index: number, existingIndex: number): void => {
         sources[index] = existingSets[existingIndex]
@@ -155,7 +159,7 @@ function attributeSourceSets(
     const claimSamePosition = ({ requireSharedKey }: { requireSharedKey: boolean }): void => {
         for (const [index, propsByKey] of incoming.entries()) {
             const candidate = existingSets[index]
-            if (!propsByKey || sources[index] || !candidate || claimed.has(index)) {
+            if (!propsByKey || sources[index] || tied.has(index) || !candidate || claimed.has(index)) {
                 continue
             }
             if (!requireSharedKey || sharedKeyCount(propsByKey, candidate.propsByKey) > 0) {
@@ -164,14 +168,14 @@ function attributeSourceSets(
         }
     }
 
-    // A tie is not evidence of where the set came from. A tied set gets no match from this search.
+    // A tie is not evidence of where the set came from.
     const uniqueBestMatch = (
         propsByKey: Map<string, FlagProperty[]>,
         { skipClaimed }: { skipClaimed: boolean }
-    ): number => {
-        let bestIndex = -1
+    ): number | 'tie' | undefined => {
+        let bestIndex: number | undefined
         let bestShared = 0
-        let tied = false
+        let isTie = false
         for (const [existingIndex, candidate] of existingSets.entries()) {
             if (!candidate || (skipClaimed && claimed.has(existingIndex))) {
                 continue
@@ -183,12 +187,12 @@ function attributeSourceSets(
             if (shared > bestShared) {
                 bestIndex = existingIndex
                 bestShared = shared
-                tied = false
+                isTie = false
             } else if (shared === bestShared) {
-                tied = true
+                isTie = true
             }
         }
-        return tied ? -1 : bestIndex
+        return isTie ? 'tie' : bestIndex
     }
 
     claimSamePosition({ requireSharedKey: true })
@@ -198,22 +202,24 @@ function attributeSourceSets(
             continue
         }
         const unclaimedMatch = uniqueBestMatch(propsByKey, { skipClaimed: true })
-        if (unclaimedMatch >= 0) {
+        if (typeof unclaimedMatch === 'number') {
             claim(index, unclaimedMatch)
             continue
         }
         // A set split off another set reads that set without claiming it. The split-off set then
         // has a source, and the elimination below does not pair it with an unrelated leftover set.
         const anyMatch = uniqueBestMatch(propsByKey, { skipClaimed: false })
-        if (anyMatch >= 0) {
+        if (typeof anyMatch === 'number') {
             sources[index] = existingSets[anyMatch]
+        } else if (anyMatch === 'tie') {
+            tied.add(index)
         }
     }
 
     // A plain rollout has no property key to match. When exactly one incoming set and exactly one
     // existing set are left without a match, the two pair.
     const incomingIndex = soleItem(
-        incoming.flatMap((propsByKey, index) => (propsByKey && !sources[index] ? [index] : []))
+        incoming.flatMap((propsByKey, index) => (propsByKey && !sources[index] && !tied.has(index) ? [index] : []))
     )
     const existingIndex = soleItem(
         existingSets.flatMap((candidate, index) => (candidate && !claimed.has(index) ? [index] : []))

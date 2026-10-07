@@ -794,8 +794,13 @@ describe('preserveGroupTargetingFilters', () => {
         expect(aggregationViolations(existing, merged)).toEqual([])
     })
 
-    // An unattributed set has no source to read an aggregation index from.
-    it('leaves a set unattributed when two existing sets match it equally', () => {
+    // An unattributed set has no source to read an aggregation index from. The existing set at the
+    // tied set's index shares no key with it. Elimination takes the first case and position takes
+    // the second, and neither may pair the two.
+    it.each([
+        { name: 'the other sets keep their keys', otherKeys: ['email', 'email'] },
+        { name: 'the other sets change every key', otherKeys: ['plan', 'country'] },
+    ])('leaves a set unattributed when two existing sets match it equally and $name', ({ otherKeys }) => {
         const existing = {
             aggregation_group_type_index: null,
             groups: [
@@ -811,16 +816,20 @@ describe('preserveGroupTargetingFilters', () => {
                     properties: [{ key: 'email', type: 'person', operator: 'icontains', value: '@globex.com' }],
                     rollout_percentage: 100,
                 },
+                {
+                    aggregation_group_type_index: 1,
+                    properties: [{ key: 'seats', type: 'group', group_type_index: 1, operator: 'gt', value: 10 }],
+                    rollout_percentage: 100,
+                },
             ],
         }
 
         const merged = preserveGroupTargetingFilters(existing, {
             groups: [
-                { properties: [{ key: 'email', operator: 'icontains', value: '@acme.com' }], rollout_percentage: 100 },
-                {
-                    properties: [{ key: 'email', operator: 'icontains', value: '@globex.com' }],
+                ...otherKeys.map((key) => ({
+                    properties: [{ key, operator: 'icontains', value: '@globex.com' }],
                     rollout_percentage: 100,
-                },
+                })),
                 {
                     properties: [{ key: 'email', operator: 'icontains', value: '@initech.com' }],
                     rollout_percentage: 25,
