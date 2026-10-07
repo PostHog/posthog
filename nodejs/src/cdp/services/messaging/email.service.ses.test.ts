@@ -6,21 +6,26 @@ import { register } from 'prom-client'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
+import {
+    EmailServiceFixture,
+    createEmailSender,
+    createEmailValidationRedis,
+    createEmailVmState,
+    createMessageAssetsService,
+    insertEmailWorkflowsConfig,
+} from '~/tests/helpers/email'
 import { TestRedisV2 } from '~/tests/helpers/redis-v2'
-import { LocalSes } from '~/tests/helpers/ses'
+import { LocalSes, LocalSesAwsEnvironment } from '~/tests/helpers/ses'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub } from '../../../types'
-import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
-import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
+import { EmailSuppressionService } from './email-suppression.service'
 import { EmailService, EmailServiceConfig, teamEmailCapBuckets } from './email.service'
 import { mailDevTransport } from './helpers/maildev'
-import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 import { MessageAssetsService } from './message-assets.service'
 
 describe('EmailService with local SES', () => {
@@ -36,7 +41,8 @@ describe('EmailService with local SES', () => {
     let assets: MessageAssetsService
     const hourlyCap = 4
     const dailyCap = 8
-    const originalEnv = { ...process.env }
+    let environment: LocalSesAwsEnvironment
+    let services: EmailServiceFixture
 
     const workflowBucket = (): { key: string; capacity: number; refillPerSecond: number } => ({
         key: `@posthog/workflow-email-rate/${invocation.teamId}/${invocation.functionId}`,
@@ -64,7 +70,7 @@ describe('EmailService with local SES', () => {
     }
 
     const createService = (endpoint: string, config: Partial<EmailServiceConfig> = {}): EmailService =>
-        new EmailService({
+        services.create({
             sesConfig: {
                 sesAccessKeyId: 'local-ses-test',
                 sesSecretAccessKey: 'local-ses-test',
@@ -77,52 +83,25 @@ describe('EmailService with local SES', () => {
                 teamEmailTierDailyCaps: [dailyCap],
                 ...config,
             },
-            integrationManager: hub.integrationManager,
-            teamWorkflowsConfigService: configService,
-            encryptionSaltKeys: hub.ENCRYPTION_SALT_KEYS,
-            siteUrl: hub.SITE_URL,
-            trackingCodeSigner: new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-            emailSuppressionService: suppression,
-            recipientsManager: new RecipientsManagerService(hub.postgres),
             messageAssetsService: assets,
             workflowEmailRateLimiter: limiter,
             teamEmailRateLimiter: limiter,
         })
 
     beforeEach(async () => {
-        process.env.AWS_ACCESS_KEY_ID = 'local-ses-test'
-        process.env.AWS_SECRET_ACCESS_KEY = 'local-ses-test'
-        delete process.env.AWS_SESSION_TOKEN
-        delete process.env.AWS_PROFILE
-        process.env.AWS_MAX_ATTEMPTS = '1'
+        environment = new LocalSesAwsEnvironment()
+        environment.configure()
         ses = new LocalSes()
         await ses.start()
         hub = await createHub({ SITE_URL: 'http://localhost:8000' })
-        redis = new TestRedisV2({
-            connection: {
-                url: hub.CDP_VALKEY_HOST,
-                options: { port: hub.CDP_VALKEY_PORT, password: hub.CDP_VALKEY_PASSWORD },
-            },
-            poolMinSize: 0,
-            poolMaxSize: 1,
-        })
+        redis = createEmailValidationRedis(hub)
         limiter = new RateLimiterService(redis, { name: 'email-outcomes-test' })
-        configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
-        suppression = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
-        assets = new MessageAssetsService({
-            produce: jest.fn().mockResolvedValue(undefined),
-        } as unknown as IngestionOutputs<'message_assets'>)
+        services = new EmailServiceFixture(hub)
+        configService = services.workflowsConfig
+        suppression = services.suppression
+        assets = createMessageAssetsService()
         const { team } = await createTestTeamFixture(hub.postgres)
-        const integration = await insertIntegration(hub.postgres, team.id, {
-            kind: 'email',
-            config: {
-                email: 'sender@example.com',
-                name: 'Example Sender',
-                domain: 'example.com',
-                verified: true,
-                provider: 'ses',
-            },
-        })
+        const integration = await insertIntegration(hub.postgres, team.id, createEmailSender())
         service = createService(ses.endpoint)
         invocation = createExampleInvocation({ team_id: team.id, metadata: { tracking_enabled: false } })
         params = {
@@ -137,38 +116,19 @@ describe('EmailService with local SES', () => {
             html: '<p>An HTML message.</p>',
         }
         invocation.queueParameters = params
-        invocation.state.vmState = {
-            bytecodes: {},
-            stack: [],
-            upvalues: [],
-            callStack: [],
-            throwStack: [],
-            declaredFunctions: {},
-            ops: 0,
-            asyncSteps: 0,
-            syncDuration: 0,
-            maxMemUsed: 0,
-        }
+        invocation.state.vmState = createEmailVmState()
         invocation.state.actionId = 'send-email'
-        await hub.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO workflows_teamworkflowsconfig
-             (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
-              email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
-             VALUES ($1, true, 'off', '', '', 0)`,
-            [team.id],
-            'test-create-workflows-config'
-        )
+        await insertEmailWorkflowsConfig(hub, team.id)
     })
 
     afterEach(async () => {
-        service?.sesV2Client?.destroy()
+        await services?.close()
         await redis?.close()
         await ses?.stop()
         if (hub) {
             await closeHub(hub)
         }
-        process.env = { ...originalEnv }
+        environment.restore()
         jest.restoreAllMocks()
     })
 
@@ -575,7 +535,7 @@ describe('EmailService with local SES', () => {
     })
 
     it.each([1, 3])('reschedules after %i SDK attempt(s) and sends its email payload on retry', async (attempts) => {
-        process.env.AWS_MAX_ATTEMPTS = String(attempts)
+        environment.setMaxAttempts(attempts)
         service.sesV2Client?.destroy()
         service = createService(ses.endpoint)
         ses.setError('TooManyRequestsException')
