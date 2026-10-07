@@ -300,8 +300,8 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         managed.refresh_from_db()
         self.assertEqual(managed.name, "Renamed alert destination")
         self.assertFalse(managed.enabled)
-        self.assertEqual(managed.inputs["channel"]["value"], "#oncall")
-        self.assertEqual(managed.filters["events"], [{"id": event_id, "type": "events"}])
+        self.assertEqual((managed.inputs or {})["channel"]["value"], "#oncall")
+        self.assertEqual((managed.filters or {})["events"], [{"id": event_id, "type": "events"}])
 
     @parameterized.expand(
         [
@@ -330,7 +330,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         self.assertEqual(patch_response.json()["attr"], attr)
         managed.refresh_from_db()
         self.assertFalse(managed.deleted)
-        self.assertEqual({key: managed.filters[key] for key in ("events", "properties")}, _alert_filters())
+        self.assertEqual({key: (managed.filters or {})[key] for key in ("events", "properties")}, _alert_filters())
 
     @parameterized.expand([("$billing_alert_firing",), ("$replay_vision_alert_match",)])
     def test_generic_api_cannot_edit_another_alert_products_destination(self, event_id):
@@ -344,7 +344,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         self.assertEqual(patch_response.status_code, status.HTTP_400_BAD_REQUEST, patch_response.json())
         self.assertIn("managed through the alert API", patch_response.json()["detail"])
         managed.refresh_from_db()
-        self.assertEqual(managed.inputs["channel"]["value"], "#alerts")
+        self.assertEqual((managed.inputs or {})["channel"]["value"], "#alerts")
 
     def test_generic_api_cannot_restore_a_managed_alert_destination(self):
         managed = self._create_internal_destination(_alert_filters(), deleted=True)
