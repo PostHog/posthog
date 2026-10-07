@@ -221,6 +221,11 @@ STAGED_RESUME_VALUE_KEY = "resume_value"
 # holds the rows, not whichever attempt most recently restated the same value.
 STAGED_RESUME_OWNER_KEY = "resume_owner_run_uuid"
 
+# The key for the append run that the loader started to write and has not completed. The loader
+# owns the value (see `pipeline_v3/load/append_rollback.py`). A reset deletes the table, so it
+# drops the key too.
+APPEND_RUN_MARKER_KEY = "append_run_in_progress"
+
 
 class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
     def update(self, **kwargs: Any) -> int:
@@ -1291,6 +1296,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             "incremental_field_earliest_value",
             "incremental_staged",
             "incremental_staged_pending",
+            APPEND_RUN_MARKER_KEY,
             "partitioning_enabled",
             "partition_size",
             "partition_count",
