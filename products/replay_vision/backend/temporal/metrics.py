@@ -8,9 +8,16 @@ The twin derives its name and description from the prom instrument, and its reco
 is swallowed so telemetry can never fail an activity.
 """
 
+import time
+from typing import TYPE_CHECKING
+
 from prometheus_client import Counter, Gauge, Histogram
 
+from posthog.metrics import pushed_metrics_registry
 from posthog.otel_metrics import OtelInstrumentFactory
+
+if TYPE_CHECKING:
+    from products.replay_vision.backend.temporal.gemini_cleanup_sweep.types import GeminiStorageUsage
 
 _otel = OtelInstrumentFactory("replay-vision")
 
@@ -198,9 +205,10 @@ REPLAY_VISION_ESTIMATE_OUTCOMES = Counter(
     ["outcome"],
 )
 
-REPLAY_VISION_GEMINI_CLEANUP_BACKLOG = Gauge(
-    "replay_vision_gemini_cleanup_backlog",
-    "Tracked Gemini files awaiting cleanup (a growing backlog means the sweep is losing)",
+REPLAY_VISION_GEMINI_CLEANUP_FILES = Counter(
+    "replay_vision_gemini_cleanup_files_total",
+    "Tracked Gemini files the cleanup sweep looked at, by result",
+    ["result"],
 )
 
 
@@ -358,9 +366,73 @@ def record_enqueue_claim_failure(operation: str) -> None:
     _otel.record_counter_twin(REPLAY_VISION_ENQUEUE_CLAIM_FAILURES, 1, {"operation": operation})
 
 
-def record_gemini_cleanup_backlog(count: int) -> None:
-    REPLAY_VISION_GEMINI_CLEANUP_BACKLOG.set(count)
-    _otel.record_gauge_twin(REPLAY_VISION_GEMINI_CLEANUP_BACKLOG, count)
+def record_gemini_cleanup_files(result: str, count: int) -> None:
+    if count <= 0:
+        return
+    REPLAY_VISION_GEMINI_CLEANUP_FILES.labels(result=result).inc(count)
+    _otel.record_counter_twin(REPLAY_VISION_GEMINI_CLEANUP_FILES, count, {"result": result})
+
+
+# Singleton schedules push their gauges, so each region holds one series per gauge. A scraped gauge would keep
+# exporting, from every pod that ever ran the job, the value that pod last saw. The Pushgateway takes only
+# Prometheus metrics, so these gauges have no OTLP twin.
+
+
+def push_gemini_cleanup_gauges(tracked_files: int, storage: "GeminiStorageUsage | None") -> None:
+    """Each push replaces the job's previous gauges, so a failed listing leaves a gap in the storage series."""
+    with pushed_metrics_registry("replay_vision_gemini_cleanup_sweep") as registry:
+        Gauge(
+            "replay_vision_gemini_cleanup_backlog",
+            "Tracked Gemini files awaiting cleanup (a growing backlog means the sweep is losing)",
+            registry=registry,
+        ).set(tracked_files)
+        if storage is not None:
+            Gauge(
+                "replay_vision_gemini_storage_files",
+                "Files in the Gemini project from a full Files API listing, including files the Redis index "
+                "lost; a flat line at the listing cap means the real count is higher",
+                registry=registry,
+            ).set(storage.files)
+            Gauge(
+                "replay_vision_gemini_storage_bytes",
+                "Bytes the listed Gemini files hold against the project's Files API storage quota",
+                registry=registry,
+            ).set(storage.total_bytes)
+            Gauge(
+                "replay_vision_gemini_oldest_file_age_seconds",
+                "Age of the oldest listed Gemini file; a file older than any scan's run time is one cleanup missed",
+                registry=registry,
+            ).set(storage.oldest_age_seconds)
+        Gauge(
+            "replay_vision_gemini_cleanup_last_run_timestamp_seconds",
+            "Unix time the Gemini cleanup sweep last finished",
+            registry=registry,
+        ).set(time.time())
+
+
+def push_in_flight_observation_gauges(by_status: dict[str, tuple[int, float]]) -> None:
+    """Takes `(count, oldest age in seconds)` per not-yet-terminal status."""
+    with pushed_metrics_registry("replay_vision_observation_backlog") as registry:
+        counts = Gauge(
+            "replay_vision_in_flight_observations",
+            "Observations not yet terminal, by status",
+            ["status"],
+            registry=registry,
+        )
+        ages = Gauge(
+            "replay_vision_oldest_in_flight_observation_age_seconds",
+            "Time since the oldest not-yet-terminal observation was created, by status; 0 when there is none",
+            ["status"],
+            registry=registry,
+        )
+        for status, (count, oldest_age_seconds) in by_status.items():
+            counts.labels(status=status).set(count)
+            ages.labels(status=status).set(oldest_age_seconds)
+        Gauge(
+            "replay_vision_observation_backlog_last_run_timestamp_seconds",
+            "Unix time the in-flight observation backlog was last measured",
+            registry=registry,
+        ).set(time.time())
 
 
 def record_search_rerank(outcome: str, seconds: float) -> None:
