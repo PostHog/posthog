@@ -44,7 +44,21 @@ describe('EntityFilterInfo', () => {
             'Total traffic',
             'All events',
         ],
-    ] as [string, EntityFilter | ActionFilter, string, string][])(
+        [
+            'name on a flag calls series',
+            {
+                kind: NodeKind.DataWarehouseNode,
+                id: 'posthog.flag_evaluations',
+                table_name: 'posthog.flag_evaluations',
+                name: 'Checkout flag calls',
+                timestamp_field: 'timestamp',
+                id_field: 'uuid',
+                distinct_id_field: 'distinct_id',
+            },
+            'Checkout flag calls',
+            'Feature flag called',
+        ],
+    ] as [string, DisplayableEntity, string, string][])(
         'shows the underlying entity next to a series renamed via %s',
         (_, filter, label, underlying) => {
             render(<EntityFilterInfo filter={filter} />)

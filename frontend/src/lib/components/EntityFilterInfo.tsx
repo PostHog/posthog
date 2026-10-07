@@ -34,11 +34,13 @@ export function toDisplayEntityFilter(filter: DisplayableEntity): DisplayEntityF
     // A flag calls series stands in for the event and displays as it. Query results describe a warehouse
     // series as an events entity whose id is the table name, so the check reads only the id.
     if (displayFilter.id === FLAG_EVALUATIONS_TABLE) {
+        const name = ensureStringIsNotBlank(displayFilter.name)
         return {
             ...displayFilter,
             type: EntityTypes.EVENTS,
             id: FEATURE_FLAG_CALLED_EVENT,
-            name: FLAG_CALLS_SERIES_NAME,
+            // Any name other than the table's is a rename, for example one set through the API.
+            name: name && name !== FLAG_EVALUATIONS_TABLE ? name : FLAG_CALLS_SERIES_NAME,
             table_name: undefined,
         }
     }
