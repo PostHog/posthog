@@ -14,6 +14,7 @@ export type ChartDisplayIcon =
     | 'metric'
     | 'number'
     | 'pie'
+    | 'proportionBar'
     | 'table'
     | 'worldMap'
 
@@ -34,11 +35,19 @@ export interface ChartDisplayOptionGroup {
 export interface ChartDisplayOptionEligibility {
     boxPlotMissingProperty: boolean
     hasMetricInsight: boolean
+    hasProportionBarChart: boolean
     hasSingleSeriesOutput: boolean
     hasTrendsFormula: boolean
     isTrends: boolean
     breakdown?: BreakdownFilter['breakdown']
     breakdowns?: BreakdownFilter['breakdowns']
+    currentDisplay?: ChartDisplayType
+    isComparing?: boolean
+}
+
+/** A chart saved as a proportion bar keeps its own label and icon in the picker while the flag is off. */
+export function offersProportionBar(hasProportionBarChart: boolean, currentDisplay?: ChartDisplayType | null): boolean {
+    return hasProportionBarChart || currentDisplay === ChartDisplayType.ActionsProportionBar
 }
 
 const COUNTRY_PROPERTIES = new Set(['$geoip_country_code', '$geoip_country_name'])
@@ -88,11 +97,14 @@ export function applyChartDisplay(query: TrendsQuery, display: ChartDisplayType)
 export function getChartDisplayOptions({
     boxPlotMissingProperty,
     hasMetricInsight,
+    hasProportionBarChart,
     hasSingleSeriesOutput,
     hasTrendsFormula,
     isTrends,
     breakdown,
     breakdowns,
+    currentDisplay,
+    isComparing,
 }: ChartDisplayOptionEligibility): ChartDisplayOptionGroup[] {
     const breakdownProps = breakdownProperties({ breakdown, breakdowns })
     const worldMapBreakdownDisabled =
@@ -106,6 +118,11 @@ export function getChartDisplayOptions({
         trendsOnlyDisabledReason ||
         breakdownDisabledReason ||
         (boxPlotMissingProperty ? 'Select a numeric property to use a box plot.' : undefined)
+    // One bar has one total, so a second period's parts would share it.
+    const proportionBarDisabledReason =
+        trendsOnlyDisabledReason ||
+        (isComparing ? "This type doesn't support comparing to a previous period." : undefined) ||
+        (hasProportionBarChart ? undefined : "This chart type isn't available yet.")
 
     return [
         {
@@ -200,6 +217,17 @@ export function getChartDisplayOptions({
                     description: 'Proportions of a whole as a ring.',
                     disabledReason: trendsOnlyDisabledReason,
                 },
+                ...(offersProportionBar(hasProportionBarChart, currentDisplay)
+                    ? [
+                          {
+                              display: ChartDisplayType.ActionsProportionBar,
+                              icon: 'proportionBar' as const,
+                              label: 'Proportion bar',
+                              description: 'Proportions of a whole as one flat bar.',
+                              disabledReason: proportionBarDisabledReason,
+                          },
+                      ]
+                    : []),
                 {
                     display: ChartDisplayType.ActionsBarValue,
                     icon: 'horizontalBar',

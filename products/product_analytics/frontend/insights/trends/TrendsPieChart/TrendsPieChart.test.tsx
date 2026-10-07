@@ -39,7 +39,7 @@ const pieByHedgehog = (trendsFilter: Record<string, unknown> = {}): ReturnType<t
         trendsFilter: { display: ChartDisplayType.ActionsPie, showValuesOnSeries: true, ...trendsFilter },
     })
 
-describe('TrendsPieChart (ActionsPie)', () => {
+describe('TrendsPieChart', () => {
     it.each([
         {
             name: 'shows raw slice values when percent stack view is off',
