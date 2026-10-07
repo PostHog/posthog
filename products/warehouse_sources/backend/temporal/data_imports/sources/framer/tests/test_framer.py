@@ -15,6 +15,7 @@ from websockets.exceptions import InvalidMessage
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer import devalue
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer.framer import (
+    COLLECTION_METHODS_BY_VERSION,
     FramerAPIError,
     FramerClient,
     framer_source,
@@ -28,6 +29,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.framer.set
 )
 
 PROJECT_ID = "a" * 20
+
+COLLECTION_METHOD_CASES = [
+    (version, fields_method, items_method)
+    for version, (fields_method, items_method) in COLLECTION_METHODS_BY_VERSION.items()
+]
 
 
 class FakeFramerServer:
@@ -123,8 +129,8 @@ def no_ambient_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name)
 
 
-def make_client(server: FakeFramerServer) -> FramerClient:
-    client = FramerClient(PROJECT_ID, "test-key", protocol_version="0.1.29", connect_fn=server)
+def make_client(server: FakeFramerServer, protocol_version: str = "0.1.29") -> FramerClient:
+    client = FramerClient(PROJECT_ID, "test-key", protocol_version=protocol_version, connect_fn=server)
     client.connect()
     return client
 
@@ -232,14 +238,15 @@ class TestFramer:
     def test_parse_project_id_rejects_invalid(self, value: str) -> None:
         assert parse_project_id(value) is None
 
-    def test_client_handshake_and_call(self) -> None:
+    @parameterized.expand([(version,) for version in COLLECTION_METHODS_BY_VERSION])
+    def test_client_handshake_and_call(self, protocol_version: str) -> None:
         server = FakeFramerServer(methods={"getProjectInfo2": {"id": PROJECT_ID, "name": "Site"}})
-        client = make_client(server)
+        client = make_client(server, protocol_version)
         assert client.call("getProjectInfo2") == {"id": PROJECT_ID, "name": "Site"}
         assert server.sent[0] == {"type": "pluginReadySignal"}
         assert "Authorization" in server.connect_kwargs["additional_headers"]
         assert f"projectId={PROJECT_ID}" in server.url
-        assert "sdkVersion=0.1.29" in server.url
+        assert f"sdkVersion={protocol_version}" in server.url
 
     def test_client_close_sends_graceful_disconnect(self) -> None:
         server = FakeFramerServer(graceful_disconnect=True)
@@ -396,9 +403,11 @@ class TestFramer:
         assert "Framer API error" not in error
         assert "try again" in error
 
-    def _run_endpoint(self, endpoint: str, methods: dict[str, Any]) -> list[dict[str, Any]]:
+    def _run_endpoint(
+        self, endpoint: str, methods: dict[str, Any], protocol_version: str = "0.1.29"
+    ) -> list[dict[str, Any]]:
         server = FakeFramerServer(methods=methods)
-        response = framer_source(PROJECT_ID, "key", endpoint, protocol_version="0.1.29")
+        response = framer_source(PROJECT_ID, "key", endpoint, protocol_version=protocol_version)
         assert response.name == endpoint
         assert response.primary_keys == PRIMARY_KEYS[endpoint]
         with pytest.MonkeyPatch.context() as patcher:
@@ -446,13 +455,17 @@ class TestFramer:
         )
         assert rows == [{"id": "page-1", "path": "/about", "collectionId": None, "draft": False}]
 
-    def test_collections_rows_include_fields(self) -> None:
+    @parameterized.expand(COLLECTION_METHOD_CASES)
+    def test_collections_rows_include_fields(
+        self, protocol_version: str, fields_method: str, _items_method: str
+    ) -> None:
         rows = self._run_endpoint(
             "Collections",
             {
                 "getCollections": [{"id": "c1", "name": "Blog", "readonly": False, "managedBy": "user"}],
-                "getCollectionFields2": [{"id": "f1", "name": "Title", "type": "string"}],
+                fields_method: [{"id": "f1", "name": "Title", "type": "string"}],
             },
+            protocol_version,
         )
         assert rows == [
             {
@@ -464,16 +477,17 @@ class TestFramer:
             }
         ]
 
-    def test_collection_items_rows(self) -> None:
+    @parameterized.expand(COLLECTION_METHOD_CASES)
+    def test_collection_items_rows(self, protocol_version: str, fields_method: str, items_method: str) -> None:
         rows = self._run_endpoint(
             "CollectionItems",
             {
                 "getCollections": [{"id": "c1", "name": "Blog"}],
-                "getCollectionFields2": [
+                fields_method: [
                     {"id": "f1", "name": "Title", "type": "string"},
                     {"id": "f2", "name": "Title", "type": "string"},
                 ],
-                "getCollectionItems2": [
+                items_method: [
                     {
                         "nodeId": "n1",
                         "externalId": None,
@@ -490,6 +504,7 @@ class TestFramer:
                     }
                 ],
             },
+            protocol_version,
         )
         assert rows == [
             {
