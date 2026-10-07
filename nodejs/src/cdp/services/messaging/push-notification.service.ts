@@ -204,6 +204,8 @@ export class PushNotificationService {
     // to one token per pod per TTL. It is a fallback, not the cache: Valkey is still read first, so the
     // fleet normally shares one token per key.
     private apnsJwtLocalCache = new Map<string, { jwt: string; expiresAtMs: number }>()
+    // Concurrent sends on this pod for the same key wait for one lookup instead of each minting a token.
+    private apnsJwtInFlight = new Map<string, Promise<string>>()
 
     @instrumented('push-notification.executeSendPushNotification')
     async executeSendPushNotification(
@@ -690,6 +692,18 @@ export class PushNotificationService {
         const keyFingerprint = createHash('sha256').update(`${teamId}:${keyId}:${signingKey}`).digest('hex')
         const cacheKey = `${APNS_JWT_CACHE_PREFIX}${keyFingerprint}`
 
+        const inFlight = this.apnsJwtInFlight.get(cacheKey)
+        if (inFlight) {
+            return inFlight
+        }
+        const lookup = this.resolveApnsJwt(cacheKey, teamId, keyId, signingKey).finally(() =>
+            this.apnsJwtInFlight.delete(cacheKey)
+        )
+        this.apnsJwtInFlight.set(cacheKey, lookup)
+        return lookup
+    }
+
+    private async resolveApnsJwt(cacheKey: string, teamId: string, keyId: string, signingKey: string): Promise<string> {
         const cached = await this.valkey.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) =>
             client.get(cacheKey)
         )
@@ -709,12 +723,21 @@ export class PushNotificationService {
         const sign = createSign('SHA256')
         sign.update(signingInput)
         const signature = sign.sign({ key: signingKey, dsaEncoding: 'ieee-p1363' }, 'base64url')
-        const jwt = `${signingInput}.${signature}`
+        const minted = `${signingInput}.${signature}`
 
-        this.rememberApnsJwtLocally(cacheKey, jwt)
-        await this.valkey.useClient({ name: 'apns-jwt-write', failOpen: true }, (client) =>
-            client.set(cacheKey, jwt, 'EX', APNS_JWT_TTL_SECONDS)
+        // Pods that miss the cache together each mint a different token, because ES256 signatures are
+        // randomized. Only the first write lands, and the others adopt it, so Apple sees one token per key.
+        const stored = await this.valkey.useClient({ name: 'apns-jwt-write', failOpen: true }, (client) =>
+            client.set(cacheKey, minted, 'EX', APNS_JWT_TTL_SECONDS, 'NX')
         )
+        let jwt = minted
+        if (stored !== 'OK') {
+            const winner = await this.valkey.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) =>
+                client.get(cacheKey)
+            )
+            jwt = winner ?? minted
+        }
+        this.rememberApnsJwtLocally(cacheKey, jwt)
         return jwt
     }
 
