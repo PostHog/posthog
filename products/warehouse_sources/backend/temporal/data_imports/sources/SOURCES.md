@@ -979,6 +979,7 @@ doesn't conflict with concurrent PRs.
 - appfolio
 - apptivo
 - appwrite
+- arcade
 - arxiv
 - asknicely
 - athenahealth
@@ -1245,6 +1246,7 @@ doesn't conflict with concurrent PRs.
 - logrocket
 - lokalise
 - looker
+- loom
 - m3ter
 - mailtrap
 - mantle
@@ -1288,6 +1290,7 @@ doesn't conflict with concurrent PRs.
 - nasa
 - nationbuilder
 - navan
+- neo4j
 - neon_crm
 - netsuite
 - news_api
@@ -1394,6 +1397,7 @@ doesn't conflict with concurrent PRs.
 - scale_ai
 - scaleway
 - schematic
+- scrunch
 - search_ads_360
 - sec_edgar
 - secureframe
@@ -1459,6 +1463,7 @@ doesn't conflict with concurrent PRs.
 - ternary
 - tessitura
 - terra_api
+- testdino
 - thinkific_courses
 - thoughtspot
 - threads
@@ -1490,6 +1495,7 @@ doesn't conflict with concurrent PRs.
 - uservoice
 - vanta
 - vespa
+- vimeo
 - virtuous
 - visma_economic
 - vonage
