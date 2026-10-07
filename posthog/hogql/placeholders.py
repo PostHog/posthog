@@ -1,4 +1,5 @@
 import time
+from copy import deepcopy
 from datetime import timedelta
 from typing import Optional
 
@@ -98,6 +99,23 @@ class ReplacePlaceholders(CloningVisitor):
         self._expansions += 1
         if self._expansions > MAX_PLACEHOLDER_EXPANSIONS:
             raise QueryError("This query has too many placeholder expressions to expand. Simplify it and try again.")
+
+        # A bare name that maps to a node or a scalar needs no evaluation. Skip the VM and the
+        # deadline, so a starved thread cannot fail a lookup that does almost no work.
+        if (
+            self.placeholders
+            and isinstance(node.expr, ast.Field)
+            and len(node.expr.chain) == 1
+            and node.expr.chain[0] in self.placeholders
+        ):
+            value = self.placeholders[node.expr.chain[0]]
+            if isinstance(value, ast.Expr):
+                expr = deepcopy(value)
+                expr.start = node.start
+                expr.end = node.end
+                return expr
+            if isinstance(value, int | float | str | bool):
+                return ast.Constant(value=value, start=node.start, end=node.end)
 
         # This bytecode runs on the request thread before access control, so refuse blocking calls.
         # The static check gives a clear early error for the common `fn(...)` form; passing
