@@ -1418,8 +1418,17 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(response2.status_code, status.HTTP_201_CREATED)
         self.assertEqual(OrganizationInvite.objects.count(), 1)
 
-    def test_add_organization_invite_case_insensitive_existing_member_check(self):
-        """Test that invites are rejected if a user with case variation already exists as member"""
+    @parameterized.expand(
+        [
+            ("single", "/api/organizations/@current/invites/", {"target_email": "existing.user@example.com"}),
+            (
+                "bulk_does_not_save_earlier_rows",
+                "/api/organizations/@current/invites/bulk/",
+                [{"target_email": "new.user@example.com"}, {"target_email": "existing.user@example.com"}],
+            ),
+        ]
+    )
+    def test_add_organization_invite_case_insensitive_existing_member_check(self, _name, url, payload):
         existing_user = User.objects.create_user(
             email="Existing.User@Example.COM", password="password123", first_name="Existing"
         )
@@ -1428,13 +1437,11 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             organization=self.organization, user=existing_user, level=OrganizationMembership.Level.MEMBER
         )
 
-        invite_email = "existing.user@example.com"
-        response = self.client.post(
-            "/api/organizations/@current/invites/",
-            {"target_email": invite_email},
-        )
+        response = self.client.post(url, payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "existing_member")
+        self.assertEqual(response.json()["attr"], "target_email")
         self.assertEqual(OrganizationInvite.objects.count(), 0)
 
     def test_user_join_with_default_role(self):

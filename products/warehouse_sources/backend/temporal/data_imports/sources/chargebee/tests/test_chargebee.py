@@ -162,7 +162,21 @@ class TestChargebeeSourceResumeBehavior:
             list(cast(Iterable[Any], resource))
             return mock_session, sent_params
 
-    @pytest.mark.parametrize("endpoint", ["Customers", "Events", "Invoices", "Subscriptions", "Transactions", "Orders"])
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "CreditUnits",
+            "Customers",
+            "Events",
+            "Invoices",
+            "ItemPrices",
+            "Items",
+            "Meters",
+            "Subscriptions",
+            "Transactions",
+            "Orders",
+        ],
+    )
     def test_fresh_run_saves_offset_after_each_non_terminal_page(self, endpoint: str) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
@@ -263,3 +277,150 @@ class TestChargebeeSiteNameValidation:
         assert is_valid is False
         assert message is not None and "chargebee.com" in message
         mock_validate.assert_not_called()
+
+
+class TestChargebeeCatalogEndpoints:
+    """`Items` and `ItemPrices` carry the product catalog that `subscription_items` points at.
+    `CreditUnits` and `Meters` carry the usage-based billing catalog.
+
+    Their rows sit one level deeper than the response list, so a wrong `data_selector` or
+    path yields an empty table rather than an error.
+    """
+
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "wrapper", "row"),
+        [
+            ("Items", "/v2/items", "item", {"id": "gold", "type": "plan", "metadata": {"seats": 10}}),
+            (
+                "ItemPrices",
+                "/v2/item_prices",
+                "item_price",
+                {"id": "gold-USD-monthly", "item_id": "gold", "price": 1000},
+            ),
+            (
+                "CreditUnits",
+                "/v2/credit_units",
+                "credit_unit",
+                {"id": "ai-tokens", "status": "active", "is_unlimited": False, "overdraft_amount": "100.5"},
+            ),
+            (
+                "Meters",
+                "/v2/meters",
+                "meter",
+                {"id": "api-calls", "type": "simple", "query": "SELECT SUM(api_calls) FROM events"},
+            ),
+        ],
+    )
+    def test_yields_the_nested_catalog_object(
+        self, endpoint: str, path: str, wrapper: str, row: dict[str, Any]
+    ) -> None:
+        urls: list[str] = []
+        response_iter = iter([_make_http_response({"list": [{wrapper: row}]})])
+
+        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+            urls.append(request.url)
+            return next(response_iter)
+
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+        ) as MockSession:
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = fake_send
+
+            resource = chargebee_source(
+                api_key="test-key",
+                site_name="site-test",
+                endpoint=endpoint,
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+                db_incremental_field_last_value=None,
+                should_use_incremental_field=False,
+            )
+            yielded = list(cast(Iterable[Any], resource))
+
+        assert urls == [f"https://site-test.chargebee.com/api{path}"]
+        assert yielded == [[row]]
+
+
+class TestChargebeeIncrementalFilter:
+    """The server-side cursor filter must only be sent once a real watermark exists (#76090).
+
+    Chargebee omits `updated_at`/`occurred_at` on some records (e.g. voided authorization
+    transactions), and its API excludes those records whenever the filter param is present.
+    Sending the filter with the initial value 0 on the first sync therefore drops those
+    records permanently. The first incremental sync must go out unfiltered; the pipeline
+    still advances the watermark from the synced rows.
+    """
+
+    CURSOR_PARAMS = {
+        "Customers": "updated_at[after]",
+        "Events": "occurred_at[after]",
+        "Invoices": "updated_at[after]",
+        "ItemPrices": "updated_at[after]",
+        "Items": "updated_at[after]",
+        "Orders": "updated_at[after]",
+        "Subscriptions": "updated_at[after]",
+        "Transactions": "updated_at[after]",
+    }
+
+    def _drive(self, endpoint: str, *, incremental: bool, last_value: Any) -> list[dict[str, Any]]:
+        sent_params: list[dict[str, Any]] = []
+        response_iter = iter([_make_http_response({"list": [{"customer": {"id": "c1"}}]})])
+
+        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+            sent_params.append(dict(request.params or {}))
+            return next(response_iter)
+
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+        ) as MockSession:
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = fake_send
+
+            resource = chargebee_source(
+                api_key="test-key",
+                site_name="site-test",
+                endpoint=endpoint,
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+                db_incremental_field_last_value=last_value,
+                should_use_incremental_field=incremental,
+            )
+            list(cast(Iterable[Any], resource))
+        return sent_params
+
+    @pytest.mark.parametrize("endpoint", sorted(CURSOR_PARAMS))
+    def test_first_incremental_sync_omits_cursor_filter(self, endpoint: str) -> None:
+        sent_params = self._drive(endpoint, incremental=True, last_value=None)
+
+        assert self.CURSOR_PARAMS[endpoint] not in sent_params[0]
+
+    @pytest.mark.parametrize("endpoint", sorted(CURSOR_PARAMS))
+    def test_incremental_sync_with_watermark_sends_cursor_filter(self, endpoint: str) -> None:
+        sent_params = self._drive(endpoint, incremental=True, last_value=1750000000)
+
+        assert sent_params[0][self.CURSOR_PARAMS[endpoint]] == 1750000000
+
+    @pytest.mark.parametrize("endpoint", sorted(CURSOR_PARAMS))
+    def test_full_refresh_never_sends_cursor_filter(self, endpoint: str) -> None:
+        sent_params = self._drive(endpoint, incremental=False, last_value=1750000000)
+
+        assert self.CURSOR_PARAMS[endpoint] not in sent_params[0]
+
+    @pytest.mark.parametrize("endpoint", ["CreditUnits", "Meters"])
+    def test_full_refresh_only_endpoints_ignore_incremental_watermark(self, endpoint: str) -> None:
+        sent_params = self._drive(endpoint, incremental=True, last_value=1750000000)
+
+        assert sent_params == [{"limit": 100}]

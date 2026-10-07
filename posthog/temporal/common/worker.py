@@ -58,8 +58,12 @@ from posthog.temporal.usage_report.metrics import (
     USAGE_REPORTS_LATENCY_HISTOGRAM_METRICS,
 )
 
-from products.alerts.backend.facade.temporal import AlertsProductTelemetryInterceptor
-from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
+from products.alerts_platform.backend.facade.temporal import (
+    ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS,
+    ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS,
+    AlertsPlatformTelemetryInterceptor,
+)
+from products.batch_exports.backend.facade.temporal import BatchExportsMetricsInterceptor
 from products.experiments.backend.temporal.recalculation_metrics import (
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
@@ -83,10 +87,14 @@ from products.tasks.backend.facade.temporal import (
     TASKS_LATENCY_HISTOGRAM_METRICS,
     TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS,
     TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS,
+    TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS,
+    TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS,
     TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS,
     TASKS_RUN_TOKENS_HISTOGRAM_METRICS,
     TASKS_RUN_TURNS_HISTOGRAM_BUCKETS,
     TASKS_RUN_TURNS_HISTOGRAM_METRICS,
+    TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS,
+    TASKS_SDK_LATENCY_HISTOGRAM_METRICS,
 )
 
 logger = get_write_only_logger()
@@ -172,7 +180,7 @@ ALL_INTERCEPTOR_CLASSES = [
     LivenessInterceptor,
     PostHogClientInterceptor,
     SloInterceptor,
-    AlertsProductTelemetryInterceptor,
+    AlertsPlatformTelemetryInterceptor,
     BatchExportsMetricsInterceptor,
     DeleteRecordingsMetricsInterceptor,
     SurfacingScoringMetricsInterceptor,
@@ -229,6 +237,7 @@ async def create_worker(
     use_pydantic_converter: bool = False,
     target_memory_usage: float | None = None,
     target_cpu_usage: float | None = None,
+    activity_ramp_throttle: dt.timedelta | None = None,
     enable_combined_metrics_server: bool = True,
     enable_open_telemetry_plugin: bool = False,
 ) -> ManagedWorker:
@@ -259,6 +268,8 @@ async def create_worker(
             If not set, worker will use max_concurrent_{activities, workflow_tasks} to dictate number of slots.
         target_cpu_usage: Fraction of available CPU to use, between 0.0 and 1.0.
             Defaults to 1.0. Only takes effect if target_memory_usage is set.
+        activity_ramp_throttle: Minimum interval between two activity slot issues.
+            Defaults to the SDK value of 50 ms. Only takes effect if target_memory_usage is set.
         enable_combined_metrics_server: Whether to start the combined metrics server. Defaults to True.
             Set to False to disable the metrics server (useful when it causes GIL contention issues).
         enable_open_telemetry_plugin: Whether to trace execution with OTel spans. Requires initialize_otel.
@@ -312,6 +323,9 @@ async def create_worker(
         | dict(zip(TASKS_RUN_TOKENS_HISTOGRAM_METRICS, itertools.repeat(TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS)))
         | dict(zip(TASKS_RUN_TURNS_HISTOGRAM_METRICS, itertools.repeat(TASKS_RUN_TURNS_HISTOGRAM_BUCKETS)))
         | dict(
+            zip(TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS, itertools.repeat(TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS))
+        )
+        | dict(
             zip(
                 EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
                 itertools.repeat(EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS),
@@ -327,6 +341,12 @@ async def create_worker(
             zip(
                 SURFACING_SCORING_LATENCY_HISTOGRAM_METRICS,
                 itertools.repeat(SURFACING_SCORING_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(
+            zip(
+                ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
         | dict(zip(LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS)))
@@ -362,6 +382,20 @@ async def create_worker(
             zip(
                 DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
                 itertools.repeat(DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+    if task_queue == settings.DATA_WAREHOUSE_TASK_QUEUE:
+        # Both metrics hold small counts. The default buckets are for latencies in milliseconds,
+        # which puts every count into the first bucket.
+        histogram_bucket_overrides |= {
+            "warehouse_pipeline_run_attempt": [1.0, 2.0, 3.0, 5.0, 9.0, 20.0, 50.0, 100.0, 200.0],
+            "warehouse_import_handoffs_per_run": [0.0, 1.0, 2.0, 3.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0],
+        }
+    if task_queue == settings.TASKS_TASK_QUEUE:
+        histogram_bucket_overrides |= dict(
+            zip(
+                TASKS_SDK_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
 
@@ -425,7 +459,8 @@ async def create_worker(
                     maximum_slots=max_concurrent_workflow_tasks or DEFAULT_MAX_CONCURRENT_TASKS
                 ),
                 activity_config=ResourceBasedSlotConfig(
-                    maximum_slots=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS
+                    maximum_slots=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS,
+                    ramp_throttle=activity_ramp_throttle,
                 ),
             ),
             # Worker will flush heartbeats every

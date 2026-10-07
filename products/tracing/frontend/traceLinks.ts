@@ -1,7 +1,7 @@
 // Canonical trace URLs (JON-33). The URL is the atomic, shareable form of a trace view:
-// `/tracing?trace=<hex>` opens the drawer, `&span=<hex>` anchors a span, `&ts=<iso>` carries the
-// root timestamp so a cold load can bound the ClickHouse lookup (the table is time-keyed and OTel
-// trace ids embed no timestamp — an unhinted id lookup would scan the whole retention window).
+// `/tracing?trace=<hex>` opens the drawer, `&span=<hex>` anchors a span, and the optional `&ts=<iso>`
+// carries the root timestamp so a cold load can bound the ClickHouse lookup to a narrow window. A link
+// without `ts` still opens the trace: the backend finds it by id through the trace_id projection.
 
 import { combineUrl } from 'kea-router'
 
@@ -46,10 +46,15 @@ export function tracingUrlForService(serviceName: string, { dateRange }: { dateR
     }).url
 }
 
+/** The product's docs, linked from the empty states and from surfaces that need instrumenting. */
+export const TRACING_DOCS_URL = 'https://posthog.com/docs/tracing'
+
 /** The window a `ts`-hinted cold load queries: ±1h is generous for any single trace's spans. */
+export const TRACE_LOOKUP_WINDOW_HOURS = 1
+
 export function traceLookupDateRange(ts: string): { date_from: string; date_to: string } {
     return {
-        date_from: dayjs(ts).subtract(1, 'hour').toISOString(),
-        date_to: dayjs(ts).add(1, 'hour').toISOString(),
+        date_from: dayjs(ts).subtract(TRACE_LOOKUP_WINDOW_HOURS, 'hour').toISOString(),
+        date_to: dayjs(ts).add(TRACE_LOOKUP_WINDOW_HOURS, 'hour').toISOString(),
     }
 }

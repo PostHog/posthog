@@ -62,6 +62,7 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         report_gone = "The DoIt report no longer exists. It may have been deleted or renamed in DoIt. Reconnect the source or select a different report."
+        bad_key = "Your DoIt API key is invalid or has been revoked. Please create a new key and reconnect."
         return {
             # Still reachable: rows persisted without a report id fall back to the name lookup.
             "Report no longer exists": report_gone,
@@ -69,8 +70,20 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
             "Request to get report failed with status: 404": report_gone,
             # DoIt's own rejection text for a bad key, stable across both the list and get-report
             # endpoints since they share the same bearer token check.
-            "invalid or revoked access key": "Your DoIt API key is invalid or has been revoked. Please create a new key and reconnect.",
+            "invalid or revoked access key": bad_key,
+            # DoIt answers 403 with this text for a key it no longer accepts. Only a new key fixes it,
+            # so a retry cannot succeed.
+            "invalid token: missing expiration": bad_key,
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `DOIT_RETRY` already retries a 429 at the transport level; this is DoIt's own account-wide
+        # concurrency quota (multiple schemas of one source can query reports at once), which can
+        # outlast that budget. It clears once the other in-flight requests finish, and Temporal
+        # retries the whole activity from there, so it's transient and self-recovering rather than a
+        # bug. Match the trailing phrase only — the quota key embedded earlier in the message is
+        # account-specific.
+        return {"exhausted; please wait for previous requests to complete"}
 
     def source_for_pipeline(self, config: DoItSourceConfig, inputs: SourceInputs) -> SourceResponse:
         report_id = resolve_report_id(config, inputs.schema_name, inputs.schema_metadata, logger=inputs.logger)

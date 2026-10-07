@@ -12,7 +12,7 @@ import {
     IconSparkles,
     IconTrash,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -21,7 +21,6 @@ import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
@@ -54,6 +53,7 @@ import {
     MetricSceneTab,
 } from './dataCatalogMetricSceneLogic'
 import type { DataCatalogMetricApi } from './generated/api.schemas'
+import { MetricLineageTab } from './MetricLineageTab'
 import { MetricTestsTab } from './tabs/MetricTestsTab'
 import { MetricTestsTabLabel } from './tabs/MetricTestsTabLabel'
 
@@ -136,7 +136,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
     }
 
     if (metricLoading && !metric) {
-        return <Spinner className="text-2xl" />
+        return <MetricSceneSkeleton />
     }
     if (!metric) {
         return <NotFound object="metric" />
@@ -363,8 +363,9 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     onChange={setActiveTab}
                     tabs={[
                         { key: 'definition', label: 'Definition' },
+                        { key: 'lineage', label: 'Lineage' },
                         metricChecksEnabled && {
-                            key: 'tests',
+                            key: 'data-quality',
                             label: <MetricTestsTabLabel metricId={metric.id} />,
                         },
                     ]}
@@ -396,8 +397,14 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     </div>
                 )}
 
-                {metricChecksEnabled && mountedTabs.includes('tests') && (
-                    <div className={tabPanelClassName('tests', activeTab)}>
+                {mountedTabs.includes('lineage') && (
+                    <div className={tabPanelClassName('lineage', activeTab)}>
+                        <MetricLineageTab metric={metric} />
+                    </div>
+                )}
+
+                {metricChecksEnabled && mountedTabs.includes('data-quality') && (
+                    <div className={tabPanelClassName('data-quality', activeTab)}>
                         <MetricTestsTab />
                     </div>
                 )}
@@ -435,6 +442,20 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
     )
 }
 
+function MetricSceneSkeleton(): JSX.Element {
+    return (
+        <SceneContent>
+            <LemonSkeleton className="h-8 w-80" />
+            <LemonSkeleton className="h-4 w-1/2" />
+            <LemonSkeleton className="h-9 w-72" />
+            <div className="grid grid-cols-2 gap-x-8 gap-y-3 max-w-2xl">
+                <LemonSkeleton className="h-10" repeat={4} />
+            </div>
+            <LemonSkeleton className="h-64 w-full" />
+        </SceneContent>
+    )
+}
+
 function StatusRow({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
     return (
         <div className="flex items-center gap-1">
@@ -452,9 +473,6 @@ function MetricMetadata({
     metric: DataCatalogMetricApi
     onSaveUnit: (unit: string) => void
 }): JSX.Element {
-    const referencedTables = Array.isArray(metric.referenced_table_names)
-        ? (metric.referenced_table_names as string[])
-        : []
     const showProvenance = metric.created_source === 'ai_generated'
 
     return (
@@ -471,18 +489,6 @@ function MetricMetadata({
                     label="Last run"
                     value={metric.last_run_at ? <TZLabel time={metric.last_run_at} /> : 'Never'}
                 />
-                {referencedTables.length > 0 && (
-                    <div className="flex flex-col gap-1">
-                        <span className="text-secondary">Referenced tables</span>
-                        <div className="flex flex-wrap gap-1">
-                            {referencedTables.map((table) => (
-                                <LemonTag key={table} type="option">
-                                    {table}
-                                </LemonTag>
-                            ))}
-                        </div>
-                    </div>
-                )}
             </div>
             {showProvenance && (
                 <LemonCollapse

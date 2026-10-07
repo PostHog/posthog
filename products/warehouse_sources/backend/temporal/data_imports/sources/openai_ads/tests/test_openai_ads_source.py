@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -75,7 +75,11 @@ class TestOpenAIAdsSourceForPipeline:
         inputs.db_incremental_field_last_value = None
         manager = MagicMock()
         manager.can_resume.return_value = False
-        response = OpenAIAdsSource().source_for_pipeline(MagicMock(api_key="k"), manager, inputs)
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.RESTClient.paginate",
+            return_value=iter([[{"currency_code": "USD"}]]),
+        ):
+            response = OpenAIAdsSource().source_for_pipeline(MagicMock(api_key="k"), manager, inputs)
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.partition_keys == partition_keys

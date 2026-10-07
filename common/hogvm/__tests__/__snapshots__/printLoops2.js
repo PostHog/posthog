@@ -58,6 +58,7 @@ function __newHogError(type, message, payload) {
     error.payload = payload
     return error
 }
+function __lt (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a < b }
 function __STLToString(arg) {
     if (arg && __isHogDate(arg)) { return `${arg.year}-${arg.month.toString().padStart(2, '0')}-${arg.day.toString().padStart(2, '0')}`; }
     else if (arg && __isHogDateTime(arg)) { return __DateTimeToString(arg); }
@@ -142,7 +143,7 @@ function __DateTimeToString(dt) {
 
 let root = {"key": "value", "key2": "value2"};
 let leaf = {"key": "value", "key2": "value2"};
-for (let i = 0; (i < 30); i = (i + 1)) {
+for (let i = 0; __lt(i, 30); i = (i + 1)) {
     __setProperty(root, concat("key_", i), {"something": leaf});
 }
 print(root);

@@ -1,14 +1,24 @@
-import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
+import { OAUTH_SCOPES_HIDDEN } from 'lib/oauthScopes.generated'
 import {
     AGENT_CLI_API_KEY_SCOPES,
     API_KEY_SCOPE_PRESETS,
+    API_SCOPE_GROUPS,
     API_SCOPES,
     API_SCOPES_OMITTED_FROM_MODAL,
+    type ScopePickerRow,
+    clampScopeLevel,
     getScopeDescription,
+    scopeGroupLevel,
+    scopeGroupTooltip,
     scopeMatchesSearch,
 } from 'lib/scopes'
 
-import { API_SCOPE_OBJECTS } from '~/types'
+import { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
+
+const OAUTH_HIDDEN_SCOPE_OBJECTS = new Set(OAUTH_SCOPES_HIDDEN.map((scope) => scope.split(':')[0]))
+
+// The pickers never show an OAuth-hidden object, so only the rest need a row and a group.
+const PICKER_SCOPE_OBJECTS = Object.values(ScopeObjectEnumApi).filter((obj) => !OAUTH_HIDDEN_SCOPE_OBJECTS.has(obj))
 
 const getRenderableKeyCreationScopes = (): Set<string> =>
     new Set(
@@ -49,15 +59,78 @@ describe('API_SCOPES modal coverage', () => {
     const omitted = new Set(Object.keys(API_SCOPES_OMITTED_FROM_MODAL))
 
     it('offers or explicitly omits every scope object', () => {
-        // Guards the drift where a scope object is added to API_SCOPE_OBJECTS (mirroring a new
-        // backend scope) but its key-creation modal row is forgotten, silently hiding a grantable scope.
-        const uncovered = API_SCOPE_OBJECTS.filter((obj) => !offered.has(obj) && !omitted.has(obj))
+        // The enum is generated from posthog/scopes.py, so a new backend scope object fails here
+        // until someone offers it in the key-creation modal or gives a reason to omit it.
+        const uncovered = PICKER_SCOPE_OBJECTS.filter((obj) => !offered.has(obj) && !omitted.has(obj))
         expect(uncovered).toEqual([])
     })
 
     it('never both offers and omits the same scope', () => {
-        const overlap = [...omitted].filter((obj) => offered.has(obj as (typeof API_SCOPE_OBJECTS)[number]))
+        const overlap = [...omitted].filter((obj) => offered.has(obj as ScopeObjectEnumApi))
         expect(overlap).toEqual([])
+    })
+})
+
+describe('API_SCOPE_GROUPS', () => {
+    const filed = API_SCOPE_GROUPS.flatMap(({ objects }) => objects)
+
+    it('files every picker scope object in exactly one group', () => {
+        // A new scope object fails here until someone picks the product area it belongs to.
+        const duplicates = [...new Set(filed.filter((obj, index) => filed.indexOf(obj) !== index))]
+        const missing = PICKER_SCOPE_OBJECTS.filter((obj) => !filed.includes(obj))
+        expect({ duplicates, missing }).toEqual({ duplicates: [], missing: [] })
+    })
+
+    it('keeps OAuth-hidden scope objects out of every picker', () => {
+        // A hidden object with a row would show in the key picker, and a group that exists only for
+        // hidden objects carries a label that no person should ever see.
+        const shown = [...filed, ...API_SCOPES.map(({ key }) => key)]
+        const hidden = shown.filter((obj) => OAUTH_HIDDEN_SCOPE_OBJECTS.has(obj))
+        expect(hidden).toEqual([])
+    })
+
+    it('uses each group label once', () => {
+        const labels = API_SCOPE_GROUPS.map(({ label }) => label)
+        expect(labels).toEqual([...new Set(labels)])
+    })
+})
+
+describe('scope access groups', () => {
+    const row = (key: string, value: ScopePickerRow['value'], disabledReasons = {}): ScopePickerRow => ({
+        key,
+        label: key,
+        value,
+        disabledReasons,
+    })
+
+    // The clamp has to go down for a level the row refuses and up for a level the app requires,
+    // because the key modal only has the first case and the consent screen has both.
+    it.each([
+        ['stays on an allowed level', row('a', 'none'), 'write', 'write'],
+        ['drops to read when write is refused', row('a', 'none', { write: 'Not requested' }), 'write', 'read'],
+        [
+            'drops to none when read and write are refused',
+            row('a', 'none', { read: 'No', write: 'No' }),
+            'write',
+            'none',
+        ],
+        ['rises to read when none is refused', row('a', 'write', { none: 'Required' }), 'none', 'read'],
+    ])('%s', (_name, model, level, expected) => {
+        expect(clampScopeLevel(model, level as ScopePickerRow['value'])).toBe(expected)
+    })
+
+    it('never selects a level no row can take, and names each row reason in the tooltip', () => {
+        const rows = [
+            row('a', 'read', { write: 'Not requested by App' }),
+            row('b', 'read', { write: 'Not available for project scoped keys' }),
+            row('c', 'write'),
+        ]
+        expect(scopeGroupLevel(rows)).toBe('write')
+        expect(scopeGroupTooltip(rows, 'write')).toBe(
+            '1 of these permissions stays at read: Not requested by App. 1 of these permissions stays at read: Not available for project scoped keys.'
+        )
+        expect(scopeGroupLevel(rows.slice(0, 2))).toBe('read')
+        expect(scopeGroupLevel([row('a', 'read'), row('b', 'none')])).toBeUndefined()
     })
 })
 
@@ -109,9 +182,12 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.label).toBe('Read-only access')
         })
 
-        it('contains :read for every entry in API_SCOPES except unprivileged-excluded scopes', () => {
+        it('contains :read for every readable entry in API_SCOPES except unprivileged-excluded scopes', () => {
             const preset = findPreset('read_only_access')
-            const expected = API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded)
+            const expected = API_SCOPES.filter(
+                ({ unprivilegedExcluded, disabledActions }) =>
+                    !unprivilegedExcluded && !disabledActions?.includes('read')
+            )
                 .map(({ key }) => `${key}:read`)
                 .sort()
             expect([...preset.scopes].sort()).toEqual(expected)
@@ -145,14 +221,14 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.scopes).not.toContain('integration:write')
             expect(preset.scopes).not.toContain('user:write')
         })
-
-        it('only includes scopes the key creation UI can render', () => {
-            const renderableScopes = getRenderableKeyCreationScopes()
-
-            expect(AGENT_CLI_API_KEY_SCOPES).toEqual(
-                (AGENT_USE_CASE_SCOPES as readonly string[]).filter((scope) => renderableScopes.has(scope))
-            )
-            expect(AGENT_CLI_API_KEY_SCOPES.every((scope) => renderableScopes.has(scope))).toBe(true)
-        })
     })
+
+    it.each(API_KEY_SCOPE_PRESETS.filter(({ value }) => value !== 'all_access').map(({ value }) => value))(
+        'preset %s only sets levels the key creation UI can render',
+        (value) => {
+            const renderableScopes = getRenderableKeyCreationScopes()
+            const unrenderable = findPreset(value).scopes.filter((scope) => !renderableScopes.has(scope))
+            expect(unrenderable).toEqual([])
+        }
+    )
 })

@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
@@ -12,12 +13,14 @@ from requests.exceptions import HTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
     JSONResponsePaginator,
+    PageNumberPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom import intercom as intercom_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.intercom import (
     INTERCOM_API_BASE,
     IntercomPagesPaginator,
+    IntercomResumeConfig,
     IntercomSearchPaginator,
     _build_paginator,
     _build_search_body,
@@ -32,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.i
     _make_intercom_session,
     _rate_limit_backoff_seconds,
     _substream_items,
+    _to_unix_seconds,
     get_resource,
     intercom_source,
     validate_credentials,
@@ -57,6 +61,17 @@ SCROLL_EXISTS_BODY = {
     "type": "error.list",
     "errors": [{"code": "scroll_exists", "message": "scroll already exists for this workspace"}],
 }
+
+
+def _manager(state: IntercomResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = state is not None
+    manager.load_state.return_value = state
+    return manager
+
+
+def _staged(manager: mock.MagicMock) -> list[IntercomResumeConfig]:
+    return [call.args[0] for call in manager.save_state.call_args_list]
 
 
 def _http_error(json_body: Any, status_code: int = 400, text: str = "") -> HTTPError:
@@ -174,6 +189,7 @@ class TestBuildPaginator:
             ("cursor", JSONResponseCursorPaginator),
             ("next_url", JSONResponsePaginator),
             ("pages", IntercomPagesPaginator),
+            ("page_number", PageNumberPaginator),
             ("single", SinglePagePaginator),
         ],
     )
@@ -183,7 +199,11 @@ class TestBuildPaginator:
         assert isinstance(_build_paginator(cfg), expected_type)
 
 
-PAGES_ENDPOINTS = [name for name, cfg in INTERCOM_ENDPOINTS.items() if cfg.paginator_kind == "pages"]
+PAGES_ENDPOINTS = [
+    name
+    for name, cfg in INTERCOM_ENDPOINTS.items()
+    if cfg.paginator_kind == "pages" and cfg.incremental_query_param is None
+]
 
 
 class TestPagesPaginator:
@@ -313,6 +333,32 @@ class TestGetResource:
         assert resource["write_disposition"] == expected_disposition
 
     @pytest.mark.parametrize(
+        "should_use_incremental,last_value,expected_disposition,expected_since",
+        [
+            # Macro timestamps are ISO strings, so the watermark arrives as a datetime.
+            (
+                True,
+                datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC),
+                {"disposition": "merge", "strategy": "upsert"},
+                1700000000,
+            ),
+            (False, None, "replace", 0),
+        ],
+    )
+    def test_macros_send_the_watermark_as_unix_seconds(
+        self, should_use_incremental: bool, last_value: Any, expected_disposition: Any, expected_since: int
+    ):
+        resource = get_resource(
+            "macros",
+            should_use_incremental_field=should_use_incremental,
+            incremental_field="updated_at" if should_use_incremental else None,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert _endpoint(resource)["params"]["updated_since"] == expected_since
+        assert resource["write_disposition"] == expected_disposition
+
+    @pytest.mark.parametrize(
         "endpoint_name,expected_model",
         [("company_attributes", "company"), ("contact_attributes", "contact")],
     )
@@ -360,6 +406,20 @@ class TestGetResource:
         assert resource["name"] == name
         assert resource["table_name"] == name
         assert resource["table_format"] == "delta"
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (1700000000, 1700000000),
+        ("1700000000", 1700000000),
+        (datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC), 1700000000),
+        (datetime(2023, 11, 14, 22, 13, 20), 1700000000),
+        ("2023-11-14T22:13:20.000Z", 1700000000),
+    ],
+)
+def test_to_unix_seconds(value: Any, expected: int):
+    assert _to_unix_seconds(value) == expected
 
 
 class TestNoSourceLevelTypeCoercion:
@@ -822,13 +882,30 @@ class TestIntercomSource:
                 endpoint=endpoint,
                 team_id=1,
                 job_id="job-1",
-                api_version="2.15",
+                api_version="2.16",
+                resumable_source_manager=_manager(),
             )
 
         assert response.name == endpoint
         assert response.primary_keys == cfg.primary_keys
         assert response.partition_keys == [cfg.partition_key]
         assert response.sort_mode == cfg.sort_mode
+        # A companies scroll expires within a minute and cannot restart mid-walk.
+        assert response.supports_resume is (cfg.paginator_kind != "scroll")
+
+    @pytest.mark.parametrize(
+        "endpoint", [name for name, cfg in INTERCOM_ENDPOINTS.items() if cfg.api_versions is not None]
+    )
+    def test_endpoint_unavailable_on_the_pinned_version_raises(self, endpoint: str):
+        with pytest.raises(ValueError, match="requires Intercom API version"):
+            intercom_source(
+                access_token="token",
+                endpoint=endpoint,
+                team_id=1,
+                job_id="job-1",
+                api_version="2.13",
+                resumable_source_manager=_manager(),
+            )
 
     def test_companies_routes_through_scroll_api(self):
         # `companies` must walk the un-capped Scroll API, never `POST /companies/list`
@@ -844,7 +921,12 @@ class TestIntercomSource:
 
         with mock.patch.object(intercom_module, "make_tracked_session", return_value=mock_session):
             response = intercom_source(
-                access_token="token", endpoint="companies", team_id=1, job_id="job-1", api_version="2.15"
+                access_token="token",
+                endpoint="companies",
+                team_id=1,
+                job_id="job-1",
+                api_version="2.15",
+                resumable_source_manager=_manager(),
             )
             # `items()` is typed `Iterable | AsyncIterable`; the scroll path yields a sync iterator.
             companies = list(cast(Iterable[dict[str, Any]], response.items()))
@@ -871,7 +953,12 @@ class TestVersionDispatch:
 
         with mock.patch.object(intercom_module, "make_tracked_session", side_effect=fake_session):
             response = intercom_source(
-                access_token="token", endpoint="companies", team_id=1, job_id="job-1", api_version=api_version
+                access_token="token",
+                endpoint="companies",
+                team_id=1,
+                job_id="job-1",
+                api_version=api_version,
+                resumable_source_manager=_manager(),
             )
             list(cast(Iterable[dict[str, Any]], response.items()))
 
@@ -881,8 +968,380 @@ class TestVersionDispatch:
     def test_rest_path_sends_pinned_version_header(self, api_version: str):
         with mock.patch.object(intercom_module, "rest_api_resource", return_value=object()) as mock_rest:
             intercom_source(
-                access_token="token", endpoint="contacts", team_id=1, job_id="job-1", api_version=api_version
+                access_token="token",
+                endpoint="contacts",
+                team_id=1,
+                job_id="job-1",
+                api_version=api_version,
+                resumable_source_manager=_manager(),
             )
 
         config = mock_rest.call_args.args[0]
         assert config["client"]["headers"]["Intercom-Version"] == api_version
+
+
+REST_CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+NEXT_URL = f"{INTERCOM_API_BASE}/admins/activity_logs?created_at_after=0&page=2"
+SECOND_URL = f"{INTERCOM_API_BASE}/news/news_items?page=3"
+
+
+def _wire_rest_session(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    # The client mutates one Request across pages, so copy what each send carries.
+    session.headers = {}
+    sent: list[dict[str, Any]] = []
+
+    def prepare(request: Any) -> mock.MagicMock:
+        sent.append(
+            {
+                "url": request.url,
+                "params": dict(request.params or {}),
+                "json": json.loads(json.dumps(request.json)) if request.json is not None else None,
+            }
+        )
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = prepare
+    session.send.side_effect = responses
+    return sent
+
+
+def _run_rest(
+    endpoint: str, manager: mock.MagicMock, responses: list[Response], **kwargs: Any
+) -> tuple[list[Any], list[dict[str, Any]]]:
+    with mock.patch(REST_CLIENT_SESSION_PATCH) as make_session:
+        sent = _wire_rest_session(make_session.return_value, responses)
+        response = intercom_source(
+            access_token="token",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="job-1",
+            api_version="2.16",
+            resumable_source_manager=manager,
+            **kwargs,
+        )
+        rows = [row["id"] for page in cast(Iterable[list[dict[str, Any]]], response.items()) for row in page]
+    return rows, sent
+
+
+def _page(selector: str, ids: list[int], next_block: Any) -> Response:
+    return _make_response({selector: [{"id": i} for i in ids], "pages": {"next": next_block}})
+
+
+class TestResumableRestEndpoints:
+    @pytest.mark.parametrize(
+        "endpoint,selector,next_blocks,expected_staged",
+        [
+            (
+                "contacts",
+                "data",
+                [{"starting_after": "c2"}, {"starting_after": "c3"}, None],
+                [IntercomResumeConfig(cursor="c2", query_value=0), IntercomResumeConfig(cursor="c3", query_value=0)],
+            ),
+            (
+                "activity_logs",
+                "activity_logs",
+                [NEXT_URL, f"{NEXT_URL}3", None],
+                [IntercomResumeConfig(next_url=NEXT_URL), IntercomResumeConfig(next_url=f"{NEXT_URL}3")],
+            ),
+            (
+                "collections",
+                "data",
+                [{"starting_after": "c2"}, {"starting_after": "c3"}, None],
+                [IntercomResumeConfig(cursor="c2"), IntercomResumeConfig(cursor="c3")],
+            ),
+            (
+                "news_items",
+                "data",
+                [f"{INTERCOM_API_BASE}/news/news_items?page=2", SECOND_URL, None],
+                [
+                    IntercomResumeConfig(next_url=f"{INTERCOM_API_BASE}/news/news_items?page=2"),
+                    IntercomResumeConfig(next_url=SECOND_URL),
+                ],
+            ),
+        ],
+    )
+    def test_fresh_run_stages_the_next_page_after_each_page(
+        self, endpoint: str, selector: str, next_blocks: list[Any], expected_staged: list[IntercomResumeConfig]
+    ):
+        manager = _manager()
+        responses = [_page(selector, [i], block) for i, block in enumerate(next_blocks)]
+
+        rows, _ = _run_rest(endpoint, manager, responses)
+
+        assert rows == [0, 1, 2]
+        # The last page has no next page, so nothing is staged for it.
+        assert _staged(manager) == expected_staged
+
+    def test_resumed_search_replays_the_saved_filter_and_cursor(self):
+        # The watermark moved since the cursor was issued. The cursor only continues its own query,
+        # so the resume keeps the old filter value, and so do the checkpoints after it.
+        manager = _manager(IntercomResumeConfig(cursor="c5", query_value=1600000000))
+        responses = [_page("data", [5], {"starting_after": "c6"}), _page("data", [6], None)]
+
+        rows, sent = _run_rest(
+            "contacts",
+            manager,
+            responses,
+            should_use_incremental_field=True,
+            incremental_field="updated_at",
+            db_incremental_field_last_value="1700000000",
+        )
+
+        assert rows == [5, 6]
+        assert sent[0]["json"]["pagination"]["starting_after"] == "c5"
+        assert sent[0]["json"]["query"]["value"] == 1600000000
+        assert _staged(manager) == [IntercomResumeConfig(cursor="c6", query_value=1600000000)]
+
+    def test_expired_search_cursor_is_cleared_before_retry(self):
+        manager = _manager(IntercomResumeConfig(cursor="expired", query_value=1600000000))
+        rejected = _make_response(
+            {"type": "error.list", "errors": [{"code": "parameter_invalid", "message": "cursor expired"}]},
+            status_code=400,
+        )
+
+        with pytest.raises(HTTPError):
+            _run_rest(
+                "contacts",
+                manager,
+                [rejected],
+                should_use_incremental_field=True,
+                incremental_field="updated_at",
+                db_incremental_field_last_value="1700000000",
+            )
+
+        manager.clear_state.assert_called_once_with()
+
+    @pytest.mark.parametrize(
+        "state",
+        [
+            IntercomResumeConfig(cursor="c5"),
+            IntercomResumeConfig(next_url=NEXT_URL),
+        ],
+    )
+    def test_search_ignores_state_it_cannot_replay(self, state: IntercomResumeConfig):
+        manager = _manager(state)
+
+        _, sent = _run_rest(
+            "contacts",
+            manager,
+            [_page("data", [1], None)],
+            should_use_incremental_field=True,
+            incremental_field="updated_at",
+            db_incremental_field_last_value="1700000000",
+        )
+
+        assert "starting_after" not in sent[0]["json"]["pagination"]
+        assert sent[0]["json"]["query"]["value"] == 1700000000
+
+    @pytest.mark.parametrize(
+        "endpoint,selector,state,expected_url,expected_params",
+        [
+            (
+                "activity_logs",
+                "activity_logs",
+                IntercomResumeConfig(next_url=NEXT_URL),
+                NEXT_URL,
+                {},
+            ),
+            (
+                "collections",
+                "data",
+                IntercomResumeConfig(cursor="c5"),
+                f"{INTERCOM_API_BASE}/help_center/collections",
+                {"per_page": 150, "starting_after": "c5"},
+            ),
+            (
+                "news_items",
+                "data",
+                IntercomResumeConfig(next_url=SECOND_URL),
+                SECOND_URL,
+                {},
+            ),
+        ],
+    )
+    def test_resumed_list_starts_at_the_saved_page(
+        self,
+        endpoint: str,
+        selector: str,
+        state: IntercomResumeConfig,
+        expected_url: str,
+        expected_params: dict[str, Any],
+    ):
+        rows, sent = _run_rest(endpoint, _manager(state), [_page(selector, [5], None)])
+
+        assert rows == [5]
+        assert len(sent) == 1
+        assert sent[0]["url"] == expected_url
+        assert sent[0]["params"] == expected_params
+
+
+def _numbered_page(ids: list[int], page: int, total_pages: int) -> Response:
+    return _make_response(
+        {"type": "list", "data": [{"id": i} for i in ids], "page": page, "per_page": 50, "total_pages": total_pages}
+    )
+
+
+class TestPageNumberEndpoints:
+    @pytest.mark.parametrize("endpoint", ["audiences", "content_snippets"])
+    def test_fresh_run_walks_every_page_and_stops_at_total_pages(self, endpoint: str):
+        manager = _manager()
+        responses = [_numbered_page([1], 1, 2), _numbered_page([2], 2, 2)]
+
+        rows, sent = _run_rest(endpoint, manager, responses)
+
+        assert rows == [1, 2]
+        # The last page is known from `total_pages`, so no trailing empty-page request goes out.
+        assert [req["params"] for req in sent] == [{"per_page": 50, "page": 1}, {"per_page": 50, "page": 2}]
+        assert _staged(manager) == [IntercomResumeConfig(page=2)]
+
+    def test_resumed_run_starts_at_the_saved_page(self):
+        rows, sent = _run_rest("audiences", _manager(IntercomResumeConfig(page=3)), [_numbered_page([7], 3, 3)])
+
+        assert rows == [7]
+        assert len(sent) == 1
+        assert sent[0]["params"] == {"per_page": 50, "page": 3}
+
+
+def _segments_session(scroll_ids: list[str], segments: dict[str, Any]) -> mock.MagicMock:
+    responses: dict[str, Any] = {f"/companies/{cid}/segments": body for cid, body in segments.items()}
+
+    def get(url: str, params: Any = None, timeout: int = 30) -> Response:
+        if url.endswith("/companies/scroll"):
+            if params is None:
+                return _make_response({"data": [{"id": cid} for cid in scroll_ids], "scroll_param": "s1"})
+            return _make_response({"data": []})
+        body = responses[url.removeprefix(INTERCOM_API_BASE)]
+        if body is None:
+            return _make_response(None, status_code=404, text="Not Found")
+        return _make_response(body)
+
+    session = mock.MagicMock()
+    session.get.side_effect = get
+    return session
+
+
+def _segment_urls(session: mock.MagicMock) -> list[str]:
+    return [call.args[0] for call in session.get.call_args_list if call.args[0].endswith("/segments")]
+
+
+class TestExpiredSubstreamCursor:
+    def test_expired_conversation_search_cursor_is_cleared(self):
+        manager = _manager(IntercomResumeConfig(cursor="expired", query_value=1600000000))
+        session = mock.MagicMock()
+        session.post.return_value = _make_response(
+            {"type": "error.list", "errors": [{"code": "parameter_invalid", "message": "cursor expired"}]},
+            status_code=400,
+        )
+
+        with mock.patch.object(intercom_module, "_make_intercom_session", return_value=session):
+            response = intercom_source(
+                access_token="token",
+                endpoint="conversation_parts",
+                team_id=1,
+                job_id="job-1",
+                api_version="2.16",
+                resumable_source_manager=manager,
+                incremental_field="updated_at",
+            )
+            with pytest.raises(HTTPError):
+                list(cast(Iterable[Any], response.items()))
+
+        manager.clear_state.assert_called_once_with()
+
+
+class TestResumableCompanySegments:
+    def test_fresh_run_stages_each_company_in_sorted_order(self):
+        # co2 has no segments and co4 was deleted: both still move the cursor and reach a safe
+        # point, because a long run of empty companies must still hand off at shutdown.
+        session = _segments_session(
+            ["co3", "co1", "co4", "co2"],
+            {
+                "co1": {"data": [{"id": "s1"}]},
+                "co2": {"data": []},
+                "co3": {"data": [{"id": "s3"}, {"id": "s4"}]},
+                "co4": None,
+            },
+        )
+        manager = _manager()
+
+        segments = list(_company_segments_generator(session, manager))
+
+        assert [(s["company_id"], s["id"]) for s in segments] == [("co1", "s1"), ("co3", "s3"), ("co3", "s4")]
+        assert _staged(manager) == [IntercomResumeConfig(last_company_id=cid) for cid in ["co1", "co2", "co3", "co4"]]
+        # One safe point per drained scroll page, plus one per company.
+        assert manager.safe_point.call_count == 1 + 4
+
+    def test_stages_a_company_only_after_its_segments_are_yielded(self):
+        session = _segments_session(["co1", "co2"], {"co1": {"data": [{"id": "s1"}]}, "co2": {"data": []}})
+        manager = _manager()
+        generator = _company_segments_generator(session, manager)
+
+        next(generator)
+
+        manager.save_state.assert_not_called()
+
+    def test_resumed_run_skips_completed_companies(self):
+        session = _segments_session(
+            ["co3", "co1", "co2"],
+            {"co1": {"data": [{"id": "s1"}]}, "co2": {"data": [{"id": "s2"}]}, "co3": {"data": [{"id": "s3"}]}},
+        )
+        manager = _manager(IntercomResumeConfig(last_company_id="co2"))
+
+        segments = list(_company_segments_generator(session, manager))
+
+        assert [s["id"] for s in segments] == ["s3"]
+        assert _segment_urls(session) == [f"{INTERCOM_API_BASE}/companies/co3/segments"]
+
+
+def _conversation_page(ids: list[str], next_cursor: str | None) -> Response:
+    next_block = {"starting_after": next_cursor} if next_cursor else None
+    return _make_response({"conversations": [{"id": cid} for cid in ids], "pages": {"next": next_block}})
+
+
+def _parts(*ids: str) -> Response:
+    return _make_response({"conversation_parts": {"conversation_parts": [{"id": pid} for pid in ids]}})
+
+
+class TestResumableConversationParts:
+    def test_fresh_run_stages_after_each_conversation_and_page(self):
+        session = mock.MagicMock()
+        session.post.side_effect = [_conversation_page(["c1", "c2"], "p2"), _conversation_page(["c3"], None)]
+        session.get.side_effect = [_parts("a", "b"), _parts(), _parts("c")]
+        manager = _manager()
+
+        parts = list(_conversation_parts_generator(session, "updated_at", None, manager))
+
+        assert [p["id"] for p in parts] == ["a", "b", "c"]
+        assert _staged(manager) == [
+            IntercomResumeConfig(query_value=0, completed_conversation_ids=["c1"]),
+            IntercomResumeConfig(query_value=0, completed_conversation_ids=["c1", "c2"]),
+            IntercomResumeConfig(cursor="p2", query_value=0),
+            IntercomResumeConfig(cursor="p2", query_value=0, completed_conversation_ids=["c3"]),
+        ]
+        assert manager.safe_point.call_count == 4
+
+    def test_stages_a_conversation_only_after_its_parts_are_yielded(self):
+        session = mock.MagicMock()
+        session.post.side_effect = [_conversation_page(["c1"], None)]
+        session.get.side_effect = [_parts("a", "b")]
+        manager = _manager()
+        generator = _conversation_parts_generator(session, "updated_at", None, manager)
+
+        next(generator)
+        next(generator)
+
+        manager.save_state.assert_not_called()
+
+    def test_resumed_run_replays_the_saved_page_and_skips_completed_conversations(self):
+        session = mock.MagicMock()
+        session.post.side_effect = [_conversation_page(["c3", "c4"], None)]
+        session.get.side_effect = [_parts("d")]
+        manager = _manager(IntercomResumeConfig(cursor="p2", query_value=1600000000, completed_conversation_ids=["c3"]))
+
+        parts = list(_conversation_parts_generator(session, "updated_at", "1700000000", manager))
+
+        assert [(p["conversation_id"], p["id"]) for p in parts] == [("c4", "d")]
+        body = session.post.call_args_list[0].kwargs["json"]
+        assert body["pagination"]["starting_after"] == "p2"
+        assert body["query"]["value"] == 1600000000
+        assert [call.args[0] for call in session.get.call_args_list] == [f"{INTERCOM_API_BASE}/conversations/c4"]

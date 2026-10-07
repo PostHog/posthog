@@ -16,7 +16,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 
 from posthog.ingress.contracts import ProviderSpec, WebhookDelivery
-from posthog.ingress.providers import InvalidPayload, WebhookProvider, decode_json
+from posthog.ingress.providers import InvalidPayload, WebhookProvider, decode_json, require_known_app
 from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme
 
 SLACK_EVENT_TYPES = frozenset(
@@ -49,6 +49,26 @@ SPECS = (
 )
 
 
+def build_slack_signature_scheme(*, secret_getter: Callable[[], str | None]) -> HmacSha256:
+    """Slack's request signature, as a scheme on its own.
+
+    The dispatched endpoints reach it through `SlackProvider`. A view that must answer Slack
+    synchronously, such as a slash command, keeps its view and calls this directly, so there is
+    still one definition of the window and the signed input.
+    """
+    return HmacSha256(
+        secret_getter=secret_getter,
+        signature_header="X-Slack-Signature",
+        prefix="v0=",
+        signed_input="v0_timestamp_body",
+        timestamp_header="X-Slack-Request-Timestamp",
+        # Slack's own guidance: drop anything older than five minutes. The tighter future
+        # bound is clock skew only, so a replayed future timestamp buys almost nothing.
+        timestamp_max_age_seconds=300,
+        timestamp_max_future_seconds=60,
+    )
+
+
 def _delivery_context(request: HttpRequest, *, slack_team_id: str) -> dict[str, str]:
     return {
         "slack_team_id": slack_team_id,
@@ -65,20 +85,17 @@ class SlackProvider(WebhookProvider):
     # a workspace ownership lookup that raised or hit its timeout, a forward to the owning region
     # that never landed, and a receipt write that raised all lose the 202.
     retry_status = 502
+    # The status this endpoint answered before it moved here: an instance with no signing secret
+    # reads as a request it refuses, not as a server that broke.
+    unconfigured_status = 403
+    # The body must not tell an unauthenticated caller that the endpoint is unconfigured, which is
+    # an operator fact about an instance anyone can probe.
+    explains_rejections = False
 
     def __init__(self, *, app: str = "supporthog", secret_getter: Callable[[], str | None]) -> None:
+        require_known_app(self.provider, app, SPECS)
         self.app = app
-        self._scheme = HmacSha256(
-            secret_getter=secret_getter,
-            signature_header="X-Slack-Signature",
-            prefix="v0=",
-            signed_input="v0_timestamp_body",
-            timestamp_header="X-Slack-Request-Timestamp",
-            # Slack's own guidance: drop anything older than five minutes. The tighter future
-            # bound is clock skew only, so a replayed future timestamp buys almost nothing.
-            timestamp_max_age_seconds=300,
-            timestamp_max_future_seconds=60,
-        )
+        self._scheme = build_slack_signature_scheme(secret_getter=secret_getter)
 
     def scheme(self) -> SignatureScheme:
         return self._scheme

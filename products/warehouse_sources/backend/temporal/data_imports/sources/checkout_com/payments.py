@@ -858,6 +858,8 @@ def _get_rows(
                 "commits what it covered and the next scheduled sync continues from there"
             )
             return
+        # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+        resumable_source_manager.safe_point()
         raise CheckoutComSyncBudgetExceeded(
             f"{SYNC_BUDGET_EXCEEDED_MARKER}: {schema_name} is {_describe_lag(now - covered_to)} behind and "
             "this run stopped before closing the gap. The sync retries and continues automatically. If the "

@@ -4,7 +4,7 @@ from typing import cast
 from uuid import uuid4
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
@@ -21,6 +21,7 @@ from posthog.temporal.oauth import (
     MCP_WRITE_SCOPES,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     RESEARCH_WITHHELD_SCOPES,
+    SCOUT_GRANTABLE_INTERNAL_SCOPES,
     SCOUT_GRANTABLE_WRITE_SCOPES,
     SCOUT_INTERNAL_SCOPES,
     SCOUT_SCOPE_PRESETS,
@@ -39,6 +40,8 @@ from posthog.temporal.oauth import (
     scout_scope_posture,
 )
 
+from products.security.backend.facade.enums import Surface as SecuritySurface
+
 _WIZARD_CLIENT_ID = "wizard-test-client-id"
 
 
@@ -50,6 +53,10 @@ class TestResolveScopes(SimpleTestCase):
 
     def test_read_only_is_default(self) -> None:
         assert resolve_scopes() == resolve_scopes("read_only")
+
+    def test_scout_judge_has_no_live_project_or_shared_internal_scopes(self) -> None:
+        assert resolve_scopes("signals_scout_judge") == ["scout_experiment_internal:read"]
+        assert resolve_scopes("signals_scout_judge", include_internal_scopes=False) == []
 
     def test_full_preset(self) -> None:
         result = resolve_scopes("full")
@@ -293,9 +300,9 @@ class TestResolveScopes(SimpleTestCase):
         assert resolve_scopes(decoded) == resolve_scopes(posture)
 
     def test_grantable_write_scopes_are_mcp_write_scopes(self) -> None:
-        # A typo or an internal scope in the allowlist would offer a person a switch that grants
-        # nothing, because the MCP server gates its tools on scopes it advertises.
-        assert SCOUT_GRANTABLE_WRITE_SCOPES <= set(MCP_WRITE_SCOPES)
+        # A typo would offer a person a switch that grants nothing. An internal scope is allowed only
+        # where it is listed as deliberately grantable, since those are minted server-side.
+        assert SCOUT_GRANTABLE_WRITE_SCOPES <= set(MCP_WRITE_SCOPES) | SCOUT_GRANTABLE_INTERNAL_SCOPES
 
     def test_custom_scopes(self) -> None:
         custom = ["feature_flag:read", "feature_flag:write"]
@@ -415,6 +422,18 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
             create_oauth_access_token_for_user(user, team.id, application="posthog_ai")
 
     @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_withheld_scopes_are_dropped_after_internal_scopes_are_added(self) -> None:
+        self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
+        user, team = self._create_user_and_team()
+
+        token = create_oauth_access_token_for_user(user, team.id, withhold_scopes=["llm_gateway:read"])
+
+        scopes = set(OAuthAccessToken.objects.get(token=token).scope.split())
+        assert "llm_gateway:read" not in scopes
+        assert "internal_run:read" in scopes
+        assert "task:write" in scopes
+
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
     def test_built_in_agent_scope_is_added_without_narrowing_scopes(self) -> None:
         self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
         user, team = self._create_user_and_team()
@@ -491,6 +510,27 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
         assert access_token.application_id == app.id
         assert access_token.scoped_teams == [team.id]
         assert set(access_token.scope.split()) == set(scopes)
+
+    @parameterized.expand([("allowed", False), ("refused", True)])
+    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
+    @patch("posthog.temporal.oauth.security_access_refused")
+    def test_mint_asks_the_access_rules(self, _name: str, refused: bool, check: MagicMock) -> None:
+        check.return_value = refused
+        self._create_wizard_app(scopes=["project:read", "llm_gateway:read"])
+        user, team = self._create_user_and_team()
+
+        if refused:
+            with pytest.raises(WizardIdentityBlockedError):
+                create_wizard_oauth_access_token_for_user(user, team.id)
+        else:
+            create_wizard_oauth_access_token_for_user(user, team.id)
+
+        check.assert_called_once()
+        subject, surface = check.call_args.args
+        assert surface == SecuritySurface.AI_GATEWAY
+        assert subject.organization_ids == (str(team.organization_id),)
+        assert check.call_args.kwargs == {"call_site": "wizard_mint"}
+        assert OAuthAccessToken.objects.exists() is not refused
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
     def test_requires_existing_app(self) -> None:

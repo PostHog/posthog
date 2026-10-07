@@ -76,6 +76,20 @@ export const SessionRecordingPlaylistPlaylistTypeEnumApi = {
     Filters: 'filters',
 } as const
 
+/**
+ * * `new` - new
+ * * `pin` - pin
+ * * `duplicate` - duplicate
+ */
+export type SessionRecordingPlaylistCreationMethodEnumApi =
+    (typeof SessionRecordingPlaylistCreationMethodEnumApi)[keyof typeof SessionRecordingPlaylistCreationMethodEnumApi]
+
+export const SessionRecordingPlaylistCreationMethodEnumApi = {
+    New: 'new',
+    Pin: 'pin',
+    Duplicate: 'duplicate',
+} as const
+
 export type SessionRecordingPlaylistApiRecordingsCounts = { [key: string]: { [key: string]: number | boolean | null } }
 
 export interface SessionRecordingPlaylistApi {
@@ -113,6 +127,12 @@ export interface SessionRecordingPlaylistApi {
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic: boolean
     _create_in_folder?: string
+    /** How the PostHog app created the playlist, for product analytics. Not stored.
+     *
+     * * `new` - new
+     * * `pin` - pin
+     * * `duplicate` - duplicate */
+    creation_method?: SessionRecordingPlaylistCreationMethodEnumApi
 }
 
 export interface PaginatedSessionRecordingPlaylistListApi {
@@ -163,6 +183,12 @@ export interface PatchedSessionRecordingPlaylistApi {
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic?: boolean
     _create_in_folder?: string
+    /** How the PostHog app created the playlist, for product analytics. Not stored.
+     *
+     * * `new` - new
+     * * `pin` - pin
+     * * `duplicate` - duplicate */
+    creation_method?: SessionRecordingPlaylistCreationMethodEnumApi
 }
 
 export interface MinimalPersonApi {

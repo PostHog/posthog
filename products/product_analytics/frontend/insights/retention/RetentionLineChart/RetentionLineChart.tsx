@@ -10,6 +10,7 @@ import { getColorVar } from 'lib/colors'
 import { roundToDecimal } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import type { GoalLine } from '~/queries/schema/schema-general'
@@ -57,6 +58,7 @@ function resolveGroupTypeLabel(
 
 export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
+    const { insightDataLoading } = useValues(insightVizDataLogic(insightProps))
     const theme = useChartTheme()
 
     const {
@@ -205,6 +207,14 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
         return (
             <p className="w-full m-0 text-center text-sm text-gray-500">
                 Select a breakdown to see the retention graph
+            </p>
+        )
+    }
+
+    if (series.length === 0) {
+        return insightDataLoading ? null : (
+            <p className="m-0 w-full text-center text-sm text-secondary">
+                No retention data in this date range. Try a longer date range.
             </p>
         )
     }

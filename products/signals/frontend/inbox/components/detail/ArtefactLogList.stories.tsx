@@ -12,7 +12,7 @@ const replacement = 'https://github.com/exampleorg/exampleplatformservice/pull/4
 const meta: Meta<typeof ArtefactLogList> = {
     title: 'Scenes-App/Signals/ArtefactLogList',
     component: ArtefactLogList,
-    parameters: { layout: 'padded' },
+    parameters: { layout: 'padded', mockDate: '2026-09-17T10:00:00Z' },
     args: {
         reportId: 'example-report',
         knownTasks: new Map([
@@ -30,6 +30,8 @@ const meta: Meta<typeof ArtefactLogList> = {
             url,
             state: index === 0 ? 'closed' : index === 1 ? 'unknown' : 'open',
             merged: false,
+            review_decision: null,
+            merged_at: null,
             claim_id: null,
             attached_at: null,
             attached_by: { kind: 'task', user: null, agent: null, task_id: index === 2 ? 'new-task' : 'old-task' },
@@ -77,7 +79,6 @@ type Story = StoryObj<typeof meta>
 
 export const ReplacementLifecycle: Story = {}
 export const RevisionLimit: Story = {
-    parameters: { mockDate: '2026-09-17T10:00:00Z' },
     args: {
         artefacts: [
             {
@@ -98,6 +99,250 @@ export const Narrow: Story = {
         (Story) => (
             // The detail rail this list always renders in, at its pinned width and padding.
             <div className="w-[26rem] p-5">
+                <Story />
+            </div>
+        ),
+    ],
+}
+
+/** A check's whole life in the log: scheduled, run, stopped, and retired without a verdict. */
+const checkLifecycleArtefacts = [
+    {
+        id: 'check-inconclusive',
+        type: 'check_result',
+        created_at: '2026-10-27T10:00:00Z',
+        content: {
+            check_id: 'check-d',
+            kind: 'metric_threshold',
+            title: 'Export failures stay below the goal',
+            outcome: 'inconclusive',
+            explanation: 'The measurement window cannot fit before expiry.',
+        },
+    },
+    {
+        id: 'check-expired',
+        type: 'check_expired',
+        created_at: '2026-10-27T09:00:00Z',
+        content: {
+            check_id: 'check-c',
+            kind: 'metric_threshold',
+            title: 'Confirm the export backlog stays clear',
+            expired_at: '2026-10-27T09:00:00Z',
+            last_run_at: null,
+        },
+    },
+    {
+        id: 'check-verdict',
+        type: 'check_result',
+        created_at: '2026-09-27T09:00:00Z',
+        content: {
+            check_id: 'check-a',
+            kind: 'agent',
+            title: 'Checkout errors stay at zero after the retry fix',
+            outcome: 'failed',
+            explanation: 'New events arrive on the same stack frame, with checkout traffic unchanged.',
+        },
+    },
+    {
+        id: 'check-cancelled',
+        type: 'check_cancelled',
+        created_at: '2026-09-21T09:00:00Z',
+        content: {
+            check_id: 'check-b',
+            kind: 'metric_threshold',
+            title: 'No new reports of the export timeout',
+            reason: 'replaced_by_research',
+        },
+    },
+    {
+        id: 'check-scheduled-pending',
+        type: 'check_scheduled',
+        created_at: '2026-09-20T09:05:00Z',
+        content: {
+            check_id: 'check-b',
+            kind: 'metric_threshold',
+            title: 'No new reports of the export timeout',
+            rationale: 'The timeout should stop once the queue drains.',
+            next_run_at: '2026-09-27T09:00:00Z',
+            arms_on_resolve: true,
+            soak_minutes: 4320,
+            runs: 1,
+        },
+    },
+    {
+        id: 'check-scheduled',
+        type: 'check_scheduled',
+        created_at: '2026-09-20T09:00:00Z',
+        content: {
+            check_id: 'check-a',
+            kind: 'agent',
+            title: 'Checkout errors stay at zero after the retry fix',
+            rationale: 'Confirms no new checkout exceptions arrive after the retry fix ships.',
+            next_run_at: '2026-09-27T09:00:00Z',
+            arms_on_resolve: false,
+            skill_name: 'signals-scout-error-tracking',
+            runs: 2,
+        },
+    },
+]
+
+export const CheckLifecycle: Story = {
+    parameters: { mockDate: '2026-10-28T10:00:00Z' },
+    args: { artefacts: checkLifecycleArtefacts },
+}
+export const CheckLifecycleNarrow: Story = {
+    parameters: { mockDate: '2026-10-28T10:00:00Z' },
+    args: { artefacts: checkLifecycleArtefacts },
+    decorators: [
+        (Story) => (
+            // The rail at the width it gets next to an open side panel.
+            <div className="w-[20rem] p-5">
+                <Story />
+            </div>
+        ),
+    ],
+}
+
+/** The three link gates that hold automatic implementation back, and the link one of them acted on. */
+const linkArtefacts = [
+    {
+        id: 'skip-plan-parent',
+        type: 'autostart_skip',
+        created_at: '2026-09-22T09:10:00Z',
+        content: {
+            skip_reason: 'plan_parent',
+            detail: 'No work started here because other reports are part of this one and do the work.',
+        },
+    },
+    {
+        id: 'skip-dependency',
+        type: 'autostart_skip',
+        created_at: '2026-09-22T09:05:00Z',
+        content: {
+            skip_reason: 'blocked_by_dependency',
+            linked_report_id: '0198c0de-0000-7000-8000-000000000002',
+            detail: 'No work started here because a report this one depends on has no pull request yet.',
+        },
+    },
+    {
+        id: 'skip-duplicate',
+        type: 'autostart_skip',
+        created_at: '2026-09-22T09:00:00Z',
+        content: {
+            skip_reason: 'duplicate_of',
+            linked_report_id: '0198c0de-0000-7000-8000-000000000001',
+            detail: 'No work started here because this report duplicates another one that is already resolved or has a pull request.',
+        },
+    },
+    {
+        id: 'link-duplicate',
+        type: 'report_link',
+        created_at: '2026-09-22T08:55:00Z',
+        content: {
+            kind: 'duplicate_of',
+            report_id: '0198c0de-0000-7000-8000-000000000001',
+            reason: 'Same export timeout, already covered by the earlier report.',
+        },
+    },
+]
+
+export const LinkedReportGates: Story = {
+    parameters: { mockDate: '2026-09-23T10:00:00Z' },
+    args: { artefacts: linkArtefacts },
+}
+
+/** A staff-only scoring pass: the served model, one challenger, and one model that could not score. */
+const rankingArtefacts = [
+    {
+        id: 'work-release',
+        type: 'work_release',
+        created_at: '2026-09-29T09:58:00Z',
+        content: { reason: 'taken_over' },
+    },
+    {
+        id: 'work-claim',
+        type: 'work_claim',
+        created_at: '2026-09-29T09:56:00Z',
+        content: { display_name: 'Ada' },
+    },
+    {
+        id: 'ranking-score',
+        type: 'ranking_score',
+        created_at: '2026-09-29T09:00:00Z',
+        content: {
+            scored_at: '2026-09-29T09:00:00Z',
+            manifest_version: '12',
+            served_key: 'report_embeddings@2026-09-28',
+            results: {
+                'report_embeddings@2026-09-28': {
+                    model_name: 'report_embeddings',
+                    model_version: '2026-09-28',
+                    model_kind: 'xgboost',
+                    roles: ['served'],
+                    feature_schema_version: 3,
+                    status: 'scored',
+                    scores: { action: 0.78, pr_merged: 0.52, dismiss_wrong: 0.14, reviewer_fix: 0.04 },
+                    lifts: { action: 1.3, pr_merged: 2.6, dismiss_wrong: 0.7 },
+                    metadata: {
+                        heads: [
+                            { head: 'action', readable: true, refit_classification_threshold: 0.6 },
+                            { head: 'pr_merged', readable: true, refit_classification_threshold: 0.2 },
+                            { head: 'dismiss_wrong', readable: true, refit_classification_threshold: 0.2 },
+                            { head: 'reviewer_fix', readable: false },
+                        ],
+                    },
+                },
+                'report_embeddings@2026-09-29': {
+                    model_name: 'report_embeddings',
+                    model_version: '2026-09-29',
+                    model_kind: 'xgboost',
+                    roles: ['challenger'],
+                    feature_schema_version: 3,
+                    status: 'scored',
+                    scores: { action: 0.74, pr_merged: 0.55, dismiss_wrong: 0.11 },
+                    metadata: {
+                        heads: [
+                            { head: 'action', readable: true, refit_classification_threshold: 0.6 },
+                            { head: 'pr_merged', readable: true, refit_classification_threshold: 0.2 },
+                            { head: 'dismiss_wrong', readable: true, refit_classification_threshold: 0.2 },
+                        ],
+                    },
+                },
+                'signal_counts@2026-09-28': {
+                    model_name: 'signal_counts',
+                    model_version: '2026-09-28',
+                    model_kind: 'xgboost',
+                    roles: ['challenger'],
+                    feature_schema_version: 1,
+                    status: 'skipped',
+                    skip_reason: 'missing report vector',
+                    scores: {},
+                    metadata: {},
+                },
+            },
+        },
+    },
+]
+
+const openOtherModels: Story['play'] = async ({ canvas }) => {
+    // The list renders after play starts, so wait for the disclosure or the snapshot catches it closed.
+    const summary = await canvas.findByText(/Other models/)
+    summary.closest('details')?.setAttribute('open', '')
+}
+
+export const RankingScore: Story = {
+    parameters: { mockDate: '2026-09-29T10:00:00Z' },
+    args: { artefacts: rankingArtefacts },
+    play: openOtherModels,
+}
+export const RankingScoreNarrow: Story = {
+    parameters: { mockDate: '2026-09-29T10:00:00Z' },
+    args: { artefacts: rankingArtefacts },
+    play: openOtherModels,
+    decorators: [
+        (Story) => (
+            // About 520px of scene, the width left next to the nav sidebar and an open side panel.
+            <div className="w-[20rem] p-5">
                 <Story />
             </div>
         ),

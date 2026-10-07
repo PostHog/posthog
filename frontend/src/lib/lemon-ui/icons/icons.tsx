@@ -461,19 +461,20 @@ const LIFECYCLE_RETURNING = 'var(--insight-icon-lifecycle-returning)'
 const LIFECYCLE_DORMANT = 'var(--insight-icon-lifecycle-dormant)'
 const LIFECYCLE_RESURRECTING = 'var(--insight-icon-lifecycle-resurrecting)'
 
-/** SQL insights: curly brackets (matching `IconBrackets` from `@posthog/icons`) wrapping a bar chart. */
-export function IconBracketsChart(props: LemonIconProps): JSX.Element {
+export function IconSQL(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
-            <path
-                fillRule="evenodd"
-                clipRule="evenodd"
-                d="M4 4.75C4 3.784 4.784 3 5.75 3h2.5a.75.75 0 0 1 0 1.5h-2.5a.25.25 0 0 0-.25.25V11c0 .372-.116.716-.314 1 .198.284.314.628.314 1v6.25c0 .138.112.25.25.25h2.5a.75.75 0 0 1 0 1.5h-2.5A1.75 1.75 0 0 1 4 19.25V13a.25.25 0 0 0-.25-.25h-1a.75.75 0 0 1 0-1.5h1A.25.25 0 0 0 4 11V4.75Zm11-1a.75.75 0 0 1 .75-.75h2.5c.966 0 1.75.784 1.75 1.75V11c0 .138.112.25.25.25h1a.75.75 0 0 1 0 1.5h-1A.25.25 0 0 0 20 13v6.25A1.75 1.75 0 0 1 18.25 21h-2.5a.75.75 0 0 1 0-1.5h2.5a.25.25 0 0 0 .25-.25V13c0-.372.116-.716.314-1a1.742 1.742 0 0 1-.314-1V4.75a.25.25 0 0 0-.25-.25h-2.5a.75.75 0 0 1-.75-.75Z"
-                fill="currentColor"
-            />
-            <rect x="6.75" y="13.5" width="3" height="4" rx="0.5" style={{ fill: INSIGHT_GREEN }} />
-            <rect x="10.5" y="10.5" width="3" height="7" rx="0.5" style={{ fill: INSIGHT_PURPLE }} />
-            <rect x="14.25" y="7.5" width="3" height="10" rx="0.5" style={{ fill: INSIGHT_BLUE }} />
+            <text
+                x="12"
+                y="12"
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize="11"
+                fontWeight="700"
+                className="font-mono fill-[var(--insight-icon-blue)]"
+            >
+                SQL
+            </text>
         </LemonIconBase>
     )
 }
@@ -635,6 +636,26 @@ export function Icon123(props: LemonIconProps): JSX.Element {
             <path
                 d="M7,15H5.5v-4.5H4V9h3V15z M13.5,13.5h-3v-1h2c0.55,0,1-0.45,1-1V10c0-0.55-0.45-1-1-1H9v1.5h3v1h-2c-0.55,0-1,0.45-1,1V15 h4.5V13.5z M19.5,14v-4c0-0.55-0.45-1-1-1H15v1.5h3v1h-2v1h2v1h-3V15h3.5C19.05,15,19.5,14.55,19.5,14z"
                 fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
+/** A navigation arrow under an arc, for the self-driving product. Sized like the @posthog/icons glyphs. */
+export function IconSelfDriving(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase width="100%" height={undefined} {...props}>
+            <path
+                d="M3.31 15.16A9.25 9.25 0 1 1 20.69 15.16"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+            />
+            <path
+                d="M12 8.25 17 20.5 12 17.75 7 20.5Z"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinejoin="round"
             />
         </LemonIconBase>
     )

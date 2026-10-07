@@ -88,6 +88,52 @@ class TestClassifySlackAppProjectRoute:
         assert options["timeout"] < POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS
         assert options["max_retries"] * options["timeout"] < POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS
 
+    def test_default_heads_the_list_and_is_named_by_id(self):
+        prompt = self._prompt_for(PROJECTS, PRODUCTION)
+
+        assert self._offered(prompt)[0] == "• `42` — Northwind · Production"
+        assert "answered from `42`" in prompt
+
+    def test_no_default_leaves_the_order_alone_and_says_nothing(self):
+        prompt = self._prompt_for(PROJECTS, None)
+
+        assert self._offered(prompt)[0] == "• `41` — Northwind · Staging"
+        assert "already going to be answered from" not in prompt
+
+    def test_a_team_named_like_the_marker_cannot_pose_as_the_default(self):
+        # Team names are tenant text and may be anything, so a name is never the place to
+        # put a marker on. The default is named by id, away from the list.
+        impostor = _project(team_id=43, integration_id=430, name="Production (default)")
+        prompt = self._prompt_for([STAGING, impostor], STAGING)
+
+        assert self._offered(prompt) == [
+            "• `41` — Northwind · Staging",
+            "• `43` — Northwind · Production (default)",
+        ]
+        assert "answered from `41`" in prompt
+
+    def test_a_default_outside_the_candidates_is_not_offered(self):
+        # The list and the reply schema's enum have to name the same projects, and the
+        # enum is built from the candidates alone.
+        outsider = _project(team_id=44, integration_id=440, name="Elsewhere")
+        fake_client = self._fake_client('{"project_id": null}')
+        with patch(CLASSIFIER, return_value=fake_client):
+            classify_slack_app_project_route("check staging", PROJECTS, outsider)
+
+        kwargs = fake_client.chat.completions.create.call_args.kwargs
+        assert "Elsewhere" not in kwargs["messages"][0]["content"]
+        assert "already going to be answered from" not in kwargs["messages"][0]["content"]
+        assert kwargs["response_format"]["json_schema"]["schema"]["properties"]["project_id"]["enum"] == [41, 42, None]
+
+    def _prompt_for(self, projects: list[Integration], default: Integration | None) -> str:
+        fake_client = self._fake_client('{"project_id": null}')
+        with patch(CLASSIFIER, return_value=fake_client):
+            classify_slack_app_project_route("check staging", projects, default)
+        return fake_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+
+    def _offered(self, prompt: str) -> list[str]:
+        return [line for line in prompt.splitlines() if line.startswith("• ")]
+
     def test_prompt_snapshot_matches(self, snapshot):
         """The prompt is the whole classifier — the projects it offers, the
         where-to-look versus what-to-change examples, and the reply contract. Pinning it
@@ -97,7 +143,7 @@ class TestClassifySlackAppProjectRoute:
         """
         fake_client = self._fake_client('{"project_id": null}')
         with patch(CLASSIFIER, return_value=fake_client):
-            classify_slack_app_project_route("how many signups on staging yesterday", PROJECTS)
+            classify_slack_app_project_route("how many signups on staging yesterday", PROJECTS, PRODUCTION)
         assert fake_client.chat.completions.create.call_args.kwargs["messages"][0]["content"] == snapshot
 
     def _fake_client(self, content: str) -> MagicMock:

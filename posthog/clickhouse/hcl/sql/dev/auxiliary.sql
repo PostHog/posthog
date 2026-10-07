@@ -120,6 +120,28 @@ CREATE TABLE posthog.kafka_property_values (
   property_value String,
   property_count UInt64
 ) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_property_values', kafka_num_consumers = 1, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_property_values';
+CREATE TABLE posthog.log_entries_data (
+  team_id UInt64,
+  log_source LowCardinality(String),
+  log_source_id String,
+  instance_id String,
+  timestamp DateTime64(6, 'UTC'),
+  level LowCardinality(String),
+  message String,
+  _timestamp DateTime,
+  _offset UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.log_entries_data', '{replica}', _timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp) PARTITION BY toYYYYMMDD(timestamp) TTL toDate(timestamp) + toIntervalDay(7) TO VOLUME 'cold', toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 1024, storage_policy = 's3_tiered', ttl_only_drop_parts = 1;
+CREATE TABLE posthog.log_entries_distributed (
+  team_id UInt64,
+  log_source LowCardinality(String),
+  log_source_id String,
+  instance_id String,
+  timestamp DateTime64(6, 'UTC'),
+  level LowCardinality(String),
+  message String,
+  _timestamp DateTime,
+  _offset UInt64
+) ENGINE = Distributed('aux', 'posthog', 'log_entries_data');
 CREATE TABLE posthog.message_assets_data (
   team_id Int64,
   function_kind LowCardinality(String),
@@ -145,12 +167,12 @@ CREATE TABLE posthog.message_assets_data (
   INDEX person_id_idx person_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX recipient_idx recipient TYPE bloom_filter(0.01) GRANULARITY 1
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.message_assets_data', '{replica}-{shard}', version) ORDER BY (team_id, function_kind, function_id, invocation_id, action_id) PARTITION BY toYYYYMMDD(sent_at) TTL toDate(sent_at) + toIntervalDay(30) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
-CREATE TABLE posthog.person_property_mutation_log_data (
+CREATE TABLE posthog.person_group_membership_config (
   team_id Int64,
-  event_uuid UUID,
-  properties String,
-  ingested_at DateTime('UTC')
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_property_mutation_log_data', '{replica}-{shard}', ingested_at) ORDER BY (team_id, event_uuid) PARTITION BY toDate(ingested_at) TTL ingested_at + toIntervalDay(30) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
+  group_type_index UInt8,
+  enabled UInt8,
+  version UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_group_membership_config', '{replica}-{shard}', version) ORDER BY (team_id) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.property_values (
   team_id Int64 CODEC(DoubleDelta, ZSTD(1)),
   property_type LowCardinality(String),
@@ -261,7 +283,10 @@ CREATE TABLE posthog.query_log_archive (
   lc_dagster__job_name String ALIAS CAST(log_comment.`dagster.job_name`, 'String'),
   lc_dagster__run_id String ALIAS CAST(log_comment.`dagster.run_id`, 'String'),
   lc_dagster__owner String ALIAS CAST(log_comment.`dagster.tags.owner`, 'String'),
-  lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
+  lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), ''),
+  lc_plan_fingerprint String ALIAS ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), ''),
+  lc_estimated_rows Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0),
+  lc_estimated_bytes Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)
 ) ENGINE = Distributed('ops', 'posthog', 'sharded_query_log_archive');
 CREATE TABLE posthog.raw_error_tracking_fingerprint_issue_state (
   team_id Int64,
@@ -396,6 +421,38 @@ CREATE TABLE posthog.sharded_marketing_touchpoints_preaggregated (
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at Date DEFAULT today() + toIntervalDay(7)
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.marketing_touchpoints_preaggregated', '{replica}-{shard}', computed_at) ORDER BY (team_id, job_id, person_id, touchpoint_timestamp) PARTITION BY toYYYYMMDD(expires_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.sharded_person_group_membership (
+  team_id Int64,
+  group_type_index UInt8,
+  group_key String,
+  distinct_id String,
+  first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+  last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  INDEX idx_distinct_id distinct_id TYPE bloom_filter(0.01) GRANULARITY 1
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_person_group_membership', '{replica}') ORDER BY (team_id, group_type_index, group_key, distinct_id) SETTINGS index_granularity = 8192, min_bytes_for_wide_part = 0, min_rows_for_wide_part = 0;
+CREATE TABLE posthog.sharded_platform_alert_events (
+  team_id Int64,
+  configuration_id UUID,
+  alert_id UUID,
+  grouping_key String,
+  evaluation_key String,
+  kind LowCardinality(String),
+  alert_name String,
+  previous_state LowCardinality(String),
+  state LowCardinality(String),
+  episode_started_at Nullable(DateTime64(6, 'UTC')),
+  value Nullable(Float64),
+  labels Map(String, String),
+  condition_snapshot String,
+  source_config_snapshot String,
+  query_duration_ms Nullable(UInt32),
+  error_message String,
+  consecutive_failures UInt32,
+  muted_notification LowCardinality(String),
+  occurred_at DateTime64(6, 'UTC'),
+  source_kind LowCardinality(String),
+  expires_at Date DEFAULT today() + toIntervalDay(90)
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.platform_alert_events', '{replica}-{shard}') PRIMARY KEY (team_id, configuration_id, alert_id, occurred_at) ORDER BY (team_id, configuration_id, alert_id, occurred_at, evaluation_key) PARTITION BY toYYYYMM(occurred_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_session_replay_features (
   session_id String,
   team_id Int64,
@@ -475,6 +532,54 @@ CREATE TABLE posthog.sharded_usage_report_events_preagg (
   distinct_events_unique AggregateFunction(uniqExact, Tuple(UInt64, UInt64, UInt64)),
   event_count AggregateFunction(sum, UInt64)
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_usage_report_events_preagg', '{replica}') ORDER BY (date, team_id, person_mode, lib, event) PARTITION BY date TTL date + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.sharded_warehouse_object_reads_daily (
+  team_id Int64,
+  day Date,
+  read_kind Enum8('read'=1, 'refresh'=2),
+  subject_kind Enum8('saved_query'=1, 'table'=2),
+  subject_id String,
+  workflow_id String,
+  lc_kind LowCardinality(String),
+  lc_product LowCardinality(String),
+  lc_feature LowCardinality(String),
+  lc_access_method LowCardinality(String),
+  source LowCardinality(String),
+  scene LowCardinality(String),
+  has_user_id Bool,
+  read_alone Bool,
+  requests AggregateFunction(uniq, String),
+  users AggregateFunction(uniq, Int64),
+  read_count SimpleAggregateFunction(sum, UInt64),
+  duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+  read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+  duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+  read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+  max_event_time SimpleAggregateFunction(max, DateTime)
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.warehouse_object_reads_daily', '{replica}-{shard}') ORDER BY (team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, read_alone) PARTITION BY toYYYYMMDD(day) TTL day + toIntervalDay(60) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.sharded_warehouse_object_reads_daily_staging (
+  team_id Int64,
+  day Date,
+  read_kind Enum8('read'=1, 'refresh'=2),
+  subject_kind Enum8('saved_query'=1, 'table'=2),
+  subject_id String,
+  workflow_id String,
+  lc_kind LowCardinality(String),
+  lc_product LowCardinality(String),
+  lc_feature LowCardinality(String),
+  lc_access_method LowCardinality(String),
+  source LowCardinality(String),
+  scene LowCardinality(String),
+  has_user_id Bool,
+  read_alone Bool,
+  requests AggregateFunction(uniq, String),
+  users AggregateFunction(uniq, Int64),
+  read_count SimpleAggregateFunction(sum, UInt64),
+  duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+  read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+  duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+  read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+  max_event_time SimpleAggregateFunction(max, DateTime)
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.sharded_warehouse_object_reads_daily_staging', '{replica}-{shard}') ORDER BY (team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, read_alone) PARTITION BY toYYYYMMDD(day) TTL day + toIntervalDay(60) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_web_bot_definition (
   id UInt64,
   parent_id UInt64,
@@ -540,6 +645,27 @@ CREATE TABLE posthog.sharded_web_overview_preaggregated (
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.web_overview_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, time_window_start) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.sharded_web_sessions_dimensional_preaggregated (
+  team_id Int64,
+  job_id UUID,
+  period_bucket DateTime,
+  session_id_v7 UInt128,
+  person_id UUID,
+  start_timestamp DateTime64(6, 'UTC'),
+  min_event_timestamp DateTime64(6, 'UTC'),
+  max_event_timestamp DateTime64(6, 'UTC'),
+  channel_type String,
+  utm_source String,
+  utm_medium String,
+  utm_campaign String,
+  utm_term String,
+  utm_content String,
+  referring_domain String,
+  entry_pathname String,
+  pageview_count UInt64,
+  computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.web_sessions_dimensional_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, person_id, start_timestamp, session_id_v7) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_web_stats_dimensional_preaggregated (
   team_id Int64,
   job_id UUID,
@@ -630,6 +756,30 @@ CREATE TABLE posthog.sharded_web_vitals_paths_preaggregated (
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.web_vitals_paths_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, time_window_start, path) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.warehouse_object_reads_daily (
+  team_id Int64,
+  day Date,
+  read_kind Enum8('read'=1, 'refresh'=2),
+  subject_kind Enum8('saved_query'=1, 'table'=2),
+  subject_id String,
+  workflow_id String,
+  lc_kind LowCardinality(String),
+  lc_product LowCardinality(String),
+  lc_feature LowCardinality(String),
+  lc_access_method LowCardinality(String),
+  source LowCardinality(String),
+  scene LowCardinality(String),
+  has_user_id Bool,
+  read_alone Bool,
+  requests AggregateFunction(uniq, String),
+  users AggregateFunction(uniq, Int64),
+  read_count SimpleAggregateFunction(sum, UInt64),
+  duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+  read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+  duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+  read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+  max_event_time SimpleAggregateFunction(max, DateTime)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_warehouse_object_reads_daily');
 CREATE TABLE posthog.web_bot_definition (
   id UInt64,
   parent_id UInt64,
@@ -683,6 +833,27 @@ CREATE TABLE posthog.web_goals_preaggregated (
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_web_goals_preaggregated', sipHash64(job_id));
+CREATE TABLE posthog.web_sessions_dimensional_preaggregated (
+  team_id Int64,
+  job_id UUID,
+  period_bucket DateTime,
+  session_id_v7 UInt128,
+  person_id UUID,
+  start_timestamp DateTime64(6, 'UTC'),
+  min_event_timestamp DateTime64(6, 'UTC'),
+  max_event_timestamp DateTime64(6, 'UTC'),
+  channel_type String,
+  utm_source String,
+  utm_medium String,
+  utm_campaign String,
+  utm_term String,
+  utm_content String,
+  referring_domain String,
+  entry_pathname String,
+  pageview_count UInt64,
+  computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_web_sessions_dimensional_preaggregated', cityHash64(person_id));
 CREATE TABLE posthog.web_stats_dimensional_preaggregated (
   team_id Int64,
   job_id UUID,
@@ -1161,12 +1332,29 @@ CREATE TABLE posthog.message_assets (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('aux', 'posthog', 'message_assets_data');
-CREATE TABLE posthog.person_property_mutation_log (
+CREATE TABLE posthog.platform_alert_events (
   team_id Int64,
-  event_uuid UUID,
-  properties String,
-  ingested_at DateTime('UTC')
-) ENGINE = Distributed('aux', 'posthog', 'person_property_mutation_log_data');
+  configuration_id UUID,
+  alert_id UUID,
+  grouping_key String,
+  evaluation_key String,
+  kind LowCardinality(String),
+  alert_name String,
+  previous_state LowCardinality(String),
+  state LowCardinality(String),
+  episode_started_at Nullable(DateTime64(6, 'UTC')),
+  value Nullable(Float64),
+  labels Map(String, String),
+  condition_snapshot String,
+  source_config_snapshot String,
+  query_duration_ms Nullable(UInt32),
+  error_message String,
+  consecutive_failures UInt32,
+  muted_notification LowCardinality(String),
+  occurred_at DateTime64(6, 'UTC'),
+  source_kind LowCardinality(String),
+  expires_at Date DEFAULT today() + toIntervalDay(90)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_platform_alert_events', cityHash64(team_id));
 CREATE TABLE posthog.session_replay_features (
   session_id String,
   team_id Int64,

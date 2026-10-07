@@ -1,7 +1,9 @@
 import re
+from pathlib import Path
 
 import pytest
 
+from django.conf import settings
 from django.test import override_settings
 
 import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
@@ -30,6 +32,8 @@ DESCRIPTIONS_NOT_IN_SCHEMAS = {
     "EZOfficeInventory",
     "Giphy",
     "GoogleSearchConsole",
+    "Lovable",
+    "Omnisend",
     "OpenWeather",
     "Pexels",
     "ShipStation",
@@ -42,12 +46,47 @@ DESCRIPTIONS_NOT_IN_SCHEMAS = {
 # enrichment. Adding descriptions is an improvement, so drop the entry when one does.
 SOURCES_WITHOUT_CURATED_DESCRIPTIONS = {"ActiveCampaign", "Airtable", "PgAnalyze"}
 
+# Catalog icons are declared as a `/static/` URL and served from `frontend/public`.
+ICON_ROOT = Path(settings.BASE_DIR) / "frontend" / "public"
+
+# Sources whose declared icon has no file, so every catalog tile for them requests an image that
+# 404s and falls back to the placeholder hedgehog. Each entry is a logo to add, not an exemption.
+SOURCES_WITHOUT_AN_ICON_FILE = {
+    "AikidoSecurity",
+    "Appwrite",
+    "Backblaze",
+    "Baseten",
+    "BrowserUse",
+    "Cohere",
+    "DenoDeploy",
+    "FlyIo",
+    "Groq",
+    "Gumloop",
+    "Hatchet",
+    "Hetzner",
+    "Kernel",
+    "Linode",
+    "Maxio",
+    "Metriport",
+    "OpenRouter",
+    "Roark",
+    "ScaleAI",
+    "Skyvern",
+    "TerraApi",
+    "TriggerDev",
+    "TwelveLabs",
+    "Upstash",
+    "Vespa",
+    "Zep",
+}
+
 CREDENTIAL_FIELD = re.compile(r"api[_-]?key|access[_-]?key|token|secret|password|passphrase|private[_-]?key", re.I)
 
 # The public half of a keypair, each paired with a `*_secret` field that is marked secret. A name
 # ending in `_id`/`_ids` is exempt for the same reason without needing an entry here.
 PUBLIC_CREDENTIAL_HALVES = {
     "Adjust.app_tokens",
+    "Cloudinary.api_key",
     "ConfluentCloud.api_key",
     "Fleetio.account_token",
     "Gong.access_key",
@@ -68,11 +107,13 @@ HTTP_SOURCES_WITHOUT_THE_HOST_MIXIN = {
     "Gerrit",
     "Grafana",
     "Hatchet",
+    "Kestra",
     "LangSmith",
     "Langfuse",
     "Metabase",
     "OctopusDeploy",
     "Omni",
+    "Scalr",
     "SigNoz",
     "Sourcegraph",
     "Teamcity",
@@ -195,3 +236,24 @@ def test_sources_with_a_host_field_refuse_an_internal_host(source_type):
         is_valid, _ = source.is_database_host_valid("169.254.169.254", team_id=999)
 
     assert not is_valid, f"{source_type} accepts a link-local host."
+
+
+@pytest.mark.parametrize("source_type", SOURCE_TYPES, ids=str)
+def test_source_icon_file_exists(source_type):
+    icon_path = ALL_SOURCES[source_type].get_source_config.iconPath
+    assert icon_path.startswith(settings.STATIC_URL), (
+        f"{source_type} declares iconPath {icon_path!r}; catalog icons are served from {settings.STATIC_URL}."
+    )
+
+    exists = (ICON_ROOT / icon_path.removeprefix(settings.STATIC_URL)).is_file()
+    listed = str(source_type) in SOURCES_WITHOUT_AN_ICON_FILE
+
+    if listed:
+        assert not exists, f"{source_type} now ships its icon. Remove it from SOURCES_WITHOUT_AN_ICON_FILE."
+        return
+
+    assert exists, (
+        f"{source_type} declares iconPath {icon_path!r}, but no such file exists under "
+        f"frontend/public. Every catalog tile for it would request a 404 and fall back to the "
+        f"placeholder icon. Add the file, or correct the path."
+    )

@@ -10,6 +10,7 @@ import pytest
 from hogli_commands.product import (
     checks as checks_module,
     gh as gh_module,
+    isolation as isolation_module,
 )
 from hogli_commands.product.checks import (
     BackendPackageMarkerCheck,
@@ -22,6 +23,7 @@ from hogli_commands.product.checks import (
     PackageJsonScriptsCheck,
     ProductYamlCheck,
     ProductYamlOwnersCheck,
+    WiringInterfaceCheck,
     _has_test_files,
     _is_noop_script,
     _names_from_pattern,
@@ -34,10 +36,12 @@ from hogli_commands.product.checks import (
 from hogli_commands.product.crossings import facade_shape_use
 from hogli_commands.product.isolation import (
     MODEL_SURFACE_PREFIXES,
+    IsolationRung,
     facade_carveout_modules,
     facade_class_imports,
     facade_model_crossings,
     facade_shape_findings,
+    facade_unapproved_wiring,
     has_narrowed_turbo_inputs,
     permanent_interface_modules,
     routes_in_turbo_inputs,
@@ -58,7 +62,7 @@ def _make_product(
     *,
     scripts: dict[str, str] | None = None,
     has_backend: bool = True,
-    isolated: bool = False,
+    strict: bool = False,
     test_files: list[str] | None = None,
     extra_dirs: list[str] | None = None,
 ) -> CheckContext:
@@ -70,7 +74,7 @@ def _make_product(
     if has_backend:
         backend_dir.mkdir()
 
-    if isolated:
+    if strict:
         (backend_dir / "facade").mkdir(parents=True, exist_ok=True)
         (backend_dir / "facade" / "contracts.py").write_text("")
         (backend_dir / "facade" / "api.py").write_text("def get_thing():\n    pass\n")
@@ -92,7 +96,7 @@ def _make_product(
         name="my_product",
         product_dir=product_dir,
         backend_dir=backend_dir,
-        is_isolated=isolated,
+        has_facade_contracts=strict,
         structure={},
         detailed=False,
     )
@@ -117,6 +121,7 @@ def _write_facade_product(
     facade.mkdir(parents=True)
     (facade / "contracts.py").write_text("")
     for fname, content in (facade_files or {}).items():
+        (facade / fname).parent.mkdir(parents=True, exist_ok=True)
         (facade / fname).write_text(content)
     for rel, content in (sources or {}).items():
         path = backend_dir / rel
@@ -217,24 +222,24 @@ class TestPresenceChecks:
         result = check.run(ctx)
         assert not result.issues
 
-    def test_contract_check_required_for_isolated(self, tmp_path: Path) -> None:
+    def test_contract_check_required_for_strict(self, tmp_path: Path) -> None:
         ctx = _make_product(
             tmp_path,
             scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"},
-            isolated=True,
+            strict=True,
             extra_dirs=["backend"],
         )
         result = check.run(ctx)
         assert any("missing 'backend:contract-check'" in i for i in result.issues)
 
-    def test_contract_check_present_for_isolated_passes(self, tmp_path: Path) -> None:
+    def test_contract_check_present_for_strict_passes(self, tmp_path: Path) -> None:
         ctx = _make_product(
             tmp_path,
             scripts={
                 "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
                 "backend:contract-check": "echo 'Contract files unchanged'",
             },
-            isolated=True,
+            strict=True,
             extra_dirs=["backend"],
         )
         result = check.run(ctx)
@@ -253,7 +258,7 @@ class TestPresenceChecks:
 
 
 class TestAbsenceChecks:
-    def test_contract_check_forbidden_for_non_isolated(self, tmp_path: Path) -> None:
+    def test_contract_check_forbidden_for_lenient(self, tmp_path: Path) -> None:
         """Non-isolated product with contract-check causes turbo-discover misclassification."""
         ctx = _make_product(
             tmp_path,
@@ -261,18 +266,18 @@ class TestAbsenceChecks:
                 "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
                 "backend:contract-check": "echo 'Contract files unchanged'",
             },
-            isolated=False,
+            strict=False,
             extra_dirs=["backend"],
         )
         result = check.run(ctx)
         assert result.issues
         assert any("turbo-discover" in i for i in result.issues)
 
-    def test_no_contract_check_for_non_isolated_passes(self, tmp_path: Path) -> None:
+    def test_no_contract_check_for_lenient_passes(self, tmp_path: Path) -> None:
         ctx = _make_product(
             tmp_path,
             scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"},
-            isolated=False,
+            strict=False,
             extra_dirs=["backend"],
         )
         result = check.run(ctx)
@@ -291,7 +296,7 @@ class TestAbsenceChecks:
                 "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
                 "backend:contract-check": "echo 'Contract files unchanged'",
             },
-            isolated=True,
+            strict=True,
             extra_dirs=["backend"],
         )
         result = check.run(ctx)
@@ -376,14 +381,14 @@ class TestIsolationChainTurnOn:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _seal_externally(monkeypatch)
-        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
         result = chain_check.run(ctx)
         assert any("inert" in i for i in result.issues)
         assert result.file == "products/my_product/turbo.json"
 
     def test_eligible_with_narrowed_turbo_passes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _seal_externally(monkeypatch)
-        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
         (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
         result = chain_check.run(ctx)
         assert not result.issues
@@ -398,7 +403,7 @@ class TestIsolationChainTurnOn:
         ctx = _make_product(
             tmp_path,
             scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"},
-            isolated=True,
+            strict=True,
         )
         result = chain_check.run(ctx)
         assert not any("inert" in i for i in result.issues)
@@ -411,15 +416,177 @@ class TestIsolationChainTurnOn:
         monkeypatch.setattr(isolation_module, "has_tach_interface", lambda *_a, **_k: False)
         monkeypatch.setattr(isolation_module, "has_legacy_interface_leaks", lambda *_a, **_k: False)
         monkeypatch.setattr(isolation_module, "presentation_bypass_entries", lambda *_a, **_k: [])
-        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
         result = chain_check.run(ctx)
         assert not any("inert" in i for i in result.issues)
+
+
+class TestIsolationRung:
+    @pytest.mark.parametrize(
+        "strict, real_facade, tach_interface, skip_configured, expected",
+        [
+            pytest.param(False, False, False, False, IsolationRung.LENIENT, id="no_contracts"),
+            pytest.param(True, True, False, False, IsolationRung.STRICT, id="contracts_without_tach_interface"),
+            pytest.param(True, False, True, False, IsolationRung.STRICT, id="empty_facade_is_not_sealed"),
+            pytest.param(True, True, True, False, IsolationRung.SEALED, id="sealed_without_test_skip"),
+            pytest.param(True, True, False, True, IsolationRung.STRICT, id="test_skip_without_seals_is_not_isolated"),
+            pytest.param(True, True, True, True, IsolationRung.ISOLATED, id="sealed_with_test_skip"),
+        ],
+    )
+    def test_rung(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        strict: bool,
+        real_facade: bool,
+        tach_interface: bool,
+        skip_configured: bool,
+        expected: IsolationRung,
+    ) -> None:
+        monkeypatch.setattr(isolation_module, "has_tach_interface", lambda *_a, **_k: tach_interface)
+        monkeypatch.setattr(isolation_module, "has_legacy_interface_leaks", lambda *_a, **_k: False)
+        monkeypatch.setattr(isolation_module, "presentation_bypass_entries", lambda *_a, **_k: [])
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=strict)
+        if strict and not real_facade:
+            (ctx.backend_dir / "facade" / "api.py").write_text("")
+        if skip_configured:
+            (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
+        assert ctx.isolation_status().rung == expected
+
+
+_WIRING_FACADE = "from ..temporal.flows import Handed\n\n__all__ = ['Handed']\n"
+_WIRING_SOURCES: dict[str, dict[str, str]] = {
+    "decorated_workflow": {
+        "temporal/flows.py": "from temporalio import workflow\n\n\n@workflow.defn\nclass Handed:\n    pass\n",
+    },
+    "approved_base_through_product_class": {
+        "temporal/base.py": "from posthog.hogql_queries.query_runner import QueryRunner\n\n\nclass Base(QueryRunner):\n    pass\n",
+        "temporal/flows.py": "from .base import Base\n\n\nclass Handed(Base):\n    pass\n",
+    },
+    "approved_library_base": {
+        "temporal/flows.py": "from temporalio.worker import Interceptor\n\n\nclass Handed(Interceptor):\n    pass\n",
+    },
+    "plain_client": {"temporal/flows.py": "class Handed:\n    pass\n"},
+    "unreadable_base": {"temporal/flows.py": "class Handed(Mystery):\n    pass\n"},
+    "decorator_on_the_base_only": {
+        "temporal/base.py": "from temporalio import workflow\n\n\n@workflow.defn\nclass Base:\n    pass\n",
+        "temporal/flows.py": "from .base import Base\n\n\nclass Handed(Base):\n    pass\n",
+    },
+    "import_shadowed_by_a_local_class": {
+        "temporal/flows.py": (
+            "from posthog.hogql_queries.query_runner import QueryRunner\n\n\nclass QueryRunner:\n    pass\n\n\n"
+            "class Handed(QueryRunner):\n    pass\n"
+        ),
+    },
+    "import_rebound_by_an_assignment": {
+        "temporal/flows.py": (
+            "from posthog.hogql_queries.query_runner import QueryRunner\n\nQueryRunner = object\n\n\n"
+            "class Handed(QueryRunner):\n    pass\n"
+        ),
+    },
+    "collection_of_classes": {"temporal/flows.py": "class Plain:\n    pass\n\n\nHanded = [Plain]\n"},
+    "concatenated_collections": {
+        "temporal/flows.py": "from .impl import FLOWS as IMPL_FLOWS\n\n\nclass Plain:\n    pass\n\n\nHanded = [Plain] + IMPL_FLOWS\n",
+        "temporal/impl.py": "class Other:\n    pass\n\n\nFLOWS = [Other]\n",
+    },
+    "starred_collection": {
+        "temporal/flows.py": "from .impl import FLOWS\n\n\nHanded = [*FLOWS]\n",
+        "temporal/impl.py": "class Other:\n    pass\n\n\nFLOWS = [Other]\n",
+    },
+    "reassigned_collection": {
+        "temporal/flows.py": "class Plain:\n    pass\n\n\nHanded = []\nHanded = [Plain]\n",
+    },
+    "absolute_reexport": {
+        "temporal/flows.py": "from products.my_product.backend.temporal.impl import Handed\n",
+        "temporal/impl.py": "class Handed:\n    pass\n",
+    },
+    "class_alias": {"temporal/flows.py": "class Plain:\n    pass\n\n\nHanded = Plain\n"},
+    "approved_class_alias": {
+        "temporal/flows.py": "from temporalio.worker import Interceptor\n\n\nclass Plain(Interceptor):\n    pass\n\n\nHanded = Plain\n",
+    },
+    "mutated_collection": {
+        "temporal/flows.py": (
+            "from temporalio import workflow\n\n\n@workflow.defn\nclass Approved:\n    pass\n\n\n"
+            "class Plain:\n    pass\n\n\nclass Other:\n    pass\n\n\n"
+            "Handed = [Approved]\nHanded.append(Plain)\nHanded += [Other]\n"
+        ),
+    },
+}
+
+
+class TestWiringInterfaces:
+    @pytest.mark.parametrize(
+        "case, expected",
+        [
+            ("decorated_workflow", set()),
+            ("approved_base_through_product_class", set()),
+            ("approved_library_base", set()),
+            ("plain_client", {("Handed", "unapproved")}),
+            ("unreadable_base", {("Handed", "unresolved")}),
+            ("decorator_on_the_base_only", {("Handed", "unapproved")}),
+            ("import_shadowed_by_a_local_class", {("Handed", "unresolved")}),
+            ("import_rebound_by_an_assignment", {("Handed", "unresolved")}),
+            ("collection_of_classes", {("Plain", "unapproved")}),
+            ("concatenated_collections", {("Plain", "unapproved"), ("Other", "unapproved")}),
+            ("starred_collection", {("Other", "unapproved")}),
+            ("reassigned_collection", {("Plain", "unapproved")}),
+            ("absolute_reexport", {("Handed", "unapproved")}),
+            ("class_alias", {("Handed", "unapproved")}),
+            ("approved_class_alias", set()),
+            ("mutated_collection", {("Handed", "unresolved")}),
+        ],
+    )
+    def test_scan_reads_the_class_not_the_folder(
+        self, tmp_path: Path, case: str, expected: set[tuple[str, str]]
+    ) -> None:
+        _, backend = _write_facade_product(
+            tmp_path, facade_files={"wiring.py": _WIRING_FACADE}, sources=_WIRING_SOURCES[case]
+        )
+        assert {(f.class_name, str(f.verdict)) for f in facade_unapproved_wiring(backend, "my_product")} == expected
+
+    def test_same_named_classes_keep_their_exported_names(self, tmp_path: Path) -> None:
+        facade = "from ..temporal.a import Worker as AWorker\nfrom ..temporal.b import Worker\n\n__all__ = ['AWorker', 'Worker']\n"
+        sources = {"temporal/a.py": "class Worker:\n    pass\n", "temporal/b.py": "class Worker:\n    pass\n"}
+        _, backend = _write_facade_product(tmp_path, facade_files={"wiring.py": facade}, sources=sources)
+        assert {f.class_name for f in facade_unapproved_wiring(backend, "my_product")} == {"AWorker", "Worker"}
+
+    @pytest.mark.parametrize(
+        "isolated, recorded, blocks",
+        [
+            pytest.param(False, False, False, id="information_below_isolated"),
+            pytest.param(True, False, True, id="isolated_blocks_an_unrecorded_class"),
+            pytest.param(True, True, False, id="isolated_passes_a_grandfathered_row"),
+        ],
+    )
+    def test_only_isolated_products_are_held_to_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, isolated: bool, recorded: bool, blocks: bool
+    ) -> None:
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
+        (ctx.backend_dir / "facade" / "wiring.py").write_text(_WIRING_FACADE)
+        (ctx.backend_dir / "temporal").mkdir()
+        (ctx.backend_dir / "temporal" / "flows.py").write_text(_WIRING_SOURCES["plain_client"]["temporal/flows.py"])
+        if isolated:
+            (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
+        row = "my_product.Handed products.my_product.backend.facade.wiring facade-wiring 1"
+        monkeypatch.setattr(checks_module, "recorded_facade_shape_rows", lambda _name: {row} if recorded else set())
+        assert bool(WiringInterfaceCheck().run(ctx).issues) == blocks
+
+    def test_a_sealed_product_is_not_steered_into_isolation_it_cannot_pass(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
+        (ctx.backend_dir / "facade" / "wiring.py").write_text(_WIRING_FACADE)
+        (ctx.backend_dir / "temporal").mkdir()
+        (ctx.backend_dir / "temporal" / "flows.py").write_text(_WIRING_SOURCES["plain_client"]["temporal/flows.py"])
+        assert not any("inert" in issue for issue in chain_check.run(ctx).issues)
 
 
 class TestIsolationChainRoutes:
     def test_narrowed_with_routes_not_in_inputs_fails(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _seal_externally(monkeypatch)
-        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
         (ctx.backend_dir / "routes.py").write_text("")
         (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
         result = chain_check.run(ctx)
@@ -428,7 +595,7 @@ class TestIsolationChainRoutes:
 
     def test_narrowed_with_routes_in_inputs_passes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _seal_externally(monkeypatch)
-        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
         (ctx.backend_dir / "routes.py").write_text("")
         (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO_WITH_ROUTES))
         result = chain_check.run(ctx)
@@ -440,7 +607,7 @@ class TestIsolationChainRoutes:
         # routes/ as a package directory (not a routes.py file) is the other form has_routes_module
         # accepts — it must be demanded in the inputs the same way.
         _seal_externally(monkeypatch)
-        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
         (ctx.backend_dir / "routes").mkdir()
         (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
         result = chain_check.run(ctx)
@@ -452,7 +619,7 @@ class TestIsolationChainRoutes:
     ) -> None:
         # No routes.py at all — nothing to watch, so the routes demand must not fire.
         _seal_externally(monkeypatch)
-        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
         (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
         result = chain_check.run(ctx)
         assert not any("routes.py" in i for i in result.issues)
@@ -461,7 +628,7 @@ class TestIsolationChainRoutes:
         # Not narrowed (no turbo.json) — contract-check still watches all of backend/, so routes.py
         # is already covered and the routes demand must not fire.
         _seal_externally(monkeypatch)
-        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
         (ctx.backend_dir / "routes.py").write_text("")
         result = chain_check.run(ctx)
         assert not any("routes.py" in i for i in result.issues)
@@ -552,7 +719,7 @@ class TestIsolationChainWebhookConsumers:
         monkeypatch.setattr(isolation_module, "has_tach_interface", lambda *_a, **_k: False)
         monkeypatch.setattr(isolation_module, "has_legacy_interface_leaks", lambda *_a, **_k: False)
         monkeypatch.setattr(isolation_module, "presentation_bypass_entries", lambda *_a, **_k: [])
-        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
         (ctx.backend_dir / "webhook_consumers.py").write_text("")
         if turbo is not None:
             (ctx.product_dir / "turbo.json").write_text(json.dumps(turbo))
@@ -732,7 +899,7 @@ class TestCombinedScenarios:
                 "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
                 "backend:contract-check": "echo 'Contract files unchanged'",
             },
-            isolated=True,
+            strict=True,
             test_files=["tests/test_api.py"],
         )
         result = check.run(ctx)
@@ -743,7 +910,7 @@ class TestCombinedScenarios:
         ctx = _make_product(
             tmp_path,
             scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"},
-            isolated=False,
+            strict=False,
             extra_dirs=["backend"],
         )
         result = check.run(ctx)
@@ -758,7 +925,7 @@ class TestCombinedScenarios:
                 "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/nonexistent -v --tb=short || true",
                 "backend:contract-check": "echo 'Contract files unchanged'",
             },
-            isolated=False,
+            strict=False,
         )
         result = check.run(ctx)
         # Should report: contract-check forbidden, || true, nonexistent path
@@ -1013,7 +1180,7 @@ class TestPermanentInterfaceQualification:
         monkeypatch.setattr(isolation_module, "permanent_interface_modules", lambda *_a, **_k: {"backend.models"})
         # Controlled corpus — don't let the assertion depend on the real repo's migrations.
         monkeypatch.setattr(isolation_module, "_clickhouse_ddl_imports", lambda _root: frozenset())
-        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
         result = chain_check.run(ctx)
         assert any("don't qualify as a permanent interface" in i for i in result.issues)
         assert result.file == "tach.toml"
@@ -1038,7 +1205,7 @@ def _make_yaml_ctx(tmp_path: Path, yaml_content: str | None = None) -> CheckCont
         name="test_product",
         product_dir=product_dir,
         backend_dir=backend_dir,
-        is_isolated=False,
+        has_facade_contracts=False,
         structure={},
         detailed=False,
     )
@@ -1104,25 +1271,19 @@ class TestProductYamlOwnersCheck:
 
     def test_invalid_slug_reported(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - team-nonexistent\n")
-        monkeypatch.setattr(gh_module, "_fetch_attempted", True)
-        monkeypatch.setattr(gh_module, "_team_slugs", {"team-real"})
-        monkeypatch.setattr(gh_module, "_fetch_err", "")
+        monkeypatch.setattr(gh_module, "get_team_slugs", lambda: ({"team-real"}, ""))
         result = owners_check.run(ctx)
         assert any("team-nonexistent" in i for i in result.issues)
 
     def test_valid_slug_passes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - team-real\n")
-        monkeypatch.setattr(gh_module, "_fetch_attempted", True)
-        monkeypatch.setattr(gh_module, "_team_slugs", {"team-real"})
-        monkeypatch.setattr(gh_module, "_fetch_err", "")
+        monkeypatch.setattr(gh_module, "get_team_slugs", lambda: ({"team-real"}, ""))
         result = owners_check.run(ctx)
         assert not result.issues
 
     def test_gh_unavailable_is_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - team-foo\n")
-        monkeypatch.setattr(gh_module, "_fetch_attempted", True)
-        monkeypatch.setattr(gh_module, "_team_slugs", None)
-        monkeypatch.setattr(gh_module, "_fetch_err", "gh CLI not found")
+        monkeypatch.setattr(gh_module, "get_team_slugs", lambda: (None, "gh CLI not found"))
         result = owners_check.run(ctx)
         assert result.issues
         assert any("gh CLI" in i for i in result.issues)
@@ -1163,7 +1324,7 @@ def _make_backend(tmp_path: Path, files: list[str]) -> CheckContext:
         name="p",
         product_dir=product_dir,
         backend_dir=backend,
-        is_isolated=False,
+        has_facade_contracts=False,
         structure=_CONFLICT_STRUCTURE,
         detailed=False,
     )
@@ -1175,9 +1336,15 @@ class TestImportSurfaceCheck:
     view there passes the contract vacuously. None of the fixtures below carry a marker."""
 
     def _ctx(
-        self, tmp_path: Path, files: dict[str, str], monkeypatch: pytest.MonkeyPatch, ignored=None
+        self,
+        tmp_path: Path,
+        files: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+        ignored=None,
+        has_facade_contracts: bool = True,
     ) -> CheckContext:
         ctx = _make_backend(tmp_path, list(files))
+        ctx.has_facade_contracts = has_facade_contracts
         for path, content in files.items():
             (ctx.backend_dir / path).write_text(content)
         monkeypatch.setattr(checks_module, "ignored_import_edges", lambda: set(ignored or ()))
@@ -1242,6 +1409,48 @@ class TestImportSurfaceCheck:
                 1,
                 id="webhook_consumers_from_facade_lookalike",
             ),
+            # A relative import names the same module as the absolute one, so every surface
+            # has to read both shapes alike.
+            pytest.param(
+                {
+                    "webhook_consumers.py": "from .services.handlers import h\n",
+                    "services/handlers.py": "",
+                },
+                1,
+                id="webhook_consumers_from_internals_relatively",
+            ),
+            pytest.param(
+                {"webhook_consumers.py": "from . import services\n", "services/__init__.py": ""},
+                1,
+                id="webhook_consumers_from_internals_bare_relative",
+            ),
+            pytest.param(
+                {"webhook_consumers.py": "from .facade.api import f\n", "facade/api.py": ""},
+                0,
+                id="webhook_consumers_from_facade_relatively",
+            ),
+            pytest.param(
+                {"presentation/views.py": "from ..services import thing\n", "services/thing.py": ""},
+                1,
+                id="presentation_from_internals_relatively",
+            ),
+            pytest.param(
+                {"presentation/views.py": "from ..facade.api import f\n", "facade/api.py": ""},
+                0,
+                id="presentation_from_facade_relatively",
+            ),
+            pytest.param(
+                {"routes.py": "from .presentation.views import V\n", "presentation/views.py": ""},
+                0,
+                id="routes_from_presentation_relatively",
+            ),
+            # Climbing out of backend/ leaves this check's tree, so the resolver must not
+            # report a module built from the leftover parts.
+            pytest.param(
+                {"presentation/views.py": "from ....other.backend.models import M\n"},
+                0,
+                id="relative_import_above_the_product",
+            ),
         ],
     )
     def test_surface(
@@ -1256,6 +1465,60 @@ class TestImportSurfaceCheck:
         ctx = self._ctx(tmp_path, files, monkeypatch, ignored={edge})
         assert ImportSurfaceCheck().run(ctx).issues == []
 
+    @pytest.mark.parametrize(
+        "files, should_run, expected",
+        [
+            # The ingress contract holds for any product that registers a consumer, sealed
+            # or not.
+            pytest.param(
+                {
+                    "webhook_consumers.py": "from .services.handlers import h\n",
+                    "services/handlers.py": "",
+                },
+                True,
+                1,
+                id="unsealed_consumer_reaching_internals",
+            ),
+            pytest.param(
+                {"webhook_consumers.py": "from .facade.api import f\n", "facade/api.py": ""},
+                True,
+                0,
+                id="unsealed_consumer_reaching_facade",
+            ),
+            # An unsealed product has no routes/presentation contract, so that layout stays
+            # its own business.
+            pytest.param(
+                {
+                    "webhook_consumers.py": "from .facade.api import f\n",
+                    "facade/api.py": "",
+                    "routes.py": "from .api.views import V\n",
+                    "api/views.py": "",
+                },
+                True,
+                0,
+                id="unsealed_routes_stay_unchecked",
+            ),
+            pytest.param(
+                {"routes.py": "from .api.views import V\n", "api/views.py": ""},
+                False,
+                0,
+                id="unsealed_without_consumer_does_not_run",
+            ),
+        ],
+    )
+    def test_unsealed_product(
+        self,
+        tmp_path: Path,
+        files: dict[str, str],
+        should_run: bool,
+        expected: int,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        ctx = self._ctx(tmp_path, files, monkeypatch, has_facade_contracts=False)
+        check = ImportSurfaceCheck()
+        assert check.should_run(ctx) is should_run
+        assert len(check.run(ctx).issues) == expected
+
 
 class TestFileFolderConflictsCheck:
     def test_skip_when_no_backend(self, tmp_path: Path) -> None:
@@ -1265,7 +1528,7 @@ class TestFileFolderConflictsCheck:
             name="p",
             product_dir=product_dir,
             backend_dir=product_dir / "backend",
-            is_isolated=False,
+            has_facade_contracts=False,
             structure=_CONFLICT_STRUCTURE,
             detailed=False,
         )
@@ -1310,12 +1573,12 @@ class TestFileFolderConflictsCheck:
 # ---------------------------------------------------------------------------
 
 
-def _mkproduct(products_dir: Path, name: str, *, isolated: bool) -> None:
+def _mkproduct(products_dir: Path, name: str, *, strict: bool) -> None:
     p = products_dir / name
     (p / "backend").mkdir(parents=True)
     (p / "__init__.py").write_text("")
     (p / "backend" / "__init__.py").write_text("")
-    if isolated:
+    if strict:
         (p / "backend" / "facade").mkdir()
         (p / "backend" / "facade" / "contracts.py").write_text("")
 
@@ -1397,8 +1660,8 @@ class TestValidateFacadeAlternation:
         tach: str,
         expected_substrings: list[tuple[str, ...]],
     ) -> None:
-        for name, isolated in products:
-            _mkproduct(tmp_path, name, isolated=isolated)
+        for name, strict in products:
+            _mkproduct(tmp_path, name, strict=strict)
         issues = validate_facade_alternation(tach, tmp_path)
         if not expected_substrings:
             assert issues == []
@@ -1555,8 +1818,8 @@ class TestValidateTachReferences:
 
 class TestAlternationSorting:
     def test_sorted_passes(self, tmp_path: Path) -> None:
-        _mkproduct(tmp_path, "alpha", isolated=True)
-        _mkproduct(tmp_path, "beta", isolated=True)
+        _mkproduct(tmp_path, "alpha", strict=True)
+        _mkproduct(tmp_path, "beta", strict=True)
         tach = _iface(
             ["backend\\\\.facade.*", "backend\\\\.presentation\\\\.views.*"],
             "products\\\\.(alpha|beta)",
@@ -1564,8 +1827,8 @@ class TestAlternationSorting:
         assert validate_facade_alternation(tach, tmp_path) == []
 
     def test_unsorted_fails(self, tmp_path: Path) -> None:
-        _mkproduct(tmp_path, "alpha", isolated=True)
-        _mkproduct(tmp_path, "beta", isolated=True)
+        _mkproduct(tmp_path, "alpha", strict=True)
+        _mkproduct(tmp_path, "beta", strict=True)
         tach = _iface(
             ["backend\\\\.facade.*", "backend\\\\.presentation\\\\.views.*"],
             "products\\\\.(beta|alpha)",
@@ -1596,7 +1859,7 @@ class TestOrphanedTestFilesCheck:
             name=name,
             product_dir=product_dir,
             backend_dir=backend_dir,
-            is_isolated=False,
+            has_facade_contracts=False,
             structure={},
             detailed=False,
         )
@@ -1814,6 +2077,35 @@ class TestFacadeClassImports:
         _, backend = _write_facade_product(tmp_path, facade_files=facade_files, sources=sources)
         assert {f.class_name for f in facade_class_imports(backend, "my_product")} == expected
 
+    @pytest.mark.parametrize(
+        "facade_files, expected_modules",
+        [
+            # a flat module keeps its bare file name as the key
+            ({"api.py": "from ..logic import Thing\n__all__ = ['Thing']\n"}, {"api.py"}),
+            # a module in a subfolder is read and keyed by its path inside facade/
+            ({"destinations/s3.py": "from ...logic import Thing\n__all__ = ['Thing']\n"}, {"destinations/s3.py"}),
+            # contracts.py and enums.py are exempt at the top level only
+            ({"contracts.py": "from ..logic import Thing\n__all__ = ['Thing']\n"}, set()),
+            (
+                {"destinations/contracts.py": "from ...logic import Thing\n__all__ = ['Thing']\n"},
+                {"destinations/contracts.py"},
+            ),
+            ({"destinations/enums.py": "from ...logic import Thing\n__all__ = ['Thing']\n"}, {"destinations/enums.py"}),
+            # a tests/ folder is no hiding place: only test file names are skipped
+            (
+                {"destinations/tests/s3.py": "from ....logic import Thing\n__all__ = ['Thing']\n"},
+                {"destinations/tests/s3.py"},
+            ),
+        ],
+    )
+    def test_leaks_are_keyed_by_path_inside_facade(
+        self, tmp_path: Path, facade_files: dict[str, str], expected_modules: set[str]
+    ) -> None:
+        _, backend = _write_facade_product(
+            tmp_path, facade_files=facade_files, sources={"logic.py": "class Thing:\n    pass\n"}
+        )
+        assert {f.facade_module for f in facade_class_imports(backend, "my_product")} == expected_modules
+
     def test_carveout_is_not_a_violation_but_is_tracked_for_coverage(self, tmp_path: Path) -> None:
         facade = {
             "team_extension.py": "from ..models.tcac import TeamCustomerAnalyticsConfig\n__all__ = ['TeamCustomerAnalyticsConfig']\n"
@@ -1945,7 +2237,7 @@ class TestWatchedModelsAllowance:
 
         _seal_externally(monkeypatch)
         monkeypatch.setattr(isolation_module, "MODEL_CROSSINGS", frozenset({("my_product", "Table")}))
-        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
         (ctx.backend_dir / "facade" / "models.py").write_text("from ..models.table import Table\n__all__ = ['Table']\n")
         (ctx.backend_dir / "models").mkdir()
         (ctx.backend_dir / "models" / "table.py").write_text("class Table:\n    pass\n")
@@ -1974,7 +2266,7 @@ class TestWatchedModelsAllowance:
     def _narrowed_ctx(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, turbo_inputs: list[str]) -> CheckContext:
         # a narrowed product with models but no allowance entry: the surface must still be watched
         _seal_externally(monkeypatch)
-        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
         (ctx.backend_dir / "models.py").write_text("class Table:\n    pass\n")
         (ctx.backend_dir / "migrations").mkdir()
         (ctx.product_dir / "turbo.json").write_text(
@@ -2117,7 +2409,7 @@ def _add_facade_reexport(ctx: CheckContext) -> None:
 class TestIsolationChainWiringGate:
     def test_narrowed_facade_violation_blocks(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _seal_externally(monkeypatch)
-        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
         _add_facade_reexport(ctx)
         (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
         result = chain_check.run(ctx)
@@ -2129,7 +2421,7 @@ class TestIsolationChainWiringGate:
         # Un-narrowed: the skip is inert, so the leak is a warning, not a block. And the "you're
         # eligible, narrow now" nag must be suppressed — the wiring gate would reject that narrowing.
         _seal_externally(monkeypatch)
-        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
         _add_facade_reexport(ctx)
         result = chain_check.run(ctx)
         # the leak is a warning that also explains what blocks narrowing...
@@ -2140,7 +2432,7 @@ class TestIsolationChainWiringGate:
 
     def test_narrowed_unwatched_garage_blocks(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _seal_externally(monkeypatch)
-        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
         (ctx.backend_dir / "tasks").mkdir()
         (ctx.backend_dir / "tasks" / "tasks.py").write_text("")
         (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
@@ -2158,7 +2450,7 @@ class TestPackageJsonScriptsWiringWithheld:
         ctx = _make_product(
             tmp_path,
             scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"},
-            isolated=True,
+            strict=True,
         )
         _add_facade_reexport(ctx)
         result = check.run(ctx)
@@ -2170,7 +2462,7 @@ class TestPackageJsonScriptsWiringWithheld:
         # The un-narrowed script+broad products carry a facade violation too; the absence check keys
         # on plain eligibility, so they must not be told to remove the script.
         _seal_externally(monkeypatch)
-        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
         _add_facade_reexport(ctx)
         result = check.run(ctx)
         assert not any("must not have" in i or "remove 'backend:contract-check'" in i for i in result.issues)
@@ -2180,7 +2472,7 @@ class TestBackendPackageMarker:
     check = BackendPackageMarkerCheck()
 
     def _product(self, tmp_path: Path, *, markers: list[str], trees: list[str]) -> CheckContext:
-        ctx = _make_product(tmp_path, isolated=True)
+        ctx = _make_product(tmp_path, strict=True)
         for tree in trees:
             (ctx.backend_dir / tree).mkdir(parents=True, exist_ok=True)
             (ctx.backend_dir / tree / "views.py").write_text("x = 1\n")
@@ -2612,6 +2904,46 @@ class TestFacadeShape:
         logic = [f for f in facade_shape_findings(backend, "my_product") if f.kind == "logic"]
         assert [f.bodies for f in logic] == ([expected] if expected else [])
 
+    @pytest.mark.parametrize(
+        "module_key, expected_dotted",
+        [
+            ("api.py", "products.my_product.backend.facade.api"),
+            ("destinations/s3.py", "products.my_product.backend.facade.destinations.s3"),
+            ("destinations/__init__.py", "products.my_product.backend.facade.destinations"),
+        ],
+    )
+    def test_a_finding_carries_the_module_path_and_dotted_name(
+        self, tmp_path: Path, module_key: str, expected_dotted: str
+    ) -> None:
+        # A nested module reaches the models with `...`, a flat one with `..`.
+        dots = "." * (module_key.count("/") + 2)
+        backend = _write_shape_product(
+            tmp_path, {module_key: f"from {dots}models import Thing\n\n\ndef get_thing() -> Thing:\n    ...\n"}
+        )
+        findings = facade_shape_findings(backend, "my_product")
+        assert [(f.facade_module, f.dotted_module) for f in findings] == [(module_key, expected_dotted)]
+
+    @pytest.mark.parametrize(
+        "module_key, expected",
+        [
+            ("testing.py", None),
+            ("destinations/testing.py", ("helper",)),
+        ],
+    )
+    def test_name_exemptions_apply_to_top_level_modules_only(
+        self, tmp_path: Path, module_key: str, expected: tuple[str, ...] | None
+    ) -> None:
+        dots = "." * (module_key.count("/") + 2)
+        backend = _write_shape_product(
+            tmp_path,
+            {
+                module_key: f"from {dots}temporal.flows import run_it\n\n__all__ = ['run_it']\n\n\ndef helper():\n    return 1\n"
+            },
+            sources={"temporal/flows.py": "def run_it():\n    ...\n"},
+        )
+        logic = [f for f in facade_shape_findings(backend, "my_product") if f.kind == "logic"]
+        assert [f.bodies for f in logic] == ([expected] if expected else [])
+
 
 class TestFacadeShapeLedgerRows:
     @pytest.mark.parametrize(
@@ -2663,7 +2995,7 @@ class TestFacadeShapeBaseline:
     _ROW = "my_product.Thing products.my_product.backend.facade.api.get_thing facade-returns 1"
 
     def _leaking_product(self, tmp_path: Path) -> CheckContext:
-        ctx = _make_product(tmp_path, isolated=True)
+        ctx = _make_product(tmp_path, strict=True)
         (ctx.backend_dir / "models.py").write_text(_MODELS_PY)
         (ctx.backend_dir / "facade" / "api.py").write_text(
             "from ..models import Thing\n\n\ndef get_thing() -> Thing:\n    return Thing()\n"

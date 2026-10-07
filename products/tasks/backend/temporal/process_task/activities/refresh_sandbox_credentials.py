@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 
@@ -27,11 +28,11 @@ from .get_task_processing_context import TaskProcessingContext
 logger = get_logger(__name__)
 
 _SANDBOX_WEDGE_PROBE_COMMAND = """
-printf 'memory_current='; cat /sys/fs/cgroup/memory.current 2>/dev/null || printf 'unavailable\n'
-printf 'memory_max='; cat /sys/fs/cgroup/memory.max 2>/dev/null || printf 'unavailable\n'
-printf 'oom_kill='; awk '$1 == "oom_kill" { print $2 }' /sys/fs/cgroup/memory.events 2>/dev/null || printf 'unavailable\n'
-printf 'pids_current='; cat /sys/fs/cgroup/pids.current 2>/dev/null || printf 'unavailable\n'
-printf 'pids_max='; cat /sys/fs/cgroup/pids.max 2>/dev/null || printf 'unavailable\n'
+printf 'memory_current='; cat /sys/fs/cgroup/memory.current 2>/dev/null || cat /sys/fs/cgroup/memory/memory.usage_in_bytes 2>/dev/null || printf 'unavailable\n'
+printf 'memory_max='; cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || printf 'unavailable\n'
+printf 'oom_kill='; awk '$1 == "oom_kill" { print $2 }' /sys/fs/cgroup/memory.events 2>/dev/null || awk '$1 == "oom_kill" { print $2 }' /sys/fs/cgroup/memory/memory.oom_control 2>/dev/null || printf 'unavailable\n'
+printf 'pids_current='; cat /sys/fs/cgroup/pids.current 2>/dev/null || cat /sys/fs/cgroup/pids/pids.current 2>/dev/null || printf 'unavailable\n'
+printf 'pids_max='; cat /sys/fs/cgroup/pids.max 2>/dev/null || cat /sys/fs/cgroup/pids/pids.max 2>/dev/null || printf 'unavailable\n'
 printf 'tmp_available_kb='; df -Pk /tmp 2>/dev/null | awk 'NR == 2 { print $4 }'
 """.strip()
 
@@ -91,7 +92,7 @@ class RefreshSandboxCredentialsInput:
     exclude_kinds: list[str] = field(default_factory=list)
 
 
-@dataclass
+@frozen
 class RefreshSandboxCredentialsOutput:
     # Seconds the workflow should wait before refreshing again — derived from the
     # shortest-lived credential so the loop tracks the tightest TTL.
@@ -105,6 +106,7 @@ class RefreshSandboxCredentialsOutput:
     # A flag rather than an error so old histories (which decode the missing field as
     # False) replay unchanged, per the workflow-versioning rules.
     task_gone: bool = False
+    sandbox_exit_reason: str | None = None
 
 
 @activity.defn
@@ -185,13 +187,18 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
         if not sandbox.is_running():
             for credential in credentials:
                 increment_credential_refresh(credential.kind, "skipped")
+            sandbox_exit_reason = sandbox.exit_reason()
             logger.info(
                 "sandbox_credentials_refresh_stopped_not_running",
                 sandbox_id=input.sandbox_id,
                 run_id=ctx.run_id,
+                sandbox_exit_reason=sandbox_exit_reason,
             )
             return RefreshSandboxCredentialsOutput(
-                next_refresh_seconds=next_refresh, refreshed_kinds=[], sandbox_gone=True
+                next_refresh_seconds=next_refresh,
+                refreshed_kinds=[],
+                sandbox_gone=True,
+                sandbox_exit_reason=sandbox_exit_reason,
             )
 
         if not credentials:
@@ -206,14 +213,17 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
             )
 
         sandbox_gone = False
+        sandbox_exit_reason = None
         for index, credential in enumerate(credentials):
             try:
                 outcome = credential.refresh(sandbox, ctx, task)
             except SandboxNotRunningError:
+                sandbox_exit_reason = sandbox.exit_reason()
                 logger.info(
                     "sandbox_credentials_refresh_stopped_not_running",
                     sandbox_id=input.sandbox_id,
                     run_id=ctx.run_id,
+                    sandbox_exit_reason=sandbox_exit_reason,
                 )
                 for skipped in credentials[index:]:
                     increment_credential_refresh(skipped.kind, "skipped")
@@ -302,4 +312,5 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
             sandbox_gone=sandbox_gone,
             orphaned_kinds=orphaned_kinds,
             no_credentials_left=len(orphaned_kinds) == len(credentials),
+            sandbox_exit_reason=sandbox_exit_reason,
         )

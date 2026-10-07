@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
+import requests
 import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet import (
@@ -14,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.ha
     HatchetResumeConfig,
     HatchetTokenError,
     _build_initial_params,
+    _fetch_page,
     _normalize_row,
     _resolve_since,
     get_rows,
@@ -336,6 +338,71 @@ class TestGetRows:
         assert session.call_args.kwargs["allow_redirects"] is False
         assert session.call_args.kwargs["redact_values"] == ("tok",)
         assert session.call_args.kwargs["capture"] is False
+
+    def test_fan_out_tags_child_rows_with_parent_run_and_skips_purged_runs(self):
+        manager = FakeManager()
+        parent_page = {
+            "rows": [
+                {"metadata": {"id": "run-1", "createdAt": "2026-06-01T00:00:00Z", "updatedAt": "2026-06-01T00:00:00Z"}},
+                {
+                    "metadata": {
+                        "id": "run-gone",
+                        "createdAt": "2026-06-02T00:00:00Z",
+                        "updatedAt": "2026-06-02T00:00:00Z",
+                    }
+                },
+            ],
+            "pagination": {"current_page": 1, "num_pages": 1},
+        }
+        child_pages = {
+            "/api/v1/stable/workflow-runs/run-1/task-events": {
+                "rows": [
+                    {"id": 1, "taskId": "task-a", "eventType": "STARTED", "timestamp": "2026-06-01T00:00:01Z"},
+                    {"id": 2, "taskId": "task-a", "eventType": "FINISHED", "timestamp": "2026-06-01T00:00:02Z"},
+                ],
+                "pagination": {},
+            },
+            "/api/v1/stable/workflow-runs/run-gone/task-events": None,
+        }
+        captured_urls: list[str] = []
+
+        def fake_fetch(session, url, headers, log, allow_not_found=False):
+            captured_urls.append(url)
+            path = url.removeprefix("https://cloud.example").split("?")[0]
+            if path in child_pages:
+                assert allow_not_found is True
+                return child_pages[path]
+            return parent_page
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._fetch_page",
+            side_effect=fake_fetch,
+        ):
+            rows = _collect(
+                get_rows("tok", self._connection(), "task_events", logger, manager, 1, True, None)  # type: ignore[arg-type]
+            )
+
+        assert "/api/v1/stable/tenants/tenant-1/workflow-runs?" in captured_urls[0]
+        assert "include_payloads=false" in captured_urls[0]
+        assert [(r["id"], r["workflow_run_id"], r["workflow_run_created_at"]) for r in rows] == [
+            (1, "run-1", "2026-06-01T00:00:00Z"),
+            (2, "run-1", "2026-06-01T00:00:00Z"),
+        ]
+
+
+class TestFetchPage:
+    @pytest.mark.parametrize("allow_not_found", [True, False])
+    def test_not_found_is_skipped_only_when_allowed(self, allow_not_found):
+        response = requests.Response()
+        response.status_code = 404
+        session = mock.MagicMock()
+        session.get.return_value = response
+
+        if allow_not_found:
+            assert _fetch_page(session, "https://cloud.example/x", {}, logger, allow_not_found=True) is None
+        else:
+            with pytest.raises(requests.HTTPError):
+                _fetch_page(session, "https://cloud.example/x", {}, logger)
 
 
 class TestValidateCredentials:

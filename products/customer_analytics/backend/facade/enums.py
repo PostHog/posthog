@@ -1,21 +1,32 @@
-from enum import Enum
+from enum import StrEnum
 
-from django.db import models
+from posthog.enums import LabeledStrEnum
 
 
-class AccountPropertyPinKind(str, Enum):
+class AccountPropertyPinKind(StrEnum):
     CUSTOM_PROPERTY = "custom_property"
     RELATIONSHIP = "relationship"
 
 
-class TaskDigestCadence(models.TextChoices):
+ACCOUNT_PROPERTY_PIN_KIND_CHOICES: tuple[tuple[str, str], ...] = (
+    (AccountPropertyPinKind.CUSTOM_PROPERTY.value, "Custom property"),
+    (AccountPropertyPinKind.RELATIONSHIP.value, "Relationship"),
+)
+
+
+class AccountViewVisibility(LabeledStrEnum):
+    PRIVATE = "private", "Personal"
+    TEAM = "team", "Team"
+
+
+class TaskDigestCadence(LabeledStrEnum):
     """How often a user's customer task digest email is sent."""
 
     WEEKDAYS = "weekdays", "Weekdays"
     EVERY_DAY = "every_day", "Every day"
 
 
-class AccountRelationshipSource(models.TextChoices):
+class AccountRelationshipSource(LabeledStrEnum):
     """Which kind of writer created or ended a relationship row. Rows written before provenance
     was recorded carry NULL."""
 
@@ -26,7 +37,7 @@ class AccountRelationshipSource(models.TextChoices):
     MIGRATION = "migration", "Migration"
 
 
-class OwnershipRoleState(models.TextChoices):
+class OwnershipRoleState(LabeledStrEnum):
     """What a consumer may conclude about a controlled relationship on one account."""
 
     # No control row: legacy authority holds, whatever the relationship rows say.
@@ -38,7 +49,7 @@ class OwnershipRoleState(models.TextChoices):
     BLOCKED = "blocked", "Blocked"
 
 
-class OwnershipRoleDiagnostic(models.TextChoices):
+class OwnershipRoleDiagnostic(LabeledStrEnum):
     HOLDER_MISSING = "holder_missing", "The active relationship has no user"
     HOLDER_INACTIVE = "holder_inactive", "The holder's user account is deactivated"
     HOLDER_NOT_IN_ORGANIZATION = "holder_not_in_organization", "The holder is not a member of the organization"
@@ -47,8 +58,10 @@ class OwnershipRoleDiagnostic(models.TextChoices):
 
 __all__ = [
     "AccountPropertyPinKind",
+    "AccountViewVisibility",
     "AccountRelationshipSource",
     "OwnershipRoleDiagnostic",
     "OwnershipRoleState",
     "TaskDigestCadence",
+    "ACCOUNT_PROPERTY_PIN_KIND_CHOICES",
 ]

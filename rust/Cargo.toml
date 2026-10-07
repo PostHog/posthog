@@ -117,6 +117,12 @@ js-source-scopes = { git = "https://github.com/getsentry/js-source-scopes", rev 
 [profile.release]
 debug = "line-tables-only"
 
+# Neon 1.1 deletes each napi async work inside `debug_assert_eq!` (src/sys/async_work.rs), so a
+# release build without debug assertions leaks every `cx.task()`, with the two V8 global handles
+# that hold its resource object and async context frame.
+[profile.release.package.neon]
+debug-assertions = true
+
 # The stateright model checker exhaustively explores millions of protocol
 # states; its hot loop (state hashing, BTreeMap clones) is ~11x slower
 # unoptimized, which would put the exhaustive tests at ~25 minutes in
@@ -245,7 +251,7 @@ aws-smithy-runtime-api = { version = "1.11.5", features = ["client"] }
 aws-smithy-http-client = { version = "1.1.11", features = ["rustls-aws-lc"] }
 mockall = "0.13.0"
 moka = { version = "0.12.15", features = ["sync", "future"] }
-posthog-rs = { version = "0.25.5", features = ["async-client", "capture-v1"] }
+posthog-rs = { version = "0.27.0", features = ["async-client", "capture-v1"] }
 redis = { version = "0.32.7", features = [
   "tokio-comp",
   "cluster",

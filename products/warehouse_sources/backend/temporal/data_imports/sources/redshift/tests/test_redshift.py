@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     RedshiftSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import (
+    METADATA_STATEMENT_TIMEOUT_MS,
     REDSHIFT_SINGLE_NODE_FETCH_LIMIT,
     RedshiftColumn,
     RedshiftImplementation,
@@ -1091,6 +1092,17 @@ class TestHasDuplicatePrimaryKeys:
             assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is None
         mock_capture.assert_not_called()
 
+    def test_undefined_table_is_not_reported(self, impl: Any, cursor: Any, logger: Any) -> None:
+        # The table was dropped or renamed between schema discovery and this probe running — a
+        # customer-side change, not an actionable bug. The probe is best-effort, so skip gracefully
+        # without reporting the expected error to error tracking.
+        cursor.execute.side_effect = psycopg.errors.UndefinedTable('relation "public.t" does not exist')
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
+        ) as mock_capture:
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is None
+        mock_capture.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Listing — exercise impl methods that take a real cursor mock
@@ -1755,6 +1767,37 @@ class TestBuildPipeline:
         with pytest.raises(psycopg.OperationalError):
             impl.build_pipeline(_make_config(), _make_inputs())
 
+    def test_retries_once_on_transient_connection_drop_opening_the_streaming_connection(
+        self, build_pipeline_mocks, mocker
+    ):
+        # Regression: unlike the metadata connect above, opening the streaming connection had no
+        # in-process retry. Nothing has been read yet at that point, so a drop there is exactly as
+        # safe to retry as a setup-phase drop — but without the retry it fell straight through to a
+        # full Temporal activity retry that restarts the whole sync.
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.time.sleep")
+        mock_connect, streaming_cursor = build_pipeline_mocks
+        real_side_effect = mock_connect.side_effect
+        attempts = {"n": 0}
+
+        def flaky_streaming_connect(*args, **kwargs):
+            attempts["n"] += 1
+            # Call 1 is the metadata connect; call 2 is the first streaming connect attempt.
+            if attempts["n"] == 2:
+                raise psycopg.OperationalError("the connection is lost")
+            return real_side_effect(*args, **kwargs)
+
+        mock_connect.side_effect = flaky_streaming_connect
+
+        impl = RedshiftImplementation()
+        response = impl.build_pipeline(_make_config(), _make_inputs())
+        list(response.items())  # type: ignore[arg-type]
+
+        assert attempts["n"] == 3
+        # The metadata connect's own `SET statement_timeout` also calls `execute` on this shared
+        # cursor mock, so asserting `execute.called` would pass even if the retried streaming
+        # connection never ran its query. `stream` is only called once the retry succeeds.
+        streaming_cursor.stream.assert_called_once()
+
     def test_returns_source_response(self, build_pipeline_mocks):
         mock_connect, _ = build_pipeline_mocks
         impl = RedshiftImplementation()
@@ -1916,6 +1959,32 @@ class TestConnect:
         assert kwargs["keepalives_interval"] == 10
         assert kwargs["keepalives_count"] == 3
         assert kwargs["tcp_user_timeout"] == 60000
+
+    @pytest.mark.parametrize(
+        "connect_kwargs, expected_statements",
+        [
+            ({}, [f"SET statement_timeout = {METADATA_STATEMENT_TIMEOUT_MS}"]),
+            ({"statement_timeout_ms": None}, []),
+        ],
+        ids=["metadata_connection", "row_reading_connection"],
+    )
+    def test_connect_sets_a_statement_timeout_for_metadata_only(self, mocker, connect_kwargs, expected_statements):
+        mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.open_ssh_tunnel",
+        ).return_value.__enter__.return_value = ("localhost", 5439)
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.psycopg.connect",
+            return_value=mock_conn,
+        )
+
+        with RedshiftImplementation().connect(_make_config(), **connect_kwargs):
+            pass
+
+        assert [call.args[0].as_string() for call in mock_conn.execute.call_args_list] == expected_statements
+        # A `SET` that is not committed is undone by the first rollback.
+        assert mock_conn.commit.call_count == len(expected_statements)
 
     def test_connect_registers_safe_date_and_timestamp_loaders(self, mocker):
         # Wiring guard: these loaders only protect a sync if they're actually registered on the

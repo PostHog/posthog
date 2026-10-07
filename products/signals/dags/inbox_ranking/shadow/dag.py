@@ -163,7 +163,7 @@ def load_scores(client, bucket: str, prefix: str, dates: list[datetime.date]) ->
     for date in dates:
         key = date.isoformat()
         # Read whole rather than by column list: an object written before `model_name` existed
-        # has no such column, and `with_model_names` is what fills it in.
+        # has no such column, and `with_model_names` drops its rows.
         try:
             response = client.get_object(Bucket=bucket, Key=partition_object_key(prefix, UNSEEN_SCORES_TABLE, key))
         except ClientError as error:
@@ -327,7 +327,6 @@ def inbox_ranking_shadow_eval(context: dagster.AssetExecutionContext) -> None:
 inbox_ranking_shadow_job = dagster.define_asset_job(
     name="inbox_ranking_shadow_job",
     selection=[SHADOW_TABLE],
-    partitions_def=partition_def,
     tags={**owner_tags, "dagster/max_runtime": str(60 * 60)},
 )
 

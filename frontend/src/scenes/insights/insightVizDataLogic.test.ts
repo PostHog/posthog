@@ -24,7 +24,6 @@ import {
     FunnelVizType,
     InsightModel,
     InsightShortId,
-    InsightType,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -913,9 +912,6 @@ describe('insightVizDataLogic', () => {
     describe('validationError', () => {
         it('for standard funnel', async () => {
             const insight: Partial<InsightModel> = {
-                filters: {
-                    insight: InsightType.FUNNELS,
-                },
                 result: funnelResult.result,
             }
 
@@ -986,6 +982,20 @@ describe('insightVizDataLogic', () => {
                     ],
                 } as Partial<TrendsQuery>)
             }).toMatchValues({ isSingleSeriesOutput: true })
+        })
+
+        it.each([
+            ['a single breakdown', { breakdown: '$browser', breakdown_type: 'event' }, undefined],
+            ['multiple breakdowns', { breakdowns: [{ property: '$browser', type: 'event' }] }, undefined],
+            ['a breakdown and one formula', { breakdowns: [{ property: '$browser', type: 'event' }] }, 'A * 2'],
+        ])('returns false for a single series with %s', (_, breakdownFilter, formula) => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
+                    breakdownFilter,
+                    trendsFilter: formula ? { formula } : undefined,
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeriesOutput: false })
         })
 
         it('returns false for multiple series without formula', () => {
