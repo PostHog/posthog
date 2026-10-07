@@ -80,6 +80,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
     SignalFinding,
     SignalsResponse,
     TextSegment,
+    render_signals_instruction,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
 from products.replay_vision.backend.temporal.scanners.experiment import ExperimentScanner
@@ -656,7 +657,9 @@ async def _run_mission(
             )
         elif step.name == STEP_SIGNALS:
             step = replace(
-                step, validate=functools.partial(_validate_signal_timestamps, duration_seconds=signal_duration_s)
+                step,
+                instruction=render_signals_instruction(_last_video_second(signal_duration_s)),
+                validate=functools.partial(_validate_signal_timestamps, duration_seconds=signal_duration_s),
             )
         steps.append(step)
 
@@ -686,6 +689,13 @@ async def _run_mission(
         key_moment_video_s=getattr(step_outputs.get(STEP_CORE), "key_moment_t", None),
         core_response=step_outputs.get(STEP_CORE),
     )
+
+
+def _last_video_second(duration_seconds: float | None) -> int | None:
+    """The largest whole second `_validate_signal_timestamps` accepts, or None when it accepts none."""
+    if duration_seconds is None or not math.isfinite(duration_seconds) or duration_seconds <= 0:
+        return None
+    return math.floor(duration_seconds)
 
 
 def _validate_signal_timestamps(output: BaseModel, *, duration_seconds: float | None) -> str | None:
@@ -886,6 +896,19 @@ async def _run_step(
         started = time.monotonic()
         try:
             response = await _generate(convo)
+        except ValueError as exc:
+            if not _is_runaway_number(exc):
+                record_provider_call(**metric_labels, outcome="provider_error", seconds=time.monotonic() - started)
+                raise
+            # The SDK parses the JSON answer inside `generate_content`, so a number the model never stopped writing
+            # raises here instead of reaching validation. It is bad output, so re-prompt rather than re-run inline.
+            last_error = "a number in the response had thousands of digits"
+            last_was_empty = False
+            record_provider_call(**metric_labels, outcome="validation_failed", seconds=time.monotonic() - started)
+            logger.warning("replay_vision.call_scanner_provider.runaway_number", step=step.name, attempt=attempt + 1)
+            if attempt < _MAX_LLM_ATTEMPTS - 1:
+                convo.append(types.Part(text=_RUNAWAY_NUMBER_CORRECTION))
+            continue
         except Exception:
             record_provider_call(**metric_labels, outcome="provider_error", seconds=time.monotonic() - started)
             raise
@@ -949,6 +972,16 @@ async def _run_step(
         provider_refused=last_was_empty,
     )
     return _StepResult(output=None, provider_refused=last_was_empty)
+
+
+_RUNAWAY_NUMBER_CORRECTION = (
+    "\n\nYour previous answer could not be read: a number in it ran on for thousands of digits. Write every "
+    "number as a short value, such as whole seconds of video time. Respond with raw JSON only."
+)
+
+
+def _is_runaway_number(exc: ValueError) -> bool:
+    return "integer string conversion" in str(exc)
 
 
 def _hit_output_cap(response: Any) -> bool:
