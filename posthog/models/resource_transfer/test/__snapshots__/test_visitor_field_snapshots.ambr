@@ -1008,6 +1008,7 @@
     '__module__',
     '__static_attributes__',
     '_meta',
+    'copy_for_team',
     'created_by_id',
     'dashboard_tiles',
     'get_next_by_last_modified_at',
