@@ -264,6 +264,8 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                 {
                     "duration_seconds": task_run._duration_seconds(),
                     "termination_reason": termination_reason,
+                    # A lost sandbox still completes the run, and this message carries its exit reason, e.g. OOM.
+                    "error_message": truncate_error_message(input.error_message),
                     "has_summary": bool((task_run.state or {}).get("task_summary")),
                     **relay_state,
                 },
