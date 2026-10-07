@@ -4755,10 +4755,10 @@ Today (10): `autoqa_ratings`, `autoqa_reviews`, `calibration_sessions`, `csat`, 
 
 Diffed against: <https://pub.klausapp.com/public-export-api.swagger.json>
 
-- [ ] `/api/export/quizzes/{id}/responses` — individual quiz responses per user — quizzes alone is only the quiz definition, so pass rates and knowledge gaps are unqueryable (high)
-- [ ] `/api/export/conversations/search` — the conversation records that reviews and AutoQA ratings attach to; without them scores cannot be tied back to channel, queue, or handling time (high)
-- [ ] `/api/export/quizzes/{id}/overview` — per-quiz aggregate results, the vendor's own summary view (medium)
-- [ ] `/api/export/quizzes/leaderboard` — agent ranking dimension across quizzes (medium)
+- [x] `/api/export/quizzes/{id}/responses` — individual quiz responses per user — quizzes alone is only the quiz definition, so pass rates and knowledge gaps are unqueryable (high). Added as `quiz_responses` (fan-out over `quizzes`).
+- [ ] `/api/export/conversations/search` — the conversation records that reviews and AutoQA ratings attach to; without them scores cannot be tied back to channel, queue, or handling time (high) — skipped: a POST lookup that needs an `endUserEmail` in the body and returns only `externalId` and `externalLink` per match, so it cannot list conversations and carries none of the claimed channel, queue, or handling-time fields.
+- [x] `/api/export/quizzes/{id}/overview` — per-quiz aggregate results, the vendor's own summary view (medium). Added as `quiz_overviews` (fan-out over `quizzes`).
+- [x] `/api/export/quizzes/leaderboard` — agent ranking dimension across quizzes (medium). Added as `quiz_leaderboard`.
 
 Note: Now branded Zendesk QA. pub.klausapp.com hosts two Swagger 2.0 specs; the relevant one is public-export-api.swagger.json (18 paths) — the sibling public-import-api.swagger.json is write-only ingestion and irrelevant here. PostHog's 10 tables map 1:1 onto the workspace-scoped export endpoints; the only genuine holes are the quiz sub-resources and the POST-based conversation search (which needs a request body, so it is more work than the plain GET exports).
 

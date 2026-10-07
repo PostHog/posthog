@@ -13,14 +13,40 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
+@dataclass(frozen=True)
+class KlausFanOutParent:
+    list_path: str
+    data_selector: str
+    # Placeholder in the child endpoint path that receives the parent id.
+    path_param: str
+    # Column injected into child rows so primary keys stay unique table-wide.
+    parent_column: str
+
+
+WORKSPACES_PARENT = KlausFanOutParent(
+    list_path="/api/export/workspaces",
+    data_selector="workspaces",
+    path_param="workspace",
+    parent_column="workspace_id",
+)
+
+QUIZZES_PARENT = KlausFanOutParent(
+    list_path="/api/export/quizzes",
+    data_selector="quizzes",
+    path_param="id",
+    parent_column="quiz_id",
+)
+
+
 @dataclass
 class KlausEndpointConfig:
     name: str
-    # Path under https://{subdomain}.zendesk.com/qa. Fan-out paths carry a {workspace} placeholder.
+    # Path under https://{subdomain}.zendesk.com/qa. Fan-out paths carry the parent's path_param placeholder.
     path: str
     # Top-level key the list of records lives under in the response body
     # (each collection is wrapped, e.g. {"conversations": [...], "pagination": {...}}).
-    data_selector: str
+    # None means the whole body is a single record.
+    data_selector: Optional[str]
     # Whether the endpoint accepts page/pageSize params. The catalog endpoints
     # (users, workspaces, quizzes, scorecards) return everything in one response.
     paginated: bool = True
@@ -36,9 +62,8 @@ class KlausEndpointConfig:
     # Stable creation-time field to partition by, or None to skip partitioning.
     partition_key: Optional[str] = None
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
-    # Fan out one request stream per workspace (listed via /api/export/workspaces).
-    # Rows get a `workspace_id` column injected so primary keys stay unique table-wide.
-    fan_out_over_workspaces: bool = False
+    # Fan out one request stream per parent record (e.g. per workspace).
+    fan_out: Optional[KlausFanOutParent] = None
     page_size: int = 100
 
 
@@ -106,7 +131,7 @@ KLAUS_ENDPOINTS: dict[str, KlausEndpointConfig] = {
         path="/api/export/workspace/{workspace}/scorecards",
         data_selector="data",
         paginated=False,
-        fan_out_over_workspaces=True,
+        fan_out=WORKSPACES_PARENT,
         primary_keys=["workspace_id", "id"],
     ),
     "disputes": KlausEndpointConfig(
@@ -115,7 +140,7 @@ KLAUS_ENDPOINTS: dict[str, KlausEndpointConfig] = {
         data_selector="disputes",
         # fromDate is optional on disputes; without a live account to verify the
         # filter actually narrows results server-side, disputes ship full refresh.
-        fan_out_over_workspaces=True,
+        fan_out=WORKSPACES_PARENT,
         primary_keys=["workspace_id", "disputeId"],
     ),
     "calibration_sessions": KlausEndpointConfig(
@@ -124,8 +149,29 @@ KLAUS_ENDPOINTS: dict[str, KlausEndpointConfig] = {
         data_selector="calibrationSessions",
         requires_from_date=True,
         incremental_fields=[_datetime_incremental_field("createdAt")],
-        fan_out_over_workspaces=True,
+        fan_out=WORKSPACES_PARENT,
         primary_keys=["workspace_id", "id"],
+    ),
+    "quiz_responses": KlausEndpointConfig(
+        name="quiz_responses",
+        path="/api/export/quizzes/{id}/responses",
+        data_selector="responses",
+        paginated=False,
+        fan_out=QUIZZES_PARENT,
+        primary_keys=["quiz_id", "responseId"],
+    ),
+    "quiz_overviews": KlausEndpointConfig(
+        name="quiz_overviews",
+        path="/api/export/quizzes/{id}/overview",
+        data_selector=None,
+        paginated=False,
+        fan_out=QUIZZES_PARENT,
+    ),
+    "quiz_leaderboard": KlausEndpointConfig(
+        name="quiz_leaderboard",
+        path="/api/export/quizzes/leaderboard",
+        data_selector="leaderboardUsers",
+        paginated=False,
     ),
 }
 
