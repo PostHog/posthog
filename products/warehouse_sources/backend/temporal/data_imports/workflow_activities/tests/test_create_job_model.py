@@ -318,6 +318,28 @@ class TestCreateJobActivityStatusOrdering:
         assert ExternalDataJob.objects.filter(schema_id=schema.id).exists()
         assert schema.status == ExternalDataSchema.Status.FAILED
 
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.activity")
+    def test_outputs_carry_the_schemas_failure_streak(
+        self, mock_activity: MagicMock, _mock_close_connections: MagicMock
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        team = _team()
+        schema = _schema(team, None)
+        schema.sync_type_config = {
+            "failure_streak": {"runs": 4, "last_failed_at": (timezone.now() - dt.timedelta(minutes=5)).isoformat()}
+        }
+        schema.save()
+
+        outputs = create_external_data_job_model_activity(
+            CreateExternalDataJobModelActivityInputs(
+                team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=True
+            )
+        )
+
+        assert outputs.failed_runs_in_a_row == 4
+
 
 @pytest.mark.django_db
 class TestCreateJobActivityScheduledFullRefresh:
