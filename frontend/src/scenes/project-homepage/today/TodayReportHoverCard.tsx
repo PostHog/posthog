@@ -115,11 +115,11 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                     <ItemTitle className="wrap-anywhere">
                         <span className="min-w-0 font-semibold">{card.title}</span>
                     </ItemTitle>
+                    {/* The pull request mark carries its own icon, so the gap separates it from the lead.
+                        A separator would be left stranded at a line edge whenever the row wraps. */}
                     {(lead || card.pullRequestUrl) && (
-                        <ItemDescription className="flex flex-wrap items-center gap-x-1.5">
-                            {/* The separator ends the lead rather than opening the link, so a wrap leaves it
-                                trailing the first line instead of reading as a bullet on the second. */}
-                            {lead && <span>{card.pullRequestUrl ? `${lead} ·` : lead}</span>}
+                        <ItemDescription className="flex flex-wrap items-center gap-x-2">
+                            {lead && <span>{lead}</span>}
                             {card.pullRequestUrl && (
                                 <span className="flex min-w-0 items-center gap-1.5">
                                     <LinkPrimitive
