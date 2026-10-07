@@ -3601,6 +3601,16 @@ def _entries_show_agent_activity(entries: list[dict]) -> bool:
     return bool(entries) and not saw_acp_frame
 
 
+def _append_run_log(run: TaskRun, entries: list[dict]) -> None:
+    if "imported_from" not in (run.state or {}):
+        run.append_log(entries, lock_attempts=1)
+        return
+    # append_imported_task_run_log skips the Redis lock and relies on this row lock alone.
+    with transaction.atomic():
+        TaskRun.objects.select_for_update().only("id").get(id=run.id)
+        run.append_log(entries, lock_attempts=1)
+
+
 def append_task_run_log(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, entries: list[dict]
 ) -> contracts.TaskRunDetailDTO | None:
@@ -3613,7 +3623,7 @@ def append_task_run_log(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    run.append_log(entries, lock_attempts=1)
+    _append_run_log(run, entries)
     run.clear_echoed_followup_messages(entries)
     run.heartbeat_workflow(agent_active=_entries_show_agent_activity(entries))
     return _task_run_detail_to_dto(run)
@@ -3759,7 +3769,9 @@ def append_imported_task_run_log(
         state = run.state or {}
         if any(state.get(key) != value for key, value in expected_state.items()):
             return False
-        run.append_log(entries, ttl_days=None, batch_id=batch_id)
+        # Every writer of an import run's log holds this row lock, so the Redis append lock adds
+        # nothing here, and one orphaned by a killed attempt would refuse every retry until it expires.
+        run.append_log(entries, ttl_days=None, lock_attempts=0, batch_id=batch_id)
         run.state = {**state, **state_updates}
         run.completed_at = completed_at
         run.save(update_fields=["state", "completed_at"])
@@ -5036,7 +5048,7 @@ def publish_task_run_stream_notification(
     event = run.build_notification_event(method, params)
     if persist:
         try:
-            run.append_log([event], lock_attempts=1)
+            _append_run_log(run, [event])
         except Exception:
             logger.warning("task_run_stream_notification_log_append_failed run_id=%s", run_id, exc_info=True)
             return contracts.StreamNotificationDelivery(live=False, persisted=False)
