@@ -173,6 +173,7 @@ def _v2_client(api_token: str) -> RESTClient:
         auth=BearerTokenAuth(token=api_token),
         allowed_hosts=[],
         allow_redirects=False,
+        request_timeout=(10.0, 60.0),
     )
 
 

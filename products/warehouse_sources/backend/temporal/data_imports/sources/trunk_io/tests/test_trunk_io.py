@@ -550,6 +550,7 @@ class TestV2Lists:
 
         def fake_send(request: Any, *_args: Any, **kwargs: Any) -> Response:
             assert kwargs.get("allow_redirects") is False
+            assert kwargs.get("timeout") == (10.0, 60.0)
             sent.append(
                 {
                     "method": request.method,
