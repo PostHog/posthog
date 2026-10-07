@@ -597,7 +597,7 @@ export const EventDefinitionUpdateInputSchema = z.object({
         .array(EventDefinitionTagSchema)
         .optional()
         .describe(
-            'Tags to organize events by product area (e.g. "checkout", "onboarding") or user journey stage (e.g. "acquisition", "activation", "monetization", "retention")'
+            'Tags to organize events by product area (e.g. "checkout", "onboarding") or user journey stage (e.g. "acquisition", "activation", "monetization", "retention"). Warning: on an existing definition this REPLACES the entire tag list, it does not merge. To keep existing tags, include them alongside the new ones; to remove a tag, omit it. Omit this field entirely to leave tags unchanged.'
         ),
     verified: z
         .boolean()

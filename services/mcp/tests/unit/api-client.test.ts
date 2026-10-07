@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiClient } from '@/api/client'
 import { MCP_CLIENT_IP_HEADERS, verifySignedClientIp } from '@/lib/client-ip-signature'
 import { USER_AGENT, getUserAgent } from '@/lib/constants'
-import { PostHogTransportError } from '@/lib/errors'
+import { PostHogRateLimitError, PostHogTransportError, PostHogValidationError } from '@/lib/errors'
 import { getToolByName } from '@/shared/test-utils'
 import { GENERATED_TOOLS } from '@/tools/generated/skills'
 import type { Context } from '@/tools/types'
@@ -604,6 +604,133 @@ describe('ApiClient', () => {
             expect((error as PostHogTransportError).retryable).toBe(false)
             expect((error as PostHogTransportError).message).toContain('may have been applied upstream')
             expect(mockFetch).toHaveBeenCalledTimes(1)
+        })
+
+        describe('createEventDefinition idempotency', () => {
+            const validationBody = JSON.stringify({
+                type: 'validation_error',
+                code: 'invalid',
+                detail: "Event definition with name 'user_signed_up' already exists",
+                attr: 'name',
+            })
+            const existing = { id: 'abc-123', name: 'user_signed_up', description: '', tags: [] }
+            const updated = { ...existing, description: 'Synced from production', tags: ['acquisition'] }
+
+            it('adopts the existing definition and applies metadata when the name already exists', async () => {
+                const mockFetch = vi.fn(async (url: string, options?: RequestInit) => {
+                    const method = options?.method ?? 'GET'
+                    if (url.endsWith('/event_definitions/') && method === 'POST') {
+                        return new Response(validationBody, { status: 400 })
+                    }
+                    if (url.includes('/event_definitions/by_name/')) {
+                        return new Response(JSON.stringify(existing), { status: 200 })
+                    }
+                    if (url.includes(`/event_definitions/${existing.id}/`) && method === 'PATCH') {
+                        return new Response(JSON.stringify(updated), { status: 200 })
+                    }
+                    throw new Error(`Unexpected request: ${method} ${url}`)
+                })
+                vi.stubGlobal('fetch', mockFetch)
+
+                const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+                const result = await client.projects().createEventDefinition({
+                    projectId: '2',
+                    eventName: 'user_signed_up',
+                    data: { description: 'Synced from production', tags: ['acquisition'] },
+                })
+
+                expect(result.success).toBe(true)
+                if (result.success) {
+                    expect(result.data.id).toBe(existing.id)
+                    expect(result.data.description).toBe('Synced from production')
+                }
+                const patchCall = mockFetch.mock.calls.find(([, o]) => o?.method === 'PATCH')
+                expect(patchCall).not.toBeUndefined()
+
+                vi.unstubAllGlobals()
+            })
+
+            it.each([
+                {
+                    step: 'by-name lookup',
+                    matches: (url: string) => url.includes('/event_definitions/by_name/'),
+                    response: () => new Response('{}', { status: 429, headers: { 'Retry-After': '3600' } }),
+                    errorClass: PostHogRateLimitError,
+                },
+                {
+                    step: 'metadata update',
+                    matches: (url: string, method: string) =>
+                        url.includes(`/event_definitions/${existing.id}/`) && method === 'PATCH',
+                    response: () =>
+                        new Response(
+                            JSON.stringify({
+                                type: 'validation_error',
+                                code: 'invalid',
+                                detail: 'An event cannot be both hidden and verified',
+                                attr: null,
+                            }),
+                            { status: 400 }
+                        ),
+                    errorClass: PostHogValidationError,
+                },
+            ])(
+                'keeps the typed API error when the $step fails after a duplicate',
+                async ({ matches, response, errorClass }) => {
+                    const mockFetch = vi.fn(async (url: string, options?: RequestInit) => {
+                        const method = options?.method ?? 'GET'
+                        if (matches(url, method)) {
+                            return response()
+                        }
+                        if (url.endsWith('/event_definitions/') && method === 'POST') {
+                            return new Response(validationBody, { status: 400 })
+                        }
+                        if (url.includes('/event_definitions/by_name/')) {
+                            return new Response(JSON.stringify(existing), { status: 200 })
+                        }
+                        throw new Error(`Unexpected request: ${method} ${url}`)
+                    })
+                    vi.stubGlobal('fetch', mockFetch)
+
+                    const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+                    const result = await client.projects().createEventDefinition({
+                        projectId: '2',
+                        eventName: 'user_signed_up',
+                        data: { hidden: true, verified: true },
+                    })
+
+                    expect(result.success).toBe(false)
+                    if (!result.success) {
+                        // A typed error lets `handleToolError` report a recoverable failure, not an internal fault.
+                        expect(result.error).toBeInstanceOf(errorClass)
+                    }
+
+                    vi.unstubAllGlobals()
+                }
+            )
+
+            it('surfaces a non-duplicate validation error instead of retrying', async () => {
+                const badBody = JSON.stringify({
+                    type: 'validation_error',
+                    code: 'invalid',
+                    detail: 'An event cannot be both hidden and verified',
+                    attr: null,
+                })
+                const mockFetch = vi.fn(async () => new Response(badBody, { status: 400 }))
+                vi.stubGlobal('fetch', mockFetch)
+
+                const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+                const result = await client.projects().createEventDefinition({
+                    projectId: '2',
+                    eventName: 'user_signed_up',
+                    data: { hidden: true, verified: true },
+                })
+
+                expect(result.success).toBe(false)
+                // Only the POST runs: a genuine rejection must not fall through to an update.
+                expect(mockFetch).toHaveBeenCalledOnce()
+
+                vi.unstubAllGlobals()
+            })
         })
     })
 })
