@@ -25,6 +25,8 @@ import {
     type TeamType,
 } from '~/types'
 
+import { inboxSceneLogic } from 'products/signals/frontend/inbox/inboxSceneLogic'
+
 import { sceneLogic } from './sceneLogic'
 import type { testLogicType } from './sceneLogic.testType'
 
@@ -33,6 +35,7 @@ jest.mock('lib/api', () => ({
     default: {
         get: jest.fn(),
         update: jest.fn(),
+        signalReports: { availableReviewers: jest.fn().mockResolvedValue([]) },
     },
 }))
 
@@ -51,6 +54,7 @@ const testScenes: Record<string, () => any> = {
     [Scene.PasswordResetComplete]: sceneImport,
     [Scene.ProjectCreateFirst]: sceneImport,
     [Scene.Settings]: sceneImport,
+    ScoutTrials: sceneImport,
     [Scene.ProjectFiles]: sceneImport,
 }
 
@@ -131,6 +135,38 @@ describe('sceneLogic', () => {
         await expectLogic(logic).delay(1)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlag('123'))
     })
+
+    it.each<[string, boolean]>([
+        ['/inbox/scouts/trials', false],
+        ['/inbox/scouts/trials', true],
+        ['/scout-trials', false],
+        ['/scout-trials', true],
+    ])(
+        'opens %s on the canonical scout trials route with inbox mounted=%p and preserves URL parameters',
+        async (path, inboxMounted) => {
+            await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
+                sceneId: Scene.DataManagement,
+            })
+            const inbox = inboxMounted ? inboxSceneLogic() : null
+            inbox?.mount()
+            try {
+                await expectLogic(logic, () => {
+                    router.actions.push(path, { source: 'bookmark' }, { comparison: 'comparison-1' })
+                })
+                    .toDispatchActions(['openScene', 'loadScene', 'setScene'])
+                    .toMatchValues({ activeSceneId: 'ScoutTrials' })
+
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual('/inbox/scouts/trials')
+                expect(router.values.searchParams).toEqual({ source: 'bookmark' })
+                expect(router.values.hashParams).toEqual({ comparison: 'comparison-1' })
+                if (inbox) {
+                    expect(inbox.values.selectedScoutSkillName).toBeNull()
+                }
+            } finally {
+                inbox?.unmount()
+            }
+        }
+    )
 
     it('redirects a bare /billing to /organization/billing instead of a 404', async () => {
         router.actions.push('/billing')

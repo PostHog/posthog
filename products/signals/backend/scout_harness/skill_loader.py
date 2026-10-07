@@ -20,7 +20,7 @@ SIGNALS_SCOUT_SKILL_PREFIX = "signals-scout-"
 
 # Names the inbox reads as sub-pages of `/inbox/scouts/`, so a scout that took one could never
 # be opened. They stay valid as ordinary skill names — only the scout paths refuse them.
-RESERVED_SCOUT_NAMES: frozenset[str] = frozenset({"scratchpad", "findings", "runs"})
+RESERVED_SCOUT_NAMES: frozenset[str] = frozenset({"scratchpad", "findings", "runs", "trials"})
 
 
 def reserved_scout_name_error(name: str) -> str | None:

@@ -199,7 +199,7 @@ class TestSignalScoutCreateAPI(APIBaseTest):
         skill = LLMSkill.objects.get(team=self.team, name="my-churn-watch", deleted=False)
         assert skill.category == "scout"
 
-    @parameterized.expand([("scratchpad",), ("findings",), ("runs",)])
+    @parameterized.expand([("scratchpad",), ("findings",), ("runs",), ("trials",)])
     def test_create_rejects_a_name_the_inbox_reserves(self, name: str) -> None:
         # `/inbox/scouts/<name>` reads these as sub-pages, so a scout under one could never be
         # opened. They stay valid as ordinary skill names.

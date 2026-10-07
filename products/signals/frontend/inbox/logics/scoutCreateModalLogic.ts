@@ -219,7 +219,7 @@ const SCOUT_CREATE_DRAFT_STORAGE_VERSION = 'v3.'
 
 // Names the inbox reads as sub-pages of `/inbox/scouts/`, so a scout that took one could never be
 // opened. The backend refuses them too; this is so the reason shows next to the field.
-const RESERVED_SCOUT_NAMES = new Set(['scratchpad', 'findings', 'runs'])
+const RESERVED_SCOUT_NAMES = new Set(['scratchpad', 'findings', 'runs', 'trials'])
 
 function scoutDisplayNameError(displayName: string): string | undefined {
     const trimmed = displayName.trim()

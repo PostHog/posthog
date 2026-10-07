@@ -1373,7 +1373,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 searchParams: Record<string, string | undefined>
             ) => {
                 // Static scout pages also match this pattern and must not select a scout.
-                if (skillName === 'scratchpad' || skillName === 'findings' || skillName === 'runs') {
+                if (
+                    skillName === 'scratchpad' ||
+                    skillName === 'findings' ||
+                    skillName === 'runs' ||
+                    skillName === 'trials'
+                ) {
                     return
                 }
                 const name = skillName ?? null
