@@ -28,6 +28,13 @@ import {
 } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import {
+    BI_TABLE_CALCULATIONS,
+    buildBIAnalysisQuery,
+    hasBIAnalysis,
+    isBIAnalysisConfig,
+    isBITableCalculation,
+} from './biAnalysis'
 import { getBIComparisonDisabledReason, getBIComparisonDateExpression } from './biComparison'
 import { getBIFiltersPlaceholder, getBIQueryFilters, normalizeBIDates } from './biQueryFilters'
 
@@ -132,6 +139,13 @@ export function normalizeBIConfig(config: BIConfig): BIConfig {
     const sort = normalized.sort
     if (sort && !getBISortOptions(normalized).some((option) => option.key === sort.key)) {
         normalized = { ...normalized, sort: null }
+    }
+    if (
+        normalized.topN &&
+        (![...normalized.rows, ...normalized.columns].some((field) => field.id === normalized.topN?.fieldId) ||
+            normalized.topN.measureIndex >= Math.max(1, normalized.values.length))
+    ) {
+        normalized = { ...normalized, topN: undefined }
     }
 
     return normalized
@@ -431,6 +445,9 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
     }
 
     const candidate = decodedConfig as Partial<BIConfig>
+    if (!isBIAnalysisConfig(candidate)) {
+        return null
+    }
     if (
         candidate.compareFilter !== undefined &&
         (!candidate.compareFilter ||
@@ -475,6 +492,8 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
                   !field ||
                   !BI_AGGREGATIONS.has(valueCandidate.aggregation as BIAggregation) ||
                   (valueCandidate.label !== undefined && typeof valueCandidate.label !== 'string') ||
+                  (valueCandidate.tableCalculation !== undefined &&
+                      !isBITableCalculation(valueCandidate.tableCalculation)) ||
                   (valueCandidate.customExpression !== undefined && typeof valueCandidate.customExpression !== 'string')
               ) {
                   return null
@@ -484,6 +503,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
                   aggregation: valueCandidate.aggregation as BIAggregation,
                   customExpression: valueCandidate.customExpression,
                   label: valueCandidate.label,
+                  ...(valueCandidate.tableCalculation ? { tableCalculation: valueCandidate.tableCalculation } : {}),
               }
           })
         : null
@@ -549,6 +569,8 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
 
     const config: BIConfig = {
         source,
+        ...(candidate.topN ? { topN: candidate.topN } : {}),
+        ...(candidate.totals ? { totals: candidate.totals } : {}),
         ...(candidate.compareFilter !== undefined ? { compareFilter: candidate.compareFilter } : {}),
         ...(candidate.dateField !== undefined
             ? { dateField: candidate.dateField === null ? null : parseBIFieldValue(candidate.dateField) }
@@ -839,7 +861,15 @@ function computeBIQueryParts(config: BIConfig): BIQueryParts {
         ...configuredValues.map(({ expression }) => expression),
         ...config.filters.map((filter) => filter.customExpression || fieldExpression(filter.field)),
     ]
-    const usedAliases = new Set(['bi_rows', 'bi_columns', 'bi_comparison'])
+    const usedAliases = new Set([
+        'bi_rows',
+        'bi_columns',
+        'bi_comparison',
+        'bi_period',
+        'bi_grouping',
+        'bi_rank',
+        ...[...rowDimensions, ...columnDimensions].map((_, index) => `bi_grouping_${index}`),
+    ])
     for (const dimension of [...rowDimensions, ...columnDimensions]) {
         const preferred = dimension.alias
         let suffix = 2
@@ -967,6 +997,9 @@ export function getBIFieldPillLabel(field: BIField): string {
 }
 
 export function getBIValuePillLabel(value: BIValue): string {
+    if (value.tableCalculation) {
+        return `${BI_TABLE_CALCULATIONS.find((option) => option.value === value.tableCalculation?.type)?.label} · ${getBIValuePillLabel({ ...value, tableCalculation: undefined })}`
+    }
     if (value.aggregation === 'custom') {
         return value.label?.trim() || value.customExpression?.trim() || 'New calculation'
     }
@@ -1000,7 +1033,7 @@ function buildOrderByExpression(
     return `${firstValueAlias} DESC`
 }
 
-export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
+export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQueryBuildResult | null {
     config = normalizeBIConfig(config)
     if (!config.source || config.filters.some(getBIFilterValidationError)) {
         return null
@@ -1027,7 +1060,9 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
               .filter((axis): axis is BIPivotAxis => axis !== null)
               .map(({ alias, expression }) => `${expression} AS ${alias}`)
         : dimensions.map(({ field, alias }) =>
-              hasSeriesBreakdown || comparing ? `${fieldExpression(field)} AS ${alias}` : fieldExpression(field)
+              hasSeriesBreakdown || comparing || hasBIAnalysis(config)
+                  ? `${fieldExpression(field)} AS ${alias}`
+                  : fieldExpression(field)
           )
     const valueExpressions =
         configuredValues.length > 0
@@ -1062,7 +1097,8 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
         queryParts.push(`ORDER BY\n    ${orderByExpression}`)
     }
 
-    queryParts.push(`LIMIT ${normalizeBIConfig(config).limit}`)
+    const resultLimit = normalizeBIConfig(config).limit + (probeForMoreRows ? 1 : 0)
+    queryParts.push(`LIMIT ${resultLimit}`)
 
     let query = queryParts.join('\n')
 
@@ -1115,10 +1151,10 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
                 `WHERE\n    ${[previous ? placeholder.replace('{filters', '{filters.previous') : placeholder, ...filters.map((filter) => `(${filter})`)].join('\n    AND ')}`,
                 ...(expressions.length ? [`GROUP BY ${[...expressions, 'bi_comparison'].join(', ')}`] : []),
                 ...(comparisonOrder ? [`ORDER BY ${comparisonOrder}`] : []),
-                `LIMIT ${config.limit}`,
+                `LIMIT ${resultLimit}`,
             ].join('\n')
         }
-        query = `(${buildPeriod(false)})\nUNION ALL\n(${buildPeriod(true)})`
+        query = `SELECT * FROM ((${buildPeriod(false)})\nUNION ALL\n(${buildPeriod(true)})) LIMIT ${resultLimit}`
         seriesSettings = {
             xAxis: { column: xDimension?.alias ?? 'bi_comparison' },
             xAxisLabel: xDimension ? getBIFieldPillLabel(xDimension.field) : 'Period',
@@ -1142,6 +1178,64 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
           }
         : undefined
 
+    if (hasBIAnalysis(config)) {
+        const placeholder = getBIFiltersPlaceholder(config)
+        const where = (previous: boolean): string =>
+            [
+                previous ? placeholder.replace('{filters', '{filters.previous') : placeholder,
+                ...filters.map((filter) => `(${filter})`),
+            ].join(' AND ')
+        query = buildBIAnalysisQuery(config, {
+            rows: rowDimensions.map((dimension) => ({ ...dimension, expression: fieldExpression(dimension.field) })),
+            columns: columnDimensions.map((dimension) => ({
+                ...dimension,
+                expression: fieldExpression(dimension.field),
+            })),
+            measures: configuredValues.length ? configuredValues : [{ alias: 'count', expression: 'count(*)' }],
+            from: escapePropertyAsHogQLIdentifier(config.source.table),
+            where: where(false),
+            orderBy: orderByExpression,
+            resultLimit,
+            ...(comparing
+                ? {
+                      previousWhere: where(true),
+                      previousDimensions: dimensions.map(({ field }) =>
+                          fieldExpression(
+                              isDateTimeBIField(field)
+                                  ? {
+                                        ...field,
+                                        expression: getBIComparisonDateExpression(field),
+                                    }
+                                  : field
+                          )
+                      ),
+                  }
+                : {}),
+        })
+        seriesSettings ??= {
+            xAxis: xDimension ? { column: xDimension.alias } : undefined,
+            yAxis: configuredValues.length
+                ? configuredValues.map(({ alias }) => ({ column: alias }))
+                : [{ column: 'count' }],
+        }
+    }
+
+    const calculatedFormats = configuredValues
+        .filter(({ value }) => ['percent_of_total', 'percent_change'].includes(value.tableCalculation?.type ?? ''))
+        .map(({ alias }) => ({
+            column: alias,
+            settings: { formatting: { style: 'percent' as const, decimalPlaces: 1 } },
+        }))
+    if (calculatedFormats.length) {
+        seriesSettings = {
+            ...seriesSettings,
+            yAxis: (seriesSettings?.yAxis ?? configuredValues.map(({ alias }) => ({ column: alias }))).map((axis) => ({
+                ...axis,
+                ...calculatedFormats.find((format) => format.column === axis.column),
+            })),
+        }
+    }
+
     return {
         query,
         node: {
@@ -1154,6 +1248,21 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
                 filters: getBIQueryFilters(config),
             },
             display: config.chartType,
+            ...(calculatedFormats.length
+                ? {
+                      tableSettings: {
+                          columns: [
+                              ...(isPivotTable
+                                  ? [pivotRowAxis, pivotColumnAxis]
+                                        .filter((axis): axis is BIPivotAxis => !!axis)
+                                        .map((axis) => axis.alias)
+                                  : dimensions.map((dimension) => dimension.alias)),
+                              ...configuredValues.map((value) => value.alias),
+                              ...(comparing ? ['bi_comparison'] : []),
+                          ].map((column) => calculatedFormats.find((format) => format.column === column) ?? { column }),
+                      },
+                  }
+                : {}),
             ...(pivotTableSettings || seriesSettings ? { chartSettings: pivotTableSettings ?? seriesSettings } : {}),
         },
     }
