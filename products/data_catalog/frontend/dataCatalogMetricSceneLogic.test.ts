@@ -262,28 +262,29 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(logic.values.lineageRetried).toBe(expected === 'not_ready')
     })
 
-    it('synchronizes the Tests tab with navigation and preserves it on rename', async () => {
+    it('redirects the legacy tests key to the data quality tab and preserves it on rename', async () => {
         router.actions.push(urls.dataCatalogMetric('weekly_active_users'), { tab: 'tests' })
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.activeTab).toBe('tests')
-        expect(logic.values.mountedTabs).toEqual(['tests'])
+        expect(logic.values.activeTab).toBe('data-quality')
+        expect(router.values.searchParams.tab).toBe('data-quality')
+        expect(logic.values.mountedTabs).toEqual(['data-quality'])
         logic.actions.setActiveTab('definition')
         expect(router.values.searchParams.tab).toBeUndefined()
-        expect(logic.values.mountedTabs).toEqual(['tests', 'definition'])
-        logic.actions.setActiveTab('tests')
-        expect(router.values.searchParams.tab).toBe('tests')
+        expect(logic.values.mountedTabs).toEqual(['data-quality', 'definition'])
+        logic.actions.setActiveTab('data-quality')
+        expect(router.values.searchParams.tab).toBe('data-quality')
         ;(dataCatalogMetricsPartialUpdate as jest.Mock).mockResolvedValue(buildMetric({ name: 'wau' }))
         logic.actions.renameMetric('wau')
         await expectLogic(logic).toFinishAllListeners()
-        expect(router.values.searchParams.tab).toBe('tests')
+        expect(router.values.searchParams.tab).toBe('data-quality')
     })
 
     // The metric check endpoints are gated on the same flag, so a link to the tab from a project
     // outside the rollout has to land on Definition. Otherwise the panel mounts against endpoints
     // that reject every request.
-    it('refuses the Tests tab while the data quality flag is off', async () => {
+    it('refuses the data quality tab while the data quality flag is off', async () => {
         featureFlagLogic.actions.setFeatureFlags([], {})
-        router.actions.push(urls.dataCatalogMetric('weekly_active_users'), { tab: 'tests' })
+        router.actions.push(urls.dataCatalogMetric('weekly_active_users'), { tab: 'data-quality' })
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.metricChecksEnabled).toBe(false)
         expect(logic.values.activeTab).toBe('definition')

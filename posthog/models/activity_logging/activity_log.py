@@ -18,6 +18,7 @@ from django.utils import timezone
 import structlog
 from prometheus_client import Counter
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
@@ -32,6 +33,11 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+# Kafka rejects messages above `message.max.bytes` (1 MB by default), so leave room for the event envelope.
+MAX_INTERNAL_EVENT_DETAIL_BYTES = 512 * 1024
+_SUMMARY_DETAIL_KEYS = ("id", "short_id", "type", "name")
+_MAX_SUMMARY_NAME_LENGTH = 1000
+
 ACTIVITY_LOG_WRITE_FAILURES = Counter(
     "activity_log_write_failures_total",
     "Activity log rows that failed to write",
@@ -40,6 +46,7 @@ ACTIVITY_LOG_WRITE_FAILURES = Counter(
 
 ActivityScope = Literal[
     "Cohort",
+    "CrossProjectDashboard",
     "FeatureFlag",
     "Person",
     "Group",
@@ -92,6 +99,7 @@ ActivityScope = Literal[
     "OAuthApplication",
     "User",
     "Action",
+    "AccountView",
     "AlertConfiguration",
     "Threshold",
     "AlertSubscription",
@@ -277,6 +285,63 @@ class ActivityLog(UUIDTModel):
     detail = models.JSONField(encoder=ActivityDetailEncoder, null=True)
     created_at = models.DateTimeField(default=timezone.now)
 
+    @property
+    def safe_detail(self) -> Optional[dict[str, Any]]:
+        """The detail with the values of masked fields hidden, including rows written before the mask."""
+        masked_fields = {
+            *field_with_masked_contents.get(cast(AuditableScope, self.scope), []),
+            *read_masked_fields.get(self.scope, []),
+        }
+        if not masked_fields or not isinstance(self.detail, dict) or not isinstance(self.detail.get("changes"), list):
+            return self.detail
+        changes = []
+        for change in self.detail["changes"]:
+            if isinstance(change, dict) and change.get("field") in masked_fields:
+                masked = mask_change_values(self.scope, change["field"], change.get("before"), change.get("after"))
+                change = {**change, "before": masked.before, "after": masked.after}
+            changes.append(change)
+        return {**self.detail, "changes": changes}
+
+
+# Fields older rows still hold in plaintext although new rows no longer record them.
+read_masked_fields: dict[str, list[str]] = {
+    # Site functions inline their input values into the compiled JavaScript.
+    "HogFunction": ["transpiled"],
+}
+
+# Fields whose keys stay readable, so a reader still sees which entry changed.
+key_masked_fields: dict[str, list[str]] = {
+    "HogFunction": ["inputs"],
+}
+
+
+@frozen
+class MaskedChange:
+    before: Any
+    after: Any
+
+
+def mask_change_values(scope: str, field: str, before: Any, after: Any) -> MaskedChange:
+    """Hide a masked field's values. A key-masked field keeps its keys and marks the changed ones."""
+    if field in key_masked_fields.get(scope, []) and isinstance(before or {}, dict) and isinstance(after or {}, dict):
+        before_values = before or {}
+        after_values = after or {}
+        masked_before = dict.fromkeys(before_values, "masked") if before is not None else None
+        masked_after = (
+            {
+                key: "masked"
+                if key in before_values
+                and json.dumps(before_values[key], sort_keys=True, default=str)
+                == json.dumps(value, sort_keys=True, default=str)
+                else "changed"
+                for key, value in after_values.items()
+            }
+            if after is not None
+            else None
+        )
+        return MaskedChange(before=masked_before, after=masked_after)
+    return MaskedChange(before="masked" if before is not None else None, after="masked" if after is not None else None)
+
 
 common_field_exclusions = [
     "id",
@@ -294,7 +359,10 @@ common_field_exclusions = [
 
 
 field_with_masked_contents: dict[AuditableScope, list[str]] = {
+    "AccountView": ["name", "content", "text_content"],
     "HogFunction": [
+        "inputs",
+        "mappings",
         # Encrypted secret inputs (Fernet ciphertext) — a diff would be noise at best and
         # leak-adjacent at worst; record that they changed, never the values.
         "encrypted_inputs",
@@ -359,6 +427,9 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     # directly, keyed by the comment's own scope.
     "Ticket": ["content"],
     cast(AuditableScope, "conversations_ticket"): ["content"],
+    # The rubric API is limited to staff, so saved criteria and generated suggestions must not be
+    # readable through activity_log:read. Record that the rubrics changed, never their contents.
+    "SignalScoutConfig": ["rubrics"],
 }
 
 field_name_overrides: dict[AuditableScope, dict[str, str]] = {
@@ -389,11 +460,13 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     "ExternalDataSchema": {
         "should_sync": "enabled",
         "full_refresh_interval_days": "full refresh interval (days)",
+        "full_refresh_time_of_day": "full refresh time (UTC)",
     },
     "SignalScoutConfig": {
         "run_interval_minutes": "run interval (minutes)",
         "emit": "emit findings",
         "pause_reason": "pause reason",
+        "managed_by": "managed by",
         "auto_pause_exempt": "never pause for inactivity",
         "write_scopes": "write access",
     },
@@ -443,7 +516,6 @@ replay_scanner_machine_fields = [
     "sweep_read_bytes_by_hour",
     "fast_read_bytes_by_hour",
     "deep_read_bytes_by_hour",
-    "feedback_themes",
     "estimated_monthly_observations",
     "estimated_at",
     "estimate_attempted_at",
@@ -451,6 +523,8 @@ replay_scanner_machine_fields = [
     "search_suggestions_watermark",
     "search_suggestions_generated_at",
     "search_last_viewed_at",
+    "prompt_question",
+    "prompt_question_source",
     "limit_notified_period_start",
     "admission_budget_used",
     "admission_budget_refreshed_at",
@@ -527,6 +601,14 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
 # Activity visibility restrictions - controls which users can see certain activity logs
 # Used to hide sensitive activities (e.g., impersonated logins, user account changes) from non-staff users
 activity_visibility_restrictions: list[dict[str, Any]] = [
+    {
+        # Account views are private to their creator, so even their IDs and timestamps stay out of
+        # the team and org feeds.
+        "scope": "AccountView",
+        "activities": ["created", "updated", "deleted"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
     {"scope": "Integration", "activities": ["github_diagnostic"], "allow_staff": True},
     {
         "scope": "User",
@@ -595,12 +677,30 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "exclude_when": {},
         "allow_staff": True,
     },
+    *(
+        {
+            "scope": scope,
+            "activities": ["commented", "created task", "completed task", "reopened task"],
+            "exclude_when": {},
+            "allow_staff": True,
+        }
+        for scope in ("desktop_canvas", "canvas")
+    ),
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    "AccountView": ["version"],
+    # Tiles are edited through their own endpoint, so diffing the reverse relation only reads every tile row.
+    "CrossProjectDashboard": ["tiles", "organization"],
     # The reverse relations are listed because the diff reads each one in full; a scanner's
     # observations run to millions of rows, and its alerts carry their own audit trail.
-    "ReplayScanner": [*replay_scanner_machine_fields, "observations", "backfills", "prompt_suggestions", "alerts"],
+    "ReplayScanner": [
+        *replay_scanner_machine_fields,
+        "observations",
+        "backfills",
+        "learned_rulesets",
+        "alerts",
+    ],
     "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
     # The pointer names the tagged object, which a row never changes, and content_type and team
@@ -684,7 +784,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "errors_calculating",
     ],
     "HogFunction": [
+        # Compiled output of `hog`, which the diff records on its own. For site functions the
+        # transpiled JavaScript also inlines the input values that `field_with_masked_contents`
+        # hides, so a diff of it would put those values back into the log.
         "bytecode",
+        "transpiled",
         "icon_url",
         # Bookkeeping for the draft/revision cycle: `draft` already records that config was staged,
         # and the per-version audit lives in the revisions endpoints.
@@ -790,7 +894,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "id",
         "secret_api_token",
         "secret_api_token_backup",
-        "_old_api_token",
     ],
     "Project": ["id", "created_at"],
     "DataWarehouseExpression": ["deleted_at"],
@@ -907,8 +1010,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Reads through UserFacetSettings' own fail-closed TeamScopedManager, which has no
         # ambient team scope at signal-handling time (same reason Loop excludes triggers/fires).
         "facet_settings",
-        # Same fail-closed manager, on the WorkflowProposal relation a user can resolve.
-        "resolved_workflow_proposals",
     ],
     "AlertConfiguration": [
         "last_checked_at",
@@ -940,6 +1041,13 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "custom_oauth2_integrations",
         # Same hazard: the destination set is edited through its own endpoint, not by saving a source.
         "destination_links",
+        # The diff reads each reverse relation in full on both sides, after the save, so it never
+        # sees a real before-state. The view prefetches `schemas` without the deleted ones, so the
+        # two lists differ on every save and the entry stores every job and schema twice, which
+        # goes past the Kafka message limit for a source with a long sync history. Schemas log
+        # their own changes under the ExternalDataSchema scope, and jobs are sync runs, not user changes.
+        "jobs",
+        "schemas",
     ],
     "ExternalDataSchema": [
         "status",
@@ -1116,8 +1224,13 @@ def changes_between(
             left_is_none = left is None or (empty_values is not None and left in empty_values)
             right_is_none = right is None or (empty_values is not None and right in empty_values)
 
-            left_value = "masked" if field_name in masked_fields else left
-            right_value = "masked" if field_name in masked_fields else right
+            change_values = (
+                mask_change_values(model_type, field_name, left, right)
+                if field_name in masked_fields
+                else MaskedChange(before=left, after=right)
+            )
+            left_value = change_values.before
+            right_value = change_values.after
 
             # Use the override name if it exists
             display_name = field_name_overrides.get(model_type, {}).get(field_name, field_name)
@@ -1158,7 +1271,9 @@ def dict_changes_between(
     previous = previous or {}
     new = new or {}
 
-    fields = set(list(previous.keys()) + list(new.keys()))
+    # Callers pass a model's `__dict__`, which also holds private attributes set by signal
+    # handlers (for example a snapshot of the old API token). They are not fields, and can be secrets.
+    fields = {field for field in [*previous.keys(), *new.keys()] if not str(field).startswith("_")}
     if use_field_exclusions:
         fields = fields - set(field_exclusions.get(model_type, [])) - set(common_field_exclusions)
 
@@ -1201,11 +1316,13 @@ def _report_activity_log_write_failure(e: Exception, error_context: dict, deferr
     ACTIVITY_LOG_WRITE_FAILURES.labels(deferred=str(deferred).lower()).inc()
 
 
-def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: str | None = None):
+def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: str | None = None, strict: bool = False):
     try:
         # Check if we're in a transaction, if yes, defer the activity log creation to the commit signal
-        if not transaction.get_autocommit(using=using) and getattr(
-            settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True
+        if (
+            not strict
+            and not transaction.get_autocommit(using=using)
+            and getattr(settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True)
         ):
             # The transaction already committed by the time this callback runs, so its own guard
             # keeps a slow audit write from failing a request whose data is already durable.
@@ -1223,6 +1340,8 @@ def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: s
             return create_fn()
 
     except Exception as e:
+        if strict:
+            raise
         _report_activity_log_write_failure(e, error_context, deferred=False)
         if settings.TEST:
             raise
@@ -1277,6 +1396,7 @@ def log_activity(
     # A product on its own database passes `router.db_for_write(Model)`, so the audit write waits
     # for that connection's commit and is dropped when it rolls back. `None` uses the default one.
     using: str | None = None,
+    strict: bool = False,
 ) -> ActivityLog | None:
     if client is None:
         client = activity_storage.get_client()
@@ -1345,6 +1465,7 @@ def log_activity(
                 "activity": activity,
             },
             using=using,
+            strict=strict,
         )
 
     except Exception as e:
@@ -1357,7 +1478,7 @@ def log_activity(
             exception=e,
         )
         capture_exception(e)
-        if settings.TEST:
+        if settings.TEST or strict:
             raise
         return None
 
@@ -1543,6 +1664,38 @@ def load_all_activity(scope_list: list[ActivityScope], team_id: int, limit: int 
     return get_activity_page(activity_query, limit, page)
 
 
+def _json_size(value: Any) -> int:
+    return len(json.dumps(value).encode("utf-8"))
+
+
+def bound_detail_for_internal_event(detail: Any) -> tuple[Any, bool]:
+    """Shrink an activity detail so the internal event stays under the Kafka message limit.
+
+    Returns the detail to send and a flag that tells if it was truncated.
+    """
+    if _json_size(detail) <= MAX_INTERNAL_EVENT_DETAIL_BYTES:
+        return detail, False
+    if not isinstance(detail, dict):
+        return None, True
+
+    # First drop the change values and the free-form fields, but keep which fields changed.
+    bounded: dict[str, Any] = {key: detail.get(key) for key in _SUMMARY_DETAIL_KEYS if key in detail}
+    bounded["changes"] = [
+        {key: change.get(key) for key in ("type", "action", "field")}
+        for change in detail.get("changes") or []
+        if isinstance(change, dict)
+    ]
+    if _json_size(bounded) <= MAX_INTERNAL_EVENT_DETAIL_BYTES:
+        return bounded, True
+
+    summary: dict[str, Any] = {key: detail.get(key) for key in _SUMMARY_DETAIL_KEYS if key in detail}
+    if isinstance(summary.get("name"), str):
+        summary["name"] = summary["name"][:_MAX_SUMMARY_NAME_LENGTH]
+    if _json_size(summary) <= MAX_INTERNAL_EVENT_DETAIL_BYTES:
+        return summary, True
+    return None, True
+
+
 @receiver(post_save, sender=ActivityLog)
 def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
     from posthog.api.advanced_activity_logs import ActivityLogSerializer
@@ -1567,6 +1720,9 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
         serialized_data = ActivityLogSerializer(instance).data
         # We need to serialize the detail object using the encoder to avoid unsupported types like timedelta
         serialized_data["detail"] = json.loads(json.dumps(serialized_data["detail"], cls=ActivityDetailEncoder))
+        serialized_data["detail"], detail_truncated = bound_detail_for_internal_event(serialized_data["detail"])
+        if detail_truncated:
+            serialized_data["detail_truncated"] = True
         # TODO: Move this into the producer to support dataclasses
         user_data = UserBasicSerializer(instance.user).data if instance.user else None
 
@@ -1597,6 +1753,15 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
             )
     except Exception as e:
         # We don't want to hard fail here.
-        logger.exception("Failed to produce internal event", data=serialized_data, error=e)
+        # Identify the entry by ids only: the detail can carry person data and runs to megabytes.
+        logger.exception(
+            "Failed to produce internal event",
+            activity_log_id=str(instance.id),
+            scope=instance.scope,
+            activity=instance.activity,
+            team_id=instance.team_id,
+            organization_id=instance.organization_id,
+            error=e,
+        )
         capture_exception(e)
         return

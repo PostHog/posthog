@@ -4,7 +4,7 @@ from typing import Literal
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class JumpcloudEndpointConfig:
     name: str
     path: str
@@ -26,12 +26,26 @@ class JumpcloudEndpointConfig:
     # the warehouse where any table reader could see them. Each entry is a dotted path, so nested
     # fields can be redacted (e.g. `config.idpPrivateKey`); a bare name targets a top-level field.
     redact_keys: list[str] = field(default_factory=list)
+    # Fan-out endpoints page through the `parent` endpoint and request `path` once per parent row,
+    # with `{parent_id}` replaced by the parent's primary key. Child rows are graph objects whose
+    # `id` is only unique within one parent, so the parent id is injected as `parent_id_column`
+    # and joins the primary key.
+    parent: str | None = None
+    parent_id_column: str | None = None
+
+    @property
+    def primary_keys(self) -> list[str]:
+        if self.parent_id_column:
+            return [self.parent_id_column, self.primary_key]
+        return [self.primary_key]
 
 
 # Core directory resources plus the Directory Insights activity event log. The REST entity
 # endpoints (users, systems, groups, applications) expose no server-side "updated since"
 # filter, so they sync as full refresh. Directory Insights events accept a server-side
-# start_time/end_time window, so that stream syncs incrementally on `timestamp`.
+# start_time/end_time window, so that stream syncs incrementally on `timestamp`. The graph
+# association tables (memberships and bindings) fan out per parent and have no timestamps,
+# so they also sync as full refresh.
 JUMPCLOUD_ENDPOINTS: dict[str, JumpcloudEndpointConfig] = {
     "users": JumpcloudEndpointConfig(
         name="users",
@@ -69,6 +83,46 @@ JUMPCLOUD_ENDPOINTS: dict[str, JumpcloudEndpointConfig] = {
         # Landing it in the warehouse would let any table reader forge assertions for apps that
         # trust it, so drop the whole private-key object before the row is emitted.
         redact_keys=["config.idpPrivateKey"],
+    ),
+    "user_group_members": JumpcloudEndpointConfig(
+        name="user_group_members",
+        path="/api/v2/usergroups/{parent_id}/membership",
+        api="v2",
+        primary_key="id",
+        parent="user_groups",
+        parent_id_column="group_id",
+    ),
+    "system_group_members": JumpcloudEndpointConfig(
+        name="system_group_members",
+        path="/api/v2/systemgroups/{parent_id}/membership",
+        api="v2",
+        primary_key="id",
+        parent="system_groups",
+        parent_id_column="group_id",
+    ),
+    "application_users": JumpcloudEndpointConfig(
+        name="application_users",
+        path="/api/v2/applications/{parent_id}/users",
+        api="v2",
+        primary_key="id",
+        parent="applications",
+        parent_id_column="application_id",
+    ),
+    "application_user_groups": JumpcloudEndpointConfig(
+        name="application_user_groups",
+        path="/api/v2/applications/{parent_id}/usergroups",
+        api="v2",
+        primary_key="id",
+        parent="applications",
+        parent_id_column="application_id",
+    ),
+    "system_users": JumpcloudEndpointConfig(
+        name="system_users",
+        path="/api/v2/systems/{parent_id}/users",
+        api="v2",
+        primary_key="id",
+        parent="systems",
+        parent_id_column="system_id",
     ),
     "events": JumpcloudEndpointConfig(
         name="events",

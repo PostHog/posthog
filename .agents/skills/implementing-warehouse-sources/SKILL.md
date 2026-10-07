@@ -44,8 +44,20 @@ Rule of thumb:
 - Pull-only API, no cursor we can persist → `SimpleSource`.
 - Pull-only API with any cursor/next-page/time-filter we can save between runs → `ResumableSource`.
 - Source can call us back with change events → add `WebhookSource` on top of whichever pull base fits.
+- Source's next run starts from a position only the source can compute, not the max of a column → add `CursorSource`.
 
 Databases and file-transfer sources (SFTP, S3) stay on `SimpleSource` unless there's a clear reason otherwise.
+
+### Durable source cursors (`CursorSource`)
+
+The incremental field covers the common case: the pipeline takes the max of a column and the next run filters above it.
+Some positions are not a column max: a Postgres xmin ceiling captured before the read, or a set of Kafka partition offsets.
+For those, add the `CursorSource[CursorT]` mixin from `sources/common/cursor.py` instead of new fields on `SourceResponse` or new keys in `sync_type_config`.
+
+- Define the cursor as a `@frozen` dataclass with a `cursor_kind: ClassVar[str]`. Keep the kind stable, because a changed kind discards every stored cursor. Give fields added later a default, because a stored cursor that lacks a required field is discarded.
+- Implement `cursor_class()`. Override `merge_cursors(current, candidate)` when a run that read less must not move the cursor back (Kafka keeps the per-partition max). Override `cursor_from_legacy()` only when migrating state that was stored under other keys.
+- In `source_for_pipeline`, call `self.get_cursor_manager(inputs)`. `load()` returns the stored cursor, or `None` on a reset or a table rebuild. `stage(cursor)` hands the next cursor to the pipeline.
+- The pipeline persists the staged cursor only after the run's rows are durable (on v3, the loader promotes it with the final batch), and a reset clears it. `postgres/xmin_cursor.py` is the reference.
 
 ## Prefer the shared REST framework
 
@@ -371,7 +383,7 @@ Return a `SourceResponse` directly. **Do not** use `dlt_source_to_source_respons
 
 Prefer yielding data in the shape the API returns it. No custom dataclasses, no heavy parsing. Yield either `dict`, `list[dict]` (preferred when possible), or a `pyarrow.Table`. The pipeline buffers and batches for you.
 
-**Default to yielding raw `dict` / `list[dict]` and let the pipeline batch for you.** The pipeline already runs a `Batcher` (`pipelines/pipeline_v2/pipeline.py`) at 5000-row / 200 MiB thresholds, so the common case needs no batcher of its own. Reach for `pyarrow.Table` only when you already have arrow-shaped data (e.g. a ClickHouse adapter). A source _may_ instantiate its own `Batcher` with **smaller** thresholds (e.g. `chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024`, as klaviyo and ~70 other sources do) when it deliberately wants a tighter memory footprint for large/wide rows — that's a valid choice, not the default. What to avoid is a second _full-size_ batcher, which just double-buffers with no win.
+**Default to yielding raw `dict` / `list[dict]` and let the pipeline batch for you.** The pipeline already runs a `Batcher` (`pipelines/pipeline_v3/pipeline.py`) at 5000-row / 200 MiB thresholds, so the common case needs no batcher of its own. Reach for `pyarrow.Table` only when you already have arrow-shaped data (e.g. a ClickHouse adapter). A source _may_ instantiate its own `Batcher` with **smaller** thresholds (e.g. `chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024`, as klaviyo and ~70 other sources do) when it deliberately wants a tighter memory footprint for large/wide rows — that's a valid choice, not the default. What to avoid is a second _full-size_ batcher, which just double-buffers with no win.
 
 For pyarrow tables, cap in-memory rows at ~200 MiB or ~5000 rows. Use helpers like `table_from_iterator()` / `table_from_py_list()` from `products/warehouse_sources/backend/temporal/data_imports/pipelines/core/arrow_utils.py`.
 
@@ -415,6 +427,13 @@ while True:
 ```
 
 Save state **before** yielding the batch it covers. `save_state` only stages the cursor; the pipeline commits it to Redis once that batch is written, so a crash resumes exactly after the last written batch. A source that saves after yielding still works, but a crash re-yields its last batch (merge dedupes on primary key, append does not). A source with nothing yielded yet, such as one persisting an export job id before polling it, stages inside `with manager.committing():`, which commits when the block ends.
+
+Call `manager.safe_point()` wherever the source can make many requests that return no rows: an empty delta page, a fan-out parent with no children, a page with no comments.
+The pipeline checks for a worker shutdown only when an item arrives, so a run of empty responses otherwise holds the worker for the whole graceful shutdown timeout, and its cursor never commits.
+At a safe point the pipeline can hand the run to another worker, and it commits the staged cursor when nothing is waiting to be written.
+Call it only where resuming from the staged cursor loses no rows: every row the cursor covers is already yielded, and none sits in a local buffer.
+References: `document_deltas` in `convex/convex.py`, the sparse-sweep checkpoint in `stripe/stripe.py`, `_page_fan_out` in `notion/notion.py`.
+The `rest_source` framework reaches a safe point after each page on its own, but only when `SourceResponse.items` returns the framework's `Resource` directly. A source that wraps it gets no framework safe points, because the wrapper could buffer rows.
 
 ### Webhook source pattern
 
@@ -881,6 +900,8 @@ After changing source fields, re-run `pnpm run generate:source-configs` and `hog
 - Endless retries for bad credentials: missing `get_non_retryable_errors`.
 - Source won't connect despite a valid token: `validate_credentials(schema_name=None)` probes every resource's scope instead of just the token, so one missing scope — often on a table the user won't sync — blocks the whole source. Probe only the token at create; report per-table scope via `get_endpoint_permissions`.
 - Resumable state never saved: forgot to call `save_state`; or called `commit()` on a cursor that covers rows the pipeline has not written yet, which skips them on resume.
+- Resumable state saved after the `yield` it covers: a hand-off loses the state of the last batch, so the next attempt reads that batch again. `posthog/test/repo_invariants/test_resume_state_staged_before_yield.py` fails on a new generator that does this in a loop. Its baseline lists the existing ones and may only get shorter.
+- A deploy waits hours on a resumable source: it pages through responses with no rows and never calls `manager.safe_point()`, so it never sees the worker shutdown.
 - Webhook rows not landing: schema `is_webhook=False`, or `initial_sync_complete=False`.
 - Dependent resource path `KeyError`: pre-format static path placeholders (see Fan-out).
 - Silent truncation risk: page caps hit without logs/metrics.

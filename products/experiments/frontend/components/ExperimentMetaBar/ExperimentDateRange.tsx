@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { IconArrowRight, IconCalendar } from '@posthog/icons'
 import { LemonButton, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -20,9 +21,6 @@ function DateTrigger({ date, boundary, onChange }: DateTriggerProps): JSX.Elemen
     const [isOpen, setIsOpen] = useState(false)
 
     const label = date ? dayjs(date).format('MMM D, YYYY') : boundary === 'end' ? 'Present' : 'No date'
-    const tooltip = date
-        ? `${boundary === 'start' ? 'Started' : 'Ended'} ${dayjs(date).format('MMM D, YYYY [at] h:mm A')}. Click to change.`
-        : undefined
     const disabledReason = !date
         ? boundary === 'start'
             ? 'No start date'
@@ -59,11 +57,21 @@ function DateTrigger({ date, boundary, onChange }: DateTriggerProps): JSX.Elemen
                 size="xsmall"
                 sideIcon={null}
                 onClick={() => setIsOpen(true)}
-                tooltip={tooltip}
                 disabledReason={disabledReason}
                 data-attr={`experiment-${boundary}-date`}
             >
-                {label}
+                {date ? (
+                    // Hidden while the calendar is open so the two popovers do not stack.
+                    <TZLabel
+                        time={date}
+                        title={boundary === 'start' ? 'Start date' : 'End date'}
+                        visible={isOpen ? false : undefined}
+                    >
+                        <span>{label}</span>
+                    </TZLabel>
+                ) : (
+                    label
+                )}
             </LemonButton>
         </Popover>
     )

@@ -4,8 +4,7 @@ Kept apart from `PipelineV3` on purpose: every other source runs the base class,
 the single-table path it has always been. Only a source that declares `SourceResponse.lanes`
 gets this subclass, so nothing in here can change what a single-table run does.
 
-Each table beyond the first gets its own `ExternalDataJob`, the way the legacy CDC extraction
-already writes a `both` schema (see `cdc/activities.py`). That is what keeps the queue out of it:
+Each table beyond the first gets its own `ExternalDataJob`. That is what keeps the queue out of it:
 a job is where batch idempotency, staging paths, claim ordering and completion all hang, so two
 tables under one job would collide on every one of them, while two jobs are two ordinary
 single-table runs the loader already knows how to finish.
@@ -14,7 +13,7 @@ single-table runs the loader already knows how to finish.
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
 from structlog.types import FilteringBoundLogger
@@ -35,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     BatchWriteResult,
     S3BatchWriter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     OutputLane,
@@ -88,13 +88,21 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         resumable_source_manager: ResumableSourceManager[ResumableData] | None,
         *,
         models: ImportJobModels,
+        source_cursor_manager: SourceCursorManager[Any] | None = None,
     ) -> None:
         if not source_response.lanes:
             raise ValueError(f"{source_response.name} declares no lanes; run it on PipelineV3")
         self._output_lanes = list(source_response.lanes)
 
         super().__init__(
-            source_response, logger, job_id, reset_pipeline, shutdown_monitor, resumable_source_manager, models=models
+            source_response,
+            logger,
+            job_id,
+            reset_pipeline,
+            shutdown_monitor,
+            resumable_source_manager,
+            models=models,
+            source_cursor_manager=source_cursor_manager,
         )
 
         # The base built the first lane; it shares the base's batch list so the two never disagree.
@@ -127,9 +135,9 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         Opened lazily on purpose. A job created before there is anything to write is a row nothing
         owns: the loader finishes a job when its final batch lands, this activity's own workflow
         only knows the schema's job, and the stranded sweep finds runs by their queued batches. A
-        crash between creating it and staging into it would leave it Running for good, and one such
-        row blocks the flip and the rollback for the whole source. Opening it here means every
-        companion job has at least one batch, so the sweep is its owner like any other run.
+        crash between creating it and staging into it would leave it Running for good. Opening it
+        here means every companion job has at least one batch, so the sweep is its owner like any
+        other run.
         """
         existing = self._writers_by_lane.get(index)
         if existing is not None:
@@ -151,8 +159,10 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
                 "workflow_run_id": None,
                 # The history table has no destination mapping: delivery names the destination
                 # table from the schema, and SCD2 rows merged by key there would clobber the
-                # consolidated table's rows. Legacy never delivered companion batches either.
+                # consolidated table's rows. Both lists are cleared so batches remain eligible
+                # for coalescing when they have no destinations to deliver to.
                 "destination_ids": [],
+                "external_destination_ids": [],
             }
         )
         writer = _LaneWriter(lane, s3_batch_writer, producer, job=job)
@@ -209,10 +219,9 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         itself discards the batches it has not yet claimed once it sees the job Failed; the next
         run re-reads those files from the table's position, so nothing is lost, only re-staged.
 
-        Written directly, the way the legacy CDC path retires its own companion jobs. Going
-        through `update_external_job_status` would repaint the customer's schema FAILED and fire a
-        failure digest, and this runs from a `finally` on every attempt — including ones Temporal
-        retries and succeeds.
+        Written directly. Going through `update_external_job_status` would repaint the customer's
+        schema FAILED and fire a failure digest, and this runs from a `finally` on every attempt —
+        including ones Temporal retries and succeeds.
         """
         for job_id in self._companion_job_ids:
             if job_id in self._final_sent_job_ids:

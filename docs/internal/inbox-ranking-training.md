@@ -1,12 +1,13 @@
 # Inbox ranking training examples
 
-The tabular, report-embedding and title-embedding ranking families use one example per report per head, from the report's birth-day snapshot.
+The report-embedding and title-embedding ranking families use one example per report per head, from the report's birth-day snapshot.
 This prevents long-lived reports from receiving more weight in training because they appear in more daily snapshots.
 Birth days use the UTC interval returned by `snapshot_bounds`, including the start and excluding the end.
 The label comes from the snapshot `horizon_days` later, including outcomes already present on the birth day.
 
 The `pr_merged` head includes every report and reads merges within 14 days.
-The `dismiss_wrong` head includes impressed reports and reads wrong-dismissal outcomes within 14 days.
+The `dismiss_wrong` head includes every report and reads wrong-dismissal outcomes within 21 days.
+The `dismiss_lowvalue` head includes every report and reads `wontfix_irrelevant` dismissals within 21 days.
 
 The examples asset records `reports_missing_birth_snapshot` for observed reports born inside the lookback whose birth-day partition is missing.
 These reports produce no birth-grain example; reports born before the lookback do not contribute to this count.
@@ -19,6 +20,56 @@ Before and after holdout numbers are not comparable because the example populati
 The daily snapshots and selectable scoring-moment and report grains remain available for future models.
 
 See the [ranking DAG README](../../products/signals/dags/inbox_ranking/README.md) for the feature-set contract and operating instructions.
+
+## What each probability means
+
+Each head is conditioned on its cohort (`training/heads.py`).
+Every head uses every report as its cohort, so the probabilities are over the same reports and can be compared.
+Each head is graded only on its cohort.
+
+| Head               | Probability                                                 | Horizon |
+| ------------------ | ----------------------------------------------------------- | ------- |
+| `open`             | P(opened) over every report                                 | 3d      |
+| `action`           | P(acted on) over every report                               | 7d      |
+| `discuss`          | P(discuss) over every report                                | 7d      |
+| `dismiss_wrong`    | P(dismissed as wrong) over every report                     | 21d     |
+| `reviewer_fix`     | P(reviewers corrected) over every report                    | 14d     |
+| `thumbs_up`        | P(thumbs up) over every report                              | 7d      |
+| `pr_created`       | P(PR created) over every report                             | 7d      |
+| `pr_merged`        | P(PR merged) over every report                              | 14d     |
+| `fixed`            | P(fixed) over every report                                  | 21d     |
+| `refund`           | P(refund) over every report                                 | 14d     |
+| `dismiss_lowvalue` | P(dismissed as real but not worth fixing) over every report | 21d     |
+
+Each head in `metadata.json` records `cohort` (`everyone`) and `horizon_days`.
+
+## Row budget
+
+A feature set can limit the rows one head keeps (`max_examples_per_head`).
+The embedding families set it to 100,000.
+The budget limits history, not the rows inside a day:
+
+- The head's examples are grouped by report-creation day, newest first.
+- Whole days are kept while the running total stays within the budget, and every older day is dropped.
+- The newest day is always kept, even when it alone exceeds the budget.
+
+Every kept day keeps all of its positives and negatives, so the kept label rate is the population rate of those days.
+The scores stay calibrated to that population, and the holdout stays a clean time split.
+A recency cut drops old positives with old negatives, so the budget must stay large enough to keep the rare heads fed.
+
+Each head in `metadata.json` records `example_window_start`, the earliest report-creation day kept, and `example_cap_bound`, whether the budget dropped any day.
+`inbox_ranking_examples_built` carries both fields, so a chart shows when the budget starts to bind.
+
+## Promotion
+
+A candidate replaces its family's champion only when, on every head the champion could read:
+
+- its holdout AUC is at most `AUC_TOLERANCE` below the champion's, and
+- its holdout calibration error (ECE) is at most `ECE_TOLERANCE` above the champion's.
+
+Both champion numbers come from the champion's `<head>.holdout.ubj` scored on the candidate's holdout.
+A head without a paired champion ECE skips the calibration check.
+`inbox_ranking_promotion_decided` carries the paired values as `champion_<head>_auc_on_this_holdout` and `champion_<head>_ece_on_this_holdout`.
 
 ## Baked and unbaked unseen metrics
 
@@ -82,7 +133,7 @@ It means "at least as likely as the average fitting example", not a 50% probabil
 - A champion keeps its own threshold. A candidate and a champion graded on the same reports use different cuts.
 
 The threshold is specific to the head, family, version and fitting population.
-A row budget keeps every positive and samples the negatives, so it raises the rate.
+A row budget keeps only the newest report-creation days, so the rate is that window's rate, not the rate of the full lookback.
 Do not read the threshold as population prevalence, and do not compute it again from evaluation labels.
 
 ### Metrics

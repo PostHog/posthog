@@ -23,9 +23,10 @@ class TestPylonSourceConfig:
         config = PylonSource().get_source_config
         assert config.name == ExternalDataSourceType.PYLON
         assert config.label == "Pylon"
-        # A finished-but-new source ships visible (no unreleasedSource) and labelled alpha.
+        # A generally available source ships visible (no unreleasedSource) and labelled ga.
         assert config.unreleasedSource is None
-        assert config.releaseStatus == "alpha"
+        assert config.featureFlag is None
+        assert config.releaseStatus == "ga"
 
 
 class TestPylonGetSchemas:

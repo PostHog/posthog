@@ -19,20 +19,14 @@ from pydantic import TypeAdapter, ValidationError
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import team_distinct_id
+from posthog.llm.managed_decision_model import ManagedDecisionModel
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneRequestFailed, SystemOneResult
 from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, SystemOneClient, build_system_one_client
 from posthog.models import EventDefinition
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
-from .classify import (
-    CACHE_TTL_SECONDS,
-    MAX_QUERY_CHARS,
-    MIN_QUERY_CHARS,
-    SEARCH_INTENT_MODEL,
-    SEARCH_INTENT_TIMEOUT_SECONDS,
-    redact_values,
-)
-from .contracts import EventMatch, EventMatchRequest
+from .classify import CACHE_TTL_SECONDS, MAX_QUERY_CHARS, MIN_QUERY_CHARS, SEARCH_INTENT_TIMEOUT_SECONDS, redact_values
+from .contracts import EventMatch, EventMatchAnswer, EventMatchOutcome, EventMatchRequest
 
 logger = structlog.get_logger(__name__)
 
@@ -42,6 +36,7 @@ MATCH_THRESHOLD = 0.7
 # The picker shows at most this many, after it removes the events it excludes, so the endpoint returns them all.
 MAX_MATCHES = 3
 CACHE_KEY_PREFIX = "taxonomic_search_intent:event_match:v1"
+EVENT_MATCH_MODEL = ManagedDecisionModel("taxonomic-filter-event-match")
 
 _CACHED_MATCHES = TypeAdapter(list[EventMatch])
 
@@ -116,13 +111,13 @@ def _ask_chunk(client: SystemOneClient, state: str, names: Sequence[str], team_i
         return None
 
 
-def _probabilities(team_id: int, query: str) -> _ModelAnswers:
+def _probabilities(team_id: int, query: str, model: str) -> _ModelAnswers:
     """The model's probability for every core event it answered. Raises the System One errors when no request succeeds."""
     names = list(CORE_EVENT_CANDIDATES)
     # The gateway takes a bounded number of questions per request, so the candidates go out in parallel chunks.
     chunks = [names[start : start + GATEWAY_MAX_QUESTIONS] for start in range(0, len(names), GATEWAY_MAX_QUESTIONS)]
     client = build_system_one_client(
-        model=SEARCH_INTENT_MODEL,
+        model=model,
         ai_product="taxonomic_filter",
         distinct_id=team_distinct_id(team_id),
         timeout=SEARCH_INTENT_TIMEOUT_SECONDS,
@@ -148,14 +143,14 @@ def _probabilities(team_id: int, query: str) -> _ModelAnswers:
     return _ModelAnswers(probabilities=probabilities, complete=None not in results)
 
 
-def _cache_key(team_id: int, query: str) -> str:
+def _cache_key(team_id: int, query: str, model: str) -> str:
     # Keyed per team, so a fast answer cannot tell one team what another team searched.
-    digest = hashlib.sha256(f"{SEARCH_INTENT_MODEL}\n{MATCH_THRESHOLD}\n{query}".encode()).hexdigest()
+    digest = hashlib.sha256(f"{model}\n{MATCH_THRESHOLD}\n{query}".encode()).hexdigest()
     return f"{CACHE_KEY_PREFIX}:{_CANDIDATES_DIGEST}:{team_id}:{digest}"
 
 
 def likely_core_events(
-    team_id: int, query: str, *, use_cache: bool = True, require_complete: bool = False
+    team_id: int, query: str, *, use_cache: bool = True, require_complete: bool = False, model: str | None = None
 ) -> list[EventMatch]:
     """Every core event the model finds likely, strongest first, before the check against ingested events.
 
@@ -165,16 +160,31 @@ def likely_core_events(
     model_query = redact_values(query)
     if model_query is None:
         return []
-    key = _cache_key(team_id, model_query)
+    likely, _complete = _likely_core_events(
+        team_id, model_query, use_cache=use_cache, require_complete=require_complete, model=model
+    )
+    return likely
+
+
+def _likely_core_events(
+    team_id: int, model_query: str, *, use_cache: bool, require_complete: bool, model: str | None
+) -> tuple[list[EventMatch], bool]:
+    """Same as `likely_core_events`, plus whether every core event was actually asked about.
+
+    Takes the redacted query, so `match_core_events` can name the `ONLY_VALUES` outcome without redacting twice.
+    A cache hit is always complete, since a partial answer is never cached (see below).
+    """
+    model = model or EVENT_MATCH_MODEL.current()
+    key = _cache_key(team_id, model_query, model)
     if use_cache:
         cached = cache.get(key)
         # The Django cache pickles what it stores, so matches go in as JSON text and come out schema-validated.
         if isinstance(cached, str):
             try:
-                return _CACHED_MATCHES.validate_json(cached)
+                return _CACHED_MATCHES.validate_json(cached), True
             except ValidationError:
                 pass
-    answers = _probabilities(team_id, model_query)
+    answers = _probabilities(team_id, model_query, model)
     if require_complete and not answers.complete:
         raise SystemOneRequestFailed("Some event match requests failed")
     likely = sorted(
@@ -189,7 +199,7 @@ def likely_core_events(
     # A partial answer is not cached, so the next search asks again for the events that failed.
     if use_cache and answers.complete:
         cache.set(key, _CACHED_MATCHES.dump_json(likely).decode(), CACHE_TTL_SECONDS)
-    return likely
+    return likely, answers.complete
 
 
 def _ingested(project_id: int, names: Sequence[str]) -> set[str]:
@@ -201,17 +211,30 @@ def _ingested(project_id: int, names: Sequence[str]) -> set[str]:
     )
 
 
-def match_core_events(request: EventMatchRequest, *, use_cache: bool = True) -> list[EventMatch]:
+def match_core_events(request: EventMatchRequest, *, use_cache: bool = True) -> EventMatchAnswer:
     """The core events the search most likely means, strongest first, limited to events the project has ingested.
 
     Raises the System One errors; the caller decides whether a failed answer matters.
     """
     query = " ".join(request.query.split())
     if not MIN_QUERY_CHARS <= len(query) <= MAX_QUERY_CHARS:
-        return []
-    likely = likely_core_events(request.team_id, query, use_cache=use_cache)
+        return EventMatchAnswer(matches=[], outcome=EventMatchOutcome.WRONG_LENGTH)
+    model_query = redact_values(query)
+    if model_query is None:
+        return EventMatchAnswer(matches=[], outcome=EventMatchOutcome.ONLY_VALUES)
+    likely, complete = _likely_core_events(
+        request.team_id, model_query, use_cache=use_cache, require_complete=False, model=None
+    )
     if not likely:
-        return []
+        # A failed chunk leaves its events unasked, so an empty answer is not conclusive unless every chunk answered.
+        return EventMatchAnswer(
+            matches=[], outcome=EventMatchOutcome.NOTHING_LIKELY if complete else EventMatchOutcome.PARTIAL
+        )
     # A suggestion for an event the project never sent would lead to an empty insight.
     ingested = _ingested(request.project_id, [match.name for match in likely])
-    return [match for match in likely if match.name in ingested]
+    matches = [match for match in likely if match.name in ingested]
+    if matches:
+        return EventMatchAnswer(matches=matches, outcome=EventMatchOutcome.MATCHED)
+    return EventMatchAnswer(
+        matches=[], outcome=EventMatchOutcome.NOT_INGESTED if complete else EventMatchOutcome.PARTIAL
+    )

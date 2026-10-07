@@ -34,7 +34,7 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import MAX_REPORT_LINK_REASON_LENGTH, ReportLink
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
-from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct
+from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.receivers import _is_safety_suppressed
@@ -496,6 +496,7 @@ async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult
         validate=validate,
         temperature=0.2,
         stage="match",
+        cache_system_prompt=True,
         ai_product="signals_grouping",
     )
 
@@ -617,6 +618,7 @@ async def verify_match_specificity(
         validate=lambda text: SpecificityResult.model_validate_json(text),
         temperature=0.2,
         stage="specificity",
+        cache_system_prompt=True,
         ai_product="signals_grouping",
     )
 
@@ -730,6 +732,7 @@ def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, 
             report_id=report_id,
             content=ReportLink(kind=ReportLinkKind.FOLLOW_UP_OF, report_id=str(origin_id), reason=reason),
             attribution=ArtefactAttribution.system(),
+            write_path=ReportLinkWritePath.PIPELINE,
         )
     except Exception:
         logger.exception(
@@ -827,6 +830,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         report_id=str(report.id),
                         content=ReportLink(kind=ReportLinkKind.RECURRENCE_OF, report_id=str(parent_report.id)),
                         attribution=ArtefactAttribution.system(),
+                        write_path=ReportLinkWritePath.PIPELINE,
                     )
                 else:
                     report.total_weight += input.weight

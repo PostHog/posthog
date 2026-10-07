@@ -10,6 +10,13 @@ class TestAttioSource:
         self.source = AttioSource()
 
     @pytest.mark.parametrize(
+        "schema_name,expected",
+        [("companies", True), ("notes", False), ("tasks", False)],
+    )
+    def test_retry_budget_only_covers_sorted_post_endpoints(self, schema_name, expected):
+        assert self.source.resume_covers_run(incremental_or_append=False, schema_name=schema_name) is expected
+
+    @pytest.mark.parametrize(
         "pattern",
         [
             "401 Client Error: Unauthorized for url: https://api.attio.com",

@@ -2,7 +2,7 @@ import { LookupAddress } from 'dns'
 import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
 import net from 'node:net'
-import { Counter, Gauge } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
 import {
     Agent,
@@ -54,6 +54,23 @@ const externalRequestRouteCounter = new Counter({
 const inflightExternalRequests = new Gauge({
     name: 'cdp_http_inflight_requests',
     help: 'Number of currently inflight external HTTP requests (undici). Use as HPA scaling metric for cdp-cyclotron-worker.',
+})
+
+// The connect timeout is a single budget covering DNS resolution, TCP and TLS, and only the total request duration is
+// measured elsewhere, so a connect timeout does not say which phase consumed the budget. Resolution is the phase that
+// runs in this process, so it is the one that can be measured here. The duration separates a slow resolver path from a
+// fast one, and the in-flight gauge separates lookups that queue behind other lookups from lookups that are themselves
+// slow. Neither carries the hostname as a label, because destination hostnames are customer-supplied and unbounded.
+const dnsLookupDuration = new Histogram({
+    name: 'node_dns_lookup_duration_ms',
+    help: 'Duration of dns.lookup() for an external hostname, in milliseconds',
+    labelNames: ['outcome'],
+    buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2000, 3000, 5000, 10000],
+})
+
+const dnsLookupsInFlight = new Gauge({
+    name: 'node_dns_lookups_in_flight',
+    help: 'Number of dns.lookup() calls currently awaiting a result',
 })
 
 // NOTE: This isn't exactly fetch - it's meant to be very close but limited to only options we actually want to expose
@@ -207,10 +224,16 @@ function isIPv4(addr: ipaddr.IPv4 | ipaddr.IPv6): addr is ipaddr.IPv4 {
 async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     let addrinfo: LookupAddress[]
     const validAddrinfo: LookupAddress[] = []
+    const lookupStartedAt = performance.now()
+    dnsLookupsInFlight.inc()
     try {
         addrinfo = await dns.lookup(hostname, { all: true })
+        dnsLookupDuration.observe({ outcome: 'success' }, performance.now() - lookupStartedAt)
     } catch {
+        dnsLookupDuration.observe({ outcome: 'failure' }, performance.now() - lookupStartedAt)
         throw new ResolutionError('Invalid hostname')
+    } finally {
+        dnsLookupsInFlight.dec()
     }
     const resolvedIps = addrinfo.map((a) => a.address)
     for (const addrInfo of addrinfo) {

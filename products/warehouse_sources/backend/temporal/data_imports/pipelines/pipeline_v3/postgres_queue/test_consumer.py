@@ -1,3 +1,4 @@
+import math
 import asyncio
 from datetime import UTC, datetime
 from typing import Any, NamedTuple, cast
@@ -6,6 +7,7 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from django.db import OperationalError as DjangoOperationalError
+from django.test import override_settings
 
 import psycopg
 import structlog
@@ -16,22 +18,13 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     SYNC_DISABLED_JOB_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
-    batch_consumer as batch_consumer_module,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
-    QUEUE_RETRY_MAX_ATTEMPTS,
-    CoalescingDeclined,
-    OwnershipLostError,
-    _is_admin_shutdown_error,
-    _is_connect_timeout_error,
-    _is_dns_resolution_transient_error,
-    _is_retryable_queue_db_error,
-    _is_schema_lag_error,
-    _is_server_not_ready_error,
-    _is_transient_queue_db_error,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    DestinationConfigurationError,
+    DestinationDeliveryError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue import (
     consumer as consumer_module,
 )
@@ -43,7 +36,21 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _group_by_key,
     _update_job_status_to_failed,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+from products.warehouse_sources_queue.backend.core import batch_consumer as batch_consumer_module
+from products.warehouse_sources_queue.backend.core.batch_consumer import (
+    QUEUE_RETRY_MAX_ATTEMPTS,
+    CoalescingDeclined,
+    OwnershipLostError,
+    _is_admin_shutdown_error,
+    _is_connect_timeout_error,
+    _is_dns_resolution_transient_error,
+    _is_retryable_queue_db_error,
+    _is_schema_lag_error,
+    _is_server_not_ready_error,
+    _is_transient_queue_db_error,
+)
+from products.warehouse_sources_queue.backend.core.health import HealthState
+from products.warehouse_sources_queue.backend.core.jobs_db import (
     FRESHNESS_WINDOW_SECONDS,
     FailedRunRef,
     OrphanedRunRef,
@@ -52,13 +59,16 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     QueueFreshness,
     StrandedRunRef,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+from products.warehouse_sources_queue.backend.core.metrics import (
     BACKLOGGED_GROUPS,
     BLOCKED_BATCHES,
     CLAIMABLE_BATCHES,
     CLAIMABLE_GROUPS,
+    DEPTH_PROBE_TIMEOUTS_TOTAL,
+    DEPTH_SAMPLE_AGE_SECONDS,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     ORPHANED_BATCHES_DRAINED_TOTAL,
+    QUEUE_SAMPLE_GAUGES,
     RUNS_RECONCILED_TOTAL,
     SERIALIZED_BATCHES,
     SLOT_WAITING_BATCHES,
@@ -178,6 +188,15 @@ def _lease_renewal_succeeds():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _gauge_slot_granted():
+    # Grant the gauge-sampling slot by default; the real SQL can't run against mock connections.
+    with patch.object(
+        consumer_module.BatchQueue, "try_acquire_queue_gauges_slot", new_callable=AsyncMock, return_value=True
+    ):
+        yield
+
+
 class TestProcessSingle:
     @pytest.mark.asyncio
     async def test_success_updates_status_to_executing_then_succeeded(self):
@@ -198,8 +217,16 @@ class TestProcessSingle:
 
         assert states == [SourceBatchStatus.State.EXECUTING, SourceBatchStatus.State.SUCCEEDED]
 
+    @pytest.mark.parametrize(
+        "error",
+        [
+            ValueError("boom"),
+            DestinationDeliveryError("Prod", RuntimeError("connection timeout expired")),
+        ],
+        ids=["generic", "destination_connect_timeout"],
+    )
     @pytest.mark.asyncio
-    async def test_error_sets_waiting_retry(self):
+    async def test_error_sets_waiting_retry(self, error: Exception):
         consumer = _make_consumer(max_attempts=3)
         batch = _make_batch(latest_attempt=0)
         states: list[str] = []
@@ -208,7 +235,7 @@ class TestProcessSingle:
             states.append(job_state)
             return True
 
-        consumer._process_batch = AsyncMock(side_effect=ValueError("boom"))
+        consumer._process_batch = AsyncMock(side_effect=error)
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
             side_effect=track_status,
@@ -225,6 +252,7 @@ class TestProcessSingle:
             "Source column type changed: 'price' has values that no longer fit its stored type int64",
             "[Errno 5] An error occurred (XMinioStorageFull) when calling the CopyObject operation: "
             "Storage backend has reached its minimum free drive threshold. Please delete a few objects to proceed.",
+            str(DestinationConfigurationError("Prod", "The host name does not exist.")),
         ],
     )
     @pytest.mark.asyncio
@@ -260,6 +288,8 @@ class TestProcessSingle:
             # upstream/customer condition, not a pipeline bug.
             ("ExternalDataJob matching query does not exist.", False),
             ("ExternalDataSchema matching query does not exist.", False),
+            # A destination the customer configured refuses the connection.
+            (str(DestinationConfigurationError("Prod", "The host name does not exist.")), False),
             # A genuine non-retryable failure must still surface so real bugs aren't hidden.
             ("20009.59 is too large to store in a Decimal128 of precision 24.", True),
             # Storage backend out of disk space is an operational condition operators need to
@@ -318,6 +348,57 @@ class TestProcessSingle:
             await consumer._process_single(batch)
 
         mock_fail.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_non_reportable_error_skips_error_tracking_even_at_max_attempts(self):
+        # A sustained S3/object-store blip (TransientObjectStoreError, a NonReportableError
+        # subclass) is retryable in principle, so it must still reach error tracking only via
+        # the classification made further down the stack, not get captured just because this
+        # batch's own retry budget ran out.
+        consumer = _make_consumer(max_attempts=2)
+        batch = _make_batch(latest_attempt=1)
+        consumer._process_batch = AsyncMock(side_effect=TransientObjectStoreError("Generic S3 error"))
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                new_callable=AsyncMock,
+            ),
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+            patch.object(batch_consumer_module, "capture_exception") as mock_capture,
+        ):
+            await consumer._process_single(batch)
+
+        mock_fail.assert_called_once()
+        assert "max retries exceeded" in mock_fail.call_args[1]["reason"]
+        mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_non_reportable_error_skips_error_tracking_on_first_attempt_too(self):
+        # A NonReportableError can also match a non-retryable message pattern (e.g. a storage
+        # backend out of disk space during a maintenance op) and fail on the very first attempt,
+        # not just after exhausting retries — that branch needs the same classification check.
+        consumer = _make_consumer(max_attempts=3)
+        batch = _make_batch(latest_attempt=0)
+        consumer._process_batch = AsyncMock(
+            side_effect=TransientObjectStoreError(
+                "[Errno 5] An error occurred (XMinioStorageFull) when calling the CopyObject operation: "
+                "Storage backend has reached its minimum free drive threshold."
+            )
+        )
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                new_callable=AsyncMock,
+            ),
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+            patch.object(batch_consumer_module, "capture_exception") as mock_capture,
+        ):
+            await consumer._process_single(batch)
+
+        mock_fail.assert_called_once()
+        mock_capture.assert_not_called()
 
 
 class TestProcessGroup:
@@ -1422,15 +1503,24 @@ class TestPollFailureLiveness:
         consumer = BatchConsumer(config=config, process_batch=AsyncMock())
 
         succeeded = asyncio.Event()
+        refailed = asyncio.Event()
         fetch_calls = 0
+        jitter_windows: list[float] = []
 
         async def fetch(*args: Any, **kwargs: Any) -> list[PendingBatch]:
             nonlocal fetch_calls
             fetch_calls += 1
-            if fetch_calls <= 2:
+            if fetch_calls in (1, 2, 4):
                 await asyncio.sleep(3600)  # times out
-            succeeded.set()
+            if fetch_calls == 3:
+                succeeded.set()
+            if fetch_calls >= 5:
+                refailed.set()
             return []
+
+        def record_window(low: float, high: float) -> float:
+            jitter_windows.append(high)
+            return low
 
         with (
             patch.object(
@@ -1450,12 +1540,17 @@ class TestPollFailureLiveness:
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.release_all_owned_leases",
                 new_callable=AsyncMock,
             ),
+            patch(f"{batch_consumer_module.__name__}.random.uniform", side_effect=record_window),
         ):
             run_task = asyncio.create_task(consumer.run())
             await asyncio.wait_for(succeeded.wait(), timeout=2.0)
             assert consumer._consecutive_poll_failures == 0
+            await asyncio.wait_for(refailed.wait(), timeout=2.0)
             consumer._shutdown.set()
             await asyncio.wait_for(run_task, timeout=5.0)
+
+        # The failure after the successful poll starts the backoff over at one interval.
+        assert jitter_windows == [0.01, 0.02, 0.01]
 
 
 class TestStatementTimeoutBackstop:
@@ -1488,39 +1583,43 @@ class TestStatementTimeoutBackstop:
             await consumer._ensure_poll_conn()
 
         assert "options" not in mock_connect.call_args.kwargs
-        fresh.execute.assert_awaited_once_with("SET statement_timeout = 210000")
+        assert [call.args[0] for call in fresh.execute.await_args_list] == [
+            "SET statement_timeout = 210000",
+            "SET jit = off",
+        ]
 
 
 class TestPollBackoff:
-    def test_delay_grows_exponentially_and_caps(self):
-        # Losing the backoff means lockstep fleet retries; losing the cap means
-        # unbounded delays.
-        consumer = _make_consumer(poll_interval_seconds=2.0)
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer.random.uniform",
-            return_value=0.0,
-        ):
-            consumer._consecutive_poll_failures = 1
-            assert consumer._poll_retry_delay() == 2.0
-            consumer._consecutive_poll_failures = 2
-            assert consumer._poll_retry_delay() == 4.0
-            consumer._consecutive_poll_failures = 3
-            assert consumer._poll_retry_delay() == 8.0
-            consumer._consecutive_poll_failures = 20  # far past the cap
-            assert consumer._poll_retry_delay() == 30.0  # POLL_BACKOFF_MAX_SECONDS
+    @pytest.mark.parametrize(
+        "failures,window",
+        [
+            (0, 2.0),  # defensive: a delay asked for before any failure uses the first step
+            (1, 2.0),
+            (2, 4.0),
+            (3, 8.0),
+            (5, 32.0),
+            (6, 60.0),  # POLL_BACKOFF_MAX_SECONDS
+            (20, 60.0),
             # A prolonged outage grows the count without bound; 2 ** (failures - 1) used
             # to overflow float here and crash the consumer instead of returning the cap.
-            consumer._consecutive_poll_failures = 5000
-            assert consumer._poll_retry_delay() == 30.0
-
-    def test_jitter_is_added_within_one_interval(self):
+            (5000, 60.0),
+        ],
+    )
+    @pytest.mark.parametrize("draw", ["low", "high"])
+    def test_delay_is_the_interval_plus_full_jitter_over_a_doubling_capped_window(self, failures, window, draw):
+        # Losing the doubling or the full jitter puts the fleet's retries back in
+        # lockstep; losing the cap means unbounded delays; losing the floor lets a
+        # failing pod poll faster than a healthy one.
         consumer = _make_consumer(poll_interval_seconds=2.0)
-        consumer._consecutive_poll_failures = 1
+        consumer._consecutive_poll_failures = failures
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer.random.uniform",
-            return_value=1.5,
-        ):
-            assert consumer._poll_retry_delay() == 3.5  # 2.0 backoff + 1.5 jitter
+            f"{batch_consumer_module.__name__}.random.uniform",
+            side_effect=lambda low, high: low if draw == "low" else high,
+        ) as mock_uniform:
+            delay = consumer._poll_retry_delay()
+
+        mock_uniform.assert_called_once_with(0, window)
+        assert delay == (2.0 if draw == "low" else 2.0 + window)
 
 
 class TestFailRun:
@@ -1641,14 +1740,17 @@ class TestFailRun:
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery.abort_destinations",
-                side_effect=lambda signal: seen.append(signal),
+                side_effect=lambda signal, failure_reason: seen.append((signal, failure_reason)),
             ),
         ):
             await consumer._fail_run(batch, reason="boom", conn=consumer._poll_conn)
 
         assert len(seen) == 1
-        assert seen[0].destination_ids == ["11111111-1111-1111-1111-111111111111"]
-        assert seen[0].team_id == 1
+        signal, failure_reason = seen[0]
+        assert signal.destination_ids == ["11111111-1111-1111-1111-111111111111"]
+        assert signal.team_id == 1
+        # The abort path reads the reason to skip a destination that failed on its configuration.
+        assert failure_reason == "boom"
 
     @pytest.mark.asyncio
     async def test_attempts_job_status_update_even_when_queue_update_fails(self):
@@ -2016,8 +2118,8 @@ class TestReconcileFailedRuns:
 
     @pytest.mark.asyncio
     async def test_slot_held_elsewhere_skips_sweep_but_still_probes_freshness(self):
-        # Single-flighting must never silence the freshness gauge: every pod
-        # reports it, only the slot winner runs the sweep body.
+        # The sweep slot must never silence the freshness gauge: the gauges have
+        # their own slot, and only the sweep slot winner runs the sweep body.
         consumer = _make_consumer()
 
         with (
@@ -2224,6 +2326,176 @@ class TestReconcileFailedRuns:
             await consumer._reconcile_failed_runs()
 
         mock_stranded.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_only_the_gauge_slot_holder_samples_and_a_former_holder_stops_exporting(self):
+        # Every pod used to run both probes on every reconcile. A pod that loses the slot
+        # must not keep exporting its old sample: max() across the fleet would pin it.
+        consumer = _make_consumer()
+        with (
+            patch.object(
+                consumer_module.BatchQueue,
+                "try_acquire_queue_gauges_slot",
+                new_callable=AsyncMock,
+                side_effect=[True, False],
+            ),
+            patch.object(
+                consumer_module.BatchQueue,
+                "get_queue_freshness",
+                new_callable=AsyncMock,
+                return_value=_freshness(42.0, blocked_batches=1, backlogged_groups=2),
+            ) as mock_freshness,
+            patch.object(
+                consumer_module.BatchQueue, "get_queue_depth", new_callable=AsyncMock, return_value=_depth(7)
+            ) as mock_depth,
+            patch.object(consumer_module.BatchQueue, "get_failed_runs", new_callable=AsyncMock, return_value=[]),
+        ):
+            await consumer._reconcile_failed_runs()
+            assert OLDEST_UNCLAIMED_BATCH_SECONDS._value.get() == 42.0
+            assert CLAIMABLE_BATCHES._value.get() == 7
+
+            await consumer._reconcile_failed_runs()
+
+        assert mock_freshness.await_count == 1
+        assert mock_depth.await_count == 1
+        assert all(math.isnan(gauge._value.get()) for gauge in QUEUE_SAMPLE_GAUGES)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "timed_out_probe,expected_age,expected_blocked,expected_claimable,depth_awaited",
+        [
+            # The age saturates, so a queue DB too slow to measure reads as stale.
+            ("get_queue_freshness", FRESHNESS_WINDOW_SECONDS, math.nan, math.nan, False),
+            ("get_queue_depth", 42.0, 1.0, math.nan, True),
+        ],
+    )
+    async def test_statement_timeout_skips_the_sample_and_the_sweep_still_runs(
+        self, timed_out_probe, expected_age, expected_blocked, expected_claimable, depth_awaited
+    ):
+        consumer = _make_consumer()
+        canceled = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+        freshness = _freshness(42.0, blocked_batches=1)
+        with (
+            patch.object(
+                consumer_module.BatchQueue,
+                "get_queue_freshness",
+                new_callable=AsyncMock,
+                side_effect=canceled if timed_out_probe == "get_queue_freshness" else None,
+                return_value=freshness,
+            ),
+            patch.object(
+                consumer_module.BatchQueue,
+                "get_queue_depth",
+                new_callable=AsyncMock,
+                side_effect=canceled if timed_out_probe == "get_queue_depth" else None,
+                return_value=_depth(7),
+            ) as mock_depth,
+            patch.object(
+                consumer_module.BatchQueue, "get_failed_runs", new_callable=AsyncMock, return_value=[]
+            ) as mock_failed_runs,
+            patch(f"{consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            await consumer._reconcile_failed_runs()
+
+        assert not any(isinstance(call.args[0], psycopg.errors.QueryCanceled) for call in mock_capture.call_args_list)
+
+        def _same(actual: float, expected: float) -> bool:
+            return math.isnan(actual) if math.isnan(expected) else actual == expected
+
+        assert _same(OLDEST_UNCLAIMED_BATCH_SECONDS._value.get(), expected_age)
+        assert _same(BLOCKED_BATCHES._value.get(), expected_blocked)
+        assert _same(CLAIMABLE_BATCHES._value.get(), expected_claimable)
+        assert mock_depth.await_count == int(depth_awaited)
+        mock_failed_runs.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "second_round_failure",
+        ["depth_count_timeout", "depth_breakdown_timeout", "freshness_timeout"],
+    )
+    async def test_depth_gauges_keep_the_last_good_sample_when_a_probe_times_out(self, second_round_failure):
+        consumer = _make_consumer()
+        canceled = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+        good = _depth(
+            12_000,
+            claimable_groups=9,
+            top_groups_claimable_share=0.5,
+            slot_waiting_batches=10_000,
+            serialized_batches=2_000,
+        )
+        no_breakdown = QueueDepth(
+            claimable_batches=13_000,
+            claimable_groups=None,
+            top_groups_claimable_share=None,
+            slot_waiting_batches=None,
+            serialized_batches=None,
+        )
+        with (
+            patch.object(
+                consumer_module.BatchQueue,
+                "get_queue_freshness",
+                new_callable=AsyncMock,
+                side_effect=[
+                    _freshness(42.0),
+                    canceled if second_round_failure == "freshness_timeout" else _freshness(43.0),
+                ],
+            ),
+            patch.object(
+                consumer_module.BatchQueue,
+                "get_queue_depth",
+                new_callable=AsyncMock,
+                side_effect=[
+                    good,
+                    canceled if second_round_failure == "depth_count_timeout" else no_breakdown,
+                ],
+            ),
+            patch.object(consumer_module.BatchQueue, "get_failed_runs", new_callable=AsyncMock, return_value=[]),
+        ):
+            await consumer._reconcile_failed_runs()
+            assert DEPTH_SAMPLE_AGE_SECONDS._value.get() < 1
+            timeouts_before = DEPTH_PROBE_TIMEOUTS_TOTAL.labels(stage="count")._value.get()
+            await consumer._reconcile_failed_runs()
+
+        expected_batches = 13_000 if second_round_failure == "depth_breakdown_timeout" else 12_000
+        assert CLAIMABLE_BATCHES._value.get() == expected_batches
+        assert CLAIMABLE_GROUPS._value.get() == 9
+        assert SLOT_WAITING_BATCHES._value.get() == 10_000
+        assert SERIALIZED_BATCHES._value.get() == 2_000
+        assert TOP_GROUPS_CLAIMABLE_SHARE._value.get() == 0.5
+        assert DEPTH_SAMPLE_AGE_SECONDS._value.get() >= 0
+        counted = DEPTH_PROBE_TIMEOUTS_TOTAL.labels(stage="count")._value.get() - timeouts_before
+        assert counted == (1 if second_round_failure == "depth_count_timeout" else 0)
+
+    @pytest.mark.asyncio
+    async def test_a_pod_that_lost_the_gauge_slot_never_exports_a_depth_sample_or_zero(self):
+        consumer = _make_consumer()
+        canceled = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+        with (
+            patch.object(
+                consumer_module.BatchQueue,
+                "try_acquire_queue_gauges_slot",
+                new_callable=AsyncMock,
+                side_effect=[True, False, True],
+            ),
+            patch.object(
+                consumer_module.BatchQueue, "get_queue_freshness", new_callable=AsyncMock, return_value=_freshness(1.0)
+            ),
+            patch.object(
+                consumer_module.BatchQueue,
+                "get_queue_depth",
+                new_callable=AsyncMock,
+                side_effect=[_depth(12_000, claimable_groups=3), canceled],
+            ),
+            patch.object(consumer_module.BatchQueue, "get_failed_runs", new_callable=AsyncMock, return_value=[]),
+        ):
+            await consumer._reconcile_failed_runs()
+            await consumer._reconcile_failed_runs()
+            assert all(math.isnan(gauge._value.get()) for gauge in QUEUE_SAMPLE_GAUGES)
+            await consumer._reconcile_failed_runs()
+
+        # Re-acquired after a gap: the old sample is gone, so a timeout leaves NaN rather than a stale value.
+        assert math.isnan(CLAIMABLE_BATCHES._value.get())
+        assert math.isnan(DEPTH_SAMPLE_AGE_SECONDS._value.get())
 
     @pytest.mark.asyncio
     async def test_hung_freshness_probe_saturates_gauge_and_reconcile_still_runs(self):
@@ -2797,6 +3069,13 @@ class TestQueueDbRetry:
             (psycopg.errors.ConnectionTimeout("connection timeout expired"), True, True),
             (psycopg.errors.AdminShutdown("terminating connection due to administrator command"), True, True),
             (psycopg.errors.ProtocolViolation("query_wait_timeout"), True, True),
+            (
+                psycopg.errors.ProtocolViolation(
+                    "server login has been failing, cached error: connect failed (server_login_retry)"
+                ),
+                True,
+                True,
+            ),
             (psycopg.errors.DeadlockDetected("deadlock detected"), False, True),
             (psycopg.errors.ProtocolViolation("invalid message length"), False, False),
             (psycopg.OperationalError("relation permission denied"), False, False),
@@ -3692,11 +3971,14 @@ class TestIsRetryableError:
 def _run_batches(count: int, *, run_uuid: str = "run-1", start: int = 0, **overrides: Any) -> list[PendingBatch]:
     return [
         _make_batch(
-            id=f"00000000-0000-0000-0000-{run_uuid[-1]}{start + offset:011d}",
-            run_uuid=run_uuid,
-            batch_index=start + offset,
-            sync_type="incremental",
-            **overrides,
+            **{
+                "id": f"00000000-0000-0000-0000-{run_uuid[-1]}{start + offset:011d}",
+                "job_id": f"job-{run_uuid[-1]}",
+                "run_uuid": run_uuid,
+                "batch_index": start + offset,
+                "sync_type": "incremental",
+                **overrides,
+            }
         )
         for offset in range(count)
     ]
@@ -3716,9 +3998,93 @@ class TestCoalesceGroup:
         batches = _run_batches(2) + _run_batches(1, start=3)
         assert self._sets(batches) == [[0, 1], [3]]
 
-    def test_a_set_never_crosses_a_run(self):
-        batches = _run_batches(2, run_uuid="run-1") + _run_batches(2, run_uuid="run-2")
-        assert self._sets(batches) == [[0, 1], [0, 1]]
+    @pytest.mark.parametrize(
+        "second_run,expected",
+        [
+            # A resume attempt continues the same load, so its rows follow the first run's in one write.
+            ({"is_resume": True}, [[0, 1, 0, 1]]),
+            ({"is_resume": True, "start": 7}, [[0, 1, 7, 8]]),
+            ({"is_resume": True, "sync_type": "append"}, [[0, 1, 0, 1]]),
+            # Batch 0 of a fresh run may overwrite the table, so it heads its own write.
+            ({}, [[0, 1], [0, 1]]),
+            # A full refresh replaces the table run by run.
+            ({"is_resume": True, "sync_type": "full_refresh"}, [[0, 1], [0, 1]]),
+            # Rows merged under the head's keys or partitioning would land wrong for a run configured differently.
+            ({"is_resume": True, "metadata": {"primary_keys": ["other"]}}, [[0, 1], [0, 1]]),
+            ({"is_resume": True, "metadata": {"partition_keys": ["id"], "partition_count": 4}}, [[0, 1], [0, 1]]),
+            # The writer takes the head's first-sync flag, which decides between an append and a merge.
+            ({"is_resume": True, "is_first_ever_sync": True}, [[0, 1], [0, 1]]),
+        ],
+        ids=[
+            "resume_joins",
+            "resume_from_later_index_joins",
+            "append_joins",
+            "fresh_batch_zero_splits",
+            "full_refresh_splits",
+            "other_primary_keys_split",
+            "other_partitioning_splits",
+            "first_sync_flag_splits",
+        ],
+    )
+    def test_consecutive_runs(self, second_run: dict[str, Any], expected: list[list[int]]):
+        first_sync_type = second_run.get("sync_type", "incremental")
+        batches = _run_batches(2, run_uuid="run-1", sync_type=first_sync_type) + _run_batches(
+            2, run_uuid="run-2", **second_run
+        )
+        assert self._sets(batches) == expected
+
+    def test_members_keep_the_claim_order_and_a_run_never_reappears_in_a_set(self):
+        # The claim query orders a group by (created_at, batch_index) and the loader takes that order
+        # one batch at a time; a set that reordered members, or folded a run back in after another
+        # run, would merge rows in an order the serial loader never produced.
+        batches = (
+            _run_batches(2, run_uuid="run-1", start=5)
+            + _run_batches(1, run_uuid="run-2", is_resume=True)
+            + _run_batches(1, run_uuid="run-1", start=7)
+        )
+        sets = DeltaBatchConsumerAdapter().coalesce_group(batches)
+        assert [batch.id for batch_set in sets for batch in batch_set] == [batch.id for batch in batches]
+        assert [[(b.run_uuid, b.batch_index) for b in s] for s in sets] == [
+            [("run-1", 5), ("run-1", 6), ("run-2", 0)],
+            [("run-1", 7)],
+        ]
+
+    @pytest.mark.parametrize(
+        "destination_ids",
+        [["warehouse-1"], ["warehouse-1", "warehouse-2"]],
+        ids=["warehouse_only", "two_warehouse_rows"],
+    )
+    def test_batches_bound_only_for_the_warehouse_still_share_a_write(self, destination_ids: list[str]):
+        # Every run now snapshots the PostHog warehouse, which delta writes rather than a
+        # destination writer delivers. Reading a non-empty snapshot as "has destinations" would
+        # stop the whole fleet coalescing.
+        batches = [
+            _make_batch(
+                id=f"00000000-0000-0000-0000-{i:012d}",
+                run_uuid="run-1",
+                batch_index=i,
+                sync_type="incremental",
+                destination_ids=destination_ids,
+                metadata={"external_destination_ids": []},
+            )
+            for i in range(3)
+        ]
+        assert self._sets(batches) == [[0, 1, 2]]
+
+    def test_batches_for_different_destinations_never_share_a_write(self):
+        # The external set is a key, not a flag: one write cannot deliver to two different places.
+        batches = [
+            _make_batch(
+                id=f"00000000-0000-0000-0000-{i:012d}",
+                run_uuid="run-1",
+                batch_index=i,
+                sync_type="incremental",
+                destination_ids=["warehouse-1", dest],
+                metadata={"external_destination_ids": [dest]},
+            )
+            for i, dest in enumerate(["dest-a", "dest-a", "dest-b"])
+        ]
+        assert self._sets(batches) == [[0], [1], [2]]
 
     def test_a_final_only_marker_row_stays_alone(self):
         # An older producer repeats the last batch's index as a final-only row; it is not a new batch.
@@ -3737,10 +4103,12 @@ class TestCoalesceGroup:
         [
             {"sync_type": "cdc"},
             {"metadata": {"cdc_write_mode": "scd2_append"}},
+            {"destination_ids": ["dest-1"], "metadata": {"external_destination_ids": ["dest-1"]}},
+            # Queued before the producer recorded the subset, so every id counts as external.
             {"destination_ids": ["dest-1"]},
             {"latest_attempt": 1},
         ],
-        ids=["cdc", "scd2_companion", "external_destinations", "redelivery"],
+        ids=["cdc", "scd2_companion", "external_destinations", "unknown_subset", "redelivery"],
     )
     def test_batches_the_sink_loads_one_at_a_time(self, overrides: dict[str, Any]):
         batches = [
@@ -3755,16 +4123,23 @@ class TestCoalesceGroup:
         assert self._sets(batches) == [[0], [1], [2]]
 
     @pytest.mark.parametrize(
-        "count,overrides,expected",
+        "count,overrides,settings_overrides,expected",
         [
-            (3, {"row_count": 300_000, "byte_size": 1}, [[0], [1], [2]]),
-            (3, {"row_count": 1, "byte_size": 40 * 1024 * 1024}, [[0], [1], [2]]),
-            (9, {"row_count": 1, "byte_size": 1}, [list(range(8)), [8]]),
+            (3, {"row_count": 300_000, "byte_size": 1}, {}, [[0], [1], [2]]),
+            (3, {"row_count": 1, "byte_size": 40 * 1024 * 1024}, {}, [[0], [1], [2]]),
+            # The row cap binds long before the count backstop for batches of ordinary size.
+            (60, {"row_count": 10_000, "byte_size": 1}, {}, [list(range(50)), list(range(50, 60))]),
+            (9, {"row_count": 1, "byte_size": 1}, {"DATA_WAREHOUSE_V3_COALESCE_MAX_BATCHES": 8}, [list(range(8)), [8]]),
+            (3, {"row_count": 10, "byte_size": 1}, {"DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS": 20}, [[0, 1], [2]]),
+            (3, {"row_count": 1, "byte_size": 10}, {"DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES": 20}, [[0, 1], [2]]),
         ],
-        ids=["rows", "bytes", "count"],
+        ids=["rows", "bytes", "rows_bind_before_count", "count_setting", "rows_setting", "bytes_setting"],
     )
-    def test_sets_are_capped(self, count: int, overrides: dict[str, Any], expected: list[list[int]]):
-        assert self._sets(_run_batches(count, **overrides)) == expected
+    def test_sets_are_capped(
+        self, count: int, overrides: dict[str, Any], settings_overrides: dict[str, Any], expected: list[list[int]]
+    ):
+        with override_settings(**settings_overrides):
+            assert self._sets(_run_batches(count, **overrides)) == expected
 
 
 class _BatchStatus(NamedTuple):
@@ -3835,17 +4210,18 @@ class TestProcessGroupCoalescing:
         self, error: Exception, expected_latest_attempt: int, expected_status_attempt: int
     ):
         process_batches = AsyncMock(side_effect=error)
-        seen: list[tuple[int, int]] = []
+        seen: list[tuple[str, int, int]] = []
 
         async def process_batch(batch, verify_ownership=None):
-            seen.append((batch.batch_index, batch.latest_attempt))
+            seen.append((batch.run_uuid, batch.batch_index, batch.latest_attempt))
 
         consumer = self._consumer(process_batches, process_batch)
-        batches = _run_batches(2)
+        # A set that spans runs falls back run by run, each member under its own identity.
+        batches = _run_batches(1, run_uuid="run-1", start=4) + _run_batches(1, run_uuid="run-2", is_resume=True)
 
         statuses = await self._run_group(consumer, batches)
 
-        assert seen == [(0, expected_latest_attempt), (1, expected_latest_attempt)]
+        assert seen == [("run-1", 4, expected_latest_attempt), ("run-2", 0, expected_latest_attempt)]
         # The set's own executing rows come first; each member then goes through the single-batch
         # transitions, at the same attempt when nothing was written and at the next one otherwise.
         assert statuses == [
@@ -3858,6 +4234,50 @@ class TestProcessGroupCoalescing:
         ]
 
     @pytest.mark.asyncio
+    async def test_a_set_whose_post_write_status_update_fails_falls_back_to_its_members(self):
+        # The set's write (process_batches) already landed; only the bookkeeping status update
+        # after it crashes (e.g. a dropped queue-DB connection). This must not bubble out of the
+        # group unhandled — it falls back to the single-batch path, same as a set that never
+        # wrote in the first place, so the already-established retry classification applies
+        # instead of an unconditional captured exception.
+        loaded: list[list[int]] = []
+
+        async def process_batches(batches, verify_ownership=None):
+            loaded.append([b.batch_index for b in batches])
+
+        process_batch = AsyncMock()
+        consumer = self._consumer(process_batches, process_batch)
+        batches = _run_batches(2)
+
+        statuses: list[_BatchStatus] = []
+        raised = False
+
+        async def record_status(conn, *, batch_id, job_state, attempt, **kwargs):
+            nonlocal raised
+            if job_state == "succeeded" and not raised:
+                raised = True
+                raise psycopg.errors.ProtocolViolation("server conn crashed?")
+            statuses.append(_BatchStatus(batch_id, job_state, attempt))
+            return True
+
+        with (
+            patch(f"{self._CONSUMER_QUEUE}.update_status_unless_failed", side_effect=record_status),
+            patch(f"{self._CONSUMER_QUEUE}.unlock_for_batches", new_callable=AsyncMock),
+            patch(f"{self._CONSUMER_QUEUE}.verify_advisory_lock", new_callable=AsyncMock, return_value=True),
+            patch.object(DeltaBatchConsumerAdapter, "should_process_batch", new_callable=AsyncMock, return_value=True),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            await consumer._process_group((1, "schema-1"), batches)
+
+        assert loaded == [[0, 1]]  # the set loaded exactly once despite the later crash
+        # Every batch still reaches a terminal "succeeded" status via the single-batch fallback.
+        assert [s.job_state for s in statuses if s.batch_id == batches[0].id][-1] == "succeeded"
+        assert [s.job_state for s in statuses if s.batch_id == batches[1].id][-1] == "succeeded"
+        # A transient queue-DB blip during bookkeeping must not reach error tracking.
+        mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_without_a_set_loader_every_batch_is_single(self):
         process_batch = AsyncMock()
         consumer = self._consumer(None, process_batch)
@@ -3865,3 +4285,50 @@ class TestProcessGroupCoalescing:
         await self._run_group(consumer, _run_batches(3))
 
         assert process_batch.await_count == 3
+
+
+class TestBatchPhaseTracking:
+    def test_phase_gauges_follow_the_batch_bound_to_the_processing_context(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase
+        from products.warehouse_sources_queue.backend.core.batch_phase import (
+            BATCH_PHASE_AGE_SECONDS_MAX,
+            BATCHES_IN_PHASE,
+        )
+
+        consumer = _make_consumer()
+        consumer._health_reporter = lambda: None
+        batch = _make_batch()
+
+        with consumer._batch_log_context(batch, attempt=1):
+            report_phase("read")
+            consumer._report_health()
+            assert BATCHES_IN_PHASE.labels(phase="read")._value.get() == 1
+            assert BATCHES_IN_PHASE.labels(phase="claimed")._value.get() == 0
+            assert BATCH_PHASE_AGE_SECONDS_MAX.labels(phase="read")._value.get() >= 0
+
+        consumer._report_health()
+        assert BATCHES_IN_PHASE.labels(phase="read")._value.get() == 0
+        assert BATCH_PHASE_AGE_SECONDS_MAX.labels(phase="read")._value.get() == 0
+
+        report_phase("write")
+        consumer._report_health()
+        assert BATCHES_IN_PHASE.labels(phase="write")._value.get() == 0
+
+    def test_watchdog_trip_names_the_phase_the_batch_stopped_in(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase
+
+        consumer = _make_consumer(stuck_batch_timeout_seconds=0.0)
+        calls: list[int] = []
+        consumer._health_reporter = lambda: calls.append(1)
+        batch = _make_batch()
+
+        with consumer._batch_log_context(batch, attempt=1), patch.object(batch_consumer_module, "logger") as logger:
+            report_phase("write")
+            consumer._report_health()
+
+        assert calls == []  # tripped: liveness withheld
+        logger.error.assert_called_once()
+        kwargs = logger.error.call_args.kwargs
+        assert kwargs.get("batch_id") == batch.id
+        assert kwargs.get("phase") == "write"
+        assert kwargs.get("phase_seconds") is not None

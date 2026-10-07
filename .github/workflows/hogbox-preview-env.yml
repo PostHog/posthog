@@ -3,7 +3,7 @@
 # Restores the pre-baked "preview golden" snapshot (PostHog already migrated +
 # seeded on the :master image), mounts the PR's backend source over the image's
 # /code, builds the PR's frontend, runs the delta migrations, and posts the
-# reachable URL on the PR (sticky comment + a GitHub Deployment).
+# reachable URL on the PR (a CI report section + a GitHub Deployment).
 #
 # This drives tools/hogbox-preview — the layer (hogland) is swappable; the stack
 # recipe is not. See tools/hogbox-preview/README.md.
@@ -35,7 +35,7 @@
 #
 # --- LIFECYCLE ------------------------------------------------------------------
 #   - build/update: once `decide` says build, `announce` posts the in-progress
-#     Deployment + comment, then `build-frontend` (untrusted, no credentials —
+#     Deployment + CI report section, then `build-frontend` (untrusted, no credentials —
 #     see the permissions note below) and `deploy` (trusted, brings the box up)
 #     run IN PARALLEL. deploy no longer waits on the dist: it restores + mounts +
 #     migrates immediately, and only blocks on build-frontend right at the end,
@@ -46,7 +46,7 @@
 #     (preview-pr-<n>) is reaped by pr-cleanup.yml's existing deployment cleanup.
 #   - teardown fast path: the `teardown` job below fires when `hogbox-preview` is
 #     removed OR `no-preview` is added (the cron is the backstop); it also marks
-#     the Deployment inactive and flips the sticky comment.
+#     the Deployment inactive and flips the CI report section.
 #
 # --- PREREQS (tracked out of band) ----------------------------------------------
 #   - vars.TS_HOGLAND_CI_CLIENT_ID / TS_HOGLAND_CI_AUDIENCE  (tailnet join)
@@ -61,7 +61,7 @@
 
 # --- OPTIONAL BY DESIGN ---------------------------------------------------------
 # A preview never gates a PR: all preview infra (tailnet, hogland, GitHub API, the
-# reporters) fails open and reports via the Deployment + sticky comment. Only
+# reporters) fails open and reports via the Deployment + CI report section. Only
 # `build-frontend` (PR code — deploy reads its conclusion) and the fork guards still
 # red. There is no "yellow" to use instead, and job-level `continue-on-error` still
 # reds the PR, so fail-open means step-level. The name prefix is on the JOBS because
@@ -227,9 +227,9 @@ jobs:
                           : 'no hogbox-preview label and no frontend changes → skip');
 
     # ----------------------------------------------------------------------------
-    # Trusted, tiny, no-checkout: open a GitHub Deployment (in_progress) and the
-    # sticky "building…" comment immediately, so the PR shows activity before the
-    # multi-minute build + bring-up finishes. Runs github-script only — no PR
+    # Trusted and tiny: open a GitHub Deployment (in_progress) and the
+    # "building…" CI report section immediately, so the PR shows activity before the
+    # multi-minute build + bring-up finishes. Runs only default-branch scripts — no PR
     # code — which is why it may hold write perms. Deliberately OUTSIDE the
     # per-PR concurrency group: announcing must never cancel an in-flight
     # deploy; build-frontend/deploy below do the coalescing.
@@ -241,14 +241,14 @@ jobs:
         timeout-minutes: 5
         permissions:
             contents: read
-            pull-requests: write # sticky preview comment
+            pull-requests: write # CI report section
             deployments: write # GitHub Deployment for the PR's Environments UI
         outputs:
             sha: ${{ steps.start.outputs.sha }}
             deployment_id: ${{ steps.start.outputs.deployment_id }}
         steps:
             # Cosmetic: on a blip sha/deployment_id go empty, which deploy already tolerates.
-            - name: Announce (deployment + building comment)
+            - name: Announce (deployment)
               id: start
               continue-on-error: true
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
@@ -272,15 +272,22 @@ jobs:
                           ...context.repo, deployment_id: dep.data.id, state: 'in_progress',
                           environment, log_url: runUrl, description: 'Building preview…',
                       });
-                      const marker = '<!-- hogbox-preview-comment -->';
-                      const body =
-                          `${marker}\n### 🦔 Hogbox preview &middot; 🔧 building…\n\n` +
-                          `Spinning up PostHog for this PR on a hogland hogbox — this comment updates in place when it's ready (usually a few minutes).\n\n` +
-                          `<sub>commit \`${sha.slice(0, 7)}\` &middot; <a href="${runUrl}">build log</a></sub>`;
-                      const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: pr });
-                      const ex = comments.find(c => c.body.includes(marker));
-                      if (ex) await github.rest.issues.updateComment({ ...context.repo, comment_id: ex.id, body });
-                      else await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body });
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              continue-on-error: true
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
+                  sparse-checkout: |
+                      .github/scripts
+                      frontend/bin/ci-report
+
+            - name: Post building section
+              continue-on-error: true
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ env.PR }}
+                  SHA: ${{ steps.start.outputs.sha }}
+              run: node .github/scripts/post-hogbox-preview-section.mjs building
 
     # ----------------------------------------------------------------------------
     # UNTRUSTED build: checks out the PR and runs its pnpm lifecycle + turbo
@@ -431,7 +438,7 @@ jobs:
         needs: [decide, announce]
         # Runs whenever an eligible build was attempted — even if announce
         # failed, so the failure reporter below still flips the Deployment +
-        # sticky comment to failed. Skips only on cancellation (a newer push's
+        # CI report section to failed. Skips only on cancellation (a newer push's
         # run took over the concurrency group).
         if: ${{ !cancelled() && needs.decide.outputs.build == 'true' }}
         concurrency:
@@ -443,7 +450,7 @@ jobs:
             contents: read
             id-token: write # mint OIDC for the tailnet join AND the hogplane token
             actions: read # poll this run's jobs + artifacts to wait on build-frontend
-            pull-requests: write # sticky preview comment
+            pull-requests: write # CI report section
             deployments: write # flip the Deployment to success/failure
         env:
             SHA: ${{ needs.announce.outputs.sha }}
@@ -561,7 +568,7 @@ jobs:
             # The box is healthy on the :master SPA. NOW block on build-frontend:
             # poll THIS run's jobs for the `build PR frontend` job until it has a
             # conclusion. failure/cancelled/timed_out → fail (the failure reporter
-            # flips the comment + Deployment). success WITH the dist artifact →
+            # flips the CI report section + Deployment). success WITH the dist artifact →
             # swap the PR frontend in. success WITHOUT the artifact, or skipped →
             # the PR didn't touch the frontend, keep :master (no swap). By now the
             # FE build has usually long finished, so this returns near-instantly.
@@ -632,7 +639,7 @@ jobs:
                     swap-frontend --frontend-dist "${RUNNER_TEMP}/fe-dist/frontend-dist.tgz"
 
             # dist/swap are 'skipped' on a backend-only PR, which passes; 'failure'
-            # would serve :master under a comment claiming the PR's frontend.
+            # would serve :master under a section claiming the PR's frontend.
             - name: Decide preview outcome
               id: outcome
               if: ${{ !cancelled() }}
@@ -651,18 +658,14 @@ jobs:
                   echo "ok=$ok" >> "$GITHUB_OUTPUT"
 
             # Reporting is auxiliary: an API blip must not red a preview that came up.
-            - name: Report ready (deployment + comment)
+            - name: Report ready (deployment)
+              id: ready
               if: steps.outcome.outputs.ok == 'true'
               continue-on-error: true
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
-              # SHA + DEP come from the job env (announce job outputs).
+              # DEP comes from the job env (announce job outputs).
               env:
                   URL: ${{ steps.build.outputs.url }}
-                  BOX: ${{ steps.build.outputs.box_id }}
-                  PEN: ${{ steps.build.outputs.pen_id }}
-                  SWAP: ${{ steps.fe.outputs.swap }}
-                  # The hogland admin/console host (same value as the OIDC audience).
-                  CONSOLE_HOST: ${{ env.HOG_OIDC_AUDIENCE }}
               with:
                   script: |
                       const pr = Number(process.env.PR);
@@ -675,49 +678,33 @@ jobs:
                       const run = await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: context.runId });
                       const startedAt = run.data.run_started_at || run.data.created_at;
                       const secs = Math.max(0, Math.round((Date.now() - new Date(startedAt).getTime()) / 1000));
+                      core.setOutput('secs', String(secs));
                       if (process.env.DEP) {
                           await github.rest.repos.createDeploymentStatus({
                               ...context.repo, deployment_id: Number(process.env.DEP), state: 'success',
                               environment, environment_url: url, log_url: runUrl, description: 'Preview ready',
                           });
                       }
-                      // Only claim the PR's frontend when it was actually swapped
-                      // in; a backend-only preview serves the :master SPA, and
-                      // saying otherwise would be a correctness lie to the reviewer.
-                      const running = process.env.SWAP === 'true'
-                          ? "this PR's backend **and** frontend, on the PostHog `:master` base"
-                          : "this PR's backend on the PostHog `:master` base (frontend unchanged by this PR)";
-                      // Admin/console link for the pen — lets folks inspect and
-                      // debug box state in hogland. Only when both the host and pen
-                      // id are known.
-                      // Guard the literal 'None' too — the CLI parser can surface
-                      // it as a string, and it would otherwise be truthy here.
-                      const pen = process.env.PEN;
-                      const consoleHost = process.env.CONSOLE_HOST;
-                      const adminUrl = (consoleHost && pen && pen !== 'None')
-                          ? `https://${consoleHost}/console/fleet/pens/${pen}`
-                          : null;
-                      const marker = '<!-- hogbox-preview-comment -->';
-                      const body =
-                          `${marker}\n### 🦔 Hogbox preview &middot; ✅ ready\n\n` +
-                          `### [▶ Open the preview](${url})\n\n` +
-                          `| | |\n|--|--|\n` +
-                          `| 🔑 **Login** | \`test@posthog.com\` / \`12345678\` (demo data) |\n` +
-                          `| 🧩 **Running** | ${running} |\n` +
-                          `| 🔗 **Link** | **stable across rebuilds** — a re-push swaps the box underneath, the URL stays |\n` +
-                          `| 🔒 **Access** | tailnet only (PostHog VPN) |\n` +
-                          (adminUrl ? `| 🛠️ **Admin** | [inspect & debug state in hogland](${adminUrl}) |\n` : ``) +
-                          `| 💤 **Idle** | sleeps after ~30 min idle (snapshot to S3, zero node cost) and wakes on your next visit in ~30s, behind a brief "waking up" screen |\n\n` +
-                          `<sub>commit \`${(process.env.SHA || '').slice(0, 7)}\` &middot; box \`${process.env.BOX}\` &middot; ready in ${secs}s (push → usable) &middot; ` +
-                          `<a href="${runUrl}">build log</a> &middot; rebuilds on every push, torn down on close</sub>`;
-                      const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: pr });
-                      const ex = comments.find(c => c.body.includes(marker));
-                      if (ex) await github.rest.issues.updateComment({ ...context.repo, comment_id: ex.id, body });
-                      else await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body });
+
+            # SHA comes from the job env (announce job outputs).
+            - name: Post ready section
+              if: steps.outcome.outputs.ok == 'true'
+              continue-on-error: true
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ env.PR }}
+                  URL: ${{ steps.build.outputs.url }}
+                  BOX: ${{ steps.build.outputs.box_id }}
+                  PEN: ${{ steps.build.outputs.pen_id }}
+                  SWAP: ${{ steps.fe.outputs.swap }}
+                  READY_SECONDS: ${{ steps.ready.outputs.secs }}
+                  # The hogland admin/console host (same value as the OIDC audience).
+                  CONSOLE_HOST: ${{ env.HOG_OIDC_AUDIENCE }}
+              run: node .github/scripts/post-hogbox-preview-section.mjs ready
 
             # Load-bearing: runs on the very failures the chain above swallows, so an
             # unguarded API call would hand the red X straight back.
-            - name: Report failure (deployment + comment)
+            - name: Report failure (deployment)
               if: steps.outcome.outputs.ok != 'true'
               continue-on-error: true
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
@@ -732,17 +719,14 @@ jobs:
                               environment, log_url: runUrl, description: 'Preview build failed',
                           });
                       }
-                      const marker = '<!-- hogbox-preview-comment -->';
-                      const body =
-                          `${marker}\n### 🦔 Hogbox preview &middot; ❌ build failed\n\n` +
-                          `The preview didn't come up for commit \`${(process.env.SHA || '').slice(0, 7)}\`. ` +
-                          `See the **[build log](${runUrl})** for the failing step. It'll retry on the next push.\n\n` +
-                          `<sub>Previews are optional and never block merging. A failure here is often a hogland or tailnet ` +
-                          `hiccup rather than anything in your PR, so the check stays green and this comment is the status.</sub>`;
-                      const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: pr });
-                      const ex = comments.find(c => c.body.includes(marker));
-                      if (ex) await github.rest.issues.updateComment({ ...context.repo, comment_id: ex.id, body });
-                      else await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body });
+
+            - name: Post failure section
+              if: steps.outcome.outputs.ok != 'true'
+              continue-on-error: true
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ env.PR }}
+              run: node .github/scripts/post-hogbox-preview-section.mjs failed
 
     # ----------------------------------------------------------------------------
     # Fast-path teardown, decided by the `decide` job: either the `hogbox-preview`
@@ -766,7 +750,7 @@ jobs:
         permissions:
             contents: read
             id-token: write # tailnet join + hogland token — no PR code in this job
-            pull-requests: write # flip the sticky comment to torn-down
+            pull-requests: write # flip the CI report section to torn-down
             deployments: write # mark the preview Deployment inactive
         steps:
             # Teardown runs the tool with the hogland token, so check it out from
@@ -812,11 +796,11 @@ jobs:
               working-directory: tools/hogbox-preview
               run: uv run --no-project --with posthog-hogland==0.3.0 --python 3.12 python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-${PR}" destroy
 
-            # Don't leave a green "ready" Deployment + comment pointing at a box
+            # Don't leave a green "ready" Deployment + section pointing at a box
             # that no longer exists: mark every deployment of this PR's
-            # environment inactive and flip the sticky comment. (The close path
+            # environment inactive and flip the CI report section. (The close path
             # gets the same treatment from pr-cleanup.yml's deployment reaper.)
-            - name: Deactivate deployment + update comment
+            - name: Deactivate deployment
               if: always()
               continue-on-error: true
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
@@ -832,13 +816,11 @@ jobs:
                               environment, description: 'Preview torn down',
                           });
                       }
-                      const marker = '<!-- hogbox-preview-comment -->';
-                      const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: pr });
-                      const ex = comments.find(c => c.body.includes(marker));
-                      if (ex) {
-                          const body =
-                              `${marker}\n### 🦔 Hogbox preview &middot; 💤 torn down\n\n` +
-                              `The preview for this PR was torn down (label removed or \`no-preview\` added). ` +
-                              `Re-add the \`hogbox-preview\` label to bring it back.`;
-                          await github.rest.issues.updateComment({ ...context.repo, comment_id: ex.id, body });
-                      }
+
+            - name: Post torn-down section
+              if: always()
+              continue-on-error: true
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ env.PR }}
+              run: node .github/scripts/post-hogbox-preview-section.mjs torn-down

@@ -676,6 +676,19 @@ class TestQueryRunner(BaseTest):
 
         self.assertEqual(runner.query, expected_source_query)
 
+    def test_bi_worksheet_state_does_not_change_executed_query_or_cache(self) -> None:
+        source = {"kind": "HogQLQuery", "query": "SELECT 1"}
+        first = get_query_runner(
+            query={"kind": "BIVisualizationNode", "source": source, "config": {"chartType": "ActionsBar"}},
+            team=self.team,
+        )
+        second = get_query_runner(
+            query={"kind": "BIVisualizationNode", "source": source, "config": {"chartType": "ActionsLineGraph"}},
+            team=self.team,
+        )
+        self.assertEqual(first.query, HogQLQuery(query="SELECT 1"))
+        self.assertEqual(first.get_cache_key(), second.get_cache_key())
+
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_payload(self):
         TestQueryRunner = self.setup_test_query_runner_class()

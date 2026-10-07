@@ -20,6 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
     update_job_row_count,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
+    SUMMARY_EVENT,
+    record_post_load_phases,
+)
 from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import QueryFolderPointerHistory
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -30,8 +34,6 @@ _LOAD_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelin
 _DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
 _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
 _REPARTITION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
-_JOB_CREATED_AT = datetime(2026, 8, 19, 11, 0, tzinfo=UTC)
-_A_LINKED_TABLE_ID = uuid.uuid4()
 
 
 def _make_schema(
@@ -57,10 +59,11 @@ def _make_schema(
     return schema
 
 
-def _make_helper(*, file_uris: list[str] | None = None) -> MagicMock:
+def _make_helper(*, file_uris: list[str] | None = None, live_row_count: int | None = None) -> MagicMock:
     return MagicMock(
         get_delta_table=AsyncMock(return_value=MagicMock()),
         get_file_uris=AsyncMock(return_value=file_uris or []),
+        get_live_row_count=AsyncMock(return_value=live_row_count),
     )
 
 
@@ -70,8 +73,9 @@ async def _run_post_load(
     *,
     cdc_write_mode: str | None = None,
     resource: Optional[MagicMock] = None,
-    double_buffer_enabled: bool = False,
     stored_sync_type_config: dict | None = None,
+    validate: AsyncMock | None = None,
+    row_count: int = 10,
 ) -> tuple[AsyncMock, AsyncMock]:
     job = MagicMock()
     job.id = uuid.uuid4()
@@ -82,7 +86,7 @@ async def _run_post_load(
     run_scheduled = AsyncMock()
     with (
         patch(f"{_LOAD_MODULE}.prepare_s3_files_for_querying", prepare_s3),
-        patch(f"{_LOAD_MODULE}.is_schema_flag_enabled", MagicMock(return_value=double_buffer_enabled)),
+        patch(f"{_LOAD_MODULE}.own_linked_table", lambda schema, _pipeline: schema.table),
         patch(f"{_LOAD_MODULE}._stored_sync_type_config", MagicMock(return_value=stored_sync_type_config)),
         patch(f"{_LOAD_MODULE}.notify_revenue_analytics_that_sync_has_completed", AsyncMock()),
         patch(f"{_LOAD_MODULE}.sync_revenue_analytics_views", MagicMock()),
@@ -90,7 +94,7 @@ async def _run_post_load(
         patch(f"{_LOAD_MODULE}.set_initial_sync_complete", AsyncMock()),
         patch.object(DeltaMaintenance, "run_scheduled", run_scheduled),
         patch(f"{_PIPELINE_SYNC_MODULE}.update_last_synced_at", AsyncMock()),
-        patch(f"{_PIPELINE_SYNC_MODULE}.validate_schema_and_update_table", AsyncMock()),
+        patch(f"{_PIPELINE_SYNC_MODULE}.validate_schema_and_update_table", validate or AsyncMock()),
         patch(f"{_PIPELINE_SYNC_MODULE}.register_cdc_companion_table", AsyncMock()),
         patch(f"{_REPARTITION_MODULE}.maybe_flag_for_repartition", AsyncMock()),
     ):
@@ -99,7 +103,7 @@ async def _run_post_load(
             schema=schema,
             source=MagicMock(),
             delta_table_ref=helper,
-            row_count=10,
+            row_count=row_count,
             table_schema_dict={},
             resource_name="orders",
             logger=logger,
@@ -113,29 +117,20 @@ class TestRunPostLoadDeltaMaintenance:
     """Post-load routes every schema kind through threshold maintenance; the threshold/watermark
     mechanics themselves are covered in core/delta/test/test_maintenance.py."""
 
-    @parameterized.expand([("cdc", True, "incremental"), ("non_cdc", False, None)])
+    @parameterized.expand([("cdc", True, "incremental", False), ("non_cdc", False, None, True)])
     @pytest.mark.asyncio
     async def test_uses_threshold_maintenance_not_unconditional_compact(
-        self, _name: str, is_cdc: bool, cdc_write_mode: str | None
+        self, _name: str, is_cdc: bool, cdc_write_mode: str | None, compact_small_files: bool
     ) -> None:
         # CDC finals land every tick, and a non-CDC final batch usually leaves nothing to compact,
         # so an unconditional compact+vacuum here paid a full file listing and rewrite plan per sync.
+        # A non-CDC table still needs its small merge files compacted: without that they pile up in
+        # the newest partition, reads slow down, and the inflated partition trips a false repartition.
         schema = _make_schema(is_cdc=is_cdc, sync_type_config={"last_vacuum_version": 41})
 
         run_scheduled, _ = await _run_post_load(schema, _make_helper(), cdc_write_mode=cdc_write_mode)
 
-        run_scheduled.assert_awaited_once_with(schema, is_cdc_companion=False, partition_count_fallback=None)
-
-    @pytest.mark.asyncio
-    async def test_forwards_resource_partition_count_as_fallback(self) -> None:
-        # A first sync has no schema.partition_count persisted yet; the fallback comes from the
-        # synced resource instead, so this must actually reach run_scheduled and not silently drop.
-        schema = _make_schema(is_cdc=False, sync_type_config={"last_vacuum_version": 41}, partition_count=None)
-        resource = MagicMock(partition_count=12)
-
-        run_scheduled, _ = await _run_post_load(schema, _make_helper(), resource=resource)
-
-        run_scheduled.assert_awaited_once_with(schema, is_cdc_companion=False, partition_count_fallback=12)
+        run_scheduled.assert_awaited_once_with(schema, is_cdc_companion=False, compact_small_files=compact_small_files)
 
     @pytest.mark.asyncio
     async def test_cdc_companion_write_runs_companion_maintenance(self):
@@ -146,7 +141,7 @@ class TestRunPostLoadDeltaMaintenance:
 
         run_scheduled, _ = await _run_post_load(schema, _make_helper(), cdc_write_mode="scd2_append")
 
-        run_scheduled.assert_awaited_once_with(schema, is_cdc_companion=True, partition_count_fallback=None)
+        run_scheduled.assert_awaited_once_with(schema, is_cdc_companion=True, compact_small_files=False)
 
     @parameterized.expand([("non_cdc", False), ("cdc", True)])
     @pytest.mark.asyncio
@@ -165,7 +160,89 @@ class TestRunPostLoadDeltaMaintenance:
         assert prepare_s3.await_args.args[2] == post_maintenance_uris
 
 
-class TestPublishQueryableFilesDoubleBufferRollout:
+class TestRegisterTableRowCount:
+    @parameterized.expand(
+        [
+            ("cumulative", True, 10, 40_000_000),
+            ("full_refresh_with_rows", False, 10, None),
+            ("full_refresh_reporting_zero", False, 0, 40_000_000),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_passes_the_delta_log_count_when_the_run_count_is_not_the_table_size(
+        self, _name: str, cumulative: bool, row_count: int, expected: int | None
+    ) -> None:
+        # Without the log count, registration counts every published file through chdb or the
+        # ClickHouse cluster on each sync of an incremental table.
+        schema = _make_schema(is_cdc=False)
+        schema.table_row_count_is_cumulative = cumulative
+        validate = AsyncMock()
+
+        await _run_post_load(schema, _make_helper(live_row_count=40_000_000), validate=validate, row_count=row_count)
+
+        validate.assert_awaited_once()
+        assert validate.await_args is not None
+        assert validate.await_args.kwargs["live_row_count"] == expected
+
+
+_STEP_PHASES = [
+    "notify_revenue_analytics",
+    "sync_revenue_analytics_views",
+    "sync_engineering_analytics_views",
+    "maybe_flag_repartition",
+]
+
+
+class TestPostLoadPhaseSummary:
+    @parameterized.expand(
+        [
+            (
+                "non_cdc",
+                False,
+                None,
+                ["delta_maintenance", "publish", "list_live_files", "sync_bookkeeping", "register_table"],
+            ),
+            (
+                "cdc",
+                True,
+                "incremental",
+                [
+                    "delta_maintenance",
+                    "publish",
+                    "list_live_files",
+                    "sync_bookkeeping",
+                    "register_table",
+                    "cdc_post_load",
+                ],
+            ),
+            (
+                "cdc_companion",
+                True,
+                "scd2_append",
+                ["delta_maintenance", "publish", "list_live_files", "sync_bookkeeping", "cdc_post_load"],
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_one_summary_line_names_every_post_load_phase(
+        self, _name: str, is_cdc: bool, cdc_write_mode: str | None, core_phases: list[str]
+    ) -> None:
+        logger = MagicMock()
+        schema = _make_schema(is_cdc=is_cdc)
+
+        with record_post_load_phases(logger, None, team_id=schema.team_id):
+            await _run_post_load(schema, _make_helper(file_uris=["a", "b"]), cdc_write_mode=cdc_write_mode)
+
+        logger.info.assert_called_once()
+        assert logger.info.call_args.args == (SUMMARY_EVENT,)
+        summary = logger.info.call_args.kwargs
+        assert summary["phase_names"] == [*core_phases, *_STEP_PHASES]
+        phases = {phase["name"]: phase for phase in summary["phases"]}
+        assert phases["list_live_files"]["parent"] == "publish"
+        assert phases["list_live_files"]["live_files"] == 2
+
+
+class TestPublishQueryableFilesDoubleBuffer:
     _STATE = {
         "query_folder_state": {
             "orders__query": {
@@ -187,153 +264,27 @@ class TestPublishQueryableFilesDoubleBufferRollout:
 
     @parameterized.expand(
         [
-            # The flag is the rollback switch: off must reach the timestamped-folder path even when a
-            # pointer record is stored, or turning it off after a bad rollout would change nothing.
-            ("flag_off", False, _STATE, False, None),
-            ("flag_on_with_record", True, _STATE, True, _HISTORY),
-            ("flag_on_no_record", True, None, True, None),
+            ("with_record", _STATE, _HISTORY),
+            ("no_record", None, None),
         ]
     )
     @pytest.mark.asyncio
-    async def test_passes_the_flag_and_the_pointer_history_to_the_publish_step(
+    async def test_passes_double_buffering_and_the_pointer_history_to_the_publish_step(
         self,
         _name: str,
-        flag_enabled: bool,
         stored_config: dict | None,
-        expected_double_buffer: bool,
         expected_history: QueryFolderPointerHistory | None,
     ) -> None:
         schema = _make_schema(is_cdc=False)
         schema.table.queryable_folder = "orders__query_a"
 
-        _, prepare_s3 = await _run_post_load(
-            schema, _make_helper(), double_buffer_enabled=flag_enabled, stored_sync_type_config=stored_config
-        )
+        _, prepare_s3 = await _run_post_load(schema, _make_helper(), stored_sync_type_config=stored_config)
 
         prepare_s3.assert_awaited_once()
         assert prepare_s3.await_args is not None
         assert prepare_s3.await_args.kwargs["existing_queryable_folder"] == "orders__query_a"
-        assert prepare_s3.await_args.kwargs["double_buffer"] is expected_double_buffer
+        assert prepare_s3.await_args.kwargs["double_buffer"] is True
         assert prepare_s3.await_args.kwargs["pointer_history"] == expected_history
-
-
-class TestZeroRowSkip:
-    @parameterized.expand(
-        [
-            ("steady_state_zero_rows_skips", 0, "incremental", True, {}, True, True),
-            ("synced_rows_run_full_path", 5, "incremental", True, {}, True, False),
-            # An unlinked schema has nothing queryable, and a skip here strands it forever.
-            ("unlinked_schema_runs_full_path", 0, "incremental", True, {}, True, False, None),
-            ("caller_without_opt_in_runs_full_path", 0, "incremental", True, {}, False, False),
-            ("incomplete_initial_sync_runs_full_path", 0, "incremental", False, {}, True, False),
-            ("cdc_schema_runs_full_path", 0, "cdc", True, {}, True, False),
-            (
-                "repartition_pending_runs_full_path",
-                0,
-                "incremental",
-                True,
-                {"repartition_pending": {"m": 1}},
-                True,
-                False,
-            ),
-            ("repartition_swap_runs_full_path", 0, "incremental", True, {"repartition_swap": {"c": "x"}}, True, False),
-            (
-                "revive_marker_runs_full_path",
-                0,
-                "incremental",
-                True,
-                {"delta_revive_required": {"r": "h"}},
-                True,
-                False,
-            ),
-            (
-                "repartition_completed_this_job_runs_full_path",
-                0,
-                "incremental",
-                True,
-                {"last_repartition_at": "2026-08-19T12:00:00+00:00"},
-                True,
-                False,
-            ),
-            (
-                "repartition_completed_before_this_job_skips",
-                0,
-                "incremental",
-                True,
-                {"last_repartition_at": "2026-08-19T10:00:00+00:00"},
-                True,
-                True,
-            ),
-            (
-                "unparseable_repartition_stamp_runs_full_path",
-                0,
-                "incremental",
-                True,
-                {"last_repartition_at": "not-a-date"},
-                True,
-                False,
-            ),
-        ]
-    )
-    @pytest.mark.asyncio
-    async def test_zero_row_runs_skip_maintenance_and_publish(
-        self,
-        _name: str,
-        row_count: int,
-        sync_type: str,
-        initial_sync_complete: bool,
-        sync_type_config: dict,
-        allow_zero_row_skip: bool,
-        expect_skip: bool,
-        table_id: Optional[uuid.UUID] = _A_LINKED_TABLE_ID,
-    ):
-        schema = ExternalDataSchema(
-            id=uuid.uuid4(),
-            name="Customer",
-            sync_type=sync_type,
-            initial_sync_complete=initial_sync_complete,
-            sync_type_config=sync_type_config,
-            table_id=table_id,
-        )
-        job = MagicMock()
-        job.id = uuid.uuid4()
-        job.team_id = 1
-        job.created_at = _JOB_CREATED_AT
-
-        maintenance = AsyncMock()
-        publish = AsyncMock(return_value="folder")
-        bookkeeping = AsyncMock()
-        post_load_step = AsyncMock()
-        with (
-            patch(f"{_LOAD_MODULE}._run_delta_maintenance", maintenance),
-            patch(f"{_LOAD_MODULE}._publish_queryable_files", publish),
-            patch(f"{_LOAD_MODULE}._finalize_sync_bookkeeping", bookkeeping),
-            patch(f"{_LOAD_MODULE}._register_table", AsyncMock()),
-            patch(f"{_LOAD_MODULE}._run_cdc_post_load", AsyncMock()),
-            patch(f"{_LOAD_MODULE}.POST_LOAD_STEPS", (post_load_step,)),
-        ):
-            result = await run_post_load_operations(
-                job=job,
-                schema=schema,
-                source=MagicMock(),
-                delta_table_ref=_make_helper(),
-                row_count=row_count,
-                table_schema_dict={},
-                resource_name="customer",
-                logger=MagicMock(),
-                allow_zero_row_skip=allow_zero_row_skip,
-            )
-
-        bookkeeping.assert_awaited_once()
-        post_load_step.assert_awaited_once()
-        if expect_skip:
-            maintenance.assert_not_awaited()
-            publish.assert_not_awaited()
-            assert result is None
-        else:
-            maintenance.assert_awaited_once()
-            publish.assert_awaited_once()
-            assert result == "folder"
 
 
 class TestCdcCompanionSeeding:

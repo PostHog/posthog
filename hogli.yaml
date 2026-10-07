@@ -485,12 +485,11 @@ build:
     build:schema-latest-versions:
         bin_script: build-schema-latest-versions.py
         description: Extract latest schema versions and generate frontend JSON config
-    build:taxonomy-json:
-        bin_script: build-taxonomy-json.py
-        description: Generate core filter definitions taxonomy JSON for frontend
-    build:object-tags:
-        bin_script: build-object-tags-registry.py
-        description: Generate the agent object-tag kind registry for TypeScript consumers
+    build:projections:
+        click: hogli_commands.projections:cmd_build_projections
+        description: 'Regenerate the checked-in projections of Python modules that the
+            OpenAPI flow does not carry, as registered in hogli_commands/projections.py.
+            --check verifies without writing, --only NAME picks one. Needs no dev stack'
     build:bot-definitions:
         cmd: python livestream/bot/generate_definitions.py
         description: Generate livestream bot definitions JSON from bot_definitions.py
@@ -534,15 +533,6 @@ build:
     build:openapi-mcp-tools:
         cmd: pnpm --filter=@posthog/mcp run generate-tools
         description: Generate MCP tool handlers from YAML definitions + Orval schemas
-    build:openapi-mcp-scopes:
-        bin_script: build-mcp-oauth-scopes.py
-        description: Generate OAUTH_SCOPES_SUPPORTED for the MCP protected-resource
-            metadata from posthog/scopes.py
-    build:task-model-catalog:
-        cmd: python products/tasks/scripts/build_model_catalog.py
-        description: Generate the web and desktop views of the task run model catalog
-            (runtime adapter, model, reasoning effort) from
-            products/tasks/backend/model_catalog.py
     build:openapi-cli-agent-scopes:
         cmd: pnpm --filter=@posthog/mcp run generate-cli-agent-scopes
         description: Generate the CLI `agent` login use-case scope list from the MCP
@@ -557,7 +547,7 @@ build:
             - build:widget-types
             - cmd: |
                   log_dir=$(mktemp -d)
-                  generator_names=(frontend_types mcp_types mcp_tools task_catalog exec_docs)
+                  generator_names=(frontend_types mcp_types mcp_tools exec_docs)
                   generator_pids=()
                   generator_statuses=()
                   setsid hogli build:openapi-types >"$log_dir/frontend_types.log" 2>&1 &
@@ -565,8 +555,6 @@ build:
                   setsid hogli build:openapi-mcp-types >"$log_dir/mcp_types.log" 2>&1 &
                   generator_pids+=("$!")
                   setsid sh -c 'hogli build:openapi-mcp && exec hogli build:openapi-mcp-tools' >"$log_dir/mcp_tools.log" 2>&1 &
-                  generator_pids+=("$!")
-                  setsid hogli build:task-model-catalog >"$log_dir/task_catalog.log" 2>&1 &
                   generator_pids+=("$!")
                   setsid hogli build:openapi-exec-docs >"$log_dir/exec_docs.log" 2>&1 &
                   generator_pids+=("$!")
@@ -599,7 +587,6 @@ build:
                   rm -rf "$log_dir"
                   trap - INT TERM
                   exit "$generation_status"
-            - build:openapi-mcp-scopes
             - build:openapi-cli-agent-scopes
         description: 'Generate OpenAPI schema and TypeScript types from the backend.
             Needs the dev stack running (Postgres and ClickHouse): Django starts
@@ -1106,16 +1093,16 @@ desktop:
         description: Run the desktop app dev stack (build deps, then phrocs with Electron)
     desktop:test:
         cmd: pnpm --dir products/desktop test
-        description: Run desktop unit tests (Vitest via turbo, nested workspace)
+        description: Run desktop and agent workspace unit tests (Vitest via turbo, nested workspaces)
     desktop:typecheck:
         cmd: pnpm --dir products/desktop typecheck
-        description: Typecheck all desktop packages (turbo)
+        description: Typecheck all desktop and agent workspace packages (turbo)
     desktop:lint:
-        cmd: pnpm --dir products/desktop exec biome ci . && node products/desktop/scripts/check-host-boundaries.mjs
-        description: Check desktop code quality without writing (Biome + host boundaries, mirrors desktop-quality CI)
+        cmd: pnpm --dir products/desktop exec biome ci . && pnpm --dir packages/agent exec biome ci . && node products/desktop/scripts/check-host-boundaries.mjs
+        description: Check desktop and agent workspace code quality without writing (Biome + host boundaries, mirrors desktop-quality CI)
     desktop:lint:fix:
-        cmd: pnpm --dir products/desktop run lint
-        description: Autofix desktop lint issues (biome check --write --unsafe)
+        cmd: pnpm --dir products/desktop run lint && pnpm --dir packages/agent run lint
+        description: Autofix desktop and agent workspace lint issues (biome check --write --unsafe)
 
 owners:
     owners:resolve:

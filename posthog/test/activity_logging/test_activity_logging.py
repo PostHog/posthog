@@ -1,14 +1,18 @@
 import hmac
+import json
 import time
 import hashlib
 from datetime import timedelta
+from typing import Any
 from uuid import UUID
 
 import pytest
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
+from django.db import transaction
 from django.db.utils import IntegrityError
+from django.http import HttpRequest
 from django.test import override_settings
 from django.utils import timezone
 
@@ -18,14 +22,19 @@ from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
 from posthog.auth import (
+    ExportRendererAuthentication,
     InternalAPIAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
     ScopedServiceJWTAuthentication,
+    SharingAccessTokenAuthentication,
+    SharingPasswordProtectedAuthentication,
+    WidgetAuthentication,
+    mint_export_renderer_token,
 )
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import User
+from posthog.models import SharePassword, SharingConfiguration, User
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
     Change,
@@ -50,6 +59,7 @@ from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 from posthog.test.api_keys import create_project_secret_api_key
 
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 
 class TestActivityLogModel(BaseTest):
@@ -96,6 +106,38 @@ class TestActivityLogModel(BaseTest):
         )
         log: ActivityLog = ActivityLog.objects.latest("id")
         self.assertEqual(log.activity, "added_to_clink_expander")
+
+    @parameterized.expand(
+        [
+            ("small_detail_is_sent_unchanged", "x" * 100, False),
+            ("oversized_detail_drops_change_values", "x" * (2 * 1024 * 1024), True),
+        ]
+    )
+    def test_internal_event_detail_stays_under_kafka_limit(self, _name: str, after: str, truncated: bool) -> None:
+        change = Change(type="FeatureFlag", field="filters", action="changed", before=None, after=after)
+        with (
+            patch("posthog.cdp.internal_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=6,
+                scope="FeatureFlag",
+                activity="updated",
+                detail=Detail(name="my flag", changes=[change]),
+            )
+
+        properties = mock_produce.call_args.kwargs["event"].properties
+        assert len(json.dumps(properties).encode("utf-8")) < 1024 * 1024
+        assert properties["detail"]["name"] == "my flag"
+        assert properties.get("detail_truncated", False) is truncated
+        expected_change: dict[str, Any] = {"type": "FeatureFlag", "action": "changed", "field": "filters"}
+        if not truncated:
+            expected_change.update(before=None, after=after)
+        assert properties["detail"]["changes"] == [expected_change]
 
     def test_client_is_populated_from_activity_storage(self) -> None:
         activity_storage.set_client("posthog-js/1.234.0")
@@ -415,6 +457,23 @@ class TestActivityLogModel(BaseTest):
             self.assertEqual(warning.args[0], "activity_log.failed_to_write_to_activity_log")
             self.assertIsInstance(warning.kwargs["exception"], IntegrityError)
 
+    def test_strict_write_failure_escapes_active_transaction(self) -> None:
+        with self.settings(TEST=False, ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True):
+            with patch.object(ActivityLog.objects, "create", side_effect=IntegrityError("write timed out")):
+                with self.assertRaises(IntegrityError):
+                    with transaction.atomic():
+                        log_activity(
+                            organization_id=self.organization.id,
+                            team_id=self.team.id,
+                            user=self.user,
+                            was_impersonated=False,
+                            item_id="12345",
+                            scope="FeatureFlag",
+                            activity="updated",
+                            detail=Detail(changes=[Change(type="FeatureFlag", field="active", action="created")]),
+                            strict=True,
+                        )
+
     def test_does_not_throw_if_cannot_log_activity(self) -> None:
         # Assert on the module logger directly instead of assertLogs: the root logger sits at
         # ERROR under test settings, so whether the warning reaches a root handler depends on
@@ -458,36 +517,84 @@ class _ServiceJWTAuthentication(ScopedServiceJWTAuthentication):
     INTERNAL_API_SECRET_FALLBACKS=[],
 )
 class TestBearerAuthenticationReplacesSessionActor(BaseTest):
-    def _authenticator_and_headers(
+    def _authenticator_and_request(
         self, credential_type: str
-    ) -> tuple[BaseAuthentication, dict[str, str], User | None, str | None]:
+    ) -> tuple[BaseAuthentication, HttpRequest, User | None, str | None]:
+        factory = APIRequestFactory()
+
+        def bearer(token: str) -> HttpRequest:
+            return factory.get("/", headers={"Authorization": f"Bearer {token}"})
+
         if credential_type == "project_secret_key":
             psak, token = create_project_secret_api_key(self.team, scopes=["endpoint:read"])
-            return ProjectSecretAPIKeyAuthentication(), {"Authorization": f"Bearer {token}"}, None, psak.id
+            return ProjectSecretAPIKeyAuthentication(), bearer(token), None, psak.id
         if credential_type == "personal_api_key":
             token = generate_random_token_personal()
             pak = PersonalAPIKey.objects.create(
                 label="pak", user=self.user, secure_value=hash_key_value(token), scopes=["*"]
             )
-            return PersonalAPIKeyAuthentication(), {"Authorization": f"Bearer {token}"}, self.user, pak.id
+            return PersonalAPIKeyAuthentication(), bearer(token), self.user, pak.id
         if credential_type == "service_jwt":
             token = _ServiceJWTAuthentication.purpose.mint({"team_id": self.team.id})
-            headers = {"Authorization": f"Bearer {token}"}
-            return _ServiceJWTAuthentication(), headers, None, PosthogJwtAudience.RECORDING_API.value
-        headers = {"X-Internal-Api-Secret": "activity-log-test-internal-secret"}
-        return InternalAPIAuthentication(), headers, None, None
+            return _ServiceJWTAuthentication(), bearer(token), None, PosthogJwtAudience.RECORDING_API.value
+        if credential_type == "sharing_access_token":
+            sharing_configuration = SharingConfiguration.objects.create(team=self.team, enabled=True)
+            request = factory.get(f"/?sharing_access_token={sharing_configuration.access_token}")
+            return SharingAccessTokenAuthentication(), request, None, str(sharing_configuration.id)
+        if credential_type == "sharing_password":
+            sharing_configuration = SharingConfiguration.objects.create(
+                team=self.team, enabled=True, password_required=True
+            )
+            share_password = SharePassword.objects.create(
+                sharing_configuration=sharing_configuration, created_by=self.user, password_hash="unused"
+            )
+            token = sharing_configuration.generate_password_protected_token(share_password)
+            return SharingPasswordProtectedAuthentication(), bearer(token), None, str(share_password.id)
+        if credential_type == "export_renderer":
+            exported_asset = ExportedAsset.objects.create(
+                team=self.team,
+                created_by=self.user,
+                export_format=ExportedAsset.ExportFormat.PNG,
+                export_context={"session_recording_id": "recording-id"},
+            )
+            token = mint_export_renderer_token(
+                user_id=self.user.id,
+                team_id=self.team.id,
+                exported_asset_id=exported_asset.id,
+                scope="session_recording:read",
+            )
+            return ExportRendererAuthentication(), bearer(token), self.user, str(exported_asset.id)
+        if credential_type == "widget_token":
+            self.team.conversations_enabled = True
+            self.team.conversations_settings = {"widget_public_token": "widget-token"}
+            self.team.save()
+            request = factory.get("/", headers={"X-Conversations-Token": "widget-token"})
+            return WidgetAuthentication(), request, None, None
+        request = factory.get("/", headers={"X-Internal-Api-Secret": "activity-log-test-internal-secret"})
+        return InternalAPIAuthentication(), request, None, None
 
-    @parameterized.expand([("project_secret_key",), ("personal_api_key",), ("service_jwt",), ("internal_api_secret",)])
+    @parameterized.expand(
+        [
+            ("project_secret_key",),
+            ("personal_api_key",),
+            ("service_jwt",),
+            ("internal_api_secret",),
+            ("sharing_access_token",),
+            ("sharing_password",),
+            ("export_renderer",),
+            ("widget_token",),
+        ]
+    )
     def test_rows_name_the_bearer_credential_not_an_impersonated_session(self, credential_type: str) -> None:
         session_user = User.objects.create_and_join(self.organization, "session-user@example.com", None)
-        authenticator, headers, expected_user, expected_id = self._authenticator_and_headers(credential_type)
+        authenticator, request, expected_user, expected_id = self._authenticator_and_request(credential_type)
         # ActivityLoggingMiddleware has already recorded an impersonated session on the same request.
         activity_storage.mark_request_scoped()
         activity_storage.set_user(session_user)
         activity_storage.set_was_impersonated(True)
         activity_storage.set_credential(ActivityCredential(type="session", id="session-id", impersonated_by_id=1))
         try:
-            authenticator.authenticate(Request(APIRequestFactory().get("/", headers=headers)))
+            authenticator.authenticate(Request(request))
             log = log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team.id,
@@ -555,6 +662,8 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("ticket_task_comment", "Ticket", "created task", False, True),
             ("conversations_ticket_comment", "conversations_ticket", "commented", False, True),
             ("conversations_ticket_task_comment", "conversations_ticket", "created task", False, True),
+            ("desktop_canvas_comment", "desktop_canvas", "commented", False, True),
+            ("canvas_comment", "canvas", "commented", False, True),
             # Ticket lifecycle activities stay visible — only comment rows are hidden
             ("ticket_updated", "Ticket", "updated", False, False),
             # Non-User scopes are unaffected

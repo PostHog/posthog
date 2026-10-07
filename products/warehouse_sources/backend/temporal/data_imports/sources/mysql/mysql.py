@@ -31,6 +31,8 @@ import pyarrow as pa
 import pymysql
 import structlog
 import pymysql.converters
+from pymysql.charset import charset_by_id
+from pymysql.connections import MySQLResult
 from pymysql.constants import CLIENT, CR, FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
@@ -115,6 +117,12 @@ _QUERY_BUILDER = SelectQueryBuilder(quoter=_IDENTIFIER_QUOTER)
 # client-side PyMySQL read_timeout and the server-side SET SESSION
 # net_write_timeout / net_read_timeout — PyMySQL and MySQL both take seconds.
 STATEMENT_TIMEOUT_SECONDS = 600  # 10 mins
+
+# Client-side PyMySQL read_timeout for a connection that reads metadata: schema discovery and the
+# setup work before the first row. Without it a server that stops answering holds the caller for
+# as long as the socket stays open. Schema discovery must also end before the 10 minute
+# `start_to_close_timeout` of its Temporal activity.
+METADATA_READ_TIMEOUT_SECONDS = 300
 
 # pymysql error code for "Lost connection to MySQL server during query" — the
 # symptom we see when the optimizer picks a bad plan (full scan + filesort) and
@@ -697,7 +705,82 @@ def _reconnect_pinned(connection: pymysql.Connection, team_id: int | None) -> No
     connection.connect(sock=_pinned_socket(connection.host, connection.port, connection.connect_timeout, team_id))
 
 
-class _TLSRequiredConnection(pymysql.Connection):
+# Numbers and temporals always arrive as ASCII text, so pymysql's ASCII decode is safe for them.
+_ASCII_FIELD_TYPES = frozenset(
+    {
+        FIELD_TYPE.DECIMAL,
+        FIELD_TYPE.TINY,
+        FIELD_TYPE.SHORT,
+        FIELD_TYPE.LONG,
+        FIELD_TYPE.FLOAT,
+        FIELD_TYPE.DOUBLE,
+        FIELD_TYPE.NULL,
+        FIELD_TYPE.TIMESTAMP,
+        FIELD_TYPE.LONGLONG,
+        FIELD_TYPE.INT24,
+        FIELD_TYPE.DATE,
+        FIELD_TYPE.TIME,
+        FIELD_TYPE.DATETIME,
+        FIELD_TYPE.YEAR,
+        FIELD_TYPE.NEWDATE,
+        FIELD_TYPE.NEWDECIMAL,
+    }
+)
+
+_BINARY_CHARSET_ID = 63
+
+
+def _field_encoding(charset_id: int, connection_encoding: str) -> str | None:
+    """Python codec for a column's values, or None to keep binary values as bytes."""
+    if charset_id == _BINARY_CHARSET_ID:
+        return None
+    try:
+        return charset_by_id(charset_id).encoding
+    except KeyError:
+        return connection_encoding
+
+
+class _FieldCharsetResult(MySQLResult):
+    """A result that decodes string-like columns by the charset the server reports for them.
+
+    pymysql decodes every column outside its own text types as ASCII. Some MySQL-compatible
+    servers send ENUM and SET values under their own type codes, and newer servers add types
+    pymysql predates, so one non-ASCII value in such a column fails the whole read.
+    """
+
+    def _get_descriptions(self) -> None:
+        super()._get_descriptions()  # type: ignore[misc]
+        connection_encoding = self.connection.encoding
+        for index, field in enumerate(self.fields):  # type: ignore[attr-defined]
+            encoding, converter = self.converters[index]  # type: ignore[attr-defined]
+            if encoding == "ascii" and field.type_code not in _ASCII_FIELD_TYPES:
+                self.converters[index] = (_field_encoding(field.charsetnr, connection_encoding), converter)  # type: ignore[attr-defined]
+
+
+class _SourceConnection(pymysql.Connection):
+    """A pymysql connection that reads every result through `_FieldCharsetResult`."""
+
+    def _read_query_result(self, unbuffered: bool = False) -> int:
+        # Mirrors `pymysql.Connection._read_query_result` (1.1.1) with the result class swapped.
+        self._result = None
+        if unbuffered:
+            try:
+                result = _FieldCharsetResult(self)
+                result.init_unbuffered_query()
+            except BaseException:
+                result.unbuffered_active = False  # type: ignore[attr-defined]
+                result.connection = None
+                raise
+        else:
+            result = _FieldCharsetResult(self)
+            result.read()
+        self._result = result
+        if result.server_status is not None:
+            self.server_status = result.server_status
+        return result.affected_rows
+
+
+class _TLSRequiredConnection(_SourceConnection):
     """A connection that refuses to authenticate when the server offers no TLS.
 
     pymysql wraps the socket only when the server advertises the TLS capability, and that check
@@ -722,7 +805,7 @@ def _new_connection(kwargs: dict[str, Any], **extra: Any) -> pymysql.Connection:
     """Build the connection, refusing plaintext when this source verifies the certificate."""
     if kwargs.get("ssl_verify_cert"):
         return _TLSRequiredConnection(**kwargs, **extra)
-    return pymysql.connect(**kwargs, **extra)
+    return _SourceConnection(**kwargs, **extra)
 
 
 def _open_pymysql_connection(kwargs: dict[str, Any], team_id: int | None) -> pymysql.Connection:
@@ -764,6 +847,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any], team_id: int | None) -
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
                 or _is_transient_tiproxy_unavailable(e)
+                or _is_transient_no_available_tidb_instances(e)
                 or _is_transient_too_many_connections(e)
                 or _is_transient_cant_create_thread(e)
             ):
@@ -831,6 +915,21 @@ def _is_transient_tiproxy_unavailable(e: BaseException) -> bool:
     if not isinstance(e, pymysql.err.OperationalError):
         return False
     return _TIPROXY_UNAVAILABLE_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
+# A TiDB-fronting gateway's own ER_UNKNOWN_ERROR (1105) wording for the same "no backend reachable"
+# condition as the TiProxy case above, just phrased differently — the gateway found zero TiDB
+# instances to route to (a scale-down, rolling restart, or momentary control-plane blip) rather
+# than failing to reach one it knew about. Same proxy-layer pattern: a fresh attempt recovers once
+# a TiDB instance is available again. The message carries no host/port, so match it in full.
+_TIDB_NO_AVAILABLE_INSTANCES_TOKEN = "No available TiDB instances, please make sure TiDB is available"
+
+
+def _is_transient_no_available_tidb_instances(e: BaseException) -> bool:
+    """Return True if a TiDB-fronting gateway reported zero reachable TiDB instances."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    return _TIDB_NO_AVAILABLE_INSTANCES_TOKEN in " ".join(str(arg) for arg in e.args)
 
 
 def _is_transient_metadata_query_reset(e: BaseException) -> bool:
@@ -1078,7 +1177,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         self,
         config: MySQLSourceConfig,
         *,
-        read_timeout: int | None = None,
+        read_timeout: int | None = METADATA_READ_TIMEOUT_SECONDS,
         autocommit: bool = False,
         team_id: int | None = None,
     ) -> Iterator[pymysql.Connection]:
@@ -1088,6 +1187,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         MySQL-wide conventions: safe date/datetime converters, and a
         PlanetScale workload hint injected automatically when the host
         resolves to a `*.psdb.cloud` address. Callers vary two things —
+        metadata work keeps the default `METADATA_READ_TIMEOUT_SECONDS`,
         the streaming path sets `read_timeout=STATEMENT_TIMEOUT_SECONDS`
         so multi-GB filesorts don't drop on middlebox timeouts before the
         first rows are ready, and the keyset path sets `autocommit` so each
@@ -1938,9 +2038,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     # the query actually returned instead of failing the batch build.
                     read_schema = restrict_schema_to_columns(arrow_schema, column_names)
 
-                    for batch in fetch_row_batches(
-                        ss_cursor.fetchmany, max_rows=chunk_size, byte_bounded=inputs.byte_bounded_extraction
-                    ):
+                    for batch in fetch_row_batches(ss_cursor.fetchmany, max_rows=chunk_size):
                         yield table_from_iterator(
                             (dict(zip(column_names, row)) for row in batch),
                             read_schema,

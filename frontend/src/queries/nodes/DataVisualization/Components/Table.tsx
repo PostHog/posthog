@@ -8,12 +8,11 @@ import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonBanner, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { execHog } from 'lib/hog'
 import { lightenDarkenColor } from 'lib/utils/colors'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { LoadNext } from '../../DataNode/LoadNext'
@@ -24,9 +23,9 @@ import { TableDataCell, convertTableValue, dataVisualizationLogic } from '../dat
 import { ColumnScalar } from '../types'
 
 interface TableProps {
-    query: DataVisualizationNode
+    query: VisualizationNode
     uniqueKey: string | number | undefined
-    context: QueryContext<DataVisualizationNode> | undefined
+    context: QueryContext<VisualizationNode> | undefined
     cachedResults: HogQLQueryResponse | undefined
     embedded?: boolean
 }
@@ -54,8 +53,8 @@ function formatColumnTitle(title: string): React.ReactNode {
 function getDisplayedColumnTitle(
     columnName: string,
     label: string | JSX.Element | undefined,
-    query: DataVisualizationNode,
-    context: QueryContext<DataVisualizationNode> | undefined
+    query: VisualizationNode,
+    context: QueryContext<VisualizationNode> | undefined
 ): React.ReactNode {
     const { title } = renderColumnMeta(columnName, query, context)
     return label || title || columnName
@@ -166,6 +165,8 @@ export const Table = (props: TableProps): JSX.Element => {
         isTransposed,
         hasSortedTable,
         hasMoreData,
+        hogVm,
+        hogVmLoadFailed,
     } = useValues(dataVisualizationLogic)
     const { toggleColumnPin, setTableSorted } = useActions(dataVisualizationLogic)
 
@@ -181,7 +182,7 @@ export const Table = (props: TableProps): JSX.Element => {
             const computeConditionalFormattingBackground = (data: TableDataCell<any>[]): string | undefined => {
                 const cell = data[index]
 
-                if (cell.isTransposedHeader) {
+                if (cell.isTransposedHeader || !hogVm) {
                     return undefined
                 }
 
@@ -201,7 +202,7 @@ export const Table = (props: TableProps): JSX.Element => {
                     })
                     .map((n) => ({
                         rule: n,
-                        result: execHog(n.bytecode, {
+                        result: hogVm.execHog(n.bytecode, {
                             globals: {
                                 value: cell.value,
                                 input: convertTableValue(n.input, sourceColumnType),
@@ -336,6 +337,16 @@ export const Table = (props: TableProps): JSX.Element => {
 
     return (
         <>
+            {hogVmLoadFailed ? (
+                <LemonBanner
+                    type="warning"
+                    className="mb-2"
+                    action={{ children: 'Reload page', onClick: () => window.location.reload() }}
+                >
+                    Couldn't load conditional formatting, so cells show without their colors. Reload the page to try
+                    again.
+                </LemonBanner>
+            ) : null}
             {hasSortedTable && hasMoreData && (
                 <LemonBanner type="info" className="mb-2" dismissKey="data-visual">
                     Sorting only reorders the rows already loaded, not the full dataset.

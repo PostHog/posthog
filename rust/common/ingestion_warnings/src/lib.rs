@@ -10,7 +10,8 @@
 //!
 //! Envelope producers call [`WarningEmitter::emit`] with the offending
 //! event's API token, a source, a registered [`WarningType`], and caller
-//! context; the emitter throttles per `(token, type)`, builds a
+//! context; the emitter throttles per `(token, type)` (and per type, when
+//! configured), builds a
 //! `$$client_ingestion_warning` [`common_types::CapturedEvent`] envelope,
 //! and enqueues it to a producer without ever awaiting delivery. Everything
 //! fails open: a throttled, unserializable, or unenqueueable warning is
@@ -61,7 +62,8 @@ pub use throttle::{ThrottleDecision, WarningThrottle};
 /// (producing service, matches the message's `source` field), `path`
 /// (metric-only, finer-grained attribution within one service), and
 /// `outcome`. Enqueue-time outcomes: `emitted | throttled |
-/// cardinality_capped | queue_full | serialize_error | enqueue_error`.
+/// cardinality_capped | type_budget_exhausted | queue_full | serialize_error |
+/// enqueue_error`.
 /// Delivery-time outcomes (reported asynchronously for each `emitted`
 /// message): `delivered | delivery_failed`.
 ///
@@ -243,10 +245,20 @@ impl KafkaWarningEmitter {
         producer: ThreadedProducer<ThreadedKafkaContext<WarningDelivery>>,
         topic: impl Into<String>,
     ) -> Self {
+        Self::with_throttle(producer, topic, WarningThrottle::default())
+    }
+
+    /// Construct with an explicit throttle, for example one with a per-type
+    /// budget ([`WarningThrottle::with_type_budget`]).
+    pub fn with_throttle(
+        producer: ThreadedProducer<ThreadedKafkaContext<WarningDelivery>>,
+        topic: impl Into<String>,
+        throttle: WarningThrottle,
+    ) -> Self {
         Self {
             producer,
             topic: topic.into(),
-            throttle: WarningThrottle::default(),
+            throttle,
         }
     }
 
@@ -270,30 +282,16 @@ impl WarningEmitter for KafkaWarningEmitter {
         // Key by token so one team's warnings stay partition-local and
         // throttle-independent from every other team's, matching the Node.js
         // consumer's per-team keying downstream.
-        match self.throttle.check(&token, warning) {
-            ThrottleDecision::Emit => {}
-            ThrottleDecision::Throttled => {
-                counter!(
-                    INGESTION_WARNINGS_TOTAL,
-                    "type" => warning.as_str(),
-                    "source" => source.service,
-                    "path" => source.path,
-                    "outcome" => "throttled",
-                )
-                .increment(1);
-                return;
-            }
-            ThrottleDecision::CardinalityCapped => {
-                counter!(
-                    INGESTION_WARNINGS_TOTAL,
-                    "type" => warning.as_str(),
-                    "source" => source.service,
-                    "path" => source.path,
-                    "outcome" => "cardinality_capped",
-                )
-                .increment(1);
-                return;
-            }
+        if let Some(outcome) = self.throttle.check(&token, warning).drop_outcome() {
+            counter!(
+                INGESTION_WARNINGS_TOTAL,
+                "type" => warning.as_str(),
+                "source" => source.service,
+                "path" => source.path,
+                "outcome" => outcome,
+            )
+            .increment(1);
+            return;
         }
 
         let serialized = serializer::Warning::new(warning)
@@ -431,7 +429,10 @@ pub fn observe_delivery(result: &DeliveryResult, delivery: WarningDelivery) {
 mod tests {
     use common_kafka::config::KafkaConfig;
     use common_kafka::kafka_producer::create_threaded_kafka_producer_no_ping;
+    use std::num::NonZeroU32;
+
     use common_liveness::SyncLivenessReporter;
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
     use rstest::rstest;
 
     use super::*;
@@ -515,5 +516,47 @@ mod tests {
             start.elapsed() < std::time::Duration::from_millis(500),
             "emit must be fire-and-forget"
         );
+    }
+
+    #[test]
+    fn kafka_emitter_counts_type_budget_drops() {
+        let throttle = WarningThrottle::default()
+            .with_type_budget(throttle::DEFAULT_THROTTLE_PERIOD, NonZeroU32::MIN);
+        let emitter = KafkaWarningEmitter::with_throttle(
+            unreachable_producer(500, 5),
+            "client_ingestion_warning",
+            throttle,
+        );
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        metrics::with_local_recorder(&recorder, || {
+            for token in ["tok_a", "tok_b"] {
+                emitter.emit(
+                    token.to_string(),
+                    CAPTURE_V1_ANALYTICS,
+                    WarningType::InvalidOptions,
+                    Map::new(),
+                    1,
+                );
+            }
+        });
+
+        let exhausted: Vec<u64> = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .filter(|(ckey, _, _, _)| {
+                ckey.key().name() == INGESTION_WARNINGS_TOTAL
+                    && ckey
+                        .key()
+                        .labels()
+                        .any(|l| l.key() == "outcome" && l.value() == "type_budget_exhausted")
+            })
+            .map(|(_, _, _, value)| match value {
+                DebugValue::Counter(n) => n,
+                other => panic!("expected a counter, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(exhausted, vec![1]);
     }
 }

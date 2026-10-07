@@ -463,12 +463,17 @@ describe('handleToolError with API errors', () => {
         expect(result.isError).toBe(true)
     })
 
-    it('still captures unexpected non-HTTP errors', () => {
+    it.each([true, false])('passes capture suppression=%s for unexpected errors', (suppressAnalytics) => {
         const error = new Error('boom — something unexpected went wrong')
 
-        const result = handleToolError(error, 'some-tool')
+        const result = handleToolError(error, 'some-tool', 'user-123', undefined, suppressAnalytics)
 
         expect(captureException).toHaveBeenCalledTimes(1)
+        expect(captureException).toHaveBeenCalledWith(
+            expect.any(Error),
+            'user-123',
+            expect.objectContaining({ suppress_analytics: suppressAnalytics })
+        )
         expect(result.isError).toBe(true)
     })
 })

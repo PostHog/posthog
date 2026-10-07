@@ -13,6 +13,7 @@ from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 
+from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models import Integration, Organization, OrganizationMembership, Team
 from posthog.models.scoping import team_scope
@@ -28,6 +29,7 @@ from products.tasks.backend.facade import (
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
+    ChannelMembership,
     SandboxCustomImage,
     SandboxEnvironment,
     Task,
@@ -265,7 +267,7 @@ class TestFacadeReadsAndMappers(TestCase):
             ("a_human_reader_of_a_creatorless_task", False, False),
         ]
     )
-    def test_run_detail_serves_the_boot_prompt_to_the_sandbox_only(self, _name, include_agent_state, has_creator):
+    def test_run_detail_filters_state_for_human_and_sandbox_readers(self, _name, include_agent_state, has_creator):
         # The agent reads initial_prompt_override off this payload to build its first
         # message; dropping it strips it silently and the run falls back to
         # task.description. But it embeds the triggering event wholesale (for a Slack
@@ -284,7 +286,14 @@ class TestFacadeReadsAndMappers(TestCase):
                 "store_skills": [{"name": "my-skill", "description": "Mine.", "version": 1}],
                 "systemPrompt": {"type": "preset", "preset": "claude_code", "append": "PostHog AI"},
                 "sandbox_jwt_kid": "secret",
+                "scout_trial": {"id": "private-trial"},
+                "scout_trial_private": {"reports": [{"title": "Saved candidate"}]},
+                "posthog_mcp_scopes": "signals_scout_experiment",
                 "task_summary": "Private workflow context",
+                "token_cost": {"model": {"provider": {"cost_microusd": 4, "request_ids": ["request-1"]}}},
+                "compute_cost": 2,
+                "token_cost_incomplete": True,
+                "unprocessed_request_ids": ["request-2"],
                 "task_tags": ["private-tag"],
             },
         )
@@ -301,6 +310,12 @@ class TestFacadeReadsAndMappers(TestCase):
         assert ("store_skills" in detail.state) is include_agent_state
         assert ("systemPrompt" in detail.state) is include_agent_state
         assert "sandbox_jwt_kid" not in detail.state
+        assert "scout_trial" not in detail.state
+        assert "scout_trial_private" not in detail.state
+        assert "posthog_mcp_scopes" not in detail.state
+        assert {"token_cost", "compute_cost", "token_cost_incomplete", "unprocessed_request_ids"}.isdisjoint(
+            detail.state
+        )
         assert detail.task_summary == ("Private workflow context" if include_agent_state else None)
         assert detail.task_tags == (["private-tag"] if include_agent_state else [])
 
@@ -373,14 +388,119 @@ class TestFacadeReadsAndMappers(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
 
-    def test_task_exists_and_visibility(self):
-        task = self._make_task()
+    def test_list_workflow_last_runs_uses_each_workflows_newest_listed_task(self):
+        now = django_timezone.now()
+        flow_with_runs, flow_without_run, flow_not_asked = uuid4(), uuid4(), uuid4()
+        older = self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_with_runs)
+        newer = self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_with_runs, archived=True)
+        Task.objects.filter(pk=older.pk).update(created_at=now - timedelta(hours=2))
+        Task.objects.filter(pk=newer.pk).update(created_at=now - timedelta(hours=1))
+        TaskRun.objects.create(task=older, team=self.team, status=TaskRun.Status.COMPLETED)
+        earlier_run = TaskRun.objects.create(task=newer, team=self.team, status=TaskRun.Status.COMPLETED)
+        newest_run = TaskRun.objects.create(task=newer, team=self.team, status=TaskRun.Status.FAILED)
+        TaskRun.objects.filter(pk=earlier_run.pk).update(created_at=now - timedelta(minutes=50))
+        TaskRun.objects.filter(pk=newest_run.pk).update(created_at=now - timedelta(minutes=30))
+        # Run history hides internal tasks, so the newest task here must not count as the last run.
+        self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_with_runs, internal=True)
+        not_started = self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_without_run)
+        self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_not_asked)
+
+        last_runs = facade.list_workflow_last_runs(self.team.id, self.user.id, [flow_with_runs, flow_without_run])
+
+        assert last_runs == {
+            flow_with_runs: contracts.WorkflowLastRunDTO(
+                hog_flow_id=flow_with_runs,
+                task_id=newer.id,
+                status="failed",
+                ran_at=now - timedelta(minutes=30),
+            ),
+            flow_without_run: contracts.WorkflowLastRunDTO(
+                hog_flow_id=flow_without_run,
+                task_id=not_started.id,
+                status="not_started",
+                ran_at=not_started.created_at,
+            ),
+        }
+
+    @parameterized.expand([("ordinary", False), ("scout_trial", True), ("scout_judge", True, "scout-trial-judge:")])
+    def test_task_exists_and_visibility(self, _name: str, is_trial: bool, prefix: str = "scout-trial:") -> None:
+        task = self._make_task(
+            **{
+                "origin_product": Task.OriginProduct.SIGNALS_SCOUT,
+                "origin_key": f"{prefix}{uuid4()}:{uuid4()}",
+            }
+            if is_trial
+            else {}
+        )
         self.assertTrue(facade.task_exists(task.id, self.team.id))
         self.assertFalse(facade.task_exists(task.id, self.team.id + 999))
         # Creator can control it; an unrelated user cannot.
         self.assertTrue(facade.is_task_controllable_by_user(task.id, self.user.id))
         other_user = User.objects.create(email="other@test.com", distinct_id="other")
         self.assertFalse(facade.is_task_controllable_by_user(task.id, other_user.id))
+        self.assertFalse(facade.task_visible(task.id, self.team.id, other_user.id))
+        if is_trial:
+            self.assertIsNone(facade.get_task_detail(task.id, self.team.id, other_user.id, bypass_visibility=True))
+            self.assertFalse(
+                facade.task_accessible_for_run_view(task.id, self.team.id, other_user.id, bypass_visibility=True)
+            )
+            self.assertTrue(
+                facade.task_accessible_for_run_view(
+                    task.id, self.team.id, other_user.id, bypass_visibility=True, sandbox_task_id=task.id
+                )
+            )
+
+    @parameterized.expand(
+        [
+            ("ordinary", False, False, False, True),
+            ("owner", True, False, False, True),
+            ("bound", True, True, True, True),
+            ("sibling", True, True, False, False),
+            ("legacy", True, True, None, False),
+        ]
+    )
+    def test_run_authorization_classifies_trial_in_one_lookup(
+        self, _name: str, is_trial: bool, sandbox: bool, bound: bool | None, allowed: bool
+    ) -> None:
+        task = self._make_task(
+            **{"origin_product": Task.OriginProduct.SIGNALS_SCOUT, "origin_key": f"scout-trial:{uuid4()}"}
+            if is_trial
+            else {}
+        )
+        reset_query_tags()
+        try:
+            with self.assertNumQueries(1):
+                result = facade.task_accessible_for_run_view(
+                    task.id,
+                    self.team.id,
+                    self.user.id,
+                    bypass_visibility=bool(bound),
+                    sandbox_request=sandbox,
+                    sandbox_task_id=(task.id if bound else uuid4()) if bound is not None and sandbox else None,
+                )
+            assert result is allowed
+            assert (get_query_tags().is_scout_experiment is True) == is_trial
+        finally:
+            reset_query_tags()
+
+    @parameterized.expand([("read", False), ("control", True)])
+    def test_run_authorization_checks_all_private_channel_members(self, _name: str, for_control: bool) -> None:
+        other_user = User.objects.create(email="channel-member@example.com", distinct_id="channel-member")
+        outsider = User.objects.create(email="channel-outsider@example.com", distinct_id="channel-outsider")
+        channel = Channel.objects.for_team(self.team.id).create(
+            team=self.team, name="Private", channel_type=Channel.ChannelType.PRIVATE, created_by=other_user
+        )
+        ChannelMembership.objects.for_team(self.team.id).bulk_create(
+            [
+                ChannelMembership(team=self.team, channel=channel, user=other_user),
+                ChannelMembership(team=self.team, channel=channel, user=self.user),
+            ]
+        )
+        task = self._make_task(channel=channel, created_by=self.user if for_control else other_user)
+
+        with self.assertNumQueries(1):
+            assert facade.task_accessible_for_run_view(task.id, self.team.id, self.user.id, for_control=for_control)
+        assert not facade.task_accessible_for_run_view(task.id, self.team.id, outsider.id, for_control=for_control)
 
     def test_task_control_runtime_and_origin_uses_control_predicate(self):
         task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI, runtime=Task.Runtime.PI)

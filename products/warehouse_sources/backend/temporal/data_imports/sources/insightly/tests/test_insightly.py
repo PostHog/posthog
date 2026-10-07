@@ -219,6 +219,42 @@ class TestPagination:
         )
         assert "updated_after_utc" not in params[0]
 
+    @pytest.mark.parametrize(
+        "incremental, expected_path, expected_filter",
+        [
+            (True, "/OpportunityLineItem/Search", "2020-01-01T00:00:00Z"),
+            (False, "/OpportunityLineItem", None),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_search_path_carries_the_incremental_filter(
+        self, MockSession, incremental: bool, expected_path: str, expected_filter: str | None
+    ) -> None:
+        from datetime import UTC, datetime
+
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"OPPORTUNITY_ITEM_ID": 1}])])
+
+        _rows(
+            _source(
+                _make_manager(),
+                endpoint="OpportunityLineItem",
+                should_use_incremental_field=incremental,
+                db_incremental_field_last_value=datetime(2020, 1, 1, tzinfo=UTC) if incremental else None,
+            )
+        )
+        # The plain list endpoint takes no `updated_after_utc`; only its /Search variant filters.
+        assert session.prepare_request.call_args.args[0].url.endswith(expected_path)
+        assert params[0].get("updated_after_utc") == expected_filter
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_lead_statuses_include_the_converted_status(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"LEAD_STATUS_ID": 1}])])
+
+        _rows(_source(_make_manager(), endpoint="LeadStatuses"))
+        assert params[0].get("include_converted") == "true"
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_raises_on_non_retryable_error(self, MockSession) -> None:
         session = MockSession.return_value
@@ -235,6 +271,34 @@ class TestPagination:
 
         with pytest.raises(ValueError, match="list response body"):
             _rows(_source(_make_manager()))
+
+
+class TestOpportunityStateHistoryFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fetches_history_per_opportunity_and_skips_deleted_ones(self, MockSession) -> None:
+        session = MockSession.return_value
+        history = [{"OPPORTUNITY_ID": 1, "DATE_CHANGED_UTC": "2024-01-02 03:04:05", "FOR_OPPORTUNITY_STATE": "WON"}]
+        params = _wire(
+            session,
+            [
+                _response([{"OPPORTUNITY_ID": 1}, {"OPPORTUNITY_ID": 2}]),
+                _response(history),
+                _response([], status=404),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source(manager, endpoint="OpportunityStateHistory"))
+
+        assert rows == history
+        urls = [c.args[0].url for c in session.prepare_request.call_args_list]
+        assert urls[0].endswith("/Opportunities")
+        assert params[0]["brief"] == "true"
+        assert urls[1].endswith("/Opportunities/1/StateHistory")
+        assert urls[2].endswith("/Opportunities/2/StateHistory")
+        # Child requests are single, unpaginated calls.
+        assert "top" not in params[1]
+        manager.save_state.assert_not_called()
 
 
 class TestValidateCredentials:
@@ -260,12 +324,18 @@ class TestValidateCredentials:
 
 class TestInsightlySourceResponse:
     @pytest.mark.parametrize(
-        "endpoint, expected_pk, expected_partition_keys, expected_mode",
+        "endpoint, expected_pks, expected_partition_keys, expected_mode",
         [
-            ("Contacts", "CONTACT_ID", ["DATE_CREATED_UTC"], "datetime"),
-            ("Opportunities", "OPPORTUNITY_ID", ["DATE_CREATED_UTC"], "datetime"),
-            ("Users", "USER_ID", ["DATE_CREATED_UTC"], "datetime"),
-            ("Pipelines", "PIPELINE_ID", None, None),
+            ("Contacts", ["CONTACT_ID"], ["DATE_CREATED_UTC"], "datetime"),
+            ("Opportunities", ["OPPORTUNITY_ID"], ["DATE_CREATED_UTC"], "datetime"),
+            ("Users", ["USER_ID"], ["DATE_CREATED_UTC"], "datetime"),
+            ("Pipelines", ["PIPELINE_ID"], None, None),
+            (
+                "OpportunityStateHistory",
+                ["OPPORTUNITY_ID", "DATE_CHANGED_UTC", "FOR_OPPORTUNITY_STATE"],
+                ["DATE_CHANGED_UTC"],
+                "datetime",
+            ),
         ],
     )
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -273,13 +343,13 @@ class TestInsightlySourceResponse:
         self,
         MockSession,
         endpoint: str,
-        expected_pk: str,
+        expected_pks: list[str],
         expected_partition_keys: list[str] | None,
         expected_mode: str | None,
     ) -> None:
         response = _source(_make_manager(), endpoint=endpoint)
         assert response.name == endpoint
-        assert response.primary_keys == [expected_pk]
+        assert response.primary_keys == expected_pks
         assert response.partition_keys == expected_partition_keys
         assert response.partition_mode == expected_mode
         assert response.sort_mode == "asc"

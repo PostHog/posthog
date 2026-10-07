@@ -78,6 +78,21 @@ class TestResumableSourceManager:
             "posthog:data_warehouse:resumable_source:1:job-1", '{"cursor":"cus_2"}', ex=60 * 60 * 24
         )
 
+    def test_save_and_load_logs_do_not_include_cursor_payloads(self):
+        manager = _manager()
+        redis = MagicMock()
+        redis.get.return_value = '{"cursor":"sensitive-customer-id"}'
+
+        with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
+            get_redis.return_value.__enter__.return_value = redis
+            manager.save_state(_SweepPosition(cursor="sensitive-customer-id"))
+            manager.commit()
+            manager.load_state()
+
+        logger = typing.cast(MagicMock, manager._logger)
+        messages = [str(call.args[0]) for call in logger.debug.call_args_list]
+        assert all("sensitive-customer-id" not in message for message in messages)
+
     def test_committing_persists_the_staged_state_even_when_the_block_raises(self):
         manager = _manager()
         redis = MagicMock()
@@ -183,14 +198,31 @@ class TestResumeCoversRun:
         # class so the next source to adopt `KeysetResumeState` is held to the same rule. Snowflake
         # is deliberately not caught: it checkpoints on the incremental field, so its resume does
         # cover incremental runs.
-        keyset_sources = [
+        covered = [
+            source.source_type
+            for source in self._keyset_sources()
+            if source.resume_covers_run(incremental_or_append=True)
+        ]
+        assert covered == []
+
+    def test_a_keyset_source_covers_its_full_loads(self):
+        # The other half of the rule above. A full load seeks and checkpoints, so each extra attempt
+        # continues the read instead of restarting it, which is what the resumable allowance pays for.
+        not_covered = [
+            source.source_type
+            for source in self._keyset_sources()
+            if not source.resume_covers_run(incremental_or_append=False)
+        ]
+        assert not_covered == []
+
+    def _keyset_sources(self) -> list[ResumableSource]:
+        keyset_sources: list[ResumableSource] = [
             source
             for source in SourceRegistry.get_all_sources().values()
             if isinstance(source, ResumableSource) and self._resume_state_of(source) is KeysetResumeState
         ]
         assert keyset_sources, "expected at least one source to checkpoint with KeysetResumeState"
-
-        assert [s.source_type for s in keyset_sources if s.resume_covers_run(incremental_or_append=True)] == []
+        return keyset_sources
 
     def test_the_default_covers_every_run_of_any_other_resumable_source(self):
         # A REST source paginates the same way whichever sync type it runs, and Snowflake checkpoints
