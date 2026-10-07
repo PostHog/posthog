@@ -248,6 +248,7 @@ export const CanvasReplayerPlugin = (
             target: target,
             imageMap,
             canvasEventMap,
+            // rrweb types this handler as `any` and calls it with (mutation, error), so the compiler cannot catch a swapped order.
             errorHandler: (_failedMutation: unknown, error: unknown) => {
                 const context = {
                     canvas_node_id: data.id,

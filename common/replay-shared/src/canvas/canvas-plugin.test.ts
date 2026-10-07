@@ -562,7 +562,7 @@ describe('CanvasReplayerPlugin', () => {
     })
 
     describe('canvas mutation error reporting', () => {
-        const reportCanvasMutationFailure = (thrown: unknown): jest.Mock => {
+        const reportCanvasMutationFailure = async (thrown: unknown): Promise<jest.Mock> => {
             const canvas = document.createElement('canvas')
             const event = {
                 type: EventType.IncrementalSnapshot as const,
@@ -574,30 +574,37 @@ describe('CanvasReplayerPlugin', () => {
                 },
                 timestamp: 1000,
             }
-            ;(canvasMutation as jest.Mock).mockImplementationOnce(async ({ mutation, errorHandler }) => {
-                errorHandler(mutation, thrown)
-            })
             const onError = jest.fn()
+            // rrweb calls errorHandler from a catch after an await, never synchronously.
+            const handled = new Promise<void>((resolve) => {
+                ;(canvasMutation as jest.Mock).mockImplementationOnce(async ({ mutation, errorHandler }) => {
+                    await Promise.resolve()
+                    errorHandler(mutation, thrown)
+                    resolve()
+                })
+            })
 
             const plugin = CanvasReplayerPlugin([event], onError)
             const replayer = { getMirror: () => ({ getNode: (id: number) => (id === 7 ? canvas : null) }) }
             plugin.onBuild?.(canvas, { id: 7, replayer } as any)
             plugin.handler!(event, false, { replayer } as any)
+            await handled
             return onError
         }
 
-        it('reports the error rrweb passes, not the mutation', () => {
+        it('reports the error rrweb passes, not the mutation', async () => {
             const thrown = new TypeError('drawImage failed')
 
-            const onError = reportCanvasMutationFailure(thrown)
+            const onError = await reportCanvasMutationFailure(thrown)
 
             expect(onError).toHaveBeenCalledTimes(1)
-            expect(onError).toHaveBeenCalledWith(thrown, { canvas_node_id: 7, canvas_context: 'WebGL' })
-            expect(onError.mock.calls[0][0]).toBe(thrown)
+            const [reported, context] = onError.mock.calls[0]
+            expect(reported).toBe(thrown)
+            expect(context).toEqual({ canvas_node_id: 7, canvas_context: 'WebGL' })
         })
 
-        it('wraps a non-Error value with the canvas context', () => {
-            const onError = reportCanvasMutationFailure('context lost')
+        it('wraps a non-Error value with the canvas context', async () => {
+            const onError = await reportCanvasMutationFailure('context lost')
 
             expect(onError).toHaveBeenCalledTimes(1)
             const [reported, context] = onError.mock.calls[0]
