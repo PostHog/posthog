@@ -627,6 +627,10 @@ class HogQLQueryExecutor:
         if adapter is None:
             raise InternalHogQLError(f"No direct SQL adapter registered for engine: {source.direct_engine}")
 
+        stats = query_stats.get_active()
+        if stats is not None:
+            stats.add_direct_source(str(source.id))
+
         query_tags = get_query_tags()
         cancellation_token = (
             build_direct_query_cancellation_token(query_tags.client_query_id, str(query_tags.celery_task_id))
@@ -934,6 +938,11 @@ class HogQLQueryExecutor:
                 )
 
             stats = query_stats.get_active()
+            if stats is not None:
+                stats.add_reads(
+                    warehouse_table_ids=self.context.referenced_warehouse_table_ids,
+                    saved_query_ids=self.context.referenced_saved_query_ids,
+                )
             # The rows are read back per thread after the run, so a run ClickHouse stops is still
             # recorded with what it read, and a series running in another thread is not charged here.
             query_stats.reset_last_rows_read()
