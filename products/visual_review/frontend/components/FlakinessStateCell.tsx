@@ -25,7 +25,7 @@ const STATE_TAG: Record<
     clean: {
         label: 'Clean',
         type: 'success',
-        title: 'Nothing failed the gate in the last 7 days, and any small diff stays well under the threshold. Nothing to do.',
+        title: 'Nothing failed the gate in the last 7 days, and any small diff stays well under the threshold.',
     },
 }
 

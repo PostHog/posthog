@@ -188,10 +188,10 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                 </LemonBanner>
             ) : !hasPopulation ? (
                 <div className="flex flex-col items-center justify-center py-20 gap-2 text-center">
-                    <p className="m-0 font-semibold">Every snapshot renders the same way every time</p>
+                    <p className="m-0 font-semibold">No snapshot needs attention</p>
                     <p className="m-0 text-xs text-muted max-w-md">
-                        Snapshots show up here once a run renders one differently from its baseline, or once someone
-                        quarantines one. Nothing in this repo has done either.
+                        Snapshots show up here once one fails the gate on a default-branch run, gets close to the diff
+                        threshold, or is quarantined. Small differences well under the threshold are not listed.
                     </p>
                 </div>
             ) : (
