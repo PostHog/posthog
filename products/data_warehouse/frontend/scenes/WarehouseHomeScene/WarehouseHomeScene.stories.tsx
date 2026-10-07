@@ -1,6 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import type { MockSignature } from '~/mocks/utils'
@@ -153,6 +154,7 @@ const meta: Meta<typeof WarehouseHomeScene> = {
     component: WarehouseHomeScene,
     parameters: {
         layout: 'fullscreen',
+        pageUrl: urls.warehouse(),
         viewMode: 'story',
         featureFlags: [
             FEATURE_FLAGS.TODAY_RAIL_NAV,
