@@ -86,7 +86,6 @@ from products.replay_vision.backend.temporal.scanners.base import (
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
 from products.replay_vision.backend.temporal.scanners.experiment import ExperimentScanner
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs, load_session_network
-from products.replay_vision.backend.temporal.team_context import CONTROL_CHARS_RE
 from products.replay_vision.backend.temporal.types import (
     CallScannerProviderInputs,
     NavigationEntry,
@@ -926,18 +925,22 @@ async def _run_step(
 
         text = (response.text or "").strip()
         parsed, error = _parse_and_validate(step, text)
-        if error is None and (scrubbed := _without_control_chars(text)) is not None:
-            if attempt < _MAX_LLM_ATTEMPTS - 1:
-                error = _CONTROL_CHARS_ERROR
-            else:
-                # Postgres cannot store some of these characters, so a lost letter is better than a lost observation.
-                logger.warning("replay_vision.call_scanner_provider.control_chars_dropped", step=step.name)
-                parsed, error = _parse_and_validate(step, scrubbed)
         capped = error is not None and _hit_output_cap(response)
         if capped:
             # The cap counts thoughts, so the usual "respond with raw JSON" correction would only re-run the
             # same reasoning into the same wall. Name the cause so the re-prompt asks for less thinking.
             error = "the response ran out of output tokens before the JSON was complete; reason more briefly"
+        answer = response.candidates[0].content
+        if parsed is not None and _has_control_chars(parsed.model_dump(mode="json")):
+            if attempt < _MAX_LLM_ATTEMPTS - 1:
+                parsed, error = None, _CONTROL_CHARS_ERROR
+            else:
+                # Postgres cannot store some of these characters, so a lost letter is better than a lost observation.
+                logger.warning("replay_vision.call_scanner_provider.control_chars_dropped", step=step.name)
+                scrubbed = json.dumps(_strip_control_chars(json.loads(text)), ensure_ascii=False)
+                parsed, error = _parse_and_validate(step, scrubbed)
+                # Later steps re-read this turn, so they get the cleaned answer rather than the broken characters.
+                answer = types.Content(role="model", parts=[types.Part(text=scrubbed)])
         record_provider_call(
             **metric_labels,
             outcome="ok" if error is None else "output_cap_hit" if capped else "validation_failed",
@@ -945,7 +948,7 @@ async def _run_step(
         )
 
         if error is None:
-            convo.append(response.candidates[0].content)  # carry the answer into the next turn
+            convo.append(answer)  # carry the answer into the next turn
             return _StepResult(output=parsed)
 
         last_error = error
@@ -994,24 +997,29 @@ def _is_runaway_number(exc: ValueError) -> bool:
 
 
 # The model sometimes writes an accented letter as a wrong `\u` escape, which decodes to a control character.
+# Tab, newline and carriage return are left out because a real answer can contain them.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _CONTROL_CHARS_ERROR = (
     "the answer contains control characters where letters belong; write accented and non-English letters "
     "directly, never as \\u escapes"
 )
 
 
-def _without_control_chars(text: str) -> str | None:
-    """The JSON answer with control characters removed from its strings, or None when it has none."""
-    data = json.loads(text)
-    cleaned = _strip_control_chars(data)
-    return None if cleaned == data else json.dumps(cleaned, ensure_ascii=False)
+def _has_control_chars(value: Any) -> bool:
+    if isinstance(value, str):
+        return _CONTROL_CHARS_RE.search(value) is not None
+    if isinstance(value, dict):
+        return any(_has_control_chars(key) or _has_control_chars(item) for key, item in value.items())
+    if isinstance(value, list):
+        return any(_has_control_chars(item) for item in value)
+    return False
 
 
 def _strip_control_chars(value: Any) -> Any:
     if isinstance(value, str):
-        return CONTROL_CHARS_RE.sub("", value)
+        return _CONTROL_CHARS_RE.sub("", value)
     if isinstance(value, dict):
-        return {key: _strip_control_chars(item) for key, item in value.items()}
+        return {_strip_control_chars(key): _strip_control_chars(item) for key, item in value.items()}
     if isinstance(value, list):
         return [_strip_control_chars(item) for item in value]
     return value

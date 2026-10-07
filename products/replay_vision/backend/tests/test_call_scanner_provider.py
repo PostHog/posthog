@@ -247,28 +247,38 @@ async def test_step_survives_a_response_with_no_candidates() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "first",
+    "first,correction",
     [
-        _Resp(text="not json"),
-        ValueError("Exceeds the limit (4300 digits) for integer string conversion: value has 16266 digits"),
-        _Resp(text='{"verdict":"conclu\\u0000"}'),
+        (_Resp(text="not json"), "Respond with raw JSON only"),
+        (
+            ValueError("Exceeds the limit (4300 digits) for integer string conversion: value has 16266 digits"),
+            "Respond with raw JSON only",
+        ),
+        (_Resp(text='{"verdict":"conclu\\u0000"}'), "never as \\u escapes"),
     ],
 )
-async def test_step_re_prompts_once_on_invalid_json(first: _Resp | Exception) -> None:
+async def test_step_re_prompts_once_on_invalid_json(first: _Resp | Exception, correction: str) -> None:
     steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
     client = _FakeClient([first, _Resp(text='{"verdict":"yes"}')])
     out = await _run(client, steps)
     assert out["core"].verdict == "yes"
     assert len(client.models.calls) == 2  # initial + one re-prompt
-    assert "Respond with raw JSON only" in client.models.calls[1]["contents"][-1].text
+    assert correction in client.models.calls[1]["contents"][-1].text
 
 
 @pytest.mark.asyncio
 async def test_control_characters_left_after_the_re_prompt_are_dropped_not_the_answer() -> None:
     steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
-    client = _FakeClient([_Resp(text='{"verdict":"a\\u0001\\u0000"}'), _Resp(text='{"verdict":"nenhuma a\\u0000"}')])
-    out = await _run(client, steps)
+    client = _FakeClient(
+        [
+            _Resp(text='{"verdict":"a\\u0001\\u0000"}'),
+            _Resp(text='{"verdict":"nenhuma a\\u0000"}'),
+            _Resp(text='{"verdict":"yes"}'),
+        ]
+    )
+    out = await _run(client, [*steps, MissionStep(name="side", instruction="s", response_model=_Core)])
     assert out["core"].verdict == "nenhuma a"
+    assert '"verdict": "nenhuma a"' in str(client.models.calls[2]["contents"])
 
 
 @pytest.mark.asyncio
