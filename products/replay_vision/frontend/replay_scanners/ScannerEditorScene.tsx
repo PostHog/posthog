@@ -45,6 +45,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { CreditPriceNote } from '../components/PricingLink'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
+import { ExampleObservations } from './components/ExampleObservations'
 import { ScannerBudget } from './components/ScannerBudget'
 import { ScannerGoalDraft } from './components/ScannerGoalDraft'
 import { ScannerGoalFlow } from './components/ScannerGoalFlow'
@@ -230,8 +231,20 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                             </>
                         )
                     ) : step === 'overview' ? (
-                        <div className="max-w-4xl w-full mx-auto">
-                            <ScannerGoalOverview scannerId={scannerId} />
+                        <div className="@container w-full">
+                            <div className="grid grid-cols-1 @3xl:grid-cols-[minmax(0,1fr)_18rem] gap-6">
+                                <ScannerGoalOverview scannerId={scannerId} />
+                                {/* Outside the overview so it also shows while the draft generates, which
+                                    is when people have time to read what a scanner gives them. */}
+                                <aside className="flex flex-col gap-2 @3xl:sticky @3xl:top-4 @3xl:self-start">
+                                    <div className="text-sm font-semibold">What you get</div>
+                                    <p className="text-xs text-secondary m-0">
+                                        The scanner watches each new matching recording and writes an observation like
+                                        these, citing the moment it found.
+                                    </p>
+                                    <ExampleObservations compact />
+                                </aside>
+                            </div>
                         </div>
                     ) : (
                         <Form
