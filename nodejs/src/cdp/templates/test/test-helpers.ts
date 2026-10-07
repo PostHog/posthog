@@ -205,8 +205,8 @@ export class TemplateTester {
         const config = this.mockHub
         const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
         const hogInputsService = new HogInputsService(undefined as any, recipientTokensService, undefined as any)
-        const emailService = new EmailService(
-            {
+        const emailService = new EmailService({
+            sesConfig: {
                 sesAccessKeyId: config.SES_ACCESS_KEY_ID,
                 sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
                 sesRegion: config.SES_REGION,
@@ -214,14 +214,14 @@ export class TemplateTester {
                 sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
             },
-            undefined as any,
-            undefined as any,
-            config.ENCRYPTION_SALT_KEYS,
-            config.SITE_URL,
-            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
-            undefined as any,
-            undefined as any
-        )
+            integrationManager: undefined as any,
+            teamWorkflowsConfigService: undefined as any,
+            encryptionSaltKeys: config.ENCRYPTION_SALT_KEYS,
+            siteUrl: config.SITE_URL,
+            trackingCodeSigner: new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
+            emailSuppressionService: undefined as any,
+            recipientsManager: undefined as any,
+        })
         return new HogExecutorAsyncService(
             new HogExecutorService(
                 { executionTimeoutMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS },
