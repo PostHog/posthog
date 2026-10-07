@@ -824,8 +824,8 @@ def google_adsense_source(
             logger.info(
                 "google_adsense.reports_window",
                 resource=name,
-                start=start_date.isoformat(),
-                end=end_date.isoformat(),
+                start=w_start.isoformat(),
+                end=w_end.isoformat(),
                 rows=len(rows),
             )
 
