@@ -945,7 +945,7 @@
         "scope": "project"
     },
     "inboxScoutTrials": {
-        "template": "/scout-trials",
+        "template": "/inbox/scouts/trials",
         "params": [],
         "scope": "project"
     },
