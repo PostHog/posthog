@@ -11,6 +11,7 @@ logger = structlog.get_logger(__name__)
 class EmailSenderVerification:
     LOCK_KEY = "workflows:email_sender_verification:lock"
     CURSOR_KEY = "workflows:email_sender_verification:cursor"
+    SCAN_END_KEY = "workflows:email_sender_verification:scan_end"
     WORK_BUDGET_SECONDS = 240
 
     @staticmethod
@@ -29,11 +30,12 @@ class EmailSenderVerification:
         started_at = monotonic()
         redis = get_client()
         cursor = int(redis.get(EmailSenderVerification.CURSOR_KEY) or 0)
-        integrations = defer_repository_cache_fields(
-            Integration.objects.filter(
-                kind="email", config__provider="ses", config__verified=False, id__gt=cursor
-            ).order_by("id")
-        )
+        pending = Integration.objects.filter(kind="email", config__provider="ses", config__verified=False)
+        scan_end = int(redis.get(EmailSenderVerification.SCAN_END_KEY) or 0)
+        if not scan_end:
+            scan_end = pending.order_by("-id").values_list("id", flat=True).first() or 0
+            redis.set(EmailSenderVerification.SCAN_END_KEY, scan_end)
+        integrations = defer_repository_cache_fields(pending.filter(id__gt=cursor, id__lte=scan_end).order_by("id"))
         checked: set[tuple[int, str, str]] = set()
         for integration in integrations.iterator(chunk_size=500):
             if monotonic() - started_at >= EmailSenderVerification.WORK_BUDGET_SECONDS:
@@ -53,4 +55,4 @@ class EmailSenderVerification:
                 logger.exception(
                     "email_sender_verification_failed", team_id=integration.team_id, integration_id=integration.id
                 )
-        redis.delete(EmailSenderVerification.CURSOR_KEY)
+        redis.delete(EmailSenderVerification.CURSOR_KEY, EmailSenderVerification.SCAN_END_KEY)

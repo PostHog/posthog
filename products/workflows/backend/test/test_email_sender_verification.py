@@ -59,6 +59,12 @@ class TestEmailSenderVerification(APIBaseTest):
             "VerificationAttributes": {"example.com": {"VerificationStatus": "Success"}}
         }
         if reenter_during_check:
+            Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id="sender@later.example.com",
+                config={"domain": "later.example.com", "provider": "ses", "verified": False},
+            )
             entered = False
 
             def reenter_sweep(**kwargs: list[str]) -> dict[str, dict[str, dict[str, str]]]:
@@ -66,6 +72,7 @@ class TestEmailSenderVerification(APIBaseTest):
                 if not entered:
                     entered = True
                     refresh_pending_email_senders()
+                    assert ses.get_identity_verification_attributes.call_count == 1
                 return {"VerificationAttributes": {"example.com": {"VerificationStatus": "Success"}}}
 
             ses.get_identity_verification_attributes.side_effect = reenter_sweep
@@ -105,9 +112,13 @@ class TestEmailSenderVerification(APIBaseTest):
         response = self.client.get(url)
         assert response.status_code == 200
         assert response.json()["config"]["verified"] is expected_verified
-        ses.get_identity_verification_attributes.assert_called_once_with(Identities=["example.com"])
+        checked_domains = [
+            call.kwargs["Identities"] for call in ses.get_identity_verification_attributes.call_args_list
+        ]
+        expected_domains = [["example.com"], ["later.example.com"]] if reenter_during_check else [["example.com"]]
+        assert checked_domains == expected_domains
 
-        if expected_verified:
+        if expected_verified and not reenter_during_check:
             mock_boto_client.reset_mock()
             refresh_pending_email_senders()
             mock_boto_client.assert_not_called()
@@ -185,9 +196,26 @@ class TestEmailSenderVerification(APIBaseTest):
 
         ses.get_identity_verification_attributes.side_effect = None
         ses.get_identity_verification_attributes.return_value = identity_attributes
-        refresh_pending_email_senders()
+        if interrupt_sweep:
+            Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id="sender@new.example.com",
+                config={"domain": "new.example.com", "provider": "ses", "verified": False},
+            )
+            with patch(
+                "products.workflows.backend.services.email_sender_verification.monotonic",
+                side_effect=[0.0, 0.0, 241.0],
+            ):
+                refresh_pending_email_senders()
+        else:
+            refresh_pending_email_senders()
 
         assert [self.client.get(url).json()["config"]["verified"] for url in urls] == second_sweep_statuses
 
-        refresh_pending_email_senders()
+        with patch(
+            "products.workflows.backend.services.email_sender_verification.monotonic",
+            side_effect=[0.0, 0.0, 241.0],
+        ):
+            refresh_pending_email_senders()
         assert [self.client.get(url).json()["config"]["verified"] for url in urls] == [True, True]
