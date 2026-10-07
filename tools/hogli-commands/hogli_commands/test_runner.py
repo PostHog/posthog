@@ -876,7 +876,9 @@ def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch
         run_id = uuid4().hex[:16]
         env = {**config.env, "POSTHOG_TEST_RUN_ID": run_id, "REDIS_URL": f"redis://test-{run_id}.invalid/0"}
         click.echo(f"Private test namespace: {run_id} (PostgreSQL, ClickHouse, process-local Redis)")
-        _run([*config.command, "-p", "hogli_commands.isolated_tests", *ctx.args], env=env, cwd=config.cwd)
+        _warn_if_dev_stack_is_down(config.command)
+        command = _quiet_pytest_in_cloud_sandbox(config.command, list(ctx.args))
+        _run([*command, "-p", "hogli_commands.isolated_tests", *ctx.args], env=env, cwd=config.cwd)
         return
 
     # For directories, check if multiple test types are present and run each group.

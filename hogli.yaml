@@ -1151,7 +1151,8 @@ utilities:
             set -eu
             unset UV_NO_SYNC VIRTUAL_ENV
             export UV_PROJECT_ENVIRONMENT="$PWD/.flox/cache/venv"
-            if [ -L node_modules ] || [ -L "$UV_PROJECT_ENVIRONMENT" ]; then
+            linked_modules=$(find . \( -name .git -o -name .flox \) -prune -o -name node_modules -prune -type l -print -quit)
+            if [ -L .flox ] || [ -L .flox/cache ] || [ -L "$UV_PROJECT_ENVIRONMENT" ] || [ -n "$linked_modules" ]; then
                 echo 'node_modules and the Python environment must be local directories' >&2
                 exit 1
             fi

@@ -54,7 +54,7 @@ gh stack add -Am "add UI" my-feature-ui   # stage all + commit in one step
 - Adopt existing local branches (bottom to top): `gh stack init branch1 branch2 branch3`.
 - Link PRs that already exist on GitHub, without local tracking: `gh stack link <pr> <pr> <pr>`, bottom to top (branch names and PR URLs work too). Pass a stack number first to append to an existing stack: `gh stack link <stack> <pr>`.
 - Slice by reviewable unit: migration / backend / frontend, or mechanical-rename / behavior-change. Each PR must make sense to review and merge alone.
-- Keep stacks shallow (2–4 layers). Every layer multiplies CI cost and rebase churn, and deep-stack pushes can trip GitHub's dispatch cap (see AGENTS.md, "Stacked PRs").
+- Keep stacks shallow (2–4 layers), and merge the base before extending. Restacking force-pushes every branch, so a deep stack pushed at once can exceed GitHub's dispatch cap and fail unrelated runs.
 
 ## Publish
 

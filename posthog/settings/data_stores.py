@@ -811,7 +811,10 @@ if TEST:
     CACHES["ingress_dedup"] = CACHES["default"]
     if TEST_RUN_ID:
         CACHES = {
-            alias: {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": REDIS_URL}
+            alias: {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": f"redis://{alias}-{TEST_RUN_ID}.invalid/0",
+            }
             for alias in CACHES
         }
 

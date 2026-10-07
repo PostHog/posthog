@@ -74,3 +74,38 @@ def test_cleanup_only_drops_the_current_invocations_databases(
         {f"test_posthog_{run_id}_gw1"} if worker else set()
     )
     assert clickhouse_names == {"posthog_test", "posthog_test_gw1_fedcba9876543210"}
+
+
+def test_cleanup_reports_busy_databases_and_continues(monkeypatch: pytest.MonkeyPatch) -> None:
+    prefix = "test_posthog_0123456789abcdef"
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+    connection.execute.return_value.fetchall.return_value = [(prefix,), (prefix + "_persons",)]
+    dropped: list[str] = []
+
+    def execute(query: str | sql.Composed) -> MagicMock | None:
+        if isinstance(query, str):
+            return MagicMock(fetchall=lambda: [(prefix,), (prefix + "_persons",)])
+        name = query.as_string().split('"')[1]
+        if name == prefix:
+            raise RuntimeError("database is busy")
+        dropped.append(name)
+        return None
+
+    connection.execute.side_effect = execute
+    clickhouse = MagicMock()
+    clickhouse.raw.side_effect = ["posthog_test_0123456789abcdef", ""]
+    monkeypatch.setattr(isolated_tests, "_connect", lambda: connection)
+    monkeypatch.setattr(isolated_tests, "_clickhouse", lambda: clickhouse)
+    monkeypatch.setattr(isolated_tests, "settings", SimpleNamespace(TEST_RUN_ID="0123456789abcdef"))
+    monkeypatch.setattr(isolated_tests, "connections", MagicMock())
+    monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
+    session = MagicMock()
+    session.config.stash = pytest.Stash()
+    session.config.stash[isolated_tests._owned_namespace] = prefix
+    session.exitstatus = pytest.ExitCode.OK
+    isolated_tests.pytest_sessionfinish(session)
+    assert dropped == [prefix + "_persons"]
+    clickhouse.raw.assert_called_with("DROP DATABASE IF EXISTS posthog_test_0123456789abcdef SYNC")
+    assert session.exitstatus == pytest.ExitCode.TESTS_FAILED
+    assert prefix in session.config.pluginmanager.get_plugin.return_value.write_line.call_args.args[0]

@@ -33,9 +33,9 @@ def _clickhouse_names(database: Database) -> list[str]:
     return [name for name in database.raw("SHOW DATABASES").splitlines() if re.fullmatch(pattern, name)]
 
 
-@pytest.fixture(scope="session")
-def django_db_keepdb() -> bool:
-    return False
+def pytest_configure(config: pytest.Config) -> None:
+    config.option.reuse_db = False
+    config.option.create_db = True
 
 
 def _database_prefix() -> str:
@@ -83,11 +83,30 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
     if prefix is None:
         return
     connections.close_all()
-    with _connect() as connection:
-        names = connection.execute("SELECT datname FROM pg_database").fetchall()
-        for (name,) in names:
-            if name == prefix or name.startswith(prefix + "_"):
-                connection.execute(sql.SQL("DROP DATABASE {};").format(sql.Identifier(name)))
-    database = _clickhouse()
-    for name in _clickhouse_names(database):
-        database.raw(f"DROP DATABASE IF EXISTS {name} SYNC")
+    failures: list[str] = []
+    try:
+        with _connect() as connection:
+            names = connection.execute("SELECT datname FROM pg_database").fetchall()
+            for (name,) in names:
+                if name == prefix or name.startswith(prefix + "_"):
+                    try:
+                        connection.execute(sql.SQL("DROP DATABASE {};").format(sql.Identifier(name)))
+                    except Exception as exc:
+                        failures.append(f"{name}: {exc}")
+    except Exception as exc:
+        failures.append(f"{prefix}: {exc}")
+    try:
+        database = _clickhouse()
+        for name in _clickhouse_names(database):
+            try:
+                database.raw(f"DROP DATABASE IF EXISTS {name} SYNC")
+            except Exception as exc:
+                failures.append(f"{name}: {exc}")
+    except Exception as exc:
+        failures.append(f"ClickHouse namespace {prefix}: {exc}")
+    if failures:
+        reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+        if reporter:
+            reporter.write_line("Private database cleanup incomplete: " + "; ".join(failures), yellow=True)
+        if session.exitstatus == pytest.ExitCode.OK:
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED

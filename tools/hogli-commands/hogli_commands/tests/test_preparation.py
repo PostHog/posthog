@@ -39,7 +39,9 @@ def test_preparation_repairs_missing_workspace_outputs(monkeypatch: pytest.Monke
             (tmp_path / "workspace/dist/output").unlink()
 
 
-@pytest.mark.parametrize("dependency", ["node_modules", ".flox/cache/venv"])
+@pytest.mark.parametrize(
+    "dependency", ["node_modules", "frontend/node_modules", ".flox", ".flox/cache", ".flox/cache/venv"]
+)
 def test_preparation_refuses_dependency_directories_linked_to_another_checkout(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, dependency: str, capfd: pytest.CaptureFixture[str]
 ) -> None:

@@ -196,7 +196,7 @@ fi
 if [[ "$prepare" -eq 0 ]]; then
     if [[ ! -f "$env_file" ]]; then
         warn_if_codex_environment_is_disabled
-        echo "error: Codex environment is not prepared; run '$repo_root/.codex/with-flox --prepare true'" >&2
+        echo "error: Codex environment is not prepared; run '$repo_root/.codex/with-flox --prepare hogli worktree:prepare'" >&2
         exit 1
     fi
 
@@ -232,7 +232,7 @@ if [[ "$prepare" -eq 0 ]]; then
     done < "$env_file"
     if [[ "$cached_variables" -eq 0 || "$cached_fingerprint" != "$(environment_fingerprint)" ]]; then
         warn_if_codex_environment_is_disabled
-        echo "error: Codex environment is stale; run '$repo_root/.codex/with-flox --prepare true'" >&2
+        echo "error: Codex environment is stale; run '$repo_root/.codex/with-flox --prepare hogli worktree:prepare'" >&2
         exit 1
     fi
 
