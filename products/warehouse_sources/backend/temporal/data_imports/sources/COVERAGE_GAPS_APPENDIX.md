@@ -6147,7 +6147,7 @@ Diffed against: <https://api.fda.gov/download.json>
 - [ ] `cosmetic/event` — cosmetic adverse events, completes the adverse-event family (low)
 - [ ] `other/nsde` — structured product labeling index used to join labels to marketing status (low)
 
-Note: Endpoint inventory taken from api.fda.gov/download.json, which enumerates every openFDA category and endpoint. Excluded from the list: tobacco/\*, transparency/crl, other/historicaldocument, other/substance and device/covid19serology as niche or archival.
+Note: Endpoint inventory taken from api.fda.gov/download.json, which enumerates every openFDA category and endpoint. Excluded from the list: tobacco/\*, research/\* (tobacco ad studies and the static covidmirnaandproteomics study dataset), transparency/crl, other/historicaldocument, other/substance and device/covid19serology as niche or archival.
 
 ## OpenRouter — gaps
 
