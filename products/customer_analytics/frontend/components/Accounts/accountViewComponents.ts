@@ -3,25 +3,29 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import type { AccountExpansionTab } from './accountsExpansionLogic'
 
-export type AccountViewComponentKind = AccountExpansionTab | 'properties'
+export type AccountViewComponentKind = AccountExpansionTab | 'properties' | 'session_replays'
 
-export interface AccountViewComponentDefinition {
-    kind: AccountViewComponentKind
+interface AccountViewComponentBase {
     tagName: string
     label: string
-    systemTabId: `system:${AccountViewComponentKind}`
     featureFlag?: FeatureFlagKey
-    viewOnly?: boolean
 }
 
+export interface AccountSystemTabDefinition extends AccountViewComponentBase {
+    kind: AccountExpansionTab
+    systemTabId: `system:${AccountExpansionTab}`
+}
+
+export type AccountViewComponentDefinition =
+    | AccountSystemTabDefinition
+    | (AccountViewComponentBase & {
+          kind: 'properties' | 'session_replays'
+          systemTabId?: never
+      })
+
 export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
-    {
-        kind: 'properties',
-        tagName: 'Properties',
-        label: 'Properties',
-        systemTabId: 'system:properties',
-        viewOnly: true,
-    },
+    { kind: 'properties', tagName: 'Properties', label: 'Properties' },
+    { kind: 'session_replays', tagName: 'SessionReplays', label: 'Session replays' },
     { kind: 'notes', tagName: 'Notes', label: 'Notes', systemTabId: 'system:notes' },
     {
         kind: 'tasks',
@@ -73,12 +77,9 @@ export function listAvailableAccountViewComponents(featureFlags: FeatureFlagsSet
     )
 }
 
-export function listAvailableAccountViewSystemComponents(
-    featureFlags: FeatureFlagsSet
-): (AccountViewComponentDefinition & { kind: AccountExpansionTab })[] {
+export function listAvailableAccountSystemTabs(featureFlags: FeatureFlagsSet): AccountSystemTabDefinition[] {
     return listAvailableAccountViewComponents(featureFlags).filter(
-        (component): component is AccountViewComponentDefinition & { kind: AccountExpansionTab } =>
-            !component.viewOnly && component.kind !== 'properties'
+        (component): component is AccountSystemTabDefinition => component.systemTabId !== undefined
     )
 }
 

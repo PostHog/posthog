@@ -8366,6 +8366,13 @@ export const BIQueryLimitApi = {
     Number50000: 50000,
 } as const
 
+export type MissingDatesApi = (typeof MissingDatesApi)[keyof typeof MissingDatesApi]
+
+export const MissingDatesApi = {
+    Gap: 'gap',
+    Zero: 'zero',
+} as const
+
 export type Operator1Api = (typeof Operator1Api)[keyof typeof Operator1Api]
 
 export const Operator1Api = {
@@ -8456,6 +8463,8 @@ export const BITableCalculationTypeApi = {
 export interface BITableCalculationApi {
     /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
     computeUsing?: string | null
+    /** Require a complete window of non-null values before displaying a moving average. */
+    requireFullWindow?: boolean | null
     type: BITableCalculationTypeApi
     /** Number of points, including the current point, in a trailing moving average. */
     window?: number | null
@@ -8480,6 +8489,8 @@ export interface BIConfigApi {
     dateRange?: DateRangeApi | null
     filters: BIFilterApi[]
     limit: BIQueryLimitApi
+    /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
+    missingDates?: MissingDatesApi | null
     resultFilterGroup?: BIConditionGroupApi | null
     resultFilters?: BIResultFilterApi[] | null
     rowFilterGroup?: BIConditionGroupApi | null

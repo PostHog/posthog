@@ -1,10 +1,11 @@
+import { listAvailableAccountViewComponents } from '../../components/Accounts/accountViewComponents'
 import type { AccountDetailTabsConfigApi, AccountViewApi } from '../../generated/api.schemas'
 import {
     getActiveAccountTabId,
     getDefaultAccountTabId,
     isAccountTabVisible,
-    listAccountTabs,
     listOrderedAccountTabs,
+    listAccountTabs,
     listVisibleAccountTabs,
     reorderAccountTab,
     setAccountTabVisibility,
@@ -30,8 +31,9 @@ const tabs: AccountTabDefinition[] = [
 ]
 
 describe('account tabs', () => {
-    it('does not add a system tab for the properties widget', () => {
-        expect(listAccountTabs({}, []).map(({ id }) => id)).not.toContain('system:properties')
+    it.each(['properties', 'session_replays'])('offers %s tiles without adding a system tab', (kind) => {
+        expect(listAvailableAccountViewComponents({}).map((component) => component.kind)).toContain(kind)
+        expect(listAccountTabs({}, []).map((tab) => tab.routeKey)).not.toContain(kind)
     })
 
     it('falls back from an unavailable system route but keeps an unknown view route', () => {
