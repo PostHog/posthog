@@ -144,12 +144,12 @@ export function populationSummary(kind: PopulationKind | null, filters: AnyPrope
 /** The form values a resolve-template response sets. Fields the user edited keep their value. */
 function valuesFromResolvedTemplate(
     resolved: ResolvedTemplateApi,
-    previous: ResolvedTemplateApi | null,
     lastSuggestedName: string | null,
+    lastSuggestedLookback: number,
     current: NewPipelineFormValues
 ): Partial<NewPipelineFormValues> {
     const nameFollowsTemplate = !current.name.trim() || current.name === lastSuggestedName
-    const lookbackFollowsTemplate = !previous || current.training_lookback_days === previous.training_lookback_days
+    const lookbackFollowsTemplate = current.training_lookback_days === lastSuggestedLookback
     return {
         template_key: resolved.template_key,
         target_type: 'event',
@@ -171,6 +171,7 @@ export interface autoresearchNewLogicValues {
     advancedOpen: boolean
     isNewPipelineSubmitting: boolean
     isNewPipelineValid: boolean
+    lastSuggestedLookback: number
     lastSuggestedName: string | null
     newPipeline: NewPipelineFormValues
     newPipelineAllErrors: Record<string, any>
@@ -368,12 +369,19 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 resolveTemplateSuccess: (_, { resolved }) => resolved,
             },
         ],
-        // selectTemplate clears resolvedTemplate, so this keeps the name the last template set.
-        // A name that still matches it follows the next template.
+        // selectTemplate clears resolvedTemplate, so these keep the name and lookback the last template set.
+        // A field that still matches its value follows the next template.
         lastSuggestedName: [
             null as string | null,
             {
                 resolveTemplateSuccess: (_, { resolved }) => resolved.suggested_name,
+            },
+        ],
+        // Starts at the form default, so a lookback the user edits before the first resolution stays.
+        lastSuggestedLookback: [
+            DEFAULTS.training_lookback_days,
+            {
+                resolveTemplateSuccess: (_, { resolved }) => resolved.training_lookback_days,
             },
         ],
         resolvedTemplateLoading: [
@@ -552,15 +560,14 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                     actions.resolveTemplateFailure()
                     return
                 }
-                const previous = values.resolvedTemplate
-                const lastSuggestedName = values.lastSuggestedName
+                const { lastSuggestedName, lastSuggestedLookback } = values
                 actions.resolveTemplateSuccess(resolved)
                 // kea-forms types its setter with DeepPartial, which does not accept an opaque population spec.
                 actions.setNewPipelineValues(
                     valuesFromResolvedTemplate(
                         resolved,
-                        previous,
                         lastSuggestedName,
+                        lastSuggestedLookback,
                         values.newPipeline
                     ) as DeepPartial<NewPipelineFormValues>
                 )

@@ -130,7 +130,7 @@ describe('autoresearchNewLogic', () => {
         })
     })
 
-    it('asks for a target before it resolves a template that needs one, and keeps an edited name', async () => {
+    it('asks for a target before it resolves a template that needs one, and keeps an edited name and lookback', async () => {
         mockResolve.mockImplementation((_team, { target_event, horizon_days }) =>
             Promise.resolve(
                 resolved({
@@ -153,6 +153,7 @@ describe('autoresearchNewLogic', () => {
         expect(mockResolve).not.toHaveBeenCalled()
         expect(logic.values.newPipeline).toMatchObject({ template_key: 'feature_adoption', horizon_days: 14 })
 
+        logic.actions.setNewPipelineValues({ training_lookback_days: 365 })
         logic.actions.setNewPipelineValues({ target_event: 'file_shared' })
         await settle(logic)
         expect(mockResolve.mock.calls[0][1]).toEqual({
@@ -162,6 +163,7 @@ describe('autoresearchNewLogic', () => {
         })
         expect(logic.values.newPipeline).toMatchObject({
             name: 'Likely to adopt a feature: file_shared',
+            training_lookback_days: 365,
             inference_population_kind: { kind: 'active_not_performed_target', active_within_days: 30 },
         })
 
