@@ -2,8 +2,8 @@
 
 The observation page shows this question above the answer, with the full prompt one click away. It is
 written in the same save as the prompt it came from, so a scanner never carries a question for a different
-prompt. `prompt_question_source` records which prompt that was, so an observation scanned with an older
-prompt can tell the question no longer describes it.
+prompt. `prompt_question_source` records which prompt and scale that was, so an observation scanned with an older
+prompt or scale can tell the question no longer describes it.
 """
 
 import uuid
@@ -144,6 +144,11 @@ def _scale_line(scanner_config: object) -> str:
     return f"\n\nScale: {scale.get('min')} to {scale.get('max')}" + (f", measuring {label}" if label else "")
 
 
+def _source_of(scanner_config: object) -> str:
+    """Fingerprints every model input from the config, so a scale edit dates the question and valence like a prompt edit."""
+    return prompt_fingerprint(_prompt_of(scanner_config) + _scale_line(scanner_config))
+
+
 def _generate(*, prompt: str, scale_line: str, scanner_type: str, team_id: int) -> _LlmQuestion | None:
     config = GenerateContentConfig(
         system_instruction=_SYSTEM_PROMPT,
@@ -197,7 +202,7 @@ def template_question(scanner_config: object) -> PromptQuestion | None:
     if prompt not in TEMPLATE_QUESTIONS:
         return None
     question, valence = TEMPLATE_QUESTIONS[prompt]
-    return PromptQuestion(question=question, source=prompt_fingerprint(prompt), valence=valence)
+    return PromptQuestion(question=question, source=_source_of(scanner_config), valence=valence)
 
 
 def condense_prompt(*, team_id: int, scanner_type: str, scanner_config: object, metered: bool = True) -> PromptQuestion:
@@ -205,7 +210,7 @@ def condense_prompt(*, team_id: int, scanner_type: str, scanner_config: object, 
     first line, so every scanner carries a question to show. `metered` counts the call against the team's
     hourly budget; the backfill, run by an operator, skips it."""
     prompt = _prompt_of(scanner_config)
-    source = prompt_fingerprint(prompt)
+    source = _source_of(scanner_config)
     if not prompt.strip():
         return PromptQuestion(question="", source=source)
     if (template := template_question(scanner_config)) is not None:
@@ -231,8 +236,8 @@ def question_fields_for_save(
     current_source: str = "",
 ) -> dict[str, str]:
     """The question columns to write with a save that sets `scanner_config`, or nothing when the prompt is the
-    one the current question already came from. Call it before the save's transaction opens."""
-    if prompt_fingerprint(_prompt_of(scanner_config)) == current_source:
+    and scale the current question already came from. Call it before the save's transaction opens."""
+    if _source_of(scanner_config) == current_source:
         return {}
     return condense_prompt(team_id=team_id, scanner_type=scanner_type, scanner_config=scanner_config).as_fields()
 
@@ -241,13 +246,13 @@ def scanner_question(scanner: ReplayScanner) -> str:
     """The question for the scanner's current prompt. A question written for another prompt, or none yet, falls
     back to the prompt's first line."""
     prompt = _prompt_of(scanner.scanner_config)
-    if scanner.prompt_question and scanner.prompt_question_source == prompt_fingerprint(prompt):
+    if scanner.prompt_question and scanner.prompt_question_source == _source_of(scanner.scanner_config):
         return scanner.prompt_question
     return fallback_question(prompt)
 
 
 def _from_snapshot_prompt(snapshot_config: object, source: str) -> bool:
-    return source == prompt_fingerprint(_prompt_of(snapshot_config))
+    return source == _source_of(snapshot_config)
 
 
 def question_for_snapshot(*, snapshot_config: object, question: str, source: str) -> str | None:
@@ -294,15 +299,19 @@ def backfill_prompt_questions(
     if team_id is not None:
         scanners = scanners.filter(team_id=team_id)
     checked = written = 0
-    condensed: dict[tuple[int, str, str, str], PromptQuestion] = {}
+    condensed: dict[tuple[int, str, str], PromptQuestion] = {}
     for scanner in scanners.only(
         "id", "team_id", "origin", "scanner_type", "scanner_config", "prompt_question_source", "prompt_valence"
     ).iterator():
         if limit is not None and written >= limit:
             break
         checked += 1
-        source = prompt_fingerprint(_prompt_of(scanner.scanner_config))
-        question_is_current = source == scanner.prompt_question_source
+        source = _source_of(scanner.scanner_config)
+        # A question written before the scale joined the fingerprint still matches its prompt, so it keeps its wording.
+        question_is_current = scanner.prompt_question_source in (
+            source,
+            prompt_fingerprint(_prompt_of(scanner.scanner_config)),
+        )
         if question_is_current and (scanner.scanner_type not in _DIRECTIONAL_TYPES or scanner.prompt_valence):
             continue
         inline_template = template_question(scanner.scanner_config) if scanner.origin == ScannerOrigin.INLINE else None
@@ -311,8 +320,8 @@ def backfill_prompt_questions(
         if dry_run:
             written += 1
             continue
-        # Keyed by every model input, and by team, since the answer can echo a team's own scale label.
-        key = (scanner.team_id, source, scanner.scanner_type, _scale_line(scanner.scanner_config))
+        # Keyed by team too, since the answer can echo a team's own scale label.
+        key = (scanner.team_id, source, scanner.scanner_type)
         question = inline_template or condensed.get(key)
         if question is None:
             question = condense_prompt(
@@ -329,9 +338,11 @@ def backfill_prompt_questions(
         unchanged = ReplayScanner.all_origins.filter(pk=scanner.pk, scanner_config=scanner.scanner_config)
         if question_is_current:
             # A failed model call carries no valence, and writing its question would replace a model-written one.
-            if not question.valence:
+            fields = {"prompt_question_source": source}
+            if question.valence:
+                fields["prompt_valence"] = question.valence
+                unchanged = unchanged.filter(prompt_valence="")
+            elif scanner.prompt_question_source == source:
                 continue
-            fields = {"prompt_valence": question.valence}
-            unchanged = unchanged.filter(prompt_valence="")
         written += unchanged.update(**fields)
     return BackfillResult(checked=checked, written=written)

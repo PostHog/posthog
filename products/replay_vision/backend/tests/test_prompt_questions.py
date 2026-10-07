@@ -212,6 +212,30 @@ class TestPromptQuestions(APIBaseTest):
         assert scanner.prompt_question == "Did the user abandon their cart?"
         assert scanner.prompt_question_source == prompt_fingerprint("Did the user abandon their cart?")
 
+    def test_scale_label_edit_judges_the_valence_again(self) -> None:
+        _model_says(self.client_mock, "How frustrated did the user appear?", valence="bad")
+        config: dict[str, Any] = {"prompt": PROMPT, "scale": {"min": 0, "max": 10, "label": "frustration"}}
+        created = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "mood",
+                "scanner_type": ScannerType.SCORER,
+                "scanner_config": config,
+                "model": ScannerModel.GEMINI_3_8_FLASH,
+            },
+            format="json",
+        )
+        assert created.status_code == 201, created.json()
+
+        _model_says(self.client_mock, "How satisfied did the user appear?", valence="good")
+        config["scale"]["label"] = "satisfaction"
+        edited = self.client.patch(
+            f"{self.scanners_url}{created.json()['id']}/", data={"scanner_config": config}, format="json"
+        )
+        assert edited.status_code == 200, edited.json()
+        scanner = ReplayScanner.objects.get(id=created.json()["id"])
+        assert (scanner.prompt_question, scanner.prompt_valence) == ("How satisfied did the user appear?", "good")
+
     def test_observation_shows_the_question_only_for_the_prompt_it_was_scanned_with(self) -> None:
         scanner = self._scanner(prompt_question="Did the user struggle at checkout?", prompt_valence="bad")
         scanner.prompt_question_source = prompt_fingerprint(PROMPT)
