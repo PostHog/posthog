@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import PostLoadResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
     make_local_table_ref,
 )
@@ -42,6 +43,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     process_message,
     process_messages,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
+    GroupTableHandles,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
 from products.warehouse_sources_queue.backend.core.batch_consumer import CoalescingDeclined
 
@@ -55,6 +59,17 @@ def _no_close_old_connections():
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.close_old_connections"
     ):
         yield
+
+
+@pytest.fixture(autouse=True)
+def _table_handles() -> Iterator[GroupTableHandles]:
+    # The loader's registry is process-wide, so a handle that one test left would reach the next.
+    handles = GroupTableHandles()
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.GROUP_TABLE_HANDLES",
+        handles,
+    ):
+        yield handles
 
 
 class TestGetWriteType:
@@ -1566,3 +1581,190 @@ class TestBatchPhaseReports:
 
         assert [call.args[0] for call in mock_report_phase.call_args_list] == ["deliver", "post_load", "finalize"]
         assert _post_load_summary(mock_logger)["phase_names"] == ["job_completion", "post_import_trigger"]
+
+
+def _batch_rows(index: int) -> pa.Table:
+    # Each batch updates one row of the batch before it and adds two rows.
+    ids = [index * 2, index * 2 + 1, index * 2 + 2]
+    return pa.table({"id": ids, "name": [f"batch_{index}_{row_id}" for row_id in ids]})
+
+
+def _data_commits(table_path: str) -> list[tuple[str, str | None]]:
+    commits = [commit for commit in DeltaTable(table_path).history() if commit["operation"] != "SET TBLPROPERTIES"]
+    return [(commit["operation"], commit.get("batch_index")) for commit in reversed(commits)]
+
+
+class TestTableHandleReuse:
+    _SEED = pa.table({"id": [0, 1], "name": ["seed_0", "seed_1"]})
+
+    @contextmanager
+    def _loader(self, table_path: str, opens: list[int]) -> Iterator[None]:
+        open_table = DeltaTableRef._open_delta_table
+
+        async def counted_open(ref: DeltaTableRef) -> DeltaTable | None:
+            opens.append(1)
+            return await open_table(ref)
+
+        with ExitStack() as stack:
+            stack.enter_context(patch(f"{_PROCESSOR}.posthoganalytics"))
+            stack.enter_context(patch(f"{_PROCESSOR}.mark_batch_as_processed"))
+            stack.enter_context(patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False))
+            stack.enter_context(
+                patch(f"{_PROCESSOR}.read_parquet", side_effect=lambda path: _batch_rows(int(path.rsplit("/", 1)[1])))
+            )
+            stack.enter_context(
+                patch(f"{_PROCESSOR}.DeltaTableRef", side_effect=lambda **kwargs: make_local_table_ref(table_path))
+            )
+            stack.enter_context(patch.object(DeltaTableRef, "_open_delta_table", counted_open))
+            stack.enter_context(
+                patch(f"{_PROCESSOR}.run_post_load_operations", new=AsyncMock(return_value=_POST_LOAD_RESULT))
+            )
+            stack.enter_context(patch(f"{_PROCESSOR}._complete_run"))
+            job_model = stack.enter_context(patch(f"{_PROCESSOR}.ExternalDataJob"))
+            job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+            yield
+
+    @staticmethod
+    def _batch(index: int, **overrides: Any) -> dict[str, Any]:
+        return _message(**{"batch_index": index, "s3_path": f"s3://bucket/run-1/{index}", **overrides})
+
+    @parameterized.expand(
+        [
+            ("append", "append", 1),
+            ("merge", "incremental", 1),
+            ("full_refresh", "full_refresh", 0),
+        ]
+    )
+    def test_reuse_gives_the_table_and_the_commits_of_an_open_per_batch(
+        self, _name: str, sync_type: str, first_index: int
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            reused_path, opened_path = f"{tmp}/reused", f"{tmp}/opened"
+            reused_opens: list[int] = []
+            opened_opens: list[int] = []
+            for table_path, opens, reuse in ((reused_path, reused_opens, True), (opened_path, opened_opens, False)):
+                write_deltalake(table_path, self._SEED)
+                with ExitStack() as stack:
+                    stack.enter_context(self._loader(table_path, opens))
+                    if not reuse:
+                        stack.enter_context(patch.object(GroupTableHandles, "take", return_value=None))
+                    for index in range(first_index, first_index + 4):
+                        process_message(self._batch(index, sync_type=sync_type))
+
+            assert (len(reused_opens), len(opened_opens)) == (1, 4)
+            reused_rows = (
+                DeltaTable(reused_path).to_pyarrow_table().sort_by([("id", "ascending"), ("name", "ascending")])
+            )
+            opened_rows = (
+                DeltaTable(opened_path).to_pyarrow_table().sort_by([("id", "ascending"), ("name", "ascending")])
+            )
+            assert reused_rows.num_rows > self._SEED.num_rows
+            assert reused_rows.to_pydict() == opened_rows.to_pydict()
+            assert _data_commits(reused_path) == _data_commits(opened_path)
+
+    @parameterized.expand(
+        [
+            ("redelivery", {"attempt": 2}, {}),
+            ("another_run", {}, {"run_uuid": "run-2", "job_id": "job-2"}),
+            ("another_resource", {}, {"resource_name": "other"}),
+            ("batch_gap", {}, {"batch_index": 4}),
+            ("same_batch_again", {}, {"batch_index": 2}),
+            ("first_batch", {}, {"batch_index": 0, "is_resume": True}),
+        ]
+    )
+    def test_a_batch_the_handle_was_not_kept_for_opens_the_table(
+        self, _name: str, process_kwargs: dict[str, Any], overrides: dict[str, Any]
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            write_deltalake(tmp, self._SEED)
+            opens: list[int] = []
+            with self._loader(tmp, opens):
+                process_message(self._batch(2, sync_type="append"))
+                process_message(self._batch(3, sync_type="append", **overrides), **process_kwargs)
+
+            assert len(opens) == 2
+
+    @parameterized.expand(
+        [
+            ("lease_lost",),
+            ("read_failed",),
+            ("final_batch",),
+            ("group_run_ended",),
+            ("waited_too_long",),
+        ]
+    )
+    def test_the_handle_is_released(self, case: str) -> None:
+        now = [0.0]
+        handles = GroupTableHandles(max_idle_seconds=60.0, clock=lambda: now[0])
+
+        def lose_lease() -> None:
+            raise _LeaseLost()
+
+        with tempfile.TemporaryDirectory() as tmp, patch(f"{_PROCESSOR}.GROUP_TABLE_HANDLES", handles):
+            write_deltalake(tmp, self._SEED)
+            opens: list[int] = []
+            with self._loader(tmp, opens):
+                process_message(self._batch(2, sync_type="append"))
+                assert len(handles) == 1
+
+                if case == "lease_lost":
+                    with pytest.raises(_LeaseLost):
+                        process_message(self._batch(3, sync_type="append"), verify_ownership=lose_lease)
+                elif case == "read_failed":
+                    with (
+                        patch(f"{_PROCESSOR}.read_parquet", side_effect=OSError("read failed")),
+                        pytest.raises(OSError),
+                    ):
+                        process_message(self._batch(3, sync_type="append"))
+                elif case == "final_batch":
+                    process_message(self._batch(3, sync_type="append", is_final_batch=True, total_rows=6))
+                elif case == "group_run_ended":
+                    handles.release(1, "schema-1")
+                else:
+                    now[0] = 61.0
+                    process_message(self._batch(9, sync_type="append", schema_id="schema-2"))
+                    handles.release(1, "schema-2")
+
+                assert len(handles) == 0
+                opens_before = len(opens)
+                next_index = 4 if case == "final_batch" else 3
+                process_message(self._batch(next_index, sync_type="append"))
+
+            assert len(opens) == opens_before + 1
+
+    def test_a_commit_from_another_writer_is_in_the_reused_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            write_deltalake(tmp, self._SEED)
+            opens: list[int] = []
+            seen_columns: list[list[str]] = []
+            apply_partitioning = _apply_partitioning
+
+            def record_snapshot(export_signal: Any, pa_table: pa.Table, existing: DeltaTable, schema: Any) -> pa.Table:
+                seen_columns.append([field.name for field in existing.schema().fields])
+                return apply_partitioning(export_signal, pa_table, existing, schema)
+
+            with (
+                self._loader(tmp, opens),
+                patch(f"{_PROCESSOR}._apply_partitioning", side_effect=record_snapshot),
+                patch(f"{_PROCESSOR}.logger") as mock_logger,
+            ):
+                process_message(self._batch(2, sync_type="append"))
+                write_deltalake(
+                    tmp, pa.table({"id": [100], "name": ["other"], "added": ["x"]}), mode="append", schema_mode="merge"
+                )
+                process_message(self._batch(3, sync_type="append"))
+
+            assert len(opens) == 1
+            assert seen_columns == [["id", "name"], ["id", "name", "added"]]
+            written = [
+                call.kwargs
+                for call in mock_logger.debug.call_args_list
+                if call.args[0] == "batch_written_to_delta_lake"
+            ]
+            assert [fields["table_handle"] for fields in written] == ["opened", "reused"]
+            assert "table_open_ms" in written[0] and "table_refresh_ms" not in written[0]
+            assert "table_refresh_ms" in written[1] and "table_open_ms" not in written[1]
+            assert {"parquet_read_ms", "partition_ms", "schema_evolve_ms", "write_ms"} <= written[1].keys()
+            rows = DeltaTable(tmp).to_pyarrow_table()
+            assert sorted(rows.column("id").to_pylist()) == [0, 1, 4, 5, 6, 6, 7, 8, 100]
+            assert rows.schema.names == ["id", "name", "added"]

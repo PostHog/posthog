@@ -77,6 +77,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     runs_in_order,
     set_violation,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.batch_steps import (
+    BatchStepTimer,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
     is_batch_already_processed,
     mark_batch_as_processed,
@@ -88,6 +91,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DELTA_WRITE_DURATION_SECONDS,
     IDEMPOTENCY_HIT_TOTAL,
     PARQUET_READ_DURATION_SECONDS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
+    GROUP_TABLE_HANDLES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import (
     ExportSignalMessage,
@@ -1053,6 +1059,10 @@ def _process_message_reported(
     # Reconnect stale app-DB connections up front so the ORM queries below don't burn all batch attempts.
     close_old_connections()
 
+    timer = BatchStepTimer()
+    # Taken before any step that can raise, so a batch that fails leaves no handle for its retry.
+    retained_table = GROUP_TABLE_HANDLES.take(export_signal, attempt=attempt)
+
     # Imported here, not at module scope: `load/__init__` imports this module, and delivery
     # imports `load.idempotency`, so a module-level import closes the cycle.
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery import (  # noqa: PLC0415
@@ -1068,7 +1078,8 @@ def _process_message_reported(
         # delta-history fallback when the Redis dedup flag is missing — the case
         # where the writer crashed between `DeltaWriter.write` committing and
         # `mark_batch_as_processed` being called.
-        job = _load_job(export_signal.job_id)
+        with timer.step("job_load"):
+            job = _load_job(export_signal.job_id)
         schema = job.schema
         if schema is None:
             raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
@@ -1088,36 +1099,38 @@ def _process_message_reported(
             _process_external_destinations_only(export_signal, verify_ownership)
             return
 
-        if constituents is not None:
-            # A set is all-or-nothing: a member that already landed means the others must be checked
-            # and written one at a time, which the single-batch path knows how to do.
-            for run_uuid, index in members:
-                if is_batch_already_processed(
+        with timer.step("idempotency_check"):
+            if constituents is not None:
+                # A set is all-or-nothing: a member that already landed means the others must be checked
+                # and written one at a time, which the single-batch path knows how to do.
+                for run_uuid, index in members:
+                    if is_batch_already_processed(
+                        export_signal.team_id,
+                        export_signal.schema_id,
+                        run_uuid,
+                        index,
+                        delta_table_ref=delta_table_ref,
+                        is_first_attempt=attempt <= 1,
+                    ):
+                        raise CoalescingDeclined(f"batch {index} of run {run_uuid} was already processed")
+                already_processed = False
+            else:
+                already_processed = is_batch_already_processed(
                     export_signal.team_id,
                     export_signal.schema_id,
-                    run_uuid,
-                    index,
+                    export_signal.run_uuid,
+                    export_signal.batch_index,
                     delta_table_ref=delta_table_ref,
                     is_first_attempt=attempt <= 1,
-                ):
-                    raise CoalescingDeclined(f"batch {index} of run {run_uuid} was already processed")
-            already_processed = False
-        else:
-            already_processed = is_batch_already_processed(
-                export_signal.team_id,
-                export_signal.schema_id,
-                export_signal.run_uuid,
-                export_signal.batch_index,
-                delta_table_ref=delta_table_ref,
-                is_first_attempt=attempt <= 1,
-            )
+                )
 
         # The warehouse having this batch says nothing about the other destinations, so
         # delivery runs on every path and decides for itself what is left to do. Gating it on
         # the warehouse's marker would strand a destination that failed, and gating publication
         # on the write marker would leave a full refresh staged and never swapped in.
         report_phase("deliver")
-        deliver_batch_to_destinations(export_signal)
+        with timer.step("deliver"):
+            deliver_batch_to_destinations(export_signal)
 
         if already_processed and not export_signal.is_final_batch:
             IDEMPOTENCY_HIT_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc()
@@ -1162,8 +1175,11 @@ def _process_message_reported(
             sync_type=export_signal.sync_type,
         )
 
+        primary_keys = export_signal.primary_keys
+        cdc_write_mode = export_signal.cdc_write_mode
+
         report_phase("read")
-        with PARQUET_READ_DURATION_SECONDS.time():
+        with timer.step("parquet_read"), PARQUET_READ_DURATION_SECONDS.time():
             if constituents is not None:
                 pa_table = _read_constituents(constituents)
             else:
@@ -1178,9 +1194,19 @@ def _process_message_reported(
             column_names=pa_table.column_names,
         )
 
-        existing_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
+        table_handle_reused = False
+        if retained_table is not None and cdc_write_mode is None:
+            with timer.step("table_refresh"):
+                table_handle_reused = async_to_sync(delta_table_ref.adopt_open_table)(retained_table)
+        retained_table = None
+        if table_handle_reused:
+            existing_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
+        else:
+            with timer.step("table_open"):
+                existing_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
 
-        pa_table = _apply_partitioning(export_signal, pa_table, existing_delta_table, schema)
+        with timer.step("partition"):
+            pa_table = _apply_partitioning(export_signal, pa_table, existing_delta_table, schema)
 
         # Capture file URIs before write for partial data loading. The listing is O(files in
         # table), so skip it entirely when no consumer wants it — during a long first sync the
@@ -1190,9 +1216,6 @@ def _process_message_reported(
             if existing_delta_table is not None and _partial_data_loading_applies(export_signal, schema)
             else []
         )
-
-        primary_keys = export_signal.primary_keys
-        cdc_write_mode = export_signal.cdc_write_mode
 
         # Tag every delta commit with (run_uuid, batch_index) so that a redelivery after a writer
         # crash can detect "already committed" even when the Redis dedup flag is missing. A set
@@ -1210,43 +1233,46 @@ def _process_message_reported(
 
         resolution_enabled = cdc_write_mode is not None
 
-        pa_table = _enrich_cdc_rows(
-            pa_table,
-            primary_keys=primary_keys,
-            cdc_write_mode=cdc_write_mode,
-            existing_delta_table=existing_delta_table,
-            batch_index=export_signal.batch_index,
-            verify_deletes=resolution_enabled,
-            team_id=team_id_str,
-        )
-
-        if resolution_enabled:
-            pa_table = _resolve_cdc_positions(
+        with timer.step("cdc_resolve"):
+            pa_table = _enrich_cdc_rows(
                 pa_table,
-                primary_keys=primary_keys or [],
+                primary_keys=primary_keys,
                 cdc_write_mode=cdc_write_mode,
+                existing_delta_table=existing_delta_table,
+                batch_index=export_signal.batch_index,
+                verify_deletes=resolution_enabled,
                 team_id=team_id_str,
             )
 
-        if existing_delta_table is not None:
-            try:
-                pa_table = evolve_pyarrow_schema(
+            if resolution_enabled:
+                pa_table = _resolve_cdc_positions(
                     pa_table,
-                    existing_delta_table.schema(),
-                    merge_key_columns=[*(primary_keys or []), *(export_signal.partition_keys or [])],
+                    primary_keys=primary_keys or [],
+                    cdc_write_mode=cdc_write_mode,
+                    team_id=team_id_str,
                 )
-            except SchemaColumnTypeChangedException as e:
-                # A safe numeric widening is mechanically recoverable: stamp reset_pipeline so the
-                # next scheduled sync resets and re-syncs the table, and reword the failure so
-                # latest_error stops telling the customer to reset manually. Unsafe transitions
-                # (and everything with the flag off) re-raise unchanged.
-                amended_message = maybe_schedule_auto_widen_resync(schema=schema, job=job, error=e)
-                if amended_message is not None:
-                    e.args = (amended_message,)
-                raise
+
+        if existing_delta_table is not None:
+            with timer.step("schema_evolve"):
+                try:
+                    pa_table = evolve_pyarrow_schema(
+                        pa_table,
+                        existing_delta_table.schema(),
+                        merge_key_columns=[*(primary_keys or []), *(export_signal.partition_keys or [])],
+                    )
+                except SchemaColumnTypeChangedException as e:
+                    # A safe numeric widening is mechanically recoverable: stamp reset_pipeline so the
+                    # next scheduled sync resets and re-syncs the table, and reword the failure so
+                    # latest_error stops telling the customer to reset manually. Unsafe transitions
+                    # (and everything with the flag off) re-raise unchanged.
+                    amended_message = maybe_schedule_auto_widen_resync(schema=schema, job=job, error=e)
+                    if amended_message is not None:
+                        e.args = (amended_message,)
+                    raise
 
         if verify_ownership is not None:
-            verify_ownership()
+            with timer.step("ownership_check"):
+                verify_ownership()
 
         # The writer narrows this to `merge` for an upsert; an append stays `write` to its commit.
         report_phase("write")
@@ -1257,9 +1283,12 @@ def _process_message_reported(
                 batch_index=export_signal.batch_index,
             )
 
-            with DELTA_WRITE_DURATION_SECONDS.labels(
-                team_id=team_id_str, schema_id=schema_id_str, write_type="scd2_append"
-            ).time():
+            with (
+                timer.step("write"),
+                DELTA_WRITE_DURATION_SECONDS.labels(
+                    team_id=team_id_str, schema_id=schema_id_str, write_type="scd2_append"
+                ).time(),
+            ):
                 scd2_writer = Scd2DeltaWriter(
                     delta_table_ref,
                     valid_from_column=SCD2_VALID_FROM_COLUMN,
@@ -1284,9 +1313,12 @@ def _process_message_reported(
                 batch_index=export_signal.batch_index,
             )
 
-            with DELTA_WRITE_DURATION_SECONDS.labels(
-                team_id=team_id_str, schema_id=schema_id_str, write_type=write_type
-            ).time():
+            with (
+                timer.step("write"),
+                DELTA_WRITE_DURATION_SECONDS.labels(
+                    team_id=team_id_str, schema_id=schema_id_str, write_type=write_type
+                ).time(),
+            ):
                 delta_table = async_to_sync(DeltaWriter(delta_table_ref).write)(
                     data=pa_table,
                     write_type=write_type,
@@ -1301,8 +1333,9 @@ def _process_message_reported(
         # Marked as soon as the commit lands, before post-load: the final row of a run carries its own
         # data now, so a post-load failure must send the retry down the post-load-only path rather
         # than through the write again.
-        for run_uuid, index in members:
-            mark_batch_as_processed(export_signal.team_id, export_signal.schema_id, run_uuid, index)
+        with timer.step("mark_processed"):
+            for run_uuid, index in members:
+                mark_batch_as_processed(export_signal.team_id, export_signal.schema_id, run_uuid, index)
 
         # file_count is the signal that shows a table fragmenting during a long load, so it stays —
         # but listing every file costs O(files in table), which is the very thing it measures. Sample
@@ -1312,23 +1345,27 @@ def _process_message_reported(
         # The handle `write` returns can be one deltalite commit behind the log. Column names and
         # types cannot differ across that commit, so the schema below reads it as is; a file list
         # can, so the readers of one go through the ref, which catches the handle up first.
-        if sample_file_count or _partial_data_loading_applies(export_signal, schema):
-            current_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
-            if current_delta_table is not None:
-                delta_table = current_delta_table
+        with timer.step("post_write"):
+            if sample_file_count or _partial_data_loading_applies(export_signal, schema):
+                current_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
+                if current_delta_table is not None:
+                    delta_table = current_delta_table
 
-        internal_schema = HogQLSchema()
-        # Build from the Delta table schema first to cover all columns from
-        # all batches, then overlay the current batch for JSON detection.
-        internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
-        internal_schema.add_pyarrow_table(pa_table)
+            internal_schema = HogQLSchema()
+            # Build from the Delta table schema first to cover all columns from
+            # all batches, then overlay the current batch for JSON detection.
+            internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
+            internal_schema.add_pyarrow_table(pa_table)
+            file_count = len(delta_table.file_uris()) if sample_file_count else None
 
         logger.debug(
             "batch_written_to_delta_lake",
             batch_index=export_signal.batch_index,
             batch_count=len(members),
             delta_version=delta_table_ref.latest_known_version(delta_table),
-            file_count=len(delta_table.file_uris()) if sample_file_count else None,
+            file_count=file_count,
+            table_handle="reused" if table_handle_reused else "opened",
+            **timer.log_fields(),
         )
 
         async_to_sync(_handle_partial_data_loading)(
@@ -1362,6 +1399,15 @@ def _process_message_reported(
                 internal_schema=internal_schema,
                 verify_ownership=verify_ownership,
             )
+
+        # A run that completed here ran its post-load maintenance, and the next run can reset the
+        # table, so only a write that stays inside one unfinished run hands its handle on.
+        if not finals and cdc_write_mode is None and all(run_uuid == export_signal.run_uuid for run_uuid, _ in members):
+            open_table = delta_table_ref.pop_cached_table()
+            if open_table is not None:
+                GROUP_TABLE_HANDLES.retain(
+                    export_signal, open_table, last_batch_index=max(index for _, index in members)
+                )
     except OwnershipLostError:
         # Benign fencing abandon: the engine re-raises this without writing a
         # failure status, so it must not count as a load failure in analytics either.

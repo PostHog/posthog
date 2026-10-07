@@ -44,6 +44,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
     DESTINATION_CONFIGURATION_ERROR_MARKER,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
+    release_group_table_handle,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
@@ -1082,6 +1085,14 @@ class BatchConsumer(SharedBatchConsumer):
             health_reporter=health_reporter,
             process_batches=process_set_with_ownership_check if process_batches is not None else None,
         )
+
+    async def _process_group(self, key: tuple[int, str], batches: list[PendingBatch]) -> None:
+        try:
+            await super()._process_group(key, batches)
+        finally:
+            # The loader keeps the table handle of the last batch for the next batch of this group
+            # run. No batch follows now, so the handle must not hold its file list in memory.
+            release_group_table_handle(*key)
 
     def _make_verify_ownership(self, batch: PendingBatch) -> Callable[[], None]:
         """Sync ownership check for the worker thread: the engine's lease checks bracket
