@@ -207,6 +207,16 @@ tools:
             cadence with workflows-schedule-create and skip the audience preview. Behavioral targeting ('did event X at
             least N times over the last M days') is unsupported; reject it and explain why.
         ui_app: workflow
+        actions:
+            - key: enable
+              label: Enable the workflow
+              kind: run
+              tool: workflows-enable
+              message: Enable workflow {id}.
+            - key: test-send
+              label: Send yourself a test email
+              kind: insert
+              message: 'Send a test email of workflow {id} to '
     workflows-discard-draft:
         operation: hog_flows_discard_draft_create
         enabled: true

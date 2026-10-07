@@ -42,6 +42,7 @@ import {
     type ExecInnerCallTracker,
 } from '@/tools/exec'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
+import { buildChatActionCatalog, renderChatActionHint } from '@/tools/posthogAiTools/suggestActions'
 import { createRenderUiTool } from '@/tools/render-ui'
 import { skillAnalyticsProperties, skillLookupMissProperties } from '@/tools/skills/analytics'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from '@/tools/skills/notFound'
@@ -126,6 +127,20 @@ function stateForToolCall(state: ResolvedState, intent: string | undefined): Res
         }
     }
     return scoped
+}
+
+/**
+ * Appends the `suggest-actions` hint as its own trailing text block, so the first block keeps
+ * the shape a `--json` caller parses. Nothing is added when the catalog has no actions for the
+ * tool, which also covers `suggest-actions` itself.
+ */
+function appendChatActionHint(response: ToolResultPayload, innerToolName: string, state: ResolvedState): void {
+    const entry = buildChatActionCatalog(state.allTools.map((tool) => tool.name))?.find(
+        (candidate) => candidate.tool === innerToolName
+    )
+    if (entry) {
+        response.content.push({ type: 'text', text: renderChatActionHint(entry.tool, entry.actions) })
+    }
 }
 
 export class ToolExecutor {
@@ -636,6 +651,9 @@ export class ToolExecutor {
             // canonical event still records the failure, and must not stamp a skill
             // the store never delivered — a miss is not a read.
             const innerFailure = execMetrics.innerFailure
+            if (execMetrics.innerToolName && !innerFailure) {
+                appendChatActionHint(response, execMetrics.innerToolName, state)
+            }
             const failureShape = innerFailure
                 ? errorAnalyticsProperties(classifyToolError(innerFailure.error, execToolName()), innerFailure.error)
                 : undefined

@@ -333,12 +333,27 @@ Product teams own their definitions and control which operations are exposed as 
        confirmed_action: # typed-confirm paradigm for destructive tools
          message: "About to {action}. Reply 'confirm' to proceed." # prompt shown to user
          action_label: Short action label # optional, defaults to tool title
+       actions: # follow-ups the PostHog AI chat offers as buttons after this tool ran
+         - key: enable # the agent addresses it as `<tool>.<key>`
+           label: Enable the thing # button label
+           kind: run # insert (fills the composer) | send (sends the message) | run (sends the message; `tool` must be visible). Write the message so it names the intent and its ids
+           tool: things-enable # required for `run`, forbidden otherwise; must be visible to the caller
+           message: Enable thing {id}. # `{slot}` markers are filled from the agent's args (identifiers only); defaults to the label
    ```
 
    For a PATCH action with required request fields, set `param_overrides.<field>.required: true`.
    The MCP tool then requires the field, even when the generated PATCH body marks it optional.
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
+
+   `actions` only take effect behind the `posthog-ai-chat-actions` feature flag: the flag exposes the
+   `suggest-actions` tool in exec mode for the PostHog AI chat. The exec command reference lists every
+   declared action, and the agent picks the ones that fit at the end of its turn. A slot value must be an
+   identifier (letters, digits, `_` and `-`, up to 64 characters), because a click sends the rendered message
+   as the user's own turn. The same hint also rides on the result of the offering
+   tool: after a successful `call`, exec appends a trailing text block with the `suggest-actions` command for that
+   tool and a `<slot>` placeholder per slot, so the agent reads it at the moment it matters. Handwritten tools declare `actions`
+   the same way in `services/mcp/schema/tool-definitions.json`.
 
    For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
    `detail_args` keys against the tool's input schema snapshot, so a wrong argument
