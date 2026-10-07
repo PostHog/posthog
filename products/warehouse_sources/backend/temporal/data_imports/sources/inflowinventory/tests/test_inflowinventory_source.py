@@ -94,14 +94,15 @@ class TestInflowinventorySource:
     def test_version_declaration(self) -> None:
         # New sources default to the current stable version; the legacy pin stays supported so
         # existing sources keep syncing under their own version.
-        assert self.source.default_version == "2026-07-10"
-        assert set(self.source.supported_versions) == {"2023-04-01", "2026-07-10"}
+        assert self.source.default_version == "2026-09-29"
+        assert set(self.source.supported_versions) == {"2023-04-01", "2026-07-10", "2026-09-29"}
 
     @parameterized.expand(
         [
             ("pinned_legacy", "2023-04-01", "2023-04-01"),
-            ("pinned_current", "2026-07-10", "2026-07-10"),
-            ("unpinned_resolves_to_default", None, "2026-07-10"),
+            ("pinned_previous", "2026-07-10", "2026-07-10"),
+            ("pinned_current", "2026-09-29", "2026-09-29"),
+            ("unpinned_resolves_to_default", None, "2026-09-29"),
         ]
     )
     @mock.patch(

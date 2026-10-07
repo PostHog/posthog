@@ -4,6 +4,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.framer.framer import COLLECTION_METHODS_BY_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer.source import FramerSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.framer import FramerSourceConfig
 
@@ -22,7 +23,8 @@ def _inputs(schema_name: str, api_version: str | None = None) -> Any:
 class TestFramerSource:
     @parameterized.expand(
         [
-            (None, "0.1.29"),  # no pin falls back to default_version
+            (None, "5.1.0"),  # no pin falls back to default_version
+            ("0.1.29", "0.1.29"),
             ("9.9.9", "9.9.9"),  # a stored pin is honored verbatim
         ]
     )
@@ -42,6 +44,9 @@ class TestFramerSource:
             protocol_version=expected_version,
             logger=inputs.logger,
         )
+
+    def test_every_supported_version_has_collection_methods(self) -> None:
+        assert set(COLLECTION_METHODS_BY_VERSION) == set(FramerSource.supported_versions)
 
     def test_broken_code_component_is_non_retryable(self) -> None:
         # Framer's headless loader raises this identically on every retry when a project's
