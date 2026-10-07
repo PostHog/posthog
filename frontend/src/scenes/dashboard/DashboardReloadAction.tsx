@@ -13,6 +13,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/dashboard/dashboardUtils'
 import { Scene } from 'scenes/sceneTypes'
 
 export const LastRefreshText = (): JSX.Element => {
@@ -76,7 +77,7 @@ export function DashboardReloadAction(): JSX.Element {
         blockRefresh &&
         nextAllowedDashboardRefresh &&
         dayjs(nextAllowedDashboardRefresh).isAfter(dayjs())
-            ? `Next bulk refresh possible ${dayjs(nextAllowedDashboardRefresh).fromNow()}`
+            ? `To stop large dashboards from overloading queries, you can refresh a dashboard at most once every ${DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES} minutes. Next refresh possible ${dayjs(nextAllowedDashboardRefresh).fromNow()}.`
             : ''
 
     const options = INTERVAL_OPTIONS.map((option) => {
