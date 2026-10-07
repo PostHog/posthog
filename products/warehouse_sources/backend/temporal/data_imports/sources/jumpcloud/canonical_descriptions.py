@@ -157,8 +157,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "state": "State of the policy application.",
             "exitStatus": "Exit status of the policy application on the device.",
             "detail": "Details about the result.",
-            "stdOut": "Standard output captured while the policy was applied.",
-            "stdErr": "Standard error captured while the policy was applied.",
         },
     },
     "policy_statuses": {

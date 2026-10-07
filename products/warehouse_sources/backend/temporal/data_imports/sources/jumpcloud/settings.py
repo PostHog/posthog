@@ -147,6 +147,8 @@ JUMPCLOUD_ENDPOINTS: dict[str, JumpcloudEndpointConfig] = {
         api="v2",
         primary_key="id",
         partition_key="startedAt",
+        # Policy output is whatever the policy's script printed, which can include credentials.
+        redact_keys=["stdOut", "stdErr"],
     ),
     # Fans out per policy rather than per system (`/systems/{id}/policystatuses`): both return
     # the latest result per policy and system, and an organization has far fewer policies.
@@ -157,6 +159,7 @@ JUMPCLOUD_ENDPOINTS: dict[str, JumpcloudEndpointConfig] = {
         primary_key="id",
         parent="policies",
         parent_id_column="policy_id",
+        redact_keys=["stdOut", "stdErr"],
     ),
     "alerts": JumpcloudEndpointConfig(
         name="alerts",

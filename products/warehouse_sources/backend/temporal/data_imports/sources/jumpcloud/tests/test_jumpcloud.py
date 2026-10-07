@@ -227,7 +227,14 @@ class TestRestRows:
         ]
 
     @parameterized.expand(
-        [("applications", False), ("users", True), ("application_users", False), ("system_users", True)]
+        [
+            ("applications", False),
+            ("users", True),
+            ("application_users", False),
+            ("system_users", True),
+            ("policy_results", False),
+            ("policy_statuses", False),
+        ]
     )
     def test_secret_bearing_endpoint_disables_http_sample_capture(self, endpoint: str, expected_capture: bool) -> None:
         # HTTP sample capture writes the raw response body before row-level `redact_keys` runs, so
