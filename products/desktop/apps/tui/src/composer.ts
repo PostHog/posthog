@@ -70,7 +70,7 @@ export const SLASH_COMMANDS = [
   { name: "rename-workspace", description: "Rename this workspace" },
   {
     name: "optimize",
-    description: "Even out the widths of this workspace's panes",
+    description: "Lay out this workspace's panes in an even grid",
   },
   {
     name: "expand",

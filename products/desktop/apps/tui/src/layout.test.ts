@@ -261,33 +261,69 @@ describe("layout", () => {
       direction: "row" | "column",
       taskId: string,
     ): LayoutState => openTask(splitFocused(state, direction), taskId);
-    const a = openTask(initialLayout(), "a");
+    const splits = (moves: ["row" | "column", string][]): LayoutState =>
+      moves.reduce(
+        (state, [direction, taskId]) => split(state, direction, taskId),
+        openTask(initialLayout(), "a"),
+      );
 
     it.each([
+      ["two stacked panes", [["column", "b"]], { row: ["a", "b"] }],
       [
-        "a row split again along the row",
-        split(split(a, "row", "b"), "row", "c"),
-        { row: ["a", "b", "c"] },
+        "three panes in a row",
+        [
+          ["row", "b"],
+          ["row", "c"],
+        ],
+        { column: [{ row: ["a", "b"] }, "c"] },
       ],
       [
-        "a column split again down the column",
-        split(split(a, "column", "b"), "column", "c"),
-        { column: ["a", "b", "c"] },
+        "five nested panes",
+        [
+          ["row", "b"],
+          ["row", "c"],
+          ["column", "d"],
+          ["row", "e"],
+        ],
+        { column: [{ row: ["a", "b", "c"] }, { row: ["d", "e"] }] },
       ],
       [
-        "only the nested row of rows in a stack",
-        split(split(split(a, "row", "b"), "row", "c"), "column", "d"),
-        { row: ["a", "b", { column: ["c", "d"] }] },
+        "seven panes",
+        ["b", "c", "d", "e", "f", "g"].map((id) => ["row", id]),
+        {
+          column: [
+            { row: ["a", "b", "c"] },
+            { row: ["d", "e"] },
+            { row: ["f", "g"] },
+          ],
+        },
       ],
-    ])("evens out %s", (_, state, even) => {
-      const workspace = activeWorkspace(state);
-      const optimized = optimizeWorkspace(state, workspace.id);
-      expect(optimized && shape(activeWorkspace(optimized).root)).toEqual(even);
-    });
+    ] as [string, ["row" | "column", string][], unknown][])(
+      "lays out %s in an even grid, keeping the focused pane",
+      (_, moves, even) => {
+        const state = splits(moves);
+        const workspace = activeWorkspace(state);
+        const optimized = optimizeWorkspace(state, workspace.id);
+        expect(optimized && shape(activeWorkspace(optimized).root)).toEqual(
+          even,
+        );
+        expect(optimized && activeWorkspace(optimized).focusedPaneId).toBe(
+          workspace.focusedPaneId,
+        );
+      },
+    );
 
-    it("leaves panes that are already even alone", () => {
-      const state = split(split(a, "row", "b"), "column", "c");
-      expect(optimizeWorkspace(state, activeWorkspace(state).id)).toBeNull();
+    it("leaves a grid that is already even alone", () => {
+      const state = splits([
+        ["row", "b"],
+        ["column", "c"],
+      ]);
+      const optimized = optimizeWorkspace(state, activeWorkspace(state).id);
+      expect(optimized).not.toBeNull();
+      if (!optimized) return;
+      expect(
+        optimizeWorkspace(optimized, activeWorkspace(optimized).id),
+      ).toBeNull();
     });
   });
 

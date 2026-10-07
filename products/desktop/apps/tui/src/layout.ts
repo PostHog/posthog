@@ -241,18 +241,30 @@ export function newChatIn(state: LayoutState, paneId: string): LayoutState {
   };
 }
 
-// A split inside a split that runs the same way gets only its parent's share, so its panes come out narrower.
-// Merging them gives every pane along a row or column an even share.
-function flattened(node: LayoutNode): LayoutNode {
-  if (node.kind === "pane") return node;
-  const children = node.children
-    .map(flattened)
-    .flatMap((child) =>
-      child.kind === "split" && child.direction === node.direction
-        ? child.children
-        : [child],
+// The panes in reading order, laid out in rows as the desktop app's Optimize does: as many columns as the square root
+// of the count, rounded up, and as many rows as that takes. Panes are shared across the rows as evenly as they go,
+// the top rows taking any extra, so no cell is left empty.
+function grid(panes: PaneNode[]): LayoutNode {
+  if (panes.length === 1) return panes[0];
+  const columns = Math.ceil(Math.sqrt(panes.length));
+  const rows = Math.ceil(panes.length / columns);
+  const base = Math.floor(panes.length / rows);
+  const extra = panes.length % rows;
+  const lines: LayoutNode[] = [];
+  let next = 0;
+  for (let row = 0; row < rows; row++) {
+    const size = base + (row < extra ? 1 : 0);
+    const cells = panes.slice(next, next + size);
+    next += size;
+    lines.push(
+      cells.length === 1
+        ? cells[0]
+        : { kind: "split", direction: "row", children: cells },
     );
-  return children.length === 1 ? children[0] : { ...node, children };
+  }
+  return lines.length === 1
+    ? lines[0]
+    : { kind: "split", direction: "column", children: lines };
 }
 
 // Evens out a workspace's panes; null when they are already as even as they can be.
@@ -262,7 +274,7 @@ export function optimizeWorkspace(
 ): LayoutState | null {
   const workspace = state.workspaces.find((w) => w.id === workspaceId);
   if (!workspace) return null;
-  const root = flattened(workspace.root);
+  const root = grid(panes(workspace.root));
   if (JSON.stringify(root) === JSON.stringify(workspace.root)) return null;
   return {
     ...state,
