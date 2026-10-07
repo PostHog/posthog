@@ -4519,7 +4519,12 @@ describe('a flag in config version 2', () => {
             default_groups: [],
         })
         const properties = [
-            { key: 'p_signed_up', type: PropertyFilterType.Person, operator: PropertyOperator.GreaterThanOrEqual, value: 0.6 },
+            {
+                key: 'p_signed_up',
+                type: PropertyFilterType.Person,
+                operator: PropertyOperator.GreaterThanOrEqual,
+                value: 0.6,
+            },
         ]
         router.actions.push(urls.featureFlagNew({ properties }))
         const newLogic = featureFlagLogic({ id: 'new' })

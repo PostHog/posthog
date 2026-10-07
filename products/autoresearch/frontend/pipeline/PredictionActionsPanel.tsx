@@ -24,9 +24,7 @@ export function PredictionActionsPanel(): JSX.Element | null {
     return (
         <div className="border rounded p-4 bg-surface-primary">
             <h3 className="font-semibold mb-1">Act on these predictions</h3>
-            <p className="text-sm text-secondary mb-3">
-                Each link opens a prefilled draft. Review it, then save.
-            </p>
+            <p className="text-sm text-secondary mb-3">Each link opens a prefilled draft. Review it, then save.</p>
             <div className="flex flex-col gap-1">
                 <LemonButton
                     icon={<IconFlag />}
