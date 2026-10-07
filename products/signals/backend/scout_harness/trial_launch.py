@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 from datetime import datetime
+from functools import cached_property
 from typing import Literal, TypeVar, cast
 from uuid import UUID
 
@@ -96,6 +97,10 @@ class TrialContext(BaseModel):
     memory: list[dict[str, JsonValue]] = Field(default_factory=list)
     notes: list[dict[str, JsonValue]] = Field(default_factory=list)
     recent_runs: list[dict[str, JsonValue]] = Field(default_factory=list)
+
+    @cached_property
+    def evidence_bytes(self) -> int:
+        return len(self.note.encode()) + len(trial_context_evidence(self).encode())
 
 
 class TrialLaunch(BaseModel):
@@ -364,6 +369,7 @@ def create_trial_launch(
     user: User,
     launch_id: UUID,
     context_id: UUID | None = None,
+    saved_context: TrialContext | None = None,
     skill_body: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
@@ -372,6 +378,8 @@ def create_trial_launch(
 ) -> TrialLaunch:
     assert_trial_environment_ready()
     assert_trial_work_enabled(config.team)
+    if saved_context is not None:
+        context_id = saved_context.id
     request_body = {
         "config_id": str(config.id),
         "user_id": user.id,
@@ -390,8 +398,8 @@ def create_trial_launch(
             raise ScoutTrialLaunchError("This launch ID was already used with different settings.")
         return load_trial_launch(config.team_id, launch_id)
     if context_id is not None:
-        context = load_trial_context(config.team_id, context_id)
-        if context.config_id != config.id or context.user_id != user.id:
+        context = saved_context if saved_context is not None else load_trial_context(config.team_id, context_id)
+        if context.team_id != config.team_id or context.config_id != config.id or context.user_id != user.id:
             raise ScoutTrialLaunchError("The saved context belongs to another scout or operator.")
         if note and note != context.note:
             raise ScoutTrialLaunchError("All variants must use the saved comparison note.")
@@ -421,10 +429,7 @@ def create_trial_launch(
         raise ScoutTrialLaunchError(model_error or effort_error or "The model settings are invalid.")
     selected_skill_body = skill_body if skill_body is not None else context.skill_body
     # Judging attaches these inputs to every completed run, so reject them before the paid runs start.
-    if (
-        sum(len(text.encode()) for text in (selected_skill_body, context.note, trial_context_evidence(context)))
-        > MAX_EVIDENCE_BYTES
-    ):
+    if len(selected_skill_body.encode()) + context.evidence_bytes > MAX_EVIDENCE_BYTES:
         raise ScoutTrialLaunchError(
             "The saved scout history and instructions exceed the 128 MiB judge attachment limit. "
             "Shorten the instructions or remove old scout memory."

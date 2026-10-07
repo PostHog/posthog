@@ -951,8 +951,13 @@ class TestScoutTrialLaunch(APIBaseTest):
                 f"{module}.get_trial_comparison_status", return_value=TrialWorkflowStatus(status="not_started")
             ) as workflow_status,
         ):
+            storage_reads = cast(MagicMock, object_storage.read)
+            storage_reads.reset_mock()
             interrupted = self.client.post(f"{base}trial_comparison/", payload, format="json")
             assert interrupted.status_code == 500
+            context_key = f"signals/scout-trials/{self.team.id}/contexts/{comparison_id}.json"
+            context_reads = [call for call in storage_reads.call_args_list if call.args[0] == context_key]
+            assert len(context_reads) <= 2, context_reads
             history = self.client.get(f"{base}trial_comparison_history/")
             assert history.status_code == 200, history.data
             assert [item["comparison_id"] for item in history.json()["results"]] == [comparison_id]
