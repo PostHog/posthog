@@ -5,7 +5,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -253,6 +254,44 @@ class TestSetCustomPropertyValue(BaseTest):
             (seats.id, None, 42.0),
         }
 
+    @parameterized.expand(
+        [
+            ("set", lambda test, definition: test._set(definition=definition, value="enterprise")),
+            (
+                "synced_set",
+                lambda test, definition: set_synced_custom_property_value(
+                    team_id=test.team.id, account_id=test.account.id, definition=definition, value="enterprise"
+                ),
+            ),
+            (
+                "synced_clear",
+                lambda test, definition: set_synced_custom_property_value(
+                    team_id=test.team.id, account_id=test.account.id, definition=definition, value=None
+                ),
+            ),
+            (
+                "slack_message",
+                lambda test, _definition: record_last_slack_message_at(
+                    team_id=test.team.id, account_id=test.account.id, timestamp=timezone.now()
+                ),
+            ),
+        ]
+    )
+    def test_active_value_lookups_do_not_order_by_primary_key(self, _name, write):
+        definition = self._create_property_definition()
+        self._set(definition=definition, value="starter")
+
+        with CaptureQueriesContext(connection) as queries:
+            write(self, definition)
+
+        value_reads = [
+            query["sql"]
+            for query in queries.captured_queries
+            if query["sql"].startswith("SELECT") and CustomPropertyValue._meta.db_table in query["sql"]
+        ]
+        assert value_reads
+        assert not [sql for sql in value_reads if "ORDER BY" in sql]
+
     @patch(f"{LOGIC_MODULE}.CustomPropertyValue")
     def test_losing_the_active_value_race_surfaces_as_a_conflict(self, mock_value_model):
         definition = self._create_property_definition()
@@ -277,7 +316,7 @@ class TestSetCustomPropertyValue(BaseTest):
     def test_losing_the_active_value_clear_race_surfaces_as_a_conflict(self, mock_value_model):
         definition = self._create_property_definition()
         active_rows = mock_value_model.objects.for_team.return_value.filter.return_value
-        active_rows.first.return_value = MagicMock(id=uuid4())
+        active_rows.__getitem__.return_value = [MagicMock(id=uuid4())]
         active_rows.filter.return_value.update.return_value = 0
 
         with pytest.raises(CustomPropertyValueConflict):
