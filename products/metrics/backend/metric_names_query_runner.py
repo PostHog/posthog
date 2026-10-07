@@ -1,5 +1,6 @@
 """Distinct metric names for a team's picker UI."""
 
+import math
 import datetime as dt
 from collections.abc import Sequence
 from hashlib import sha256
@@ -263,7 +264,9 @@ class MetricNamesQueryRunner:
 
         sparklines: dict[str, list[float]] = {}
         for name, _bucket_start, bucket_value in response.results:
-            sparklines.setdefault(name, []).append(float(bucket_value))
+            value = float(bucket_value)
+            if math.isfinite(value):
+                sparklines.setdefault(name, []).append(value)
         return sparklines
 
     def _series_scope_subquery(self, names: Sequence[str]) -> ast.SelectQuery:

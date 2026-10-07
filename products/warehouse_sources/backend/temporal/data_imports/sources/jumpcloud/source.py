@@ -131,7 +131,7 @@ The `events` table requires a Directory Insights subscription. If you're an MSP/
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                detected_primary_keys=[JUMPCLOUD_ENDPOINTS[endpoint].primary_key],
+                detected_primary_keys=JUMPCLOUD_ENDPOINTS[endpoint].primary_keys,
                 description=(
                     "Directory Insights activity events (console, SSO, RADIUS, LDAP, systems, and directory changes). "
                     "Only syncs the last 90 days on initial sync, bounded by your Directory Insights retention"

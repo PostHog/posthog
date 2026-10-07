@@ -63,6 +63,88 @@ const countryField: BIField = {
 }
 
 describe('BI editor query generation', () => {
+    it.each(['month', 'quarter', 'year'] as const)(
+        'aligns %s comparison buckets with calendar arithmetic',
+        (dateBucket) => {
+            const result = buildBIQuery({
+                ...DEFAULT_BI_CONFIG,
+                source: eventField.source,
+                dateRange: { date_from: 'mStart' },
+                compareFilter: { compare: true },
+                rows: [{ ...timestampField, dateBucket }],
+                dateField: { ...timestampField, expression: 'created_at' },
+            })!
+            expect(result.query).toContain(`{filters.compareDate(timestamp, '${dateBucket}')}`)
+            expect(result.query).toContain('{filters.previous.native(created_at)}')
+        }
+    )
+    test.each([undefined, '-1y'])('builds and persists period comparisons (%s)', (compare_to) => {
+        const config: BIConfig = {
+            ...DEFAULT_BI_CONFIG,
+            source: eventField.source,
+            dateRange: { date_from: 'mStart' },
+            compareFilter: { compare: true, compare_to },
+            rows: [{ ...timestampField, dateBucket: 'day' }],
+            columns: [eventField],
+            values: [{ field: revenueField, aggregation: 'sum' }],
+        }
+        const result = buildBIQuery(config)!
+        expect(result.query).toContain('UNION ALL')
+        expect(result.query).toContain('toStartOfDay({filters.compareDate(timestamp)}) AS bi_row_timestamp')
+        expect(result.query).toContain('{filters.previous}')
+        expect(result.query).toContain('ORDER BY bi_row_timestamp DESC')
+        expect(result.node.chartSettings?.seriesBreakdownColumn).toBe('bi_comparison')
+        expect(parseBIEditorState(BIEditorView.BI, config)?.config.compareFilter).toEqual(config.compareFilter)
+        expect(buildBIQuery({ ...config, dateRange: { date_from: 'all' } })?.query).not.toContain('UNION ALL')
+    })
+
+    test.each(['-28d', 'mStart', '-1mStart', 'qStart', '-1qStart', 'yStart'])(
+        'keeps %s relative in query filters instead of hardcoding the date in SQL',
+        (date_from) => {
+            const config = { ...DEFAULT_BI_CONFIG, source: eventField.source, dateRange: { date_from } }
+            const result = buildBIQuery(config)!
+            expect(result.query).toContain('WHERE\n    {filters}')
+            expect(result.query).not.toContain(date_from)
+            expect(result.node.source.filters?.dateRange).toEqual({ date_from })
+            expect(parseBIEditorState(BIEditorView.BI, config)?.config.dateRange).toEqual({
+                date_from,
+            })
+        }
+    )
+
+    it.each([null, { ...timestampField, expression: 'created_at' }])(
+        'keeps native properties with a custom date selection: %j',
+        (dateField) => {
+            const result = buildBIQuery({ ...DEFAULT_BI_CONFIG, source: eventField.source, dateField })!
+            expect(result.query).toContain(`{filters.native(${dateField?.expression ?? 'null'})}`)
+        }
+    )
+
+    it('binds raw property names, including dots, without silently choosing ambiguous columns', () => {
+        const source = { table: 'orders' }
+        const field = { ...eventField, source, name: 'properties.plan.tier', expression: 'properties.`plan.tier`' }
+        const state = { ...DEFAULT_BI_CONFIG, source, rows: [field] }
+        expect(buildBIQuery(state)?.query).toContain("(properties.`plan.tier`) AS 'plan.tier'")
+        const ambiguous = buildBIQuery({
+            ...state,
+            columns: [{ ...field, name: 'person_properties.plan.tier', expression: 'person_properties.`plan.tier`' }],
+        })!
+        expect(ambiguous.query).not.toContain("AS 'plan.tier'")
+    })
+
+    it('maps warehouse dates and dashboard properties to unbucketed worksheet fields', () => {
+        const source = { table: 'orders', connectionId: 'example-connection' }
+        const result = buildBIQuery({
+            ...DEFAULT_BI_CONFIG,
+            source,
+            dateField: { ...timestampField, source, expression: 'created_at', dateBucket: 'month' },
+            dateRange: { date_from: '-30d' },
+            rows: [{ ...eventField, source, name: 'plan', expression: 'subscription_plan' }],
+        })!
+        expect(result.query).toContain("{filters((created_at) AS 'timestamp', (subscription_plan) AS 'plan')}")
+        expect(result.node.source.connectionId).toBe(source.connectionId)
+        expect(result.node.source.filters?.dateRange?.date_from).toBe('-30d')
+    })
     test.each<{ filter: BIFilter; expected: string | null }>([
         {
             filter: { field: eventField, operator: 'in', value: '', values: ["sign'up", 'a,b', ''] },
@@ -121,9 +203,9 @@ describe('BI editor query generation', () => {
         expect(restored?.config.filters).toEqual([filter])
         const query = buildBIQuery(restored!.config)!.query
         if (expected) {
-            expect(query).toContain(`WHERE\n    ${expected}`)
+            expect(query).toContain(`AND (${expected})`)
         } else {
-            expect(query).not.toContain('WHERE')
+            expect(query).toContain('WHERE\n    {filters}\nLIMIT')
         }
     })
 
@@ -162,7 +244,8 @@ describe('BI editor query generation', () => {
         expect(buildBIFilterOptionsQuery(config, 0)).toEqual({
             kind: NodeKind.HogQLQuery,
             connectionId: source.connectionId,
-            query: 'SELECT DISTINCT toString(event) AS value\nFROM orders\nWHERE (event IS NOT NULL) AND ((properties.revenue >= 10 AND properties.revenue <= 100))\nLIMIT 100',
+            filters: { dateRange: { date_from: 'all' } },
+            query: "SELECT DISTINCT toString(event) AS value\nFROM orders\nWHERE ({filters((null) AS 'timestamp', (event) AS 'event', (properties.revenue) AS 'revenue')}) AND (event IS NOT NULL) AND ((properties.revenue >= 10 AND properties.revenue <= 100))\nLIMIT 100",
         })
         config.filters.push({
             field: { ...eventField, expression: '', name: '', source },
@@ -193,7 +276,8 @@ describe('BI editor query generation', () => {
             '    sum(properties.revenue) AS sum_revenue',
             'FROM events',
             'WHERE',
-            "    lower(event) LIKE lower('%sign\\'up%')",
+            '    {filters}',
+            "    AND (lower(event) LIKE lower('%sign\\'up%'))",
             'GROUP BY',
             '    event',
             'ORDER BY',
@@ -218,6 +302,7 @@ describe('BI editor query generation', () => {
                     kind: NodeKind.HogQLQuery,
                     query: expectedQuery,
                     connectionId: undefined,
+                    filters: { dateRange: { date_from: 'all' } },
                 },
                 display: ChartDisplayType.ActionsBar,
             },
@@ -348,7 +433,9 @@ describe('BI editor query generation', () => {
             limit: 100,
         })
 
-        expect(result?.query).toEqual(['SELECT', '    count(*) AS count', 'FROM events', 'LIMIT 100'].join('\n'))
+        expect(result?.query).toEqual(
+            ['SELECT', '    count(*) AS count', 'FROM events', 'WHERE', '    {filters}', 'LIMIT 100'].join('\n')
+        )
     })
 
     it('uses a row count when a custom aggregation expression is blank', () => {
@@ -368,6 +455,8 @@ describe('BI editor query generation', () => {
                 '    event,',
                 '    count(*) AS count',
                 'FROM events',
+                'WHERE',
+                '    {filters}',
                 'GROUP BY',
                 '    event',
                 'ORDER BY',
@@ -484,8 +573,8 @@ describe('BI editor query generation', () => {
         expect(createDefaultDateFilter(source)).toBeNull()
     })
 
-    it('bounds the default last 7 days condition at the current time', () => {
-        const result = buildBIQuery({
+    it('migrates the legacy default date filter into dashboard-aware query filters', () => {
+        const config: BIConfig = {
             source: { table: 'events' },
             chartType: ChartDisplayType.Auto,
             rows: [],
@@ -493,9 +582,13 @@ describe('BI editor query generation', () => {
             values: [],
             filters: [createDefaultDateFilter({ table: 'events' })!],
             limit: 100,
-        })
+        }
+        const result = buildBIQuery(config)
 
-        expect(result?.query).toContain('(timestamp >= now() - INTERVAL 7 DAY AND timestamp < now())')
+        expect(result?.query).toContain('{filters}')
+        expect(result?.query).not.toContain('INTERVAL 7 DAY')
+        expect(result?.node.source.filters?.dateRange).toEqual({ date_from: '-7d' })
+        expect(parseBIEditorState(BIEditorView.BI, config)?.config.filters).toEqual([])
     })
 
     test.each([

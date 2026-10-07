@@ -425,6 +425,16 @@ class MySQLSource(
             # fails identically. Match the locale-independent error code (the trailing message
             # text is translated on non-English servers).
             "(3024,": "Your MySQL/MariaDB server's maximum statement execution time was exceeded while ordering this table by its incremental field (error 3024). We try to avoid the sort by forcing the incremental field's index, but this table has no usable index on that field. Add an index on the incremental field, raise the server's 'max_execution_time', or switch this table to a full re-sync, then resync.",
+            # MariaDB error 1969 (ER_STATEMENT_TIMEOUT): MariaDB's own `max_statement_time` cap
+            # killed the `ORDER BY <incremental_field>` query before the filesort could finish —
+            # the same symptom as 3024 above, just MariaDB's variant of the setting. We already
+            # try to dodge the sort with the in-activity FORCE INDEX fallback (see
+            # `_is_bad_plan_error`); this only escapes once that fallback can't apply — no usable
+            # index on the incremental field. Both `max_statement_time` and the missing index are
+            # static server-side state, so every retry filesorts the same rows and fails
+            # identically. Match the locale-independent error code (the trailing message text is
+            # translated on non-English servers).
+            "(1969,": "Your MariaDB server's maximum statement execution time was exceeded while ordering this table by its incremental field (error 1969). We try to avoid the sort by forcing the incremental field's index, but this table has no usable index on that field. Add an index on the incremental field, raise the server's 'max_statement_time', or switch this table to a full re-sync, then resync.",
             # MySQL/MariaDB error 2013 (lost connection during query) that escapes the in-activity
             # FORCE INDEX fallback because the incremental field has no usable index (see
             # `MySQLUnavoidableFilesortError` in mysql.py). The un-indexed full-table sort re-times-out

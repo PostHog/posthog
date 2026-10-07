@@ -176,6 +176,24 @@ def live_row_count(delta_table: deltalake.DeltaTable) -> int | None:
     return int(pc.sum(num_records).as_py() or 0)
 
 
+def live_size_mib(delta_table: deltalake.DeltaTable) -> float | None:
+    """Size of the table's live files in MiB, summed from the `size` of each Add action.
+
+    The query folder holds a copy of exactly the live files, so this sum is the size of that folder,
+    without a listing of it. The read takes the file sizes alone, not the per-column statistics.
+
+    None when the log cannot give a size for each live file. The caller then leaves the recorded
+    size as it is, because a partial sum would record a table as smaller than it is.
+    """
+    try:
+        sizes = delta_table._table.get_add_file_sizes()
+    except Exception:
+        return None
+    if any(size is None for size in sizes.values()):
+        return None
+    return sum(sizes.values()) / (1024 * 1024)
+
+
 class DeltaTableRef:
     """Handle to one schema's Delta table: uri/credentials, the cached open (with corrupt-table
     auto-heal), corruption detection, reset, file listing, and the first-sync flag.
@@ -195,9 +213,19 @@ class DeltaTableRef:
     #: The newest version deltalite reported committing through this ref, if any.
     _deltalite_version: int | None
     _table_uri: str | None
+    #: A hint that the next open will find no table. It only selects which request goes first.
+    _expect_missing: bool
+    #: True from an open that found no table until this ref creates, resets or invalidates it.
+    _known_missing: bool
 
     def __init__(
-        self, resource_name: str, job: ExternalDataJob, logger: FilteringBoundLogger, is_first_sync: bool = False
+        self,
+        resource_name: str,
+        job: ExternalDataJob,
+        logger: FilteringBoundLogger,
+        is_first_sync: bool = False,
+        *,
+        expect_missing: bool | None = None,
     ) -> None:
         self._resource_name = resource_name
         self._job = job
@@ -207,6 +235,8 @@ class DeltaTableRef:
         self._cached_table_stale = False
         self._deltalite_version = None
         self._table_uri = None
+        self._expect_missing = is_first_sync if expect_missing is None else expect_missing
+        self._known_missing = False
 
     @property
     def is_first_sync(self) -> bool:
@@ -278,14 +308,20 @@ class DeltaTableRef:
             raise TransientObjectStoreError(str(e)) from e
         capture_exception(e)
 
-    async def get_delta_table(self, *, allow_stale: bool = False) -> deltalake.DeltaTable | None:
+    async def get_delta_table(
+        self, *, allow_stale: bool = False, allow_known_missing: bool = False
+    ) -> deltalake.DeltaTable | None:
         """Open the table once and hand back the same handle for the rest of this ref's life.
 
         The cache is per instance on purpose. A process-wide slot lets any other table in flight on
         the same worker evict this one's handle, and every re-open is a full Delta-log replay against
         object storage. Writes through the handle keep it current, so it stays valid until this ref's
-        own `invalidate_cached_table` (reset, repartition swap) says otherwise. A missing table is
-        never cached, so a table created after the first probe is found by the next call.
+        own `invalidate_cached_table` (reset, repartition swap) says otherwise.
+
+        A missing table is looked for again on each call, so a table that another writer created
+        after the first probe is found. `allow_known_missing` skips that second look. It is only for
+        a caller whose result does not depend on the answer: a write that overwrites the table,
+        which creates the table itself when the answer is None (see `adopt_created_table`).
 
         A deltalite write commits past this handle (see `note_deltalite_commit`), after which the
         cached snapshot is behind the log by that commit: same table id, same columns, same
@@ -298,10 +334,24 @@ class DeltaTableRef:
             if self._cached_table_stale and not allow_stale:
                 await self._refresh_cached_table(self._cached_table)
             return self._cached_table
+        if allow_known_missing and self._known_missing:
+            return None
         table = await self._open_delta_table()
         self._cached_table = table
         self._cached_table_stale = False
+        self._known_missing = table is None
         return table
+
+    def adopt_created_table(self, table: deltalake.DeltaTable) -> None:
+        """Keep the handle of a table that the caller just created at this ref's URI.
+
+        A new table has no log to replay, so the handle from the create call is the same snapshot
+        that a new open gives. The writes that follow go through it and keep it current.
+        """
+        self._cached_table = table
+        self._cached_table_stale = False
+        self._known_missing = False
+        self._expect_missing = False
 
     async def _refresh_cached_table(self, table: deltalake.DeltaTable) -> None:
         try:
@@ -351,10 +401,34 @@ class DeltaTableRef:
         self._cached_table = None
         self._cached_table_stale = False
         self._deltalite_version = None
+        self._known_missing = False
+
+    async def _open_directly(self, delta_uri: str, storage_options: dict[str, str]) -> deltalake.DeltaTable | None:
+        """Open the table with no existence check first, or None when that open fails.
+
+        A table that opens always has a commit or a checkpoint in its log, which is what
+        `is_deltatable` looks for, so a successful open needs no second answer. A failed open says
+        nothing here: the caller runs the existence check and the open again, in that order, and
+        classifies the error from that second attempt. Thus a missing table, a prefix that is not a
+        table, a damaged log and a refused request all get the same handling as before.
+
+        Skipped when the table is expected to be missing, because the existence check alone is then
+        the cheaper first request.
+        """
+        if self._expect_missing:
+            return None
+        try:
+            return await asyncio.to_thread(deltalake.DeltaTable, table_uri=delta_uri, storage_options=storage_options)
+        except Exception:
+            return None
 
     async def _open_delta_table(self) -> deltalake.DeltaTable | None:
         delta_uri = await self._get_delta_table_uri()
         storage_options = self._get_credentials()
+
+        table = await self._open_directly(delta_uri, storage_options)
+        if table is not None:
+            return table
 
         try:
             is_delta = await asyncio.to_thread(
@@ -402,6 +476,7 @@ class DeltaTableRef:
                     raise
 
         self._is_first_sync = True
+        self._expect_missing = True
 
         return None
 
@@ -418,6 +493,9 @@ class DeltaTableRef:
         """
         delta_uri = await self._get_delta_table_uri()
         storage_options = self._get_credentials()
+
+        if await self._open_directly(delta_uri, storage_options) is not None:
+            return False
 
         is_delta = await asyncio.to_thread(
             deltalake.DeltaTable.is_deltatable, table_uri=delta_uri, storage_options=storage_options
@@ -451,6 +529,7 @@ class DeltaTableRef:
 
         await self._logger.adebug("reset_table: _is_first_sync=True")
         self._is_first_sync = True
+        self._expect_missing = True
 
     async def get_file_uris(self) -> list[str]:
         delta_table = await self.get_delta_table()
@@ -470,3 +549,12 @@ class DeltaTableRef:
         if row_count is None:
             await self._logger.adebug("The Delta log has no complete row count, counting the published files")
         return row_count
+
+    async def get_live_size_mib(self) -> float | None:
+        """The size of the table's live files from the Delta log, or None when the log cannot give it
+        (see `live_size_mib`)."""
+        delta_table = await self.get_delta_table()
+        if delta_table is None:
+            return None
+
+        return await asyncio.to_thread(live_size_mib, delta_table)

@@ -79,6 +79,54 @@ export const StreamlitAppsCreateVersionFromSourceCreateBody = /* @__PURE__ */ zo
 })
 
 /**
+ * Applies exact text edits, file creations, and file deletions to base_version, then stores the result as a new active version. Files that no change touches stay byte-for-byte the same.
+ * @summary Create an app version by editing an existing version
+ */
+
+export const streamlitAppsEditSourceCreateBodyCreateFilesMaxOne = 1048576
+
+export const StreamlitAppsEditSourceCreateBody = /* @__PURE__ */ zod.object({
+    base_version: zod
+        .number()
+        .min(1)
+        .describe(
+            'Version number that the changes apply to. Must be the active version of the app, otherwise the request fails with 409 and returns the active version number.'
+        ),
+    file_edits: zod
+        .array(
+            zod.object({
+                path: zod.string().describe("Path of an existing text file in the base version, for example 'app.py'."),
+                edits: zod
+                    .array(
+                        zod.object({
+                            old: zod
+                                .string()
+                                .describe(
+                                    'Exact text to find in the file. Must match exactly once. Use an empty string only to fill an empty file.'
+                                ),
+                            new: zod.string().describe('Replacement text.'),
+                        })
+                    )
+                    .describe(
+                        "Find-and-replace operations, applied in order to the file's text. At most 100 edits per request across all files."
+                    ),
+            })
+        )
+        .optional()
+        .describe('Exact text edits to existing text files. Files that no change touches stay byte-for-byte the same.'),
+    create_files: zod
+        .record(zod.string(), zod.string().max(streamlitAppsEditSourceCreateBodyCreateFilesMaxOne))
+        .optional()
+        .describe(
+            "New text files keyed by project-relative path, each value the file's full text (max 1 MB). The path must not exist in the base version."
+        ),
+    delete_files: zod
+        .array(zod.string())
+        .optional()
+        .describe('Paths of files to remove from the base version. app.py cannot be removed.'),
+})
+
+/**
  * @summary Upload a new app version
  */
 export const StreamlitAppsUploadVersionCreateBody = /* @__PURE__ */ zod.object({

@@ -132,7 +132,7 @@ def strict_preflight(name: str) -> list[str]:
         name=name,
         product_dir=product_dir,
         backend_dir=product_dir / "backend",
-        is_isolated=True,
+        has_facade_contracts=True,
         structure=load_structure(),
         detailed=False,
     )

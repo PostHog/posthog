@@ -186,7 +186,7 @@ def _evaluate_formula_point(
 
 
 def _evaluate_formula(
-    formula_text: str, series_by_clause: dict[str, list[MetricSeries]], grid: list[str]
+    node: Any, series_by_clause: dict[str, list[MetricSeries]], grid: list[str]
 ) -> list[MetricSeries]:
     """Combine clause results point-by-point on the shared grid.
 
@@ -195,8 +195,6 @@ def _evaluate_formula(
     single ungrouped series is broadcast to every label-set instead. A
     label-set missing from any non-broadcast clause is dropped.
     """
-    node = parse_formula(formula_text, frozenset(series_by_clause))
-
     broadcasts: dict[str, MetricSeries] = {}
     grouped: dict[str, dict[tuple[tuple[str, str], ...], MetricSeries]] = {}
     for name, series_list in series_by_clause.items():
@@ -240,6 +238,11 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     (`clause="formula"`); request the clauses separately if you need the
     inputs too. The presentation layer surfaces `ValueError` as a 400.
     """
+    formula_node_checked = (
+        parse_formula(request.formula, frozenset(clause.name for clause in request.clauses))
+        if request.formula is not None
+        else None
+    )
     rows_by_clause: dict[str, list[dict[str, Any]]] = {}
     for clause in request.clauses:
         runner_aggregation = _resolve_runner_aggregation(clause)
@@ -254,14 +257,8 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             interval=request.interval,
             quantile=clause.quantile if runner_aggregation == "histogram_quantile" else None,
             metric_type=clause.metric_type.value if clause.metric_type is not None else None,
-            min_interval=request.min_interval,
         )
         rows_by_clause[clause.name] = runner.run()
-
-    # Validate the formula before any early return so bad formulas always 400.
-    formula_node_checked = (
-        parse_formula(request.formula, frozenset(rows_by_clause)) if request.formula is not None else None
-    )
 
     grid = sorted({row["time"] for rows in rows_by_clause.values() for row in rows})
     if not grid:
@@ -288,8 +285,8 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
         for clause in request.clauses
     }
 
-    if request.formula is not None:
-        return _evaluate_formula(request.formula, series_by_clause, grid)
+    if formula_node_checked is not None:
+        return _evaluate_formula(formula_node_checked, series_by_clause, grid)
 
     return [series for clause in request.clauses for series in series_by_clause[clause.name]]
 

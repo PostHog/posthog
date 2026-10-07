@@ -5,15 +5,22 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, Mock, patch
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.test import SimpleTestCase, override_settings
 
 import boto3
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
 
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.presentation.views.table import SimpleTableSerializer, resolve_created_via
+from products.data_warehouse.backend.presentation.views.table import (
+    CreateTableFromUploadSerializer,
+    SimpleTableSerializer,
+    TableSerializer,
+    resolve_created_via,
+)
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 PUBLIC_IP = {ipaddress.ip_address("93.184.216.34")}
@@ -42,6 +49,25 @@ class TestResolveCreatedVia(SimpleTestCase):
     )
     def test_attributes_request_to_its_transport(self, _: str, headers: dict[str, str], expected: str):
         assert resolve_created_via(APIRequestFactory().post("/", headers=headers)) == expected
+
+
+class TestTableNameValidation(SimpleTestCase):
+    @parameterized.expand([("root", "models"), ("nested", "models.revenue")])
+    def test_unchanged_legacy_name_is_allowed(self, _case: str, name: str) -> None:
+        instance = DataWarehouseTable(name=name)
+        assert TableSerializer(instance=instance).validate_name(name) == name
+
+    @parameterized.expand([("root", "models"), ("nested", "models.revenue")])
+    def test_models_namespace_is_reserved(self, _case: str, name: str) -> None:
+        with self.assertRaises(ValidationError):
+            TableSerializer().validate_name(name)
+        with self.assertRaises(ValidationError):
+            CreateTableFromUploadSerializer().validate_table_name(name)
+        instance = DataWarehouseTable(name=name)
+        with self.assertRaises(DjangoValidationError):
+            instance.clean()
+        with self.assertRaises(DjangoValidationError):
+            instance.save()
 
 
 class TestTable(APIBaseTest):

@@ -16,10 +16,10 @@ use crate::flags::flag_group_type_mapping::{
 };
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::{
-    calculate_hash, fetch_and_locally_cache_all_relevant_properties,
+    calculate_hash, db_operations, fetch_and_locally_cache_all_relevant_properties,
     get_feature_flag_hash_key_overrides, match_flag_value_to_flag_filter,
     populate_missing_initial_properties, populate_os_aliases, set_feature_flag_hash_key_overrides,
-    should_write_hash_key_override,
+    should_write_hash_key_override, track_unretried_db_error,
 };
 use crate::flags::flag_models::{
     default_has_experiment, FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters,
@@ -42,6 +42,7 @@ use crate::metrics::consts::{
 use crate::properties::property_matching::{match_property, PropertyMatchingContext};
 use crate::properties::property_models::{OperatorType, PropertyFilter, PropertyType};
 use crate::rayon_dispatcher::RayonDispatcher;
+use crate::utils::deadline::before_deadline;
 use crate::utils::graph_utils::PrecomputedDependencyGraph;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -52,7 +53,10 @@ use common_types::{PersonId, TeamId};
 use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::Instant;
 use tracing::{debug, error, instrument, warn};
 use uuid::Uuid;
 
@@ -166,7 +170,7 @@ enum GroupTypeMappingState {
     /// The lookup ran and returned a mapping, which may be empty for a team with no group types
     Loaded(GroupTypeMapping),
     /// The lookup ran and failed
-    Failed,
+    Failed(Arc<FlagError>),
 }
 
 impl GroupTypeMappingState {
@@ -384,6 +388,7 @@ pub(crate) struct PropertyContext<'a> {
     pub person_properties: Option<&'a HashMap<String, Value>>,
     pub group_properties: &'a HashMap<GroupTypeIndex, HashMap<String, Value>>,
     pub aggregation: Option<GroupTypeIndex>,
+    pub request_has_group_context: bool,
 }
 
 impl PropertyContext<'_> {
@@ -489,6 +494,9 @@ pub struct FeatureFlagMatcher {
     timezone: Tz,
     /// Request evaluation time. Only v2 relative-date predicates read it; tests pin it.
     now: DateTime<Utc>,
+    /// Every persons DB call in this evaluation fails once this instant passes. `None` leaves
+    /// each call bounded only by the pool acquire timeout and statement_timeout.
+    persons_db_deadline: Option<Instant>,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -537,6 +545,44 @@ fn ids_of_failed_flags<'a>(
         .map(|details| details.metadata.id)
 }
 
+fn is_usable_group_key(group_key: &Value) -> bool {
+    match group_key {
+        Value::String(s) => !s.is_empty(),
+        Value::Number(_) => true,
+        _ => false,
+    }
+}
+
+// This is a plain fn rather than an `async fn` so that it boxes `call` before any async state
+// captures it. An `async fn` would store `call` in its own state. The `before_deadline` and
+// `timeout_at` futures store it again. In debug builds those copies grow the /flags handler
+// future enough to overflow a 2 MiB thread stack.
+fn before_persons_db_deadline<T>(
+    deadline: Option<Instant>,
+    operation: &'static str,
+    call: impl Future<Output = Result<T, FlagError>>,
+) -> impl Future<Output = Result<T, FlagError>> {
+    let call = Box::pin(call);
+    async move {
+        let result = before_deadline(deadline, call, FlagError::persons_db_deadline).await;
+        record_persons_db_deadline_exceeded(operation, &result);
+        result
+    }
+}
+
+fn record_persons_db_deadline_exceeded<T>(operation: &'static str, result: &Result<T, FlagError>) {
+    let Err(e) = result else {
+        return;
+    };
+    if !e.is_persons_db_deadline() {
+        return;
+    }
+    track_unretried_db_error(e, operation);
+    with_canonical_log(|log| {
+        log.persons_db_deadline_exceeded.get_or_insert(operation);
+    });
+}
+
 impl FeatureFlagMatcher {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -572,6 +618,7 @@ impl FeatureFlagMatcher {
             only_use_override_person_properties: false,
             timezone: Tz::UTC,
             now: Utc::now(),
+            persons_db_deadline: None,
         }
     }
 
@@ -638,6 +685,12 @@ impl FeatureFlagMatcher {
 
     pub fn with_only_use_override_person_properties(mut self, only_use_override: bool) -> Self {
         self.only_use_override_person_properties = only_use_override;
+        self
+    }
+
+    /// Gives all persons DB work in this evaluation one shared budget, which starts now.
+    pub fn with_persons_db_deadline(mut self, budget: Option<Duration>) -> Self {
+        self.persons_db_deadline = budget.map(|budget| Instant::now() + budget);
         self
     }
 
@@ -812,11 +865,15 @@ impl FeatureFlagMatcher {
         hash_key: String,
         target_distinct_ids: Vec<String>,
     ) -> (Option<HashMap<String, String>>, bool) {
-        let should_write = match should_write_hash_key_override(
-            &self.router,
-            self.team_id,
-            self.distinct_id.clone(),
-            hash_key.clone(),
+        let should_write = match before_persons_db_deadline(
+            self.persons_db_deadline,
+            db_operations::SHOULD_WRITE_HASH_KEY_OVERRIDE,
+            should_write_hash_key_override(
+                &self.router,
+                self.team_id,
+                self.distinct_id.clone(),
+                hash_key.clone(),
+            ),
         )
         .await
         {
@@ -845,12 +902,16 @@ impl FeatureFlagMatcher {
                     "SKIP_WRITES: skipping hash key override write to PostgreSQL"
                 );
             } else {
-                if let Err(e) = set_feature_flag_hash_key_overrides(
-                    // NB: this is the only method that writes to the database
-                    &self.router,
-                    self.team_id,
-                    target_distinct_ids.clone(),
-                    hash_key.clone(),
+                // NB: this is the only method that writes to the database
+                if let Err(e) = before_persons_db_deadline(
+                    self.persons_db_deadline,
+                    db_operations::SET_HASH_KEY_OVERRIDES,
+                    set_feature_flag_hash_key_overrides(
+                        &self.router,
+                        self.team_id,
+                        target_distinct_ids.clone(),
+                        hash_key.clone(),
+                    ),
                 )
                 .await
                 {
@@ -890,12 +951,16 @@ impl FeatureFlagMatcher {
             )
         };
 
-        match get_feature_flag_hash_key_overrides(
-            database_for_reading,
-            pool_name,
-            self.router.get_persons_writer().clone(),
-            self.team_id,
-            target_distinct_ids,
+        match before_persons_db_deadline(
+            self.persons_db_deadline,
+            db_operations::GET_HASH_KEY_OVERRIDES,
+            get_feature_flag_hash_key_overrides(
+                database_for_reading,
+                pool_name,
+                self.router.get_persons_writer().clone(),
+                self.team_id,
+                target_distinct_ids,
+            ),
         )
         .await
         {
@@ -1417,6 +1482,11 @@ impl FeatureFlagMatcher {
                         "Feature flag '{}' failed because dependency {} failed",
                         flag.key, dependency_id
                     ),
+                    // The group type lookup already logged or counted its own failure.
+                    FlagError::GroupTypeLookupFailed(cause) => debug!(
+                        "Feature flag '{}' failed because the group type lookup failed: {:?}",
+                        flag.key, cause
+                    ),
                     _ => error!(
                         "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
                         flag.key, self.distinct_id, e
@@ -1716,6 +1786,21 @@ impl FeatureFlagMatcher {
         // `failed: true` as false. Failing every dependent would therefore turn a settled `true`
         // into false.
         let mut answers_if_dependency_matched: Vec<AnswerIfDependencyMatched> = Vec::new();
+        // A later condition that matches still settles the flag. The skipped condition could
+        // have picked a different variant. With early exit, a skipped condition below 100%
+        // rollout could instead stop evaluation with no match, so a later match cannot settle
+        // the flag.
+        let mut group_lookup_error: Option<Arc<FlagError>> = None;
+        let mut group_lookup_skip_can_exit_early = false;
+        // The handler copies every request group key into the overrides as `$group_key`, also an
+        // unusable one. An override map with only an unusable `$group_key` therefore names no group.
+        let request_has_group_context = self.request_has_usable_group_key()
+            || group_property_overrides.is_some_and(|overrides| {
+                overrides
+                    .values()
+                    .flatten()
+                    .any(|(key, value)| key != "$group_key" || is_usable_group_key(value))
+            });
         let condition_timer = common_metrics::timing_guard(FLAG_EVALUATE_ALL_CONDITIONS_TIME, &[]);
         for (index, condition) in conditions {
             // Each condition resolves its own aggregation, falling back to the flag-level
@@ -1771,6 +1856,20 @@ impl FeatureFlagMatcher {
                 if buckets_on_device_id && has_device_id {
                     with_canonical_log(|log| log.eval.flags_device_id_bucketing += 1);
                 }
+            }
+
+            if let Some(error) =
+                self.group_lookup_error_for(condition, aggregation, request_has_group_context)
+            {
+                inc(
+                    FLAG_CONDITION_SKIPPED_COUNTER,
+                    &[("reason".to_string(), "group_type_lookup_failed".to_string())],
+                    1,
+                );
+                group_lookup_skip_can_exit_early |=
+                    early_exit_enabled && condition.rollout_percentage_unwrapped() < 100.0;
+                group_lookup_error = Some(error);
+                continue;
             }
 
             // For group-aggregated conditions, verify we have the group key. If not, this
@@ -1835,6 +1934,7 @@ impl FeatureFlagMatcher {
                 person_properties: cached_person_properties.as_ref(),
                 group_properties: &cached_group_properties,
                 aggregation,
+                request_has_group_context,
             };
 
             let (is_match, reason) = self.is_condition_match(
@@ -1870,12 +1970,12 @@ impl FeatureFlagMatcher {
                         answer: ConditionAnswer::NoMatch,
                     });
                 } else {
-                    if let Some(dependency) = self.dependency_that_changes_answer(
+                    if let Some(error) = self.no_match_error(
                         flag,
                         &answers_if_dependency_matched,
-                        &ConditionAnswer::NoMatch,
+                        group_lookup_error,
                     ) {
-                        return Err(FlagError::DependencyFailed(dependency.into()));
+                        return Err(error);
                     }
                     return Ok(FeatureFlagMatch {
                         matches: false,
@@ -1933,6 +2033,10 @@ impl FeatureFlagMatcher {
                         return Err(FlagError::DependencyFailed(dependency.into()));
                     }
                 }
+                if let Some(error) = group_lookup_error.filter(|_| group_lookup_skip_can_exit_early)
+                {
+                    return Err(FlagError::GroupTypeLookupFailed(error));
+                }
                 let payload = self.get_matching_payload(variant.as_deref(), flag);
 
                 return Ok(FeatureFlagMatch {
@@ -1946,12 +2050,10 @@ impl FeatureFlagMatcher {
             }
         }
 
-        if let Some(dependency) = self.dependency_that_changes_answer(
-            flag,
-            &answers_if_dependency_matched,
-            &ConditionAnswer::NoMatch,
-        ) {
-            return Err(FlagError::DependencyFailed(dependency.into()));
+        if let Some(error) =
+            self.no_match_error(flag, &answers_if_dependency_matched, group_lookup_error)
+        {
+            return Err(error);
         }
 
         condition_timer.label("outcome", "success").fin();
@@ -2062,6 +2164,21 @@ impl FeatureFlagMatcher {
                 }
             })
             .map(|candidate| candidate.failed_dependency)
+    }
+
+    fn no_match_error(
+        &self,
+        flag: &FeatureFlag,
+        answers_if_dependency_matched: &[AnswerIfDependencyMatched],
+        group_lookup_error: Option<Arc<FlagError>>,
+    ) -> Option<FlagError> {
+        self.dependency_that_changes_answer(
+            flag,
+            answers_if_dependency_matched,
+            &ConditionAnswer::NoMatch,
+        )
+        .map(|dependency| FlagError::DependencyFailed(dependency.into()))
+        .or_else(|| group_lookup_error.map(FlagError::GroupTypeLookupFailed))
     }
 
     /// This function determines the highest priority match evaluation for feature flag conditions.
@@ -2248,15 +2365,16 @@ impl FeatureFlagMatcher {
         self.group_type_mapping = GroupTypeMappingState::Loaded(mapping);
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_group_type_mapping_failed_for_test(&mut self, error: FlagError) {
+        self.group_type_mapping = GroupTypeMappingState::Failed(Arc::new(error));
+    }
+
     /// Whether the request supplied a usable group key for this group type name. Without one
     /// there is no group to load properties for, so group filters on that type have no
     /// context at all — distinct from having a key whose properties weren't fetched.
     fn has_usable_group_key(&self, group_type: &str) -> bool {
-        self.groups.get(group_type).is_some_and(|v| match v {
-            Value::String(s) => !s.is_empty(),
-            Value::Number(_) => true,
-            _ => false,
-        })
+        self.groups.get(group_type).is_some_and(is_usable_group_key)
     }
 
     /// `has_usable_group_key` by group type index. False both when the request omitted the
@@ -2267,6 +2385,37 @@ impl FeatureFlagMatcher {
             .mapping()
             .and_then(|m| m.group_indexes_to_types().get(&group_type_index))
             .is_some_and(|group_type| self.has_usable_group_key(group_type))
+    }
+
+    fn request_has_usable_group_key(&self) -> bool {
+        self.groups.values().any(is_usable_group_key)
+    }
+
+    /// A condition names its group type by index. Only the mapping tells which group key or
+    /// group property override in the request has that index. A request without them gets
+    /// the same answer under any mapping, so its conditions evaluate as usual.
+    fn group_lookup_error_for(
+        &self,
+        condition: &FlagPropertyGroup,
+        aggregation: Option<GroupTypeIndex>,
+        request_has_group_context: bool,
+    ) -> Option<Arc<FlagError>> {
+        let GroupTypeMappingState::Failed(error) = &self.group_type_mapping else {
+            return None;
+        };
+        // A group-aggregated condition hashes the group key, so a request without a usable
+        // key gets no match from it under any mapping, even when it sends property overrides.
+        let outcome_unknown = if aggregation.is_some() {
+            self.request_has_usable_group_key()
+        } else {
+            request_has_group_context
+                && condition
+                    .properties
+                    .iter()
+                    .flatten()
+                    .any(|filter| filter.group_filter_index(None).is_some())
+        };
+        outcome_unknown.then(|| Arc::clone(error))
     }
 
     /// Whether DB preparation would load anything this group filter can use. Selecting a
@@ -2321,6 +2470,12 @@ impl FeatureFlagMatcher {
         let Some(gti) = filter.group_filter_index(property_context.aggregation) else {
             return false;
         };
+
+        // This check comes before the name lookup, so a failed or stale mapping does not change
+        // the answer for a request without group context.
+        if !property_context.request_has_group_context {
+            return false;
+        }
 
         // Without a resolved name for the index, nothing is known about the group: the
         // lookup failed, or a loaded mapping predates the group type (a stale cache entry).
@@ -2756,13 +2911,17 @@ impl FeatureFlagMatcher {
 
         // Single DB operation for properties and cohorts
         let db_fetch_timer = common_metrics::timing_guard(FLAG_DB_PROPERTIES_FETCH_TIME, &[]);
-        match fetch_and_locally_cache_all_relevant_properties(
-            &mut self.flag_evaluation_state,
-            self.router.get_persons_reader().clone(),
-            self.distinct_id.clone(),
-            self.team_id,
-            &group_data,
-            static_cohort_ids,
+        match before_persons_db_deadline(
+            self.persons_db_deadline,
+            db_operations::FETCH_PROPERTIES,
+            fetch_and_locally_cache_all_relevant_properties(
+                &mut self.flag_evaluation_state,
+                self.router.get_persons_reader().clone(),
+                self.distinct_id.clone(),
+                self.team_id,
+                &group_data,
+                static_cohort_ids,
+            ),
         )
         .await
         {
@@ -3007,12 +3166,16 @@ impl FeatureFlagMatcher {
                     // will be inconsistent because server sdks won't include $anon_distinct_id in their requests.
                     // In addition, this behavior is consistent with /decide.
                     None => {
-                        match get_feature_flag_hash_key_overrides(
-                            self.router.get_persons_reader().clone(),
-                            pool_names::PERSONS_READER,
-                            self.router.get_persons_writer().clone(),
-                            self.team_id,
-                            vec![self.distinct_id.clone()],
+                        match before_persons_db_deadline(
+                            self.persons_db_deadline,
+                            db_operations::GET_HASH_KEY_OVERRIDES,
+                            get_feature_flag_hash_key_overrides(
+                                self.router.get_persons_reader().clone(),
+                                pool_names::PERSONS_READER,
+                                self.router.get_persons_writer().clone(),
+                                self.team_id,
+                                vec![self.distinct_id.clone()],
+                            ),
                         )
                         .await
                         {
@@ -3079,7 +3242,7 @@ impl FeatureFlagMatcher {
         // request two waits on two failed queries.
         match self.group_type_mapping {
             GroupTypeMappingState::Loaded(_) => return false,
-            GroupTypeMappingState::Failed => return true,
+            GroupTypeMappingState::Failed(_) => return true,
             GroupTypeMappingState::Uninitialized => {}
         }
 
@@ -3099,7 +3262,14 @@ impl FeatureFlagMatcher {
         let group_type_mapping_timer = common_metrics::timing_guard(FLAG_GROUP_DB_FETCH_TIME, &[]);
         let mut errors_while_computing_flags = false;
 
-        match self.group_type_cache.get_mappings(self.team_id).await {
+        // The cache applies the deadline itself, so that this request's deadline cannot cancel
+        // the fetch that other requests for the team wait on.
+        let mappings = self
+            .group_type_cache
+            .get_mappings(self.team_id, self.persons_db_deadline)
+            .await;
+        record_persons_db_deadline_exceeded(db_operations::FETCH_GROUP_TYPE_MAPPING, &mappings);
+        match mappings {
             Ok(mapping) => {
                 if mapping.is_empty() {
                     // Empty mappings are not an error — the team simply has no group types
@@ -3110,9 +3280,9 @@ impl FeatureFlagMatcher {
                 }
                 self.group_type_mapping = GroupTypeMappingState::Loaded(mapping);
             }
-            Err(_) => {
+            Err(e) => {
                 errors_while_computing_flags = true;
-                self.group_type_mapping = GroupTypeMappingState::Failed;
+                self.group_type_mapping = GroupTypeMappingState::Failed(Arc::new(e));
             }
         }
 
@@ -3259,12 +3429,18 @@ mod tests {
     /// distinct_id and ignore the stale override, otherwise every distinct_id of the
     /// person keeps bucketing on the old key and resolves to the same stale value.
     #[rstest::rstest]
-    #[case::continuity_off_ignores_stale_override(Some(false), "logged-in-username")]
-    #[case::continuity_unset_ignores_stale_override(None, "logged-in-username")]
-    #[case::continuity_on_applies_override(Some(true), "stale-anon-id")]
+    #[case::continuity_off_ignores_stale_override(Some(false), None, "logged-in-username")]
+    #[case::continuity_unset_ignores_stale_override(None, None, "logged-in-username")]
+    #[case::continuity_on_applies_override(Some(true), None, "stale-anon-id")]
+    #[case::continuity_on_stored_override_beats_request_override(
+        Some(true),
+        Some("request-anon-id"),
+        "stale-anon-id"
+    )]
     #[tokio::test]
     async fn test_hashed_identifier_respects_current_continuity_for_stored_override(
         #[case] ensure_experience_continuity: Option<bool>,
+        #[case] request_hash_key_override: Option<&str>,
         #[case] expected_identifier: &str,
     ) {
         use crate::utils::test_utils::{mock_group_type_cache, TestContext};
@@ -3293,8 +3469,9 @@ mod tests {
             ..Default::default()
         };
 
+        let request_override = request_hash_key_override.map(str::to_string);
         let identifier = matcher
-            .hashed_identifier(&flag, None, Some(&overrides), &None)
+            .hashed_identifier(&flag, None, Some(&overrides), &request_override)
             .unwrap();
 
         assert_eq!(identifier, expected_identifier);
