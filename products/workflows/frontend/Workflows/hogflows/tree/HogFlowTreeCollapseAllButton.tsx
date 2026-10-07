@@ -13,10 +13,12 @@ export function HogFlowTreeCollapseAllButton({
     tree,
     viewStates,
     onViewStateChange,
+    onCollapsedChange,
 }: {
     tree: WorkflowTreeSequence
     viewStates: Record<string, WorkflowTreeNodeViewState>
     onViewStateChange: (key: string, state: WorkflowTreeNodeViewState) => void
+    onCollapsedChange: (collapsed: boolean) => void
 }): JSX.Element | null {
     const groups = getWorkflowTreeBranchGroups(tree)
     if (!groups.length) {
@@ -33,12 +35,14 @@ export function HogFlowTreeCollapseAllButton({
                 size="xsmall"
                 icon={allCollapsed ? <IconExpand /> : <IconCollapse />}
                 onClick={() => {
+                    const nextCollapsed = !allCollapsed
                     for (const group of groups) {
                         onViewStateChange(group.occurrenceKey, {
                             branchesOpen: true,
-                            collapsedBranches: allCollapsed ? new Set() : new Set(group.branchKeys),
+                            collapsedBranches: nextCollapsed ? new Set(group.branchKeys) : new Set(),
                         })
                     }
+                    onCollapsedChange(nextCollapsed)
                 }}
                 data-attr="workflow-tree-collapse-all-paths"
             >

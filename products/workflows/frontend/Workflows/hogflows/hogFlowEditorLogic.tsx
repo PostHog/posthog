@@ -223,6 +223,7 @@ export interface hogFlowEditorLogicValues {
     nodes: HogFlowActionNode[]
     nodesById: Record<string, HogFlowActionNode>
     panelWidth: number | null
+    treePathsCollapsedByDefault: boolean
     reactFlowInstance: ReactFlowInstance<Node, Edge> | null
     reactFlowWrapper: RefObject<HTMLDivElement> | null
     selectedNode: HogFlowActionNode | null
@@ -2118,6 +2119,9 @@ export interface hogFlowEditorLogicActions {
     setPanelWidth: (panelWidth: number) => {
         panelWidth: number
     }
+    setTreePathsCollapsedByDefault: (collapsed: boolean) => {
+        collapsed: boolean
+    }
     setReactFlowInstance: (reactFlowInstance: ReactFlowInstance<Node, Edge>) => {
         reactFlowInstance: ReactFlowInstance<Node, Edge>
     }
@@ -2220,6 +2224,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setEditorLayout: (editorLayout: HogFlowEditorLayout) => ({ editorLayout }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
         setPanelWidth: (panelWidth: number) => ({ panelWidth }),
+        setTreePathsCollapsedByDefault: (collapsed: boolean) => ({ collapsed }),
         clearPanelWidth: true,
         setAnimatingEdgePair: (from: string, to: string) => ({ from, to }),
         clearAnimatingEdgePair: true,
@@ -2268,6 +2273,15 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             {
                 setPanelWidth: (_, { panelWidth }) => panelWidth,
                 clearPanelWidth: () => null,
+            },
+        ],
+        // A fixed storage key, so the choice carries to the next workflow rather than being
+        // remembered per workflow the way this logic's own key would store it.
+        treePathsCollapsedByDefault: [
+            false,
+            { persist: true, storageKey: 'hogFlowTreePathsCollapsedByDefault' },
+            {
+                setTreePathsCollapsedByDefault: (_, { collapsed }) => collapsed,
             },
         ],
         nodes: [
