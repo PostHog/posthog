@@ -159,7 +159,7 @@ class TestHogFlowUtmDefaults(APIBaseTest):
         assert "utm_params" not in self._email_config(restricted)
 
     def test_apply_utm_defaults_to_a_staged_draft_counts_it_as_not_live_and_requeues_its_proposal(self) -> None:
-        following = {
+        following: dict[str, Any] = {
             "utm_tags_enabled": True,
             "utm_params_from_default": ["utm_source", "utm_medium", "utm_campaign", "utm_content"],
         }
