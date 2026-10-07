@@ -323,12 +323,15 @@ export function Pane({
             ? renderSheet(actionsSheet(offer), picker.index, width).map(shade)
             : [];
   // The row stays when empty, so a notice never moves the chat. It ends flush right, like the usage on the rule below.
+  // A chat scrolled up does not follow the end, so it takes the empty row without moving, for its jump-back pill.
   const noticeLines =
     paneNotice && width > 1
       ? wrapTextWithAnsi(paneNotice, width - 1).map((line) =>
           shade(`${" ".repeat(width - visibleWidth(line))}${blue(line)}`),
         )
-      : [" "];
+      : chat.isScrolledUp()
+        ? []
+        : [" "];
   const showsComposer = !repoPicker && (!modal || Boolean(modal.submitText));
   const bottomLines = [
     ...noticeLines,
