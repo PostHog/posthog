@@ -19,6 +19,7 @@ from datetime import timedelta
 from typing import Any, TypeVar
 from uuid import UUID, uuid4
 
+from django.core.cache import cache
 from django.utils import timezone
 
 import structlog
@@ -433,6 +434,9 @@ def _extract_segments(text: str, duration_ms: int, clock: VideoClock) -> tuple[s
 _KNOWN_FREEFORM_TAGS_DAYS = 30
 _KNOWN_FREEFORM_TAGS_MAX_ROWS = 300
 _KNOWN_FREEFORM_TAGS_MAX = 30
+# Every scan of a freeform classifier needs the list, and a scanner's scans come in bursts. The list changes
+# slowly, so serve repeats from cache instead of reading hundreds of JSONB rows on each scan.
+_KNOWN_FREEFORM_TAGS_CACHE_TTL_S = 10 * 60
 # Stored tags are model output derived from untrusted recording content, and this path echoes them into
 # future scan instructions. Real tag identifiers are a few short words (the suggestion flow asks for <= 4);
 # anything longer is more likely a smuggled instruction than a label, so cap both characters and words.
@@ -551,17 +555,25 @@ def _load_known_freeform_tags(observation_id: UUID, team_id: int) -> list[str]:
     )
     if scanner_id is None:
         return []
+    cache_key = f"replay_vision:known_freeform_tags:{scanner_id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    # Filter and order on completed_at so the partial rlo_scanner_completed_idx serves the read: every index
+    # entry is a succeeded row, so Postgres fetches no heap rows only to drop them on status.
     recent = (
         ReplayObservation.objects.filter(
             team_id=team_id,
             scanner_id=scanner_id,
             status=ObservationStatus.SUCCEEDED,
-            created_at__gte=timezone.now() - timedelta(days=_KNOWN_FREEFORM_TAGS_DAYS),
+            completed_at__gte=timezone.now() - timedelta(days=_KNOWN_FREEFORM_TAGS_DAYS),
         )
-        .order_by("-created_at")
+        .order_by("-completed_at")
         .values_list("scanner_result__model_output__tags_freeform", flat=True)[:_KNOWN_FREEFORM_TAGS_MAX_ROWS]
     )
-    return rank_freeform_tags(recent)
+    tags = rank_freeform_tags(recent)
+    cache.set(cache_key, tags, timeout=_KNOWN_FREEFORM_TAGS_CACHE_TTL_S)
+    return tags
 
 
 def _load_snapshot(observation_id: UUID, team_id: int) -> ScannerSnapshot:

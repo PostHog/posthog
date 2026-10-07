@@ -1046,6 +1046,9 @@ class TestKnownFreeformTags:
         target = _make_observation(scanner, session_id="s3")
 
         assert _load_known_freeform_tags(target.id, scanner.team_id) == ["search_error", "slow_page"]
+        # Later scans of the same scanner reuse the cached list instead of rereading the JSONB rows.
+        self._succeeded(scanner, "s4", ["new_tag"])
+        assert _load_known_freeform_tags(target.id, scanner.team_id) == ["search_error", "slow_page"]
 
     def test_ignores_other_scanners_old_rows_and_missing_observation(self) -> None:
         scanner = self._classifier_scanner()
@@ -1058,8 +1061,7 @@ class TestKnownFreeformTags:
         )
         self._succeeded(sibling, "s1", ["sibling_tag"])
         stale = self._succeeded(scanner, "s2", ["stale_tag"])
-        # `created_at` is auto_now_add, so backdate past the recency window with a direct update.
-        ReplayObservation.objects.filter(pk=stale.pk).update(created_at=timezone.now() - dt.timedelta(days=40))
+        ReplayObservation.objects.filter(pk=stale.pk).update(completed_at=timezone.now() - dt.timedelta(days=40))
         self._succeeded(scanner, "s3", ["fresh_tag"])
         target = _make_observation(scanner, session_id="s4")
 
