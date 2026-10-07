@@ -32,10 +32,10 @@ export interface projectHomepageLogicValues {
 export interface projectHomepageLogicActions {
     setFeatureFlags: (
         flags: string[],
-        variants: Record<string, string | boolean>
+        variants: Record<string, boolean | string>
     ) => {
         flags: string[]
-        variants: Record<string, string | boolean>
+        variants: Record<string, boolean | string>
     } // featureFlagLogic
     loadRecentInsights: () => any
     loadRecentInsightsFailure: (
