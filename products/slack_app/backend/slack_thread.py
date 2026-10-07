@@ -1,6 +1,8 @@
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -11,6 +13,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
+from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
@@ -55,6 +58,15 @@ _SECTION_TEXT_LIMIT = 3000
 _BLOCK_REJECTION_ERROR_CODES = frozenset({"invalid_blocks", "invalid_blocks_format"})
 # Slack closed the stream, so every later append and the stop call fail the same way.
 _STREAM_ENDED_ERROR_CODE = "message_not_in_streaming_state"
+
+REPLY_POSTED_EVENT = "slack app reply posted"
+
+
+class ReplyKind(StrEnum):
+    ANSWER = "answer"
+    COMPLETION = "completion"
+    ERROR = "error"
+    PR_OPENED = "pr_opened"
 
 
 def _split_markdown_text(text: str, limit: int = _MARKDOWN_CHUNK_LIMIT) -> list[str]:
@@ -489,10 +501,11 @@ class SlackThreadHandler:
         if final_markdown:
             for piece in _markdown_text_pieces(self._with_leading_mention(final_markdown)):
                 answer_chunks.append({"type": "markdown_text", "text": piece})
-        self._append_chunks(ts, answer_chunks, "slack_app_status_stream_final_append_failed")
+        answer_delivered = self._append_chunks(ts, answer_chunks, "slack_app_status_stream_final_append_failed")
         if self.stream_ended:
             if final_markdown:
-                self._post_answer_outside_stream(final_markdown)
+                answer_delivered = self._post_answer_outside_stream(final_markdown)
+            self.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
             return
         if append_attachments is not None:
             try:
@@ -512,6 +525,7 @@ class SlackThreadHandler:
         if footer:
             self._append_trailing_blocks(ts)
         self._stop_stream(ts)
+        self.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
 
     def _stop_stream(self, ts: str) -> None:
         if self.stream_ended:
@@ -524,10 +538,14 @@ class SlackThreadHandler:
         except Exception as e:
             logger.warning("slack_app_status_stream_stop_failed", error=str(e))
 
-    def _post_answer_outside_stream(self, final_markdown: str) -> None:
+    def _post_answer_outside_stream(self, final_markdown: str) -> bool:
         pieces = _markdown_text_pieces(self._with_leading_mention(final_markdown))
-        for index, piece in enumerate(pieces):
+        # Every piece is posted even after one fails, so the reader still gets the rest of the answer.
+        posted = [
             self.post_thread_message(piece, with_footer=index == len(pieces) - 1, markdown=True)
+            for index, piece in enumerate(pieces)
+        ]
+        return all(posted)
 
     def _with_leading_mention(self, markdown: str) -> str:
         return leading_mention_prefix(markdown, self.actor_slack_user_id) + markdown
@@ -646,7 +664,7 @@ class SlackThreadHandler:
         if bot_authored:
             blocks.append(context_block(self._personal_github_hint()))
 
-        self._delete_progress_and_post(header, blocks)
+        self.capture_reply_posted(ReplyKind.PR_OPENED, delivered=self._delete_progress_and_post(header, blocks))
 
     def post_pr_closed(
         self,
@@ -752,8 +770,8 @@ class SlackThreadHandler:
             blocks.append(feedback)
         return blocks
 
-    def post_thread_message(self, text: str, with_footer: bool = False, *, markdown: bool = False) -> None:
-        """Post a plain message in the existing thread.
+    def post_thread_message(self, text: str, with_footer: bool = False, *, markdown: bool = False) -> bool:
+        """Post a plain message in the existing thread. Returns whether Slack accepted it.
 
         ``with_footer`` closes the message with the provenance footer, for the last
         chunk of a non-streamed answer — the streamed path appends its own instead.
@@ -784,10 +802,14 @@ class SlackThreadHandler:
                     self._post_in_thread(text=text)
                 except Exception as retry_error:
                     logger.warning("slack_post_thread_message_failed", error=str(retry_error))
-                return
+                    return False
+                return True
             logger.warning("slack_post_thread_message_failed", error=str(e))
+            return False
         except Exception as e:
             logger.warning("slack_post_thread_message_failed", error=str(e))
+            return False
+        return True
 
     def post_completion(self, task_url: str | None) -> None:
         """Post the no-PR completion message.
@@ -820,7 +842,7 @@ class SlackThreadHandler:
                 }
             )
 
-        self._delete_progress_and_post(header, blocks)
+        self.capture_reply_posted(ReplyKind.COMPLETION, delivered=self._delete_progress_and_post(header, blocks))
 
     def post_error(
         self, error: str, task_url: str | None, recovery_hint: str | None = DEFAULT_FAILURE_RECOVERY_HINT
@@ -854,7 +876,9 @@ class SlackThreadHandler:
                 }
             )
 
-        self._delete_progress_and_post(f"{header}\n{truncated_error}", blocks)
+        self.capture_reply_posted(
+            ReplyKind.ERROR, delivered=self._delete_progress_and_post(f"{header}\n{truncated_error}", blocks)
+        )
 
     def post_note(self, text: str) -> None:
         """Post a plain one-line note to the thread, replacing any progress message."""
@@ -873,8 +897,8 @@ class SlackThreadHandler:
         except Exception as e:
             logger.warning("slack_delete_progress_failed", error=str(e))
 
-    def _delete_progress_and_post(self, text: str, blocks: list[dict[str, Any]], with_footer: bool = True) -> None:
-        """Delete any progress message and post the final one in its place.
+    def _delete_progress_and_post(self, text: str, blocks: list[dict[str, Any]], with_footer: bool = True) -> bool:
+        """Delete any progress message and post the final one in its place. Returns whether it posted.
 
         Terminal cards close with the provenance footer, minus the web link their own
         button already carries.
@@ -888,3 +912,39 @@ class SlackThreadHandler:
             self._post_in_thread(text=text, blocks=blocks)
         except Exception as e:
             logger.exception("slack_completion_post_failed", error=str(e))
+            return False
+        return True
+
+    def capture_reply_posted(self, reply_kind: ReplyKind, *, delivered: bool) -> None:
+        """Capture a reply the run posted to this thread, so a mention can be followed to its answer.
+
+        ``slack_session_id`` and ``slack_message_ts`` have the same shape as on
+        ``posthog code slack mention received``, which is the join between the two events.
+        """
+        try:
+            integration = self._get_integration()
+            capture_slack_event(
+                integration,
+                REPLY_POSTED_EVENT,
+                slack_user_id=self.actor_slack_user_id,
+                reply_kind=str(reply_kind),
+                delivered=delivered,
+                slack_session_id=f"{integration.integration_id}:{self.context.channel}:{self.context.thread_ts}",
+                slack_message_ts=self.context.user_message_ts,
+                seconds_since_mention=_seconds_since_slack_ts(self.context.user_message_ts),
+                task_id=self.run_footer.task_id,
+                run_id=self.run_footer.run_id,
+            )
+        except Exception:
+            logger.warning("slack_app_reply_posted_capture_failed", reply_kind=str(reply_kind), exc_info=True)
+
+
+def _seconds_since_slack_ts(slack_ts: str | None) -> float | None:
+    # A Slack message ts is the epoch time the message was posted, so it measures the wait
+    # from the triggering message to this reply.
+    if not slack_ts:
+        return None
+    try:
+        return round(time.time() - float(slack_ts), 1)
+    except ValueError:
+        return None

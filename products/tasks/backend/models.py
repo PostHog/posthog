@@ -3168,8 +3168,16 @@ class TaskRun(models.Model):
             # local/cloud value under an unclobbered name too.
             "run_environment": self.environment,
             "mode": self.mode,
+            "slack_session_id": self._slack_session_id(),
             **self._analytics_usage_properties(),
         }
+
+    def _slack_session_id(self) -> str | None:
+        """The Slack thread this run answers, in the shape the Slack app's mention and reply events use."""
+        if self.task.origin_product != Task.OriginProduct.SLACK:
+            return None
+        thread = self.task.slack_thread_mappings.values_list("slack_workspace_id", "channel", "thread_ts").first()
+        return ":".join(thread) if thread else None
 
     def capture_event(
         self,
