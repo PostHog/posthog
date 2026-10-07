@@ -25,20 +25,6 @@ describe('firstErroredScannerStep', () => {
     })
 })
 
-describe('isScannerEditorPath', () => {
-    it.each<[string, boolean]>([
-        ...SCANNER_EDITOR_STEPS.map((step): [string, boolean] => [scannerStepUrl(step, 'abc'), true]),
-        [scannerStepUrl('overview', 'new'), true],
-        [`/project/123${urls.replayVisionScannerBudget('abc')}`, true],
-        [urls.replayVisionScannerSelfDriving('abc'), true],
-        [urls.replayVision('abc'), false],
-        [urls.replayVisionObservation('abc'), false],
-        [urls.replayVision(), false],
-    ])('%s → %s', (pathname, expected) => {
-        expect(isScannerEditorPath(pathname)).toBe(expected)
-    })
-})
-
 describe('scannerStepErrors', () => {
     it('carries the field-level messages through to each step', () => {
         expect(
@@ -69,6 +55,20 @@ describe('scannerEditorSceneLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+    })
+
+    describe('isScannerEditorPath', () => {
+        it.each<[string, boolean]>([
+            ...SCANNER_EDITOR_STEPS.map((step): [string, boolean] => [scannerStepUrl(step, 'abc'), true]),
+            [scannerStepUrl('overview', 'new'), true],
+            [`/project/123${urls.replayVisionScannerBudget('abc')}`, true],
+            [urls.replayVisionScannerSelfDriving('abc'), true],
+            [urls.replayVision('abc'), false],
+            [urls.replayVisionObservation('abc'), false],
+            [urls.replayVision(), false],
+        ])('%s → %s', (pathname, expected) => {
+            expect(isScannerEditorPath(pathname)).toBe(expected)
+        })
     })
 
     describe('URL → state', () => {

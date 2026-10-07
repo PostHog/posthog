@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { combineUrl, router } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -415,7 +416,10 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                     return
                 }
                 actions.retryObservationSuccess()
-                if (!observation) {
+                // The reader may have left while the retry request was in flight.
+                const stillHere =
+                    removeProjectIdIfPresent(router.values.location.pathname) === urls.replayVisionObservation(props.id)
+                if (!observation || !stillHere) {
                     return
                 }
                 // Land on the unfiltered parent, not the reader's saved list view: the replacement is
