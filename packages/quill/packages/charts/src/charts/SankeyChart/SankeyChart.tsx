@@ -108,10 +108,13 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
     )
 
     const margins = useMemo<ChartMargins>(() => {
-        const computed = { ...BASE_MARGINS, top: BASE_MARGINS.top + (hasColumnLabels ? COLUMN_LABEL_HEIGHT : 0) }
-        const applied = marginsOverride ? applyMarginOverride(computed, marginsOverride) : computed
-        // `outside` labels are sized for this room, so an override cannot take it away from them.
-        return { ...applied, right: applied.right + outsideWidth }
+        const applied = marginsOverride ? applyMarginOverride(BASE_MARGINS, marginsOverride) : BASE_MARGINS
+        // Column headers and `outside` labels are sized for their room, so an override cannot take it away.
+        return {
+            ...applied,
+            top: applied.top + (hasColumnLabels ? COLUMN_LABEL_HEIGHT : 0),
+            right: applied.right + outsideWidth,
+        }
     }, [hasColumnLabels, outsideWidth, marginsOverride])
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })

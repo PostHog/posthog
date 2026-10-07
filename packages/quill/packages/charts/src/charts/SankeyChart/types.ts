@@ -54,8 +54,8 @@ export interface SankeyChartConfig {
          *  anchors it to the hovered node's right edge or the ribbon's midpoint. */
         placement?: 'follow-data' | 'top' | 'cursor'
     }
-    /** Per-side margin overrides. Should be referentially stable. `outside` labels add their room to
-     *  the right margin on top of an override. */
+    /** Per-side margin overrides. Should be referentially stable. Column headers add their room to
+     *  the top margin, and `outside` labels to the right margin, on top of an override. */
     margins?: Partial<ChartMargins>
 }
 

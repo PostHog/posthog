@@ -322,4 +322,21 @@ describe('SankeyChart', () => {
         const onlySink = outsideLabelWidth([{ id: 'only', label: sizedBy }], [], nodeAlign, false, String)
         expect(outsideLabelWidth(nodes, links, nodeAlign, false, String)).toBe(onlySink)
     })
+
+    it('keeps room for column headers when a consumer overrides the top margin', () => {
+        const { chart } = renderHogChart(
+            <SankeyChart
+                nodes={NODES}
+                links={LINKS}
+                theme={THEME}
+                config={{ columnLabels: ['Init', 'Tool', 'Outcome'], margins: { top: 0 } }}
+            />
+        )
+        // Start fills the plot height, so its label sits at the plot's vertical center: 18px of
+        // header room above a 400px wrapper with an 8px bottom margin.
+        const start = Array.from(
+            chart.element.querySelectorAll<HTMLElement>('[data-attr="hog-chart-sankey-node-label"]')
+        ).find((label) => label.textContent?.startsWith('Start'))
+        expect(start?.style.top).toBe(`${18 + (400 - 18 - 8) / 2}px`)
+    })
 })
