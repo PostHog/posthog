@@ -20,7 +20,7 @@ They return the exact data the UI renders, sourced from ClickHouse `query_log_ar
 and the Postgres `PreaggregationJob` table.
 
 Backend: `posthog/api/debug_ch_queries.py` (`DebugCHQueries` viewset).
-Frontend types (authoritative response shapes): `frontend/src/scenes/instance/QueryPerformance/queryPerformanceLogic.ts`.
+Frontend types (authoritative response shapes): `products/experiments/frontend/scenes/queryPerformanceLogic.ts`.
 
 ## Environment
 
@@ -271,5 +271,6 @@ re-check the key's scopes before anything else.
 
 This skill documents the `/experiments/staff` API surface.
 When adding a tab, endpoint, filter, or response field to the scene
-(`posthog/api/debug_ch_queries.py` + `frontend/src/scenes/experiments/staff/`),
+(`posthog/api/debug_ch_queries.py`, `products/experiments/frontend/scenes/ExperimentsStaffToolsScene.tsx`,
+`products/experiments/frontend/scenes/queryPerformanceLogic.ts`, and `products/experiments/frontend/components/staff/`),
 update this file in the same PR.
