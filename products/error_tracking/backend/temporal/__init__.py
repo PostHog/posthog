@@ -3,6 +3,12 @@ from products.error_tracking.backend.temporal.alerts import (
     WORKFLOWS as ALERT_WORKFLOWS,
     ErrorTrackingAlertDeliveryWorkflow,
 )
+from products.error_tracking.backend.temporal.change_dispatch import (
+    ACTIVITIES as CHANGE_DISPATCH_ACTIVITIES,
+    WORKFLOWS as CHANGE_DISPATCH_WORKFLOWS,
+    ErrorTrackingIssueChangeDispatchWorkflow,
+    dispatch_issue_changes_activity,
+)
 from products.error_tracking.backend.temporal.lifecycle import (
     ACTIVITIES as LIFECYCLE_ACTIVITIES,
     WORKFLOWS as LIFECYCLE_WORKFLOWS,
@@ -45,6 +51,7 @@ WORKFLOWS = (
     + RECOMMENDATIONS_REFRESH_WORKFLOWS
     + WEEKLY_DIGEST_WORKFLOWS
     + ALERT_WORKFLOWS
+    + CHANGE_DISPATCH_WORKFLOWS
 )
 ACTIVITIES = (
     SYMBOL_SET_ACTIVITIES
@@ -52,6 +59,7 @@ ACTIVITIES = (
     + RECOMMENDATIONS_REFRESH_ACTIVITIES
     + WEEKLY_DIGEST_ACTIVITIES
     + ALERT_ACTIVITIES
+    + CHANGE_DISPATCH_ACTIVITIES
 )
 
 __all__ = [
@@ -60,6 +68,7 @@ __all__ = [
     "LIFECYCLE_WORKFLOWS",
     "WORKFLOWS",
     "ErrorTrackingAlertDeliveryWorkflow",
+    "ErrorTrackingIssueChangeDispatchWorkflow",
     "ErrorTrackingIssueCreatedWorkflow",
     "ErrorTrackingIssueReopenedWorkflow",
     "ErrorTrackingIssueSpikingWorkflow",
@@ -68,6 +77,7 @@ __all__ = [
     "ErrorTrackingSymbolSetCleanupWorkflow",
     "ErrorTrackingWeeklyDigestWorkflow",
     "cleanup_spike_events_activity",
+    "dispatch_issue_changes_activity",
     "cleanup_symbol_sets_activity",
     "get_digest_orgs_activity",
     "get_team_batches_activity",
