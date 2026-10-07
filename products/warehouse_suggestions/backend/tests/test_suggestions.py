@@ -78,7 +78,7 @@ class TestTransitions(BaseTest):
                 "auto_resolved_to_proposed",
                 WarehouseSuggestionStatus.AUTO_RESOLVED,
                 WarehouseSuggestionStatus.PROPOSED,
-                False,
+                True,
             ),
             ("expired_to_dismissed", WarehouseSuggestionStatus.EXPIRED, WarehouseSuggestionStatus.DISMISSED, False),
         ]

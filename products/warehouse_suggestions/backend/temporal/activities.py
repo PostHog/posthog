@@ -19,6 +19,7 @@ from posthog.temporal.common.rollout import filter_ids_for_rollout
 
 from ..logic.flags import is_warehouse_suggestions_enabled
 from ..logic.job import TeamRunStatus, run_team
+from ..logic.reads import ReadWindow, read_rollup_days
 from ..logic.rules import RULES
 from .contracts import BatchOutcome, WarehouseSuggestionsInputs
 
@@ -38,7 +39,7 @@ def team_batches(inputs: WarehouseSuggestionsInputs) -> list[list[int]]:
     if get_kill_switch_level() != KillSwitchLevel.OFF:
         LOGGER.info("warehouse_suggestions.skipped_by_kill_switch")
         return []
-    candidate_ids = inputs.team_ids or _teams_with_reads()
+    candidate_ids = inputs.team_ids if inputs.team_ids is not None else _teams_with_reads()
     teams = (
         Team.objects.filter(id__in=candidate_ids, is_demo=False, organization__for_internal_metrics=False)
         .select_related("organization")
@@ -52,12 +53,13 @@ def team_batches(inputs: WarehouseSuggestionsInputs) -> list[list[int]]:
 
 def run_batch(team_ids: list[int], run_id: str) -> BatchOutcome:
     today = timezone.now().date()
+    rollup_days = read_rollup_days(ReadWindow.ending(today, RULES))
     outcomes: Counter[str] = Counter()
     for team_id in team_ids:
         if activity.in_activity():
             activity.heartbeat(team_id)
         try:
-            outcomes[run_team(team_id, run_id=run_id, today=today).status] += 1
+            outcomes[run_team(team_id, run_id=run_id, today=today, rollup_days=rollup_days).status] += 1
         except Exception:
             LOGGER.exception("warehouse_suggestions.team_failed", team_id=team_id)
             outcomes["failed"] += 1

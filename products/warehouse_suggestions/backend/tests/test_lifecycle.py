@@ -137,16 +137,22 @@ class TestApplyRun(BaseTest):
 
         assert WarehouseSuggestion.objects.for_team(self.team.pk).get().status == expected
 
-    def test_an_expired_suggestion_revives_when_its_evidence_returns(self) -> None:
+    @parameterized.expand(
+        [("expired", WarehouseSuggestionStatus.EXPIRED), ("auto_resolved", WarehouseSuggestionStatus.AUTO_RESOLVED)]
+    )
+    def test_a_closed_suggestion_revives_into_the_queue_when_its_evidence_returns(
+        self, _name: str, closed_status: WarehouseSuggestionStatus
+    ) -> None:
         view_id = uuid4()
         ctx = self._context(view_id)
         draft = self._draft(ctx, WarehouseSuggestionKind.DEPRECATE, view_id, 1)
-        apply_run(ctx, [draft], NOW, surface=False)
-        WarehouseSuggestion.objects.for_team(self.team.pk).update(status=WarehouseSuggestionStatus.EXPIRED)
+        apply_run(ctx, [draft], NOW - timedelta(days=10), surface=True)
+        WarehouseSuggestion.objects.for_team(self.team.pk).update(status=closed_status)
 
         apply_run(ctx, [draft], NOW, surface=False)
 
-        assert WarehouseSuggestion.objects.for_team(self.team.pk).get().status == WarehouseSuggestionStatus.PROPOSED
+        revived = WarehouseSuggestion.objects.for_team(self.team.pk).get()
+        assert (revived.status, revived.surfaced_at) == (WarehouseSuggestionStatus.PROPOSED, None)
 
     def test_auto_resolves_when_the_view_is_gone_or_already_handled(self) -> None:
         deleted_id, materialized_id = uuid4(), uuid4()

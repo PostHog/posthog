@@ -1,7 +1,6 @@
 import hashlib
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from datetime import UTC, datetime, time
 from math import ceil
 from typing import Any, ClassVar
 
@@ -77,7 +76,6 @@ class Candidate(ABC):
         score: float,
         score_inputs: Mapping[str, float],
     ) -> SuggestionDraft:
-        window = context.reads.window
         return SuggestionDraft(
             kind=self.kind,
             fingerprint=fingerprint(self.kind, subject),
@@ -87,8 +85,8 @@ class Candidate(ABC):
             payload_version=PAYLOAD_VERSION,
             rules_version=rules_version(context.rules),
             evidence=evidence_of(context, subject),
-            evidence_window_start=datetime.combine(window.start, time.min, tzinfo=UTC),
-            evidence_window_end=datetime.combine(window.end, time.min, tzinfo=UTC),
+            evidence_window_start=context.reads.window.starts_at,
+            evidence_window_end=context.reads.window.ends_at,
             score=score,
             score_inputs=dict(score_inputs),
             run_id=context.run_id,

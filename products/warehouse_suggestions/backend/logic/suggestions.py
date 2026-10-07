@@ -27,6 +27,7 @@ ALLOWED_TRANSITIONS: Transitions = {
     ),
     WarehouseSuggestionStatus.DISMISSED: frozenset({WarehouseSuggestionStatus.PROPOSED}),
     WarehouseSuggestionStatus.EXPIRED: frozenset({WarehouseSuggestionStatus.PROPOSED}),
+    WarehouseSuggestionStatus.AUTO_RESOLVED: frozenset({WarehouseSuggestionStatus.PROPOSED}),
 }
 
 HUMAN_TRANSITIONS: Transitions = {

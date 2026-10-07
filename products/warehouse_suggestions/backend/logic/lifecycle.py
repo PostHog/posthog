@@ -44,24 +44,28 @@ def apply_run(
     )
 
 
+REVIVABLE_STATUSES = (WarehouseSuggestionStatus.EXPIRED, WarehouseSuggestionStatus.AUTO_RESOLVED)
+
+
 def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft]) -> tuple[int, int]:
     drafts_by_fingerprint = {draft.fingerprint: draft for draft in drafts}
-    closed = WarehouseSuggestion.objects.for_team(context.team_id).filter(
+    suggestions = WarehouseSuggestion.objects.for_team(context.team_id)
+    closed = suggestions.filter(
         fingerprint__in=drafts_by_fingerprint,
-        status__in=[WarehouseSuggestionStatus.DISMISSED, WarehouseSuggestionStatus.EXPIRED],
+        status__in=[WarehouseSuggestionStatus.DISMISSED, *REVIVABLE_STATUSES],
     )
-    reproposed = 0
-    revived = 0
+    reproposed: list[UUID] = []
+    revived: list[UUID] = []
     for row in closed:
-        if row.status == WarehouseSuggestionStatus.EXPIRED:
-            revived += _move(row, context.team_id, WarehouseSuggestionStatus.PROPOSED)
+        if row.status in REVIVABLE_STATUSES:
+            if _move(row, context.team_id, WarehouseSuggestionStatus.PROPOSED):
+                revived.append(row.id)
         elif _earns_reproposal(row, drafts_by_fingerprint[row.fingerprint], context.rules.lifecycle):
             if _move(row, context.team_id, WarehouseSuggestionStatus.PROPOSED):
-                WarehouseSuggestion.objects.for_team(context.team_id).filter(id=row.id).update(
-                    reproposed_count=F("reproposed_count") + 1
-                )
-                reproposed += 1
-    return reproposed, revived
+                reproposed.append(row.id)
+    suggestions.filter(id__in=reproposed).update(reproposed_count=F("reproposed_count") + 1)
+    suggestions.filter(id__in=[*reproposed, *revived]).update(surfaced_at=None)
+    return len(reproposed), len(revived)
 
 
 def _earns_reproposal(row: WarehouseSuggestion, draft: SuggestionDraft, rules: LifecycleRules) -> bool:

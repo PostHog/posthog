@@ -4,13 +4,25 @@ from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.warehouse_object_reads import TRUNCATE_WAREHOUSE_OBJECT_READS_DAILY_TABLES_SQL
+
 from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionSubjectKind
-from products.warehouse_suggestions.backend.logic.reads import ReadWindow, Subject, SubjectReads, read_team_reads
+from products.warehouse_suggestions.backend.logic.reads import (
+    ReadWindow,
+    RollupDays,
+    Subject,
+    SubjectReads,
+    read_rollup_days,
+    read_team_reads,
+)
 from products.warehouse_suggestions.backend.logic.rules import RULES, Surface
 from products.warehouse_suggestions.backend.tests.rollup import RollupRead, seed_reads
 
 TODAY = date.today()
 YESTERDAY = TODAY - timedelta(days=1)
+WINDOW = ReadWindow.ending(TODAY, RULES)
+FULL_ROLLUP = RollupDays(days_with_data=RULES.window_days, recent_days_with_data=RULES.lifecycle.expire_after_days)
 
 HUMAN = True
 BACKGROUND = False
@@ -37,6 +49,11 @@ TAG_CASES: list[tuple[str, dict[str, str | int], bool, Surface | None]] = [
 
 
 class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        for truncate_sql in TRUNCATE_WAREHOUSE_OBJECT_READS_DAILY_TABLES_SQL():
+            sync_execute(truncate_sql)
+
     def test_rules_classify_each_tag_combination_as_human_or_background_and_by_surface(self) -> None:
         subjects = {name: uuid4() for name, *_ in TAG_CASES}
         seed_reads(
@@ -47,13 +64,16 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        reads = read_team_reads(self.team.pk, ReadWindow.ending(TODAY, RULES), RULES)
+        reads = read_team_reads(self.team.pk, WINDOW, RULES, FULL_ROLLUP)
 
         classified = {name: _classification(reads.subjects, subjects[name]) for name, *_ in TAG_CASES}
         assert classified == {name: (human, surface) for name, _, human, surface in TAG_CASES}
 
     def test_counts_requests_people_days_and_median_cost_of_reads_alone_inside_the_window(self) -> None:
         view = uuid4()
+        seed_reads(
+            self.team.pk + 1, [RollupRead(subject_id=uuid4(), day=TODAY - timedelta(days=3), request_id="other")]
+        )
         seed_reads(
             self.team.pk,
             [
@@ -65,15 +85,12 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        reads = read_team_reads(self.team.pk, ReadWindow.ending(TODAY, RULES), RULES)
+        rollup_days = read_rollup_days(WINDOW)
+        reads = read_team_reads(self.team.pk, WINDOW, RULES, rollup_days)
         view_reads = reads.subjects[Subject(kind=WarehouseSuggestionSubjectKind.SAVED_QUERY, id=view)]
 
-        assert (reads.days_with_data, view_reads.human_requests, view_reads.human_users, view_reads.human_days) == (
-            2,
-            2,
-            2,
-            2,
-        )
+        assert rollup_days == RollupDays(days_with_data=3, recent_days_with_data=3)
+        assert (view_reads.human_requests, view_reads.human_users, view_reads.human_days) == (2, 2, 2)
         assert (view_reads.human_reads, view_reads.human_duration_ms, view_reads.alone_reads) == (3, 1300, 2)
         assert 100 <= view_reads.alone_duration_ms_median <= 300
 

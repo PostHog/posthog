@@ -63,6 +63,8 @@ class DeprecateCandidate(Candidate):
     def _rejection(
         self, context: CandidateContext, saved_query: SavedQueryDefinition, *, has_dependents: bool
     ) -> str | None:
+        if saved_query.created_at > context.reads.window.starts_at:
+            return "created after the read window started"
         if has_dependents:
             return "other views read from it"
         if self._reads_direct_source(context, saved_query.id):

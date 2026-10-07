@@ -59,7 +59,9 @@ def visible_suggestions(
     kind: WarehouseSuggestionKind | None = None,
     status: WarehouseSuggestionStatus | None = None,
 ) -> tuple[QuerySet[WarehouseSuggestion], SubjectAccess]:
-    suggestions = WarehouseSuggestion.objects.for_team(team_id)
+    suggestions = WarehouseSuggestion.objects.for_team(team_id).exclude(
+        status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True
+    )
     if suggestion_id is not None:
         suggestions = suggestions.filter(id=suggestion_id)
     if kind is not None:

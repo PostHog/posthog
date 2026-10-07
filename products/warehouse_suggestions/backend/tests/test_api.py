@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -17,7 +18,12 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
-from products.warehouse_suggestions.backend.facade.contracts import DeprecatePayload, MaterializePayload, SourceRef
+from products.warehouse_suggestions.backend.facade.contracts import (
+    DeprecatePayload,
+    MaterializePayload,
+    SourceRef,
+    SuggestionDraft,
+)
 from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionDismissalReason,
     WarehouseSuggestionKind,
@@ -31,6 +37,13 @@ from .test_suggestions import ingest_one, make_draft
 
 REVIEW_FIELDS = ("reviewed_by_id", "reviewed_at", "dismissal_reason", "dismissal_note", "dismissed_at_score")
 FLAG = "products.warehouse_suggestions.backend.presentation.views.is_warehouse_suggestions_enabled"
+
+
+def ingest_surfaced(team_id: int, draft: SuggestionDraft) -> WarehouseSuggestion:
+    suggestion = ingest_one(team_id, draft)
+    WarehouseSuggestion.objects.for_team(team_id).filter(id=suggestion.id).update(surfaced_at=timezone.now())
+    suggestion.refresh_from_db()
+    return suggestion
 
 
 class TestWarehouseSuggestionAPI(APIBaseTest):
@@ -68,7 +81,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         subject_kind: WarehouseSuggestionSubjectKind = WarehouseSuggestionSubjectKind.SAVED_QUERY,
         score: float = 1.0,
     ) -> WarehouseSuggestion:
-        return ingest_one(
+        return ingest_surfaced(
             self.team.id,
             make_draft(
                 fingerprint=f"certify:{subject_id}", subject_kind=subject_kind, subject_id=subject_id, score=score
@@ -91,6 +104,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
     def test_list_dismiss_and_resume(self) -> None:
         low = self._suggest(self.view.id, score=2.0)
         high = self._suggest(self.table.id, subject_kind=WarehouseSuggestionSubjectKind.TABLE, score=9.0)
+        ingest_one(self.team.id, make_draft(fingerprint="certify:waiting", subject_id=self.view.id, score=99.0))
 
         listed = self.client.get(f"{self.url}/")
         assert listed.status_code == status.HTTP_200_OK, listed.json()
@@ -178,7 +192,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             format=DataWarehouseTable.TableFormat.Parquet,
             url_pattern="s3://bucket/secret_payments",
         )
-        ingest_one(
+        ingest_surfaced(
             self.team.id,
             replace(
                 make_draft(fingerprint="materialize:orders", subject_id=self.view.id),

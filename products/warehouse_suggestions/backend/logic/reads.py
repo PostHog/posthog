@@ -1,6 +1,6 @@
 from collections import defaultdict
 from collections.abc import Mapping
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -15,9 +15,11 @@ from .rules import Rules, Surface, SurfaceRules, TrafficRules
 READS_QUERY_SETTINGS = {"max_execution_time": 30, "max_threads": 2}
 FIRST_QUANTILE = 1
 
-WINDOW_FILTER = """team_id = %(team_id)s
-        AND day >= %(window_start)s
+DAYS_FILTER = """day >= %(window_start)s
         AND day < %(window_end)s"""
+
+WINDOW_FILTER = f"""team_id = %(team_id)s
+        AND {DAYS_FILTER}"""
 
 
 @frozen
@@ -39,6 +41,20 @@ class ReadWindow:
             end=today,
             recent_start=today - timedelta(days=rules.lifecycle.expire_after_days),
         )
+
+    @property
+    def starts_at(self) -> datetime:
+        return datetime.combine(self.start, time.min, tzinfo=UTC)
+
+    @property
+    def ends_at(self) -> datetime:
+        return datetime.combine(self.end, time.min, tzinfo=UTC)
+
+
+@frozen
+class RollupDays:
+    days_with_data: int
+    recent_days_with_data: int
 
 
 @frozen
@@ -82,7 +98,17 @@ class TeamReads:
         return self.subjects.get(subject)
 
 
-def read_team_reads(team_id: int, window: ReadWindow, rules: Rules) -> TeamReads:
+def read_rollup_days(window: ReadWindow) -> RollupDays:
+    tag_queries(product=Product.WAREHOUSE, feature=Feature.ENRICHMENT, name="warehouse_suggestions_rollup_days")
+    days_with_data, recent_days_with_data = sync_execute(
+        ROLLUP_DAYS_SQL,
+        {"window_start": window.start, "window_end": window.end, "recent_start": window.recent_start},
+        settings=READS_QUERY_SETTINGS,
+    )[0]
+    return RollupDays(days_with_data=days_with_data, recent_days_with_data=recent_days_with_data)
+
+
+def read_team_reads(team_id: int, window: ReadWindow, rules: Rules, rollup_days: RollupDays) -> TeamReads:
     tag_queries(
         product=Product.WAREHOUSE, feature=Feature.ENRICHMENT, team_id=team_id, name="warehouse_suggestions_reads"
     )
@@ -99,14 +125,12 @@ def read_team_reads(team_id: int, window: ReadWindow, rules: Rules) -> TeamReads
     surface_sql, surface_params = surface_expression(rules.surfaces)
     params.update(human_params)
     params.update(surface_params)
-    days_with_data, recent_days_with_data, view_readers, view_reads = _execute(
-        TEAM_SQL.format(human=human_sql), params, team_id
-    )[0]
+    view_readers, view_reads = _execute(TEAM_SQL.format(human=human_sql), params, team_id)[0]
     surface_counts = _surface_counts(SURFACES_SQL.format(human=human_sql, surface=surface_sql), params, team_id)
     return TeamReads(
         window=window,
-        days_with_data=days_with_data,
-        recent_days_with_data=recent_days_with_data,
+        days_with_data=rollup_days.days_with_data,
+        recent_days_with_data=rollup_days.recent_days_with_data,
         view_readers=view_readers,
         view_reads=view_reads,
         subjects=_subject_reads(SUBJECTS_SQL.format(human=human_sql), params, team_id, surface_counts),
@@ -149,10 +173,14 @@ def surface_expression(surfaces: SurfaceRules) -> tuple[str, dict[str, Any]]:
     return f"multiIf({', '.join(branches)}, %(surface_unknown)s)", params
 
 
+ROLLUP_DAYS_SQL = f"""
+SELECT uniq(day), uniqIf(day, day >= %(recent_start)s)
+FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
+WHERE {DAYS_FILTER}
+"""
+
 TEAM_SQL = f"""
 SELECT
-    uniq(day),
-    uniqIf(day, day >= %(recent_start)s),
     uniqMergeIf(users, is_view_read),
     uniqMergeIf(requests, is_view_read)
 FROM (

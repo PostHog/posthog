@@ -20,9 +20,8 @@ RETRY_POLICY = RetryPolicy(
 
 @workflow.defn(name=WAREHOUSE_SUGGESTIONS_WORKFLOW_NAME)
 class WarehouseSuggestionsWorkflow(PostHogWorkflow):
-    @staticmethod
-    def parse_inputs(inputs: list[str]) -> WarehouseSuggestionsInputs:
-        return WarehouseSuggestionsInputs()
+    inputs_cls = WarehouseSuggestionsInputs
+    inputs_optional = True
 
     @workflow.run
     async def run(self, inputs: WarehouseSuggestionsInputs) -> BatchOutcome:
