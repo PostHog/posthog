@@ -76,16 +76,18 @@ class ExternalTicketProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthent
         return result
 
 
-def _authenticate_psak_team(request: Request) -> tuple[Team, None] | tuple[None, Response]:
-    """Resolve the team from a project secret API key with the ``support_ticket:read`` scope."""
+def _authenticate_psak_team(request: Request, required_scope: str) -> tuple[Team, None] | tuple[None, Response]:
+    """Resolve the team from a project secret API key carrying ``required_scope``."""
     if not is_authenticated_via_project_secret_api_key(request):
         return None, Response({"error": "Missing or invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
     authenticator = cast(ExternalTicketProjectSecretAPIKeyAuthentication, request.successful_authenticator)
     key_scopes = set(get_authenticator_scopes(authenticator) or [])
-    if "*" not in key_scopes and "support_ticket:read" not in key_scopes:
+    # A key that may write tickets may read them too; the reverse does not hold.
+    valid_scopes = {required_scope, "support_ticket:write"}
+    if "*" not in key_scopes and key_scopes.isdisjoint(valid_scopes):
         return None, Response(
-            {"error": "API key missing required scope 'support_ticket:read'"},
+            {"error": f"API key missing required scope '{required_scope}'"},
             status=status.HTTP_403_FORBIDDEN,
         )
 
@@ -123,8 +125,8 @@ class ExternalTicketView(APIView):
     PATCH /api/conversations/external/ticket/<ticket_id> — Update ticket fields
 
     GET accepts the team secret_api_token or a project secret API key with the
-    ``support_ticket:read`` scope as a Bearer token. PATCH accepts only the team
-    secret_api_token.
+    ``support_ticket:read`` scope as a Bearer token. PATCH accepts the team
+    secret_api_token or a project secret API key with ``support_ticket:write``.
     """
 
     authentication_classes = [ExternalTicketProjectSecretAPIKeyAuthentication]
@@ -133,7 +135,7 @@ class ExternalTicketView(APIView):
 
     def get(self, request: Request, ticket_id: str) -> Response:
         if is_authenticated_via_project_secret_api_key(request):
-            team, error = _authenticate_psak_team(request)
+            team, error = _authenticate_psak_team(request, "support_ticket:read")
             if not error:
                 TICKET_ACTION_AUTH_COUNTER.labels(auth_method="project_secret_api_key", http_method="get").inc()
         else:
@@ -149,11 +151,11 @@ class ExternalTicketView(APIView):
 
     def patch(self, request: Request, ticket_id: str) -> Response:
         if is_authenticated_via_project_secret_api_key(request):
-            return Response(
-                {"error": "Project secret API keys can only read tickets on this route"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        team, error = _authenticate_team(request)
+            team, error = _authenticate_psak_team(request, "support_ticket:write")
+            if not error:
+                TICKET_ACTION_AUTH_COUNTER.labels(auth_method="project_secret_api_key", http_method="patch").inc()
+        else:
+            team, error = _authenticate_team(request)
         if error:
             return error
 

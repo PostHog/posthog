@@ -262,6 +262,9 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Conversations external ticket API reads, mirroring the account scope above so
     # service integrations don't need the team-wide secret_api_token (#63111).
     ("support_ticket", "read"),
+    # Lets a service credential update tickets (status, priority) on the external route,
+    # so writes don't need the team-wide secret_api_token either.
+    ("support_ticket", "write"),
     # First write-capable PSAK scope: lets a service credential fire a loop via
     # `loops/:id/trigger/`. PSAKs are project-wide, so a leaked key can fire any loop
     # in the project (accepted and documented in products/tasks/docs/LOOPS.md).
