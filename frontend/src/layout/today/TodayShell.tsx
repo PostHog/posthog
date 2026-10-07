@@ -8,6 +8,8 @@ import { Heading, Skeleton, ToastProvider } from '@posthog/quill'
 import 'scenes/project-homepage/today/Today.scss'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { TodayHomeSidebar } from 'scenes/project-homepage/today/TodayHomeSidebar'
@@ -47,6 +49,14 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
     // Records the tools and sessions visited while other panes are open, so each pane's Recent group is ready.
     useMountedLogic(todayRecentsLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
+    useShortcut({
+        name: 'ToggleLeftNav',
+        keybind: [keyBinds.toggleLeftNav, keyBinds.toggleLeftNavFallback],
+        intent: 'Toggle collapse left navigation',
+        interaction: 'function',
+        callback: toggleSidebar,
+        ignoreInEditable: true,
+    })
     const sidebarRef = useRef<HTMLDivElement | null>(null)
     const drawerRef = useRef<HTMLElement | null>(null)
     const returnFocusRef = useRef<HTMLElement | null>(null)
