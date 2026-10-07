@@ -43,6 +43,7 @@ function ProductPushWelcome({
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
     const { status, skipped } = useValues(productSetupStatusLogic({ productKey: welcome.productKey }))
+    const { welcomeHeld } = useValues(navPanelProductPushWelcomeLogic)
     const { openWelcome, closeWelcome } = useActions(navPanelProductPushWelcomeLogic)
 
     const sceneEmptyState = activeExportedScene?.emptyState
@@ -68,12 +69,12 @@ function ProductPushWelcome({
     })
 
     useEffect(() => {
-        if (!isOpen && ready) {
+        if (!isOpen && ready && !welcomeHeld) {
             openWelcome(welcome)
         }
-    }, [isOpen, ready, welcome, openWelcome])
+    }, [isOpen, ready, welcomeHeld, welcome, openWelcome])
 
-    if (!isOpen) {
+    if (!isOpen || welcomeHeld) {
         return null
     }
     const config = gatesPushedProduct ? sceneEmptyState?.config : undefined
