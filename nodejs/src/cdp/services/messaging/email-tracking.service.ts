@@ -21,6 +21,7 @@ import { HogFunctionManagerService } from '../managers/hog-function-manager.serv
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
+import { WorkflowsExternalDeliveryReporter } from '../monitoring/workflows-external-delivery-reporter'
 import { EmailSuppressionService } from './email-suppression.service'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
@@ -224,7 +225,8 @@ export class EmailTrackingService {
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
-        private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>
+        private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>,
+        private workflowsExternalDeliveryReporter: WorkflowsExternalDeliveryReporter
     ) {
         const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
         this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
@@ -526,6 +528,35 @@ export class EmailTrackingService {
             } catch (error) {
                 logger.error('[EmailTrackingService] Failed to update suppression list', { error })
                 emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
+            }
+
+            let reportingTimeout: NodeJS.Timeout | undefined
+            try {
+                await Promise.race([
+                    (async () => {
+                        for (const delivery of deliveredRecipients || []) {
+                            const teamId = Number(delivery.teamId)
+                            if (!Number.isSafeInteger(teamId) || teamId <= 0 || !delivery.functionId) {
+                                continue
+                            }
+                            const flow = await this.hogFlowManager.getHogFlow(delivery.functionId)
+                            if (flow?.team_id === teamId || (!flow && delivery.workflowVersion !== undefined)) {
+                                await this.workflowsExternalDeliveryReporter.report(
+                                    teamId,
+                                    delivery.functionId,
+                                    delivery.confirmedRecipients || []
+                                )
+                            }
+                        }
+                    })(),
+                    new Promise<never>((_resolve, reject) => {
+                        reportingTimeout = setTimeout(() => reject(new Error('Workflow activation timed out')), 1000)
+                    }),
+                ])
+            } catch (error) {
+                logger.warn('Failed to report workflows external delivery', { error })
+            } finally {
+                clearTimeout(reportingTimeout)
             }
 
             return { status, message: body as string }

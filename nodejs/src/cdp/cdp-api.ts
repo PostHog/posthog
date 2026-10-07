@@ -61,6 +61,7 @@ import {
     sameWatcherState,
     sameWatcherStates,
 } from './services/monitoring/hog-watcher.service'
+import { WorkflowsExternalDeliveryReporter } from './services/monitoring/workflows-external-delivery-reporter'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
@@ -196,7 +197,8 @@ export class CdpApi {
             services.teamWorkflowsConfigService,
             new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
             services.emailSuppressionService,
-            services.workflowsActivationReporter
+            services.workflowsActivationReporter,
+            new WorkflowsExternalDeliveryReporter(deps.teamManager, deps.postgres, services.redis)
         )
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
