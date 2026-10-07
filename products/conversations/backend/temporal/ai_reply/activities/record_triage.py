@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
+from datetime import datetime
+from uuid import NAMESPACE_URL, uuid5
 
 from django.db import transaction
 
@@ -22,27 +23,12 @@ logger = structlog.get_logger(__name__)
 RUN_COMPLETED_EVENT = "support ai reply run completed"
 
 
-@activity.defn(name="support-record-triage")
-@close_db_connections
-async def support_record_triage_activity(input: RecordTriageInput) -> None:
-    """Merge triage/outcome metadata into the ticket's ai_triage JSON field."""
-    await database_sync_to_async(_record_triage_sync, thread_sensitive=False)(input)
-
-
-def _record_triage_sync(input: RecordTriageInput) -> None:
-    merged = _merge_triage(input)
-    # Only the workflow's terminal patch carries finished_at, so this fires once per finished run.
-    if merged is not None and "finished_at" in input.patch:
-        # Each run's first write sets started_at and the terminal patch does not, so the merged value is this run's.
-        _capture_run_completed(input, started_at=merged.get("started_at"))
-
-
-def _merge_triage(input: RecordTriageInput) -> dict[str, Any] | None:
-    """Merge the patch into the ticket's ai_triage and return the result, or None when the ticket is gone."""
+def _merge_triage(input: RecordTriageInput) -> bool:
+    """Merge the patch into the ticket's ai_triage JSON. Returns False when the ticket is gone."""
     with transaction.atomic():
         ticket = Ticket.objects.select_for_update().filter(team_id=input.team_id, id=input.ticket_id).first()
         if ticket is None:
-            return None
+            return False
         patch = dict(input.patch)
         clear_clarification = bool(patch.pop("clear_clarification", False))
         current = ticket.ai_triage if isinstance(ticket.ai_triage, dict) else {}
@@ -62,26 +48,37 @@ def _merge_triage(input: RecordTriageInput) -> dict[str, Any] | None:
             merged["status"] = "done"
         ticket.ai_triage = merged
         ticket.save(update_fields=update_fields)
-    return merged
+    return True
 
 
-def _capture_run_completed(input: RecordTriageInput, *, started_at: object) -> None:
-    # Outcome fields come from the terminal patch only. The merged state can still hold
-    # fields an earlier run on the same ticket wrote.
+def _parse_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _capture_run_completed(input: RecordTriageInput) -> None:
     patch = input.patch
     cost = patch.get("cost")
     if not isinstance(cost, dict):
         cost = {}
     draft_task_run_ids = [str(run_id) for run_id in patch.get("draft_task_run_ids") or []]
+    run_id = patch.get("run_id")
     try:
         team = Team.objects.get(id=input.team_id)
         ph_background_capture()(
             distinct_id=str(team.uuid),
             event=RUN_COMPLETED_EVENT,
+            # A retried activity re-sends the same uuid and timestamp, so the events table merges the copies.
+            uuid=str(uuid5(NAMESPACE_URL, f"{RUN_COMPLETED_EVENT}:{run_id}")) if run_id else None,
+            timestamp=_parse_timestamp(patch.get("finished_at")),
             properties={
                 "ticket_id": str(input.ticket_id),
                 "workflow_id": patch.get("workflow_id"),
-                "run_id": patch.get("run_id"),
+                "run_id": run_id,
                 "ai_triage_result": patch.get("result"),
                 "ai_triage_status": patch.get("status"),
                 "ticket_type": patch.get("ticket_type"),
@@ -89,7 +86,7 @@ def _capture_run_completed(input: RecordTriageInput, *, started_at: object) -> N
                 "ai_trace_id": patch.get("ai_trace_id"),
                 "draft_task_run_ids": draft_task_run_ids,
                 "draft_run_count": len(draft_task_run_ids),
-                "started_at": started_at,
+                "started_at": patch.get("started_at"),
                 "finished_at": patch.get("finished_at"),
                 "llm_calls": cost.get("llm_calls"),
                 "sandbox_seconds": cost.get("sandbox_seconds"),
@@ -98,3 +95,16 @@ def _capture_run_completed(input: RecordTriageInput, *, started_at: object) -> N
         )
     except Exception:
         logger.warning("support_reply_run_capture_failed", team_id=input.team_id, exc_info=True)
+
+
+def _record_triage_sync(input: RecordTriageInput) -> None:
+    # Only the workflow's terminal patch carries finished_at.
+    if _merge_triage(input) and "finished_at" in input.patch:
+        _capture_run_completed(input)
+
+
+@activity.defn(name="support-record-triage")
+@close_db_connections
+async def support_record_triage_activity(input: RecordTriageInput) -> None:
+    """Merge triage/outcome metadata into the ticket's ai_triage JSON field."""
+    await database_sync_to_async(_record_triage_sync, thread_sensitive=False)(input)

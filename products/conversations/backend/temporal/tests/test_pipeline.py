@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from contextlib import ExitStack
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -3258,6 +3259,7 @@ class TestRecordTriageActivity:
             assert last_call_patch["status"] == "done"
             assert last_call_patch["result"] == expected_result
             assert "finished_at" in last_call_patch
+            assert last_call_patch["started_at"] == first_call_patch["started_at"]
             expected_llm_calls = {
                 "persisted": 5,
                 "blocked_unsafe": 1,
@@ -3468,21 +3470,14 @@ class TestRecordTriageSync:
                     patch={"schema_version": 1, "status": "in_progress", "started_at": "t0"},
                 )
             )
-            background_capture.return_value.assert_not_called()
-            _record_triage_sync(
-                RecordTriageInput(
-                    team_id=ticket.team_id,
-                    ticket_id=str(ticket.id),
-                    patch={
-                        "status": "done",
-                        "result": "persisted",
-                        "finished_at": "t1",
-                        "ai_trace_id": "trace-1",
-                        "draft_task_run_ids": ["run-a", "run-b"],
-                        "cost": {"sandbox_seconds": 12.5, "llm_calls": 4},
-                    },
-                )
+        background_capture.return_value.assert_not_called()
+        _record_triage_sync(
+            RecordTriageInput(
+                team_id=ticket.team_id,
+                ticket_id=str(ticket.id),
+                patch={"status": "done", "result": "persisted", "finished_at": "t1"},
             )
+        )
 
         ticket.refresh_from_db()
         assert ticket.ai_triage == {
@@ -3491,26 +3486,55 @@ class TestRecordTriageSync:
             "status": "done",
             "result": "persisted",
             "finished_at": "t1",
-            "ai_trace_id": "trace-1",
-            "draft_task_run_ids": ["run-a", "run-b"],
-            "cost": {"sandbox_seconds": 12.5, "llm_calls": 4},
         }
-        capture = background_capture.return_value
-        capture.assert_called_once()
-        assert capture.call_args.kwargs["event"] == "support ai reply run completed"
-        assert capture.call_args.kwargs["properties"] == {
+
+    @pytest.mark.django_db
+    def test_terminal_write_captures_run_with_its_own_start_and_stable_identity(self):
+        ticket = self._make_ticket()
+        # An earlier run left its start time behind, and this run's best-effort start write never landed.
+        Ticket.objects.filter(id=ticket.id).update(
+            ai_triage={"run_id": "run-1", "started_at": "2026-10-01T09:00:00+00:00"}
+        )
+        terminal = RecordTriageInput(
+            team_id=ticket.team_id,
+            ticket_id=str(ticket.id),
+            patch={
+                "workflow_id": "wf-1",
+                "run_id": "run-2",
+                "status": "done",
+                "result": "persisted",
+                "ticket_type": "how_to",
+                "attempts": 1,
+                "started_at": "2026-10-07T09:00:00+00:00",
+                "finished_at": "2026-10-07T09:02:00+00:00",
+                "ai_trace_id": "trace-1",
+                "draft_task_run_ids": ["task-run-a"],
+                "cost": {"sandbox_seconds": 12.5, "llm_calls": 4},
+            },
+        )
+
+        with patch(f"{RECORD_TRIAGE_MODULE}.ph_background_capture") as background_capture:
+            _record_triage_sync(terminal)
+            _record_triage_sync(terminal)
+
+        first, retry = background_capture.return_value.call_args_list
+        assert first.kwargs["uuid"] is not None
+        assert first.kwargs == retry.kwargs
+        assert first.kwargs["event"] == "support ai reply run completed"
+        assert first.kwargs["timestamp"] == datetime(2026, 10, 7, 9, 2, tzinfo=UTC)
+        assert first.kwargs["properties"] == {
             "ticket_id": str(ticket.id),
-            "workflow_id": None,
-            "run_id": None,
+            "workflow_id": "wf-1",
+            "run_id": "run-2",
             "ai_triage_result": "persisted",
             "ai_triage_status": "done",
-            "ticket_type": None,
-            "attempts": None,
+            "ticket_type": "how_to",
+            "attempts": 1,
             "ai_trace_id": "trace-1",
-            "draft_task_run_ids": ["run-a", "run-b"],
-            "draft_run_count": 2,
-            "started_at": "t0",
-            "finished_at": "t1",
+            "draft_task_run_ids": ["task-run-a"],
+            "draft_run_count": 1,
+            "started_at": "2026-10-07T09:00:00+00:00",
+            "finished_at": "2026-10-07T09:02:00+00:00",
             "llm_calls": 4,
             "sandbox_seconds": 12.5,
         }
