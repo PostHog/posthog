@@ -6141,6 +6141,32 @@ describe('runStreamLogic', () => {
             )
         })
 
+        // The policy gate only helps if the stream passes the flag through; a caller that forgets
+        // the option would auto-approve the workflow write with the flag on.
+        it('shows a card for a destructive workflow tool when chat actions are on', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.POSTHOG_AI_CHAT_ACTIONS], {
+                [FEATURE_FLAGS.POSTHOG_AI_CHAT_ACTIONS]: true,
+            })
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            const source = MockStream.latest()
+
+            await source.emitMessage({
+                ...permissionFrame,
+                requestId: 'req-enable',
+                toolCall: {
+                    ...permissionFrame.toolCall,
+                    serverName: 'posthog',
+                    toolName: 'exec',
+                    _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
+                    rawInput: { command: 'call workflows-enable {"id":"wf_1"}' },
+                },
+            })
+
+            expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-enable')
+            expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+        })
+
         it('auto-approves a built-in tool without showing a card', async () => {
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
@@ -6173,6 +6199,38 @@ describe('runStreamLogic', () => {
         })
 
         describe('full-auto mode', () => {
+            // Full auto skips the policy entirely, so the chat-action approval has to be checked before
+            // that short-circuit or a bypassPermissions run enables the workflow silently.
+            it.each([
+                ['a destructive workflow tool', 'call workflows-enable {"id":"wf_1"}'],
+                ['a call whose sub-tool cannot be read', 'call --later workflows-enable {"id":"wf_1"}'],
+            ])('still shows a card for %s when chat actions are on', async (_case, command) => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.POSTHOG_AI_CHAT_ACTIONS], {
+                    [FEATURE_FLAGS.POSTHOG_AI_CHAT_ACTIONS]: true,
+                })
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                const source = MockStream.latest()
+
+                await source.emitMessage(
+                    notification('session/new', { _meta: { permissionMode: 'bypassPermissions' } })
+                )
+                await source.emitMessage({
+                    ...permissionFrame,
+                    requestId: 'req-enable-fa',
+                    toolCall: {
+                        ...permissionFrame.toolCall,
+                        serverName: 'posthog',
+                        toolName: 'exec',
+                        _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
+                        rawInput: { command },
+                    },
+                })
+
+                expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-enable-fa')
+                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+            })
+
             // A `bypassPermissions` run opts out of tool approvals. The mode arrives only on the
             // session/new meta, so this also guards that seed parsing.
             it('auto-approves an external MCP tool once session/new seeds bypassPermissions', async () => {

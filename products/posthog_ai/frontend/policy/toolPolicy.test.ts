@@ -1,7 +1,13 @@
 import type { PermissionRequestRecord, ToolInvocation } from '../types/streamTypes'
 import type { PermissionOption } from '../types/wireTypes'
 import type { AgentQuestion } from './questionUtils'
-import { defaultPermissionDecision, findAllowOptionId, isPostHogExecTool, type PermissionDecision } from './toolPolicy'
+import {
+    defaultPermissionDecision,
+    findAllowOptionId,
+    isPostHogExecTool,
+    type PermissionDecision,
+    requiresChatActionApproval,
+} from './toolPolicy'
 
 function makeRecord(
     overrides: {
@@ -121,6 +127,56 @@ describe('toolPolicy', () => {
             ],
         ])('%s → %s', (_case, record, expected) => {
             expect(defaultPermissionDecision(record)).toEqual(expected)
+        })
+
+        // With chat actions on, a click and a typed request both land on the same card for the
+        // destructive workflow tools; without the flag the policy must not change at all.
+        it.each<[string, string, boolean, PermissionDecision]>([
+            ['workflows-enable', 'call workflows-enable {"id":"w1"}', true, 'prompt'],
+            ['a confirmed workflows-publish', 'call workflows-publish {"id":"w1","confirm":true}', true, 'prompt'],
+            // The first publish call only previews the impact and changes nothing.
+            ['a workflows-publish preview', 'call workflows-publish {"id":"w1"}', true, 'auto_allow'],
+            ['a workflows-publish with an unreadable body', 'call workflows-publish {"id":', true, 'prompt'],
+            // The server lifts a payload wrapped under one key, so a wrapped confirm is a real publish.
+            [
+                'a confirmed workflows-publish wrapped one level deep',
+                'call workflows-publish {"input":{"id":"w1","confirm":true,"confirm_token":"t"}}',
+                true,
+                'prompt',
+            ],
+            ['a workflows-publish with a null body', 'call workflows-publish null', true, 'prompt'],
+            ['workflows-enable with the flag off', 'call workflows-enable {"id":"w1"}', false, 'auto_allow'],
+            ['a non-destructive workflow tool', 'call workflows-create {"name":"x"}', true, 'auto_allow'],
+            ['workflows-enable behind two flags', 'call --json --confirm workflows-enable {"id":"w1"}', true, 'prompt'],
+            [
+                'workflows-enable behind two flags with the flag off',
+                'call --json --confirm workflows-enable {"id":"w1"}',
+                false,
+                'auto_allow',
+            ],
+            // A call whose sub-tool cannot be read fails closed under the flag and stays as it was without it.
+            ['an unparsable call', 'call --json', true, 'prompt'],
+            ['a call behind an unknown flag', 'call --later workflows-enable {"id":"w1"}', true, 'prompt'],
+            ['an unparsable call with the flag off', 'call --json', false, 'auto_allow'],
+            ['a discovery verb', 'search workflows', true, 'auto_allow'],
+        ])('%s → %s', (_case, command, chatActionsEnabled, expected) => {
+            expect(defaultPermissionDecision(makeRecord({ input: { command } }), { chatActionsEnabled })).toEqual(
+                expected
+            )
+        })
+    })
+
+    describe('requiresChatActionApproval', () => {
+        it.each([
+            ['call workflows-publish {"id":"w1","confirm":true}', true],
+            ['call workflows-publish {"id":"w1"}', false],
+            ['call --confirm WORKFLOWS-ENABLE {"id":"w1"}', true],
+            ['call --later workflows-enable {"id":"w1"}', true],
+            ['call --json', true],
+            ['call workflows-create {}', false],
+            ['search workflows', false],
+        ])('%s → %s', (command, expected) => {
+            expect(requiresChatActionApproval(makeRecord({ input: { command } }))).toBe(expected)
         })
     })
 

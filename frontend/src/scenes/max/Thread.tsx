@@ -91,6 +91,7 @@ import { ReplayVisionScanWidget } from 'products/replay_vision/frontend/posthogA
 
 import { LangGraphActivity, ShimmeringContent } from './components/Activity'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
+import { MaxChatActionComposerProvider } from './components/MaxChatActionComposerProvider'
 import { MaxWebAnalyticsNudge } from './components/MaxWebAnalyticsNudge'
 import { ContextSummary } from './Context'
 import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
@@ -180,7 +181,9 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
                     {/* The live Max column owns scroll via ThreadAutoScroller — render rows in flow, not virtualized. */}
-                    <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} skin={threadSkin} />
+                    <MaxChatActionComposerProvider>
+                        <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} skin={threadSkin} />
+                    </MaxChatActionComposerProvider>
                 </BindLogic>
             </div>
         )
@@ -200,7 +203,9 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     logic={runStreamLogic}
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
-                    <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} skin={threadSkin} />
+                    <MaxChatActionComposerProvider>
+                        <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} skin={threadSkin} />
+                    </MaxChatActionComposerProvider>
                 </BindLogic>
             </div>
         )

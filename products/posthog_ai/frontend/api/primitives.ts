@@ -42,6 +42,14 @@ export { DEFAULT_SUGGESTIONS_DATA } from '../components/suggestions/suggestionsD
 // `Thread` is the Radix-style compound (Root + Message/Markdown/Reasoning/Failure/Activity/ToolCall
 // atoms); `ThreadView` is the prepackaged virtualized presenter (also `Thread.Root`).
 export { Thread } from '../components/Thread'
+// The composer seam the suggested-action buttons drive; a host that renders a thread above its own
+// composer provides one, as the runner and the Max panel do.
+export {
+    ChatActionComposerProvider,
+    PENDING_REQUEST_REASON,
+    useChatActionComposer,
+} from '../components/ChatActionComposerContext'
+export type { ChatActionComposer } from '../components/ChatActionComposerContext'
 export { ThreadView } from '../components/ThreadView'
 export type { ThreadSkin } from '../components/quill/quillThreadContext'
 export { useThreadSkin } from '../hooks/useThreadSkin'

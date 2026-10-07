@@ -1,6 +1,6 @@
-import { isPostHogExecTool } from '../components/tool/posthogExecDisplay'
+import { isPostHogExecTool, parseExecCommand } from '../components/tool/posthogExecDisplay'
 import type { PermissionRequestRecord } from '../types/streamTypes'
-import { resolveToolCall } from '../utils/toolResolver'
+import { resolveToolCall, UNPARSED_EXEC_KEY } from '../utils/toolResolver'
 
 // Re-exported so existing importers (and tests) keep resolving the exec-tool check from here.
 export { isPostHogExecTool } from '../components/tool/posthogExecDisplay'
@@ -20,10 +20,54 @@ export function isFullAutoMode(mode: string | null | undefined): boolean {
 
 export type PermissionDecision = 'auto_allow' | 'prompt'
 
+interface PermissionDecisionOptions {
+    /**
+     * `FEATURE_FLAGS.POSTHOG_AI_CHAT_ACTIONS`. With chat actions on, a click can ask for a destructive
+     * workflow tool, so those calls get the approval card a typed request also gets.
+     */
+    chatActionsEnabled?: boolean
+}
+
 const CONNECTED_PROJECT_SUB_TOOLS = new Set(['posthog-connection-call', 'posthog-connection-forward'])
+
+/** PostHog sub-tools that act on real people; the exec server never asks for confirmation itself. */
+const DESTRUCTIVE_CHAT_ACTION_SUB_TOOLS = new Set(['workflows-enable', 'workflows-publish'])
+
+const PUBLISH_PREVIEW_KEYS = new Set(['id', 'confirm', 'confirm_token'])
+
+/**
+ * A publish without `confirm: true` only previews its impact, so it needs no card. Only the exact
+ * preview shape counts: the server lifts a payload wrapped under one key, so any other body might
+ * carry a confirmed publish.
+ */
+function isPublishPreview(innerToolName: string, innerInput: unknown): boolean {
+    if (innerToolName !== 'workflows-publish' || !isPlainObject(innerInput)) {
+        return false
+    }
+    const keys = Object.keys(innerInput)
+    return keys.every((key) => PUBLISH_PREVIEW_KEYS.has(key)) && !innerInput.confirm
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
 
 function isConnectedProjectSubTool(subTool: string): boolean {
     return CONNECTED_PROJECT_SUB_TOOLS.has(subTool.toLowerCase())
+}
+
+/**
+ * Whether a request needs the approval card while chat actions are on: it names a destructive
+ * workflow tool, or it is a `call` whose sub-tool cannot be read and may name one behind a flag
+ * this parser does not know. Full-auto checks this too, so both paths fail closed the same way.
+ */
+export function requiresChatActionApproval(record: PermissionRequestRecord): boolean {
+    const { resolvedKey, innerToolName, innerInput } = resolveToolCall(record.rawToolCall)
+    if (innerToolName != null) {
+        const subTool = innerToolName.toLowerCase()
+        return DESTRUCTIVE_CHAT_ACTION_SUB_TOOLS.has(subTool) && !isPublishPreview(subTool, innerInput)
+    }
+    return resolvedKey === UNPARSED_EXEC_KEY && isExecCallVerb(record)
 }
 
 export function isConnectedProjectTool(record: PermissionRequestRecord): boolean {
@@ -39,7 +83,10 @@ export function isConnectedProjectTool(record: PermissionRequestRecord): boolean
  * task's project auto-approve. Connected-project calls, other MCP servers, and frames that cannot be
  * identified still prompt.
  */
-export function defaultPermissionDecision(record: PermissionRequestRecord): PermissionDecision {
+export function defaultPermissionDecision(
+    record: PermissionRequestRecord,
+    options: PermissionDecisionOptions = {}
+): PermissionDecision {
     // An `AskUserQuestion` rides the permission framework but is not an approval — auto-approving it
     // would pick the first option with no `answers`, which the agent rejects. Always prompt the user.
     if (record.questions?.length) {
@@ -54,7 +101,7 @@ export function defaultPermissionDecision(record: PermissionRequestRecord): Perm
         if (innerToolName != null && isConnectedProjectSubTool(innerToolName)) {
             return 'prompt'
         }
-        return 'auto_allow'
+        return options.chatActionsEnabled && requiresChatActionApproval(record) ? 'prompt' : 'auto_allow'
     }
 
     if (toolName.startsWith('mcp__')) {
@@ -63,6 +110,11 @@ export function defaultPermissionDecision(record: PermissionRequestRecord): Perm
 
     // A canonical name identifies a built-in (Bash, Edit, …); an empty name can't be identified.
     return toolName ? 'auto_allow' : 'prompt'
+}
+
+function isExecCallVerb(record: PermissionRequestRecord): boolean {
+    const command = record.rawToolCall.input.command
+    return typeof command === 'string' && parseExecCommand(command).verb === 'call'
 }
 
 /** The optionId to auto-send when allowing — prefers the one-shot allow over `allow_always`. */
