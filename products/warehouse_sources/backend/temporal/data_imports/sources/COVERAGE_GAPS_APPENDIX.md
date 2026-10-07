@@ -4399,6 +4399,19 @@ Diffed against: <https://instatus.com/help/api>
 
 Note: Existing 'team' table maps to the teammates endpoint (GET /v1/{page_id}/team) and 'pages' to GET /v2/pages, so those are covered. Metric data points are POST/DELETE only — there is no GET for metric datapoints, so metric time series is not fetchable. escalation-policies, monitors, on-call-schedules, routing-rules and monitoring-integrations doc pages expose no GET list endpoints.
 
+## Intercom — gaps
+
+Today (25): `activity_logs`, `admins`, `articles`, `audiences`, `collections`, `companies`, `company_attributes`, `company_segments`, `contact_attributes`, `contacts`, `content_snippets`, `conversation_attributes`, `conversation_parts`, `conversations`, `help_centers`, `macros`, `news_items`, `newsfeeds`, `segments`, `subscription_types`, `tags`, `teams`, `ticket_states`, `ticket_types`, `tickets`
+
+Diffed against: <https://github.com/intercom/Intercom-OpenAPI/blob/main/descriptions/2.16/api.intercom.io.yaml>
+
+The main spec-verified diff is in [COVERAGE_GAPS.md](COVERAGE_GAPS.md#intercom--spec-verified). These endpoints were announced in the 2.16 changelog and are not in the 2.13 or 2.15 descriptions, so the tables only show for sources pinned to 2.16.
+
+- [x] `GET /conversations/attributes` — conversation attribute definitions with list options, which decode the custom attribute values on `conversations` (medium). Added as `conversation_attributes`, including archived attributes.
+- [x] `GET /macros` — saved replies teammates use in the inbox (medium). Added as `macros`, incremental on `updated_at` through the `updated_since` filter.
+- [x] `GET /audiences` — saved audience definitions that content and messages target (low). Added as `audiences`.
+- [x] `GET /content_snippets` — snippets that feed Fin and Copilot answers (medium). Added as `content_snippets`.
+
 ## Intruder — adequate
 
 Today (7): `fixed_occurrences`, `issues`, `occurrences`, `scan_schedules`, `scans`, `tags`, `targets`
