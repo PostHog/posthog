@@ -153,17 +153,18 @@ function ProportionBarInner<Meta = unknown>({
             if (!entry) {
                 return null
             }
-            const part = seriesByKey.get(entry.series.key) ?? entry.series
+            const original = seriesByKey.get(entry.series.key) ?? entry.series
+            const part = { ...original, color: colorByKey.get(original.key) ?? entry.color }
             const value = valueByKey.get(entry.series.key) ?? 0
             const partCtx = {
                 ...ctx,
                 label: part.label,
-                dataIndex: series.indexOf(part),
+                dataIndex: series.indexOf(original),
                 seriesData: [{ ...entry, series: part, value, fraction: fractionOf(value) }],
             }
             return tooltip ? tooltip(partCtx) : <PieTooltip ctx={partCtx} valueFormatter={valueFormatter} />
         },
-        [tooltip, series, seriesByKey, valueByKey, fractionOf, valueFormatter]
+        [tooltip, series, seriesByKey, colorByKey, valueByKey, fractionOf, valueFormatter]
     )
 
     const handlePointClick = useCallback(

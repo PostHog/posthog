@@ -94,6 +94,8 @@ export interface HogChart<Meta = unknown> {
      *  chart's change, a proportion bar's `share · value`), or null when the row has none. Empty when
      *  the legend is hidden. */
     legendItems(): LegendItemSummary[]
+    /** @deprecated Use `legendItems()`, which reads any chart's legend. */
+    slopeLegendItems(): LegendItemSummary[]
     /** Click the legend row with this label. `additive` holds ⌘/Ctrl, which toggles that one series
      *  instead of isolating it. Throws when no legend row has the label. */
     clickLegendItem(label: string, options?: { additive?: boolean }): void
@@ -233,6 +235,7 @@ export function getHogChart<Meta = unknown>(
                 (el) => el.textContent ?? ''
             ),
         legendItems: () => readLegendItems(scope),
+        slopeLegendItems: () => readLegendItems(scope),
         clickLegendItem(label: string, { additive = false }: { additive?: boolean } = {}): void {
             const labelEl = Array.from(
                 scope.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-label"]')

@@ -26,7 +26,11 @@ describe('ProportionBar', () => {
 
         expect(tooltip).toMatchObject({ label: 'b', dataIndex: 1 })
         expect(tooltip.seriesData).toHaveLength(1)
-        expect(tooltip.seriesData[0]).toMatchObject({ series: { key: 'b' }, value: 100, fraction: 0.125 })
+        expect(tooltip.seriesData[0]).toMatchObject({
+            series: { key: 'b', color: THEME.colors[1] },
+            value: 100,
+            fraction: 0.125,
+        })
     })
 
     it.each([
