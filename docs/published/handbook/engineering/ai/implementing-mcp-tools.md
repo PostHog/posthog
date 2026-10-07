@@ -370,7 +370,7 @@ Product teams own their definitions and control which operations are exposed as 
    name fails generation instead of silently dropping the argument at runtime.
    See "UI apps" in `services/mcp/CONTRIBUTING.md` for the rules.
 
-   Some clients display interactive apps with `render-ui`. Apps fetch data through read-only tools such as `query-trends` and `query-funnel`, which stay hidden from the model. After changing tools, refresh the client's tool list and start a new conversation.
+   Some clients display interactive apps with `render-ui`. In single-exec mode, `render-ui` supports only query runners such as `query-trends`, `query-funnel`, and their `-actors` variants. These runners fetch app data and stay hidden from the model; other tools remain available through `exec`. After changing tools, refresh the client's tool list and start a new conversation.
 
    A custom UI app can set `resource_domains` when it loads an image, font, script, or stylesheet from an external source. Each value must be a CSP source expression. Declare only the required origin or path.
 

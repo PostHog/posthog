@@ -190,9 +190,10 @@ describe('ToolExecutor analytics capture', () => {
     it.each([false, true])('captures optional app analytics when supplied=%s', async (supplied) => {
         const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
         const tool = {
-            name: 'projects-get',
-            title: 'Read projects',
-            description: 'Synthetic project read',
+            name: 'query-trends',
+            title: 'Run trends',
+            description: 'Synthetic trends query',
+            _meta: { ui: { resourceUri: 'ui://posthog/query-results.html' } },
             scopes: [],
             annotations: { readOnlyHint: true },
             schema: z.object({}).strict(),
@@ -222,7 +223,7 @@ describe('ToolExecutor analytics capture', () => {
         const result = await executor.handleToolCall(
             {
                 name: tool.name,
-                arguments: supplied ? { context: 'Compare synthetic projects', llm_model: 'example-model' } : {},
+                arguments: supplied ? { context: 'Compare synthetic trends', llm_model: 'example-model' } : {},
             },
             state
         )
@@ -231,7 +232,7 @@ describe('ToolExecutor analytics capture', () => {
         expect(capture).toHaveBeenCalledOnce()
         const captured = capture.mock.calls[0]![0]
         expect(captured.toolName).toBe(tool.name)
-        expect(captured.intent).toBe(supplied ? 'Compare synthetic projects' : undefined)
+        expect(captured.intent).toBe(supplied ? 'Compare synthetic trends' : undefined)
         expect(captured.llmModel).toBe(supplied ? 'example-model' : undefined)
     })
 
