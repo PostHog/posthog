@@ -265,6 +265,15 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
 CDC_SNAPSHOT_LANE_KEY = "cdc_snapshot_lane"
 
 
+# In `sync_type_config`: how many of this schema's runs failed in a row, and when the last of them
+# failed. `retry_limits` turns the count into this schema's retry cap and its smallest gap between
+# runs. A key here rather than a column because clearing it is what a reset is for: a reset
+# re-reads the table from the start, which is the progress a streak counts the absence of.
+FAILURE_STREAK_KEY = "failure_streak"
+FAILURE_STREAK_RUNS_KEY = "runs"
+FAILURE_STREAK_LAST_FAILED_AT_KEY = "last_failed_at"
+
+
 class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-django-pk -- grandfathered UUIDT primary key
     ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields
 ):
@@ -494,6 +503,54 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     def sync_halted(self) -> bool:
         """True when syncing will not resume without user action."""
         return not self.should_sync or self.cdc_halted
+
+    @property
+    def _failure_streak(self) -> dict[str, Any]:
+        """The streak marker, or an empty one for any value this cannot read.
+
+        Both readers below run on the terminal status write of every run, so a raise here would
+        fail every sync of the schema rather than throttle it.
+        """
+        config = self.sync_type_config if isinstance(self.sync_type_config, dict) else {}
+        streak = config.get(FAILURE_STREAK_KEY)
+        return streak if isinstance(streak, dict) else {}
+
+    @property
+    def failed_runs_in_a_row(self) -> int:
+        """Runs of this schema that failed since its last completed run."""
+        runs = self._failure_streak.get(FAILURE_STREAK_RUNS_KEY)
+        return runs if isinstance(runs, int) and not isinstance(runs, bool) and runs > 0 else 0
+
+    @property
+    def failure_streak_last_failed_at(self) -> datetime | None:
+        """When the newest run in the streak failed, or None while there is no streak."""
+        stamped = self._failure_streak.get(FAILURE_STREAK_LAST_FAILED_AT_KEY)
+        if not isinstance(stamped, str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(stamped)
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+    def note_failed_run(self, failed_at: datetime) -> None:
+        """Add one failed run to the streak, in memory.
+
+        The caller saves `sync_type_config` under the row lock it already holds for the run's
+        terminal status, so the streak lands in that statement rather than in a second
+        read-modify-write that could race it.
+        """
+        config = self.sync_type_config if isinstance(self.sync_type_config, dict) else {}
+        config[FAILURE_STREAK_KEY] = {
+            FAILURE_STREAK_RUNS_KEY: self.failed_runs_in_a_row + 1,
+            FAILURE_STREAK_LAST_FAILED_AT_KEY: failed_at.isoformat(),
+        }
+        self.sync_type_config = config
+
+    def clear_failure_streak(self) -> None:
+        """Drop the streak, in memory. The caller saves `sync_type_config`."""
+        if isinstance(self.sync_type_config, dict):
+            self.sync_type_config.pop(FAILURE_STREAK_KEY, None)
 
     @property
     def cdc_mode(self) -> Literal["snapshot", "streaming"] | None:
@@ -1659,6 +1716,10 @@ def update_should_sync(
 
     schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)
     schema.should_sync = should_sync
+    # Turning syncing back on says the source is worth trying again, so the next run starts on
+    # the full retry cap and the normal cadence.
+    if should_sync:
+        schema.clear_failure_streak()
     with sync_disable_context(error_message=disable_error_message, exclude_workflow_id=disable_exclude_workflow_id):
         schema.save()
 
