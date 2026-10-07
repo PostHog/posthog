@@ -453,7 +453,7 @@ class Pipeline:
             is_allow_listed_only(file_paths)
             and not has_dependency_changes(file_paths)
             and not dep_manifests
-            and not has_ci_workflow_changes(file_paths)
+            and not has_ci_workflow_changes(pr.deny_paths)
         )
         is_test = test_only(categories)
         ownership_resolvers = build_ownership(REPO_ROOT, POLICY.ownership)

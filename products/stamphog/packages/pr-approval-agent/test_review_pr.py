@@ -334,8 +334,17 @@ def test_dep_manifest_pr_gets_t1_scrutiny_not_t0(monkeypatch: pytest.MonkeyPatch
     assert pipeline.classification["dep_manifests_without_lockfile"] == [manifest]
 
 
-@pytest.mark.parametrize("workflow", [".github/workflows/ci-backend.yml", ".depot/workflows/ci-backend.yml"])
-def test_exempt_author_workflow_pr_gets_t1_scrutiny_not_t0(monkeypatch: pytest.MonkeyPatch, workflow: str) -> None:
+@pytest.mark.parametrize(
+    "filename, touched_paths",
+    [
+        pytest.param(".github/workflows/ci-backend.yml", [], id="github-workflow"),
+        pytest.param(".depot/workflows/ci-backend.yml", [], id="depot-workflow"),
+        pytest.param("docs/ci-backend.yml", [".github/workflows/ci-backend.yml"], id="workflow-renamed-out"),
+    ],
+)
+def test_exempt_author_workflow_pr_gets_t1_scrutiny_not_t0(
+    monkeypatch: pytest.MonkeyPatch, filename: str, touched_paths: list[str]
+) -> None:
     # A workflow is .yml, so once the owner-only exemption lifts the deny, the allow-list
     # would classify it T0 and approve it with no reviewer.
     monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
@@ -343,7 +352,8 @@ def test_exempt_author_workflow_pr_gets_t1_scrutiny_not_t0(monkeypatch: pytest.M
     pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
     pipeline.author_team_slugs = {"team-devex"}
     pr = _fake_pr(head_sha="abc123")
-    pr.files = [{"filename": workflow, "additions": 2, "deletions": 1, "status": "M"}]
+    pr.files = [{"filename": filename, "additions": 2, "deletions": 1, "status": "M"}]
+    pr.touched_paths = touched_paths
     pipeline.pr = pr
 
     pipeline._classify()
