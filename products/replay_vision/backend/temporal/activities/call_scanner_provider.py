@@ -8,6 +8,7 @@ Each step validates its own output and re-prompts once on failure; required step
 """
 
 import re
+import json
 import math
 import time
 import asyncio
@@ -85,6 +86,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
 from products.replay_vision.backend.temporal.scanners.experiment import ExperimentScanner
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs, load_session_network
+from products.replay_vision.backend.temporal.team_context import CONTROL_CHARS_RE
 from products.replay_vision.backend.temporal.types import (
     CallScannerProviderInputs,
     NavigationEntry,
@@ -924,6 +926,13 @@ async def _run_step(
 
         text = (response.text or "").strip()
         parsed, error = _parse_and_validate(step, text)
+        if error is None and (scrubbed := _without_control_chars(text)) is not None:
+            if attempt < _MAX_LLM_ATTEMPTS - 1:
+                error = _CONTROL_CHARS_ERROR
+            else:
+                # Postgres cannot store some of these characters, so a lost letter is better than a lost observation.
+                logger.warning("replay_vision.call_scanner_provider.control_chars_dropped", step=step.name)
+                parsed, error = _parse_and_validate(step, scrubbed)
         capped = error is not None and _hit_output_cap(response)
         if capped:
             # The cap counts thoughts, so the usual "respond with raw JSON" correction would only re-run the
@@ -982,6 +991,30 @@ _RUNAWAY_NUMBER_CORRECTION = (
 
 def _is_runaway_number(exc: ValueError) -> bool:
     return "integer string conversion" in str(exc)
+
+
+# The model sometimes writes an accented letter as a wrong `\u` escape, which decodes to a control character.
+_CONTROL_CHARS_ERROR = (
+    "the answer contains control characters where letters belong; write accented and non-English letters "
+    "directly, never as \\u escapes"
+)
+
+
+def _without_control_chars(text: str) -> str | None:
+    """The JSON answer with control characters removed from its strings, or None when it has none."""
+    data = json.loads(text)
+    cleaned = _strip_control_chars(data)
+    return None if cleaned == data else json.dumps(cleaned, ensure_ascii=False)
+
+
+def _strip_control_chars(value: Any) -> Any:
+    if isinstance(value, str):
+        return CONTROL_CHARS_RE.sub("", value)
+    if isinstance(value, dict):
+        return {key: _strip_control_chars(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_strip_control_chars(item) for item in value]
+    return value
 
 
 def _hit_output_cap(response: Any) -> bool:

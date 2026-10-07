@@ -25,7 +25,7 @@ _MAX_EVENT_DESCRIPTION_LEN = 500
 _MAX_LOOKUP_NAMES = 300
 
 # \x0a (newline) is excluded so `keep_newlines` callers can preserve line structure.
-_CONTROL_CHARS_RE = re.compile(r"[\x00-\x09\x0b-\x1f\x7f-\x9f]")
+CONTROL_CHARS_RE = re.compile(r"[\x00-\x09\x0b-\x1f\x7f-\x9f]")
 
 
 @cache
@@ -39,7 +39,7 @@ def _core_event_names() -> frozenset[str]:
 
 def sanitize_prompt_text(text: str, max_len: int, *, keep_newlines: bool = False) -> str:
     # Backticks become apostrophes because the preamble fences these values as inline code.
-    stripped = _CONTROL_CHARS_RE.sub(" ", text).replace("`", "'")
+    stripped = CONTROL_CHARS_RE.sub(" ", text).replace("`", "'")
     if keep_newlines:
         lines = [" ".join(line.split()) for line in stripped.split("\n")]
         cleaned = "\n".join(line for line in lines if line)
