@@ -244,8 +244,6 @@ def decide_firing_episode(
     """
     was_firing = _inside_firing(snapshot.state, policy)
     is_firing = _firing_after(was_firing, outcome.new_state, policy)
-    if outcome.new_state == AlertState.SNOOZED and is_firing:
-        return FiringEpisode(started_at=snapshot.firing_started_at, ended=False)
     if is_firing:
         # A firing that began before the platform recorded starts keeps an unknown one rather
         # than taking `now`, because a start later than `last_notified_at` would read as never
