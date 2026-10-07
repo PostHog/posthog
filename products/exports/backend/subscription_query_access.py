@@ -75,7 +75,7 @@ def delivered_queries(instance: Subscription | None, attrs: dict[str, Any]) -> l
     return []
 
 
-def tables_blocking_subscription_write(
+def blocked_access_for_subscription(
     *,
     user: User,
     team: Team,
@@ -83,10 +83,13 @@ def tables_blocking_subscription_write(
     instance: Subscription | None,
     attrs: dict[str, Any],
 ) -> list[str]:
-    """Tables and runner-level resources the requester cannot read among everything the
-    subscription delivers. An empty list means that the write passes the check."""
-    # No access rule can deny a table in an organization without the feature, or to an
-    # organization admin, so the queries are not compiled for them.
+    """Names of the tables, and of query resources such as logs, that the requester cannot read
+    among the queries the subscription delivers after this write.
+
+    An empty list means that the write passes the check. The queries are not compiled when the
+    organization does not have access control, or when the requester is an organization admin,
+    because no rule can deny a table in those cases.
+    """
     if not team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
         return []
     if user_access_control.is_organization_admin:
