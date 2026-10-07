@@ -116,6 +116,8 @@ describe('computeSankeyLayout', () => {
         ]
         const links: SankeyLinkInput[] = [{ source: 'x', target: 'y', value: 5 }]
         expect(() => layoutOf({ nodes, links, nodeAlign: 'left' })).toThrow('needs a whole column')
+        const unsized = { plotLeft: 0, plotTop: 0, plotWidth: 0, plotHeight: 0 }
+        expect(() => layoutOf({ nodes, links, nodeAlign: 'left', plot: unsized })).toThrow('needs a whole column')
     })
 
     it('resolves node colors by label and defaults link color to the source node', () => {

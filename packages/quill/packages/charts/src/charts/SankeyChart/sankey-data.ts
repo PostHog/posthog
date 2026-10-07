@@ -202,7 +202,8 @@ export function lastColumnSinkIds(
     const sinksMoveLast = nodeAlign === 'justify' || nodeAlign === 'right'
     const ids = new Set<string>()
     for (const node of nodes) {
-        if (hasOutgoing.has(node.id)) {
+        // A pin can hold a node with outgoing links in the last column, and its label sits there too.
+        if (node.column === undefined && hasOutgoing.has(node.id)) {
             continue
         }
         const column = node.column ?? (sinksMoveLast ? lastColumn : (depths.get(node.id) ?? 1) - 1)
@@ -228,10 +229,7 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     colorForLabel,
     resolveColor,
 }: ComputeSankeyLayoutOptions<NodeMeta, LinkMeta>): SankeyChartLayout<NodeMeta, LinkMeta> {
-    if (nodes.length === 0 || links.length === 0 || plot.plotWidth <= 0 || plot.plotHeight <= 0) {
-        return EMPTY_SANKEY_LAYOUT as SankeyChartLayout<NodeMeta, LinkMeta>
-    }
-
+    // Validate before the empty-layout return, so a bad graph fails before the chart has a size.
     const nodeIds = new Set<string>()
     for (const node of nodes) {
         if (nodeIds.has(node.id)) {
@@ -261,6 +259,10 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     if (!Number.isFinite(nodePadding) || nodePadding < 0) {
         throw new Error(`Sankey nodePadding must be a finite number of 0 or more: ${nodePadding}`)
     }
+    if (nodes.length === 0 || links.length === 0 || plot.plotWidth <= 0 || plot.plotHeight <= 0) {
+        return EMPTY_SANKEY_LAYOUT as SankeyChartLayout<NodeMeta, LinkMeta>
+    }
+
     const columnCount = columnCountOf(nodes, links)
     const effectiveNodeWidth = Math.min(nodeWidth, plot.plotWidth / Math.max(1, columnCount))
 
