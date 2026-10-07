@@ -3227,6 +3227,32 @@ export namespace Schemas {
       Year: 'year',
     } as const;
 
+    export type MetricsFilterOp = typeof MetricsFilterOp[keyof typeof MetricsFilterOp];
+
+
+    export const MetricsFilterOp = {
+      Eq: 'eq',
+      Neq: 'neq',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+    } as const;
+
+    export type MetricsAttributeScope = typeof MetricsAttributeScope[keyof typeof MetricsAttributeScope];
+
+
+    export const MetricsAttributeScope = {
+      Resource: 'resource',
+      Attribute: 'attribute',
+      Auto: 'auto',
+    } as const;
+
+    export interface MetricsQueryFilter {
+      key: string;
+      op: MetricsFilterOp;
+      scope?: MetricsAttributeScope | null;
+      value: string;
+    }
+
     export interface EventPropertyFilter {
       key: string;
       label?: string | null;
@@ -3508,6 +3534,8 @@ export namespace Schemas {
       filterTestAccounts?: boolean | null;
       /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
       interval?: IntervalType | null;
+      /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
+      metricFilters?: MetricsQueryFilter[] | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
     }
 
@@ -55325,32 +55353,6 @@ export namespace Schemas {
       Increase: 'increase',
       HistogramQuantile: 'histogram_quantile',
     } as const;
-
-    export type MetricsFilterOp = typeof MetricsFilterOp[keyof typeof MetricsFilterOp];
-
-
-    export const MetricsFilterOp = {
-      Eq: 'eq',
-      Neq: 'neq',
-      Regex: 'regex',
-      NotRegex: 'not_regex',
-    } as const;
-
-    export type MetricsAttributeScope = typeof MetricsAttributeScope[keyof typeof MetricsAttributeScope];
-
-
-    export const MetricsAttributeScope = {
-      Resource: 'resource',
-      Attribute: 'attribute',
-      Auto: 'auto',
-    } as const;
-
-    export interface MetricsQueryFilter {
-      key: string;
-      op: MetricsFilterOp;
-      scope?: MetricsAttributeScope | null;
-      value: string;
-    }
 
     export interface MetricsQueryGroupBy {
       key: string;
