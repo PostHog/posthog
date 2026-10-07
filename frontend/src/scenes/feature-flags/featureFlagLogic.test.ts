@@ -881,6 +881,49 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('send a broadcast to the people who have the flag', () => {
+        const COHORT = { id: 42, name: 'Users with feature flag test-flag enabled' }
+
+        it.each([
+            { scenario: 'cohort is ready', cohort: { is_calculating: false, errors_calculating: 0 }, opens: true },
+            {
+                scenario: 'cohort failed to fill',
+                cohort: { is_calculating: false, errors_calculating: 1 },
+                opens: false,
+            },
+            {
+                scenario: 'cohort is still filling',
+                cohort: { is_calculating: true, errors_calculating: 0 },
+                opens: false,
+            },
+        ])('opens the broadcast only when the $scenario', async ({ cohort, opens }) => {
+            jest.useFakeTimers()
+            router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id))
+            useMocks({
+                post: {
+                    '/api/projects/:projectId/feature_flags/:id/create_static_cohort_for_flag/': () => [
+                        201,
+                        { cohort: { ...COHORT, is_calculating: true } },
+                    ],
+                },
+                get: { '/api/projects/:projectId/cohorts/42/': () => [200, { ...COHORT, ...cohort }] },
+            })
+
+            logic.actions.createBroadcastCohort()
+            await jest.advanceTimersByTimeAsync(61_000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            if (opens) {
+                expect(router.values.location.pathname).toContain('/broadcasts/new')
+                expect(JSON.parse(router.values.searchParams.audience)).toEqual([
+                    expect.objectContaining({ type: 'cohort', value: 42 }),
+                ])
+            } else {
+                expect(router.values.location.pathname).toContain(urls.featureFlag(MOCK_FEATURE_FLAG.id))
+            }
+        })
+    })
+
     describe('setMultivariateEnabled functionality', () => {
         it('adds default variants when enabling multivariate', async () => {
             await expectLogic(logic).toMatchValues({

@@ -88,6 +88,8 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
+import type { CohortApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
 import {
     FeatureFlagConfigFormat,
@@ -160,6 +162,9 @@ import {
     isSchedulePaused,
 } from './scheduleOccurrences'
 import { flagToggleKey, updateFlagActiveInProject } from './updateFlagActiveInProject'
+
+const BROADCAST_COHORT_POLL_MS = 2000
+const BROADCAST_COHORT_WAIT_MS = 60_000
 
 function reportFailedToCreateFeatureFlagWithCohort(code: string, detail: string): void {
     posthog.capture('failed to create feature flag with cohort', { detail, code })
@@ -958,7 +963,7 @@ export interface featureFlagLogicValues {
     alsoCreateInProjects: number[]
     availableTabs: FeatureFlagsTab[]
     breadcrumbs: Breadcrumb[]
-    broadcastCohort: CohortType | null
+    broadcastCohort: CohortApi | null
     broadcastCohortLoading: boolean
     canCreateEarlyAccessFeature: boolean
     canCreatePairedSchedule: boolean
@@ -1218,7 +1223,7 @@ export interface featureFlagLogicActions {
         featureFlagCopy: CopyFlagsResponseApi | undefined
         payload?: any
     }
-    createBroadcastCohort: () => any
+    createBroadcastCohort: (_: void) => void
     createBroadcastCohortFailure: (
         error: string,
         errorObject?: any
@@ -1227,11 +1232,11 @@ export interface featureFlagLogicActions {
         errorObject?: any
     }
     createBroadcastCohortSuccess: (
-        broadcastCohort: CohortType | null,
-        payload?: any
+        broadcastCohort: CohortApi | null,
+        payload?: void
     ) => {
-        broadcastCohort: CohortType | null
-        payload?: any
+        broadcastCohort: CohortApi | null
+        payload?: void
     }
     createEarlyAccessFeature: () => any
     createEarlyAccessFeatureFailure: (
@@ -3580,13 +3585,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         broadcastCohort: [
-            null as CohortType | null,
+            null as CohortApi | null,
             {
-                createBroadcastCohort: async () => {
-                    if (props.id && props.id !== 'new' && props.id !== 'link') {
-                        return (await api.featureFlags.createStaticCohort(props.id)).cohort
+                createBroadcastCohort: async (_: void, breakpoint) => {
+                    if (!props.id || props.id === 'new' || props.id === 'link' || !values.currentProjectId) {
+                        return null
                     }
-                    return null
+                    const projectId = String(values.currentProjectId)
+                    // nosemgrep: prefer-codegen-api-namespaced-feature_flags -- The generated function returns void, so it can't return the new cohort.
+                    const { cohort } = await api.featureFlags.createStaticCohort(props.id)
+                    // The cohort fills in the background. Opening the broadcast earlier would let it send to no one.
+                    const deadline = Date.now() + BROADCAST_COHORT_WAIT_MS
+                    let status = await cohortsRetrieve(projectId, cohort.id as number)
+                    while (status.is_calculating && Date.now() < deadline) {
+                        await breakpoint(BROADCAST_COHORT_POLL_MS)
+                        status = await cohortsRetrieve(projectId, status.id)
+                    }
+                    return status
                 },
             },
         ],
@@ -4480,22 +4495,36 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         createBroadcastCohortSuccess: ({ broadcastCohort }) => {
-            if (broadcastCohort && typeof broadcastCohort.id === 'number') {
-                captureMessageAudienceClicked('feature_flag', 'broadcast')
-                router.actions.push(
-                    messageAudienceUrl(
-                        {
-                            source: 'feature_flag',
-                            properties: cohortAudienceProperties({
-                                id: broadcastCohort.id,
-                                name: broadcastCohort.name,
-                            }),
-                            broadcastName: `${values.featureFlag.key} announcement`,
-                        },
-                        'broadcast'
-                    )
-                )
+            if (!broadcastCohort) {
+                return
             }
+            if (broadcastCohort.errors_calculating > 0) {
+                lemonToast.error("Couldn't find the people who have this flag. Try again in a few minutes.")
+                return
+            }
+            if (broadcastCohort.is_calculating) {
+                lemonToast.info(
+                    'Still finding the people who have this flag. Send the broadcast from the cohort once it is ready.',
+                    {
+                        button: {
+                            label: 'View cohort',
+                            action: () => router.actions.push(urls.cohort(broadcastCohort.id)),
+                        },
+                    }
+                )
+                return
+            }
+            captureMessageAudienceClicked('feature_flag', 'broadcast')
+            router.actions.push(
+                messageAudienceUrl(
+                    {
+                        source: 'feature_flag',
+                        properties: cohortAudienceProperties(broadcastCohort),
+                        broadcastName: `${values.featureFlag.key} announcement`,
+                    },
+                    'broadcast'
+                )
+            )
         },
         createStaticCohortSuccess: ({ newCohort }) => {
             if (newCohort) {
