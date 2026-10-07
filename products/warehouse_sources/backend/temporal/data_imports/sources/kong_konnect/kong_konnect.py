@@ -11,6 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect.settings import (
+    CONTROL_PLANE_GROUP_CLUSTER_TYPE,
+    CONTROL_PLANES_PAGE_SIZE,
+    CORE_ENTITY_PAGE_SIZE,
     DEFAULT_INITIAL_LOOKBACK_DAYS,
     KONG_KONNECT_ENDPOINTS,
     MAX_PAGE_SIZE,
@@ -143,6 +146,92 @@ def _fetch_page(
     return response.json()
 
 
+def _get_json(
+    session: requests.Session,
+    url: str,
+    params: dict[str, Any],
+    logger: FilteringBoundLogger,
+    allow_not_found: bool = False,
+) -> dict | None:
+    # The tracked session already retries 429 and transient 5xx responses.
+    response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+
+    if allow_not_found and response.status_code == 404:
+        return None
+
+    if not response.ok:
+        logger.error(f"Kong Konnect API error: status={response.status_code}, body={response.text}, url={url}")
+        response.raise_for_status()
+
+    return response.json()
+
+
+def _iter_control_planes(
+    session: requests.Session, base_url: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    page_number = 1
+    while True:
+        params = {"page[size]": CONTROL_PLANES_PAGE_SIZE, "page[number]": page_number, "sort": "created_at"}
+        data = _get_json(session, f"{base_url}/control-planes", params, logger) or {}
+        control_planes = data.get("data") or []
+
+        if control_planes:
+            yield control_planes
+
+        total = ((data.get("meta") or {}).get("page") or {}).get("total")
+        if len(control_planes) < CONTROL_PLANES_PAGE_SIZE or (
+            total is not None and page_number * CONTROL_PLANES_PAGE_SIZE >= total
+        ):
+            break
+        page_number += 1
+
+
+def _iter_core_entities(
+    session: requests.Session, base_url: str, path: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    for control_planes in _iter_control_planes(session, base_url, logger):
+        for control_plane in control_planes:
+            if (control_plane.get("config") or {}).get("cluster_type") == CONTROL_PLANE_GROUP_CLUSTER_TYPE:
+                continue
+
+            control_plane_id = control_plane["id"]
+            url = f"{base_url}/control-planes/{control_plane_id}{path}"
+            offset: str | None = None
+            while True:
+                params: dict[str, Any] = {"size": CORE_ENTITY_PAGE_SIZE}
+                if offset:
+                    params["offset"] = offset
+                data = _get_json(session, url, params, logger, allow_not_found=True)
+                if data is None:
+                    # The control plane was deleted between listing it and fanning out over it.
+                    logger.debug(f"Kong Konnect: control plane {control_plane_id} not found, skipping {path}")
+                    break
+
+                rows = data.get("data") or []
+                if rows:
+                    yield [{**row, "control_plane_id": control_plane_id} for row in rows]
+
+                offset = data.get("offset")
+                if not offset:
+                    break
+
+
+def get_lookup_rows(
+    api_token: str,
+    region: str,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    endpoint_config = KONG_KONNECT_ENDPOINTS[endpoint]
+    base_url = _get_base_url(region)
+    session = make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,))
+
+    if endpoint_config.kind == "control_planes":
+        yield from _iter_control_planes(session, base_url, logger)
+    else:
+        yield from _iter_core_entities(session, base_url, endpoint_config.path, logger)
+
+
 def validate_credentials(api_token: str, region: str) -> bool:
     """Cheap probe that the bearer token is genuine: request a single record over a small window."""
     url = f"{_get_base_url(region)}/api-requests"
@@ -211,9 +300,10 @@ def kong_konnect_source(
 ) -> SourceResponse:
     endpoint_config = KONG_KONNECT_ENDPOINTS[endpoint]
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: get_rows(
+    def items() -> Iterator[list[dict[str, Any]]]:
+        if endpoint_config.kind != "analytics":
+            return get_lookup_rows(api_token=api_token, region=region, endpoint=endpoint, logger=logger)
+        return get_rows(
             api_token=api_token,
             region=region,
             endpoint=endpoint,
@@ -222,7 +312,11 @@ def kong_konnect_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             lookback_days=lookback_days,
-        ),
+        )
+
+    return SourceResponse(
+        name=endpoint,
+        items=items,
         primary_keys=endpoint_config.primary_keys,
         sort_mode="asc",
         partition_count=1,

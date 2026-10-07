@@ -27,7 +27,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
-from products.experiments.backend.analysis_health import evaluate_bias_risk
+from products.experiments.backend.health.checks.bias_risk import evaluate_bias_risk
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
@@ -263,12 +263,12 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         if self.window_end_date is not None:
             return None
         multivariate_data = (self.query.feature_flag.get("filters") or {}).get("multivariate") or {}
-        flag_variants = multivariate_data.get("variants", [])
+        flag_variants = multivariate_data.get("variants") or []
         exposure_params = get_exposure_config_params_for_builder(
             self.exposure_criteria, self.team, self.experiment.start_date
         )
         return evaluate_bias_risk(
-            flag_variants=flag_variants,
+            rollout_percentages=[variant.get("rollout_percentage", 0) for variant in flag_variants],
             multiple_variant_handling=exposure_params.multiple_variant_handling,
             total_exposures=total_exposures,
         )

@@ -12,7 +12,14 @@ from rest_framework import filters, parsers, request, response, serializers, sta
 from posthog.schema import DatabaseSerializedFieldType
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, SerializedField, get_data_warehouse_table_name, serialize_fields
+from posthog.hogql.database.database import (
+    MODELS_NAMESPACE_TABLE_ERROR,
+    Database,
+    SerializedField,
+    get_data_warehouse_table_name,
+    is_reserved_models_name,
+    serialize_fields,
+)
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -388,6 +395,15 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
         return options
 
     def validate_name(self, name):
+        if self.instance and self.instance.name == name:
+            return name
+        is_direct = (
+            self.instance is not None
+            and self.instance.external_data_source_id is not None
+            and self.instance.external_data_source.access_method == ExternalDataSourceAccessMethod.DIRECT
+        )
+        if is_reserved_models_name(name) and not is_direct:
+            raise serializers.ValidationError(MODELS_NAMESPACE_TABLE_ERROR)
         if not self.instance or self.instance.name != name:
             # has_table covers system/posthog tables and warehouse objects the requesting user can see;
             # it's user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
@@ -475,6 +491,8 @@ class CreateTableFromUploadSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "Table names must start with a letter or underscore and contain only alphanumeric characters or underscores."
             )
+        if is_reserved_models_name(table_name):
+            raise serializers.ValidationError(MODELS_NAMESPACE_TABLE_ERROR)
         return table_name
 
 

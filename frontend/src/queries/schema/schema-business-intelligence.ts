@@ -1,6 +1,18 @@
 import { ChartDisplayType } from '~/types'
 
-import { ChartSettings, DatabaseSerializedFieldType, HogQLQuery, Node, NodeKind, TableSettings } from './schema-general'
+import {
+    ChartSettings,
+    ChartSettingsDisplay,
+    ChartSettingsFormatting,
+    CompareFilter,
+    DatabaseSerializedFieldType,
+    DateRange,
+    HogQLQuery,
+    Node,
+    NodeKind,
+    TableSettings,
+} from './schema-general'
+import { non_negative_integer, positive_integer } from './type-utils'
 
 export interface BIVisualizationNode extends Node<never> {
     kind: NodeKind.BIVisualizationNode
@@ -57,6 +69,38 @@ export interface BIValue {
     aggregation: BIAggregation
     customExpression?: string
     label?: string
+    tableCalculation?: BITableCalculation
+    formatting?: ChartSettingsFormatting
+    display?: ChartSettingsDisplay
+}
+
+export type BITableCalculationType =
+    | 'percent_of_total'
+    | 'running_total'
+    | 'difference'
+    | 'percent_change'
+    | 'moving_average'
+    | 'rank'
+
+export interface BITableCalculation {
+    type: BITableCalculationType
+    /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
+    computeUsing?: string
+    /** Number of points, including the current point, in a trailing moving average. */
+    window?: positive_integer
+}
+
+export interface BITopN {
+    fieldId: string
+    count: positive_integer
+    measureIndex: non_negative_integer
+    includeOther: boolean
+}
+
+export interface BITotals {
+    rows?: boolean
+    columns?: boolean
+    subtotals?: boolean
 }
 
 export interface BIFilter {
@@ -71,12 +115,45 @@ export interface BIFilter {
 
 export interface BIConfig {
     source: BIDataSource | null
+    /** Column that receives the worksheet and dashboard date range. */
+    dateField?: BIField | null
+    dateRange?: DateRange
+    compareFilter?: CompareFilter
     chartType: ChartDisplayType
     rows: BIField[]
     columns: BIField[]
     values: BIValue[]
     filters: BIFilter[]
+    rowFilterGroup?: BIConditionGroup
+    resultFilters?: BIResultFilter[]
+    resultFilterGroup?: BIConditionGroup
     limit: BIQueryLimit
     /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
     sort?: BISort | null
+    topN?: BITopN
+    totals?: BITotals
+}
+
+export interface BIConditionGroup {
+    operator: 'AND' | 'OR'
+    filters: string[]
+    groups: BIConditionGroup[]
+}
+
+export interface BIResultFilter {
+    id: string
+    measureIndex: non_negative_integer
+    operator:
+        | 'equals'
+        | 'not_equals'
+        | 'greater_than'
+        | 'less_than'
+        | 'greater_than_or_equal'
+        | 'less_than_or_equal'
+        | 'between'
+        | 'is_set'
+        | 'is_not_set'
+    value: string
+    valueTo?: string
+    enabled?: boolean
 }

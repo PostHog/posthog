@@ -3,7 +3,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.sett
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.source import KlausSource
 
 INCREMENTAL_ENDPOINTS = {"reviews", "autoqa_reviews", "autoqa_ratings", "csat", "calibration_sessions"}
-FULL_REFRESH_ENDPOINTS = {"users", "workspaces", "quizzes", "scorecards", "disputes"}
+FULL_REFRESH_ENDPOINTS = {
+    "users",
+    "workspaces",
+    "quizzes",
+    "scorecards",
+    "disputes",
+    "quiz_responses",
+    "quiz_overviews",
+    "quiz_leaderboard",
+}
 
 
 class TestKlausSource:

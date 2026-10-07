@@ -65,6 +65,7 @@ from posthog.schema_enums import (
     BingAdsDefaultSources as BingAdsDefaultSources,
     BIQueryLimit as BIQueryLimit,
     BISortDirection as BISortDirection,
+    BITableCalculationType as BITableCalculationType,
     BounceRatePageViewMode as BounceRatePageViewMode,
     Breakdown1 as Breakdown1,
     BreakdownAttributionType as BreakdownAttributionType,
@@ -218,6 +219,8 @@ from posthog.schema_enums import (
     NodeKind as NodeKind,
     OpenAIAdsDefaultSources as OpenAIAdsDefaultSources,
     Operator as Operator,
+    Operator1 as Operator1,
+    Operator2 as Operator2,
     OrderBy as OrderBy,
     OrderDirection as OrderDirection,
     OrderDirection1 as OrderDirection1,
@@ -944,12 +947,30 @@ class AssistantUpdateEvent(BaseModel):
     tool_call_id: str
 
 
+class BIConditionGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filters: list[str]
+    groups: list[BIConditionGroup]
+    operator: Operator1
+
+
 class BIDataSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     connectionId: str | None = None
     table: str
+
+
+class BITotals(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: bool | None = None
+    rows: bool | None = None
+    subtotals: bool | None = None
 
 
 class BaseAssistantMessage(BaseModel):
@@ -5002,6 +5023,18 @@ class BIFilter(BaseModel):
     values: list[str] | None = None
 
 
+class BIResultFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    enabled: bool | None = None
+    id: str
+    measureIndex: conint(ge=0)
+    operator: Operator2
+    value: str
+    valueTo: str | None = None
+
+
 class BISort(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5010,14 +5043,42 @@ class BISort(BaseModel):
     key: str
 
 
+class BITableCalculation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    computeUsing: str | None = Field(
+        default=None,
+        description=("Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions."),
+    )
+    type: BITableCalculationType
+    window: conint(ge=1) | None = Field(
+        default=None,
+        description=("Number of points, including the current point, in a trailing moving average."),
+    )
+
+
+class BITopN(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: conint(ge=1)
+    fieldId: str
+    includeOther: bool
+    measureIndex: conint(ge=0)
+
+
 class BIValue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     aggregation: BIAggregation
     customExpression: str | None = None
+    display: ChartSettingsDisplay | None = None
     field: BIField
+    formatting: ChartSettingsFormatting | None = None
     label: str | None = None
+    tableCalculation: BITableCalculation | None = None
 
 
 class BoxPlotDatum(BaseModel):
@@ -7229,7 +7290,10 @@ class QueryStatus(BaseModel):
     )
     error_code: str | None = Field(
         default=None,
-        description=("Stable machine-readable code for the error (the DRF exception code), when known."),
+        description=(
+            "Stable machine-readable code for the error, when known: the DRF exception"
+            " code, or the ClickHouse error name."
+        ),
     )
     error_message: str | None = None
     expiration_time: AwareDatetime | None = None
@@ -11071,14 +11135,25 @@ class BIConfig(BaseModel):
     )
     chartType: ChartDisplayType
     columns: list[BIField]
+    compareFilter: CompareFilter | None = None
+    dateField: BIField | None = Field(
+        default=None,
+        description="Column that receives the worksheet and dashboard date range.",
+    )
+    dateRange: DateRange | None = None
     filters: list[BIFilter]
     limit: BIQueryLimit
+    resultFilterGroup: BIConditionGroup | None = None
+    resultFilters: list[BIResultFilter] | None = None
+    rowFilterGroup: BIConditionGroup | None = None
     rows: list[BIField]
     sort: BISort | None = Field(
         default=None,
         description=("null sorts automatically: newest date or highest value first, so top rows survive the LIMIT."),
     )
     source: BIDataSource | None = None
+    topN: BITopN | None = None
+    totals: BITotals | None = None
     values: list[BIValue]
 
 
@@ -27227,6 +27302,10 @@ class DashboardFilter(BaseModel):
         default=None,
         description=("Time granularity forced onto every insight that supports one. Absent/null = inherit."),
     )
+    metricFilters: list[MetricsQueryFilter] | None = Field(
+        default=None,
+        description=("Metric label matchers ANDed into every metrics tile. Other tiles ignore them."),
+    )
     properties: list[AnyPropertyFilterDiscriminated] | None = None
 
 
@@ -27952,6 +28031,10 @@ class HogQLFilters(BaseModel):
         description=(
             "Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown."
         ),
+    )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=("Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}."),
     )
     dateRange: DateRange | None = None
     filterTestAccounts: bool | None = None
@@ -28952,19 +29035,12 @@ class MetricsQuery(BaseModel):
     interval: str | None = Field(
         default=None,
         description=(
-            "Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6,"
-            " day, week; auto-picked from the range when omitted. Coarsened when the"
-            " range would need more than 10,000 buckets."
+            "Bucket size, one of: second_15, second_30, minute, minute_5, minute_15,"
+            " minute_30, hour, hour_6, day, week; auto-picked from the range when"
+            " omitted. Coarsened when the range would need more than 10,000 buckets."
         ),
     )
     kind: Literal["MetricsQuery"] = "MetricsQuery"
-    minInterval: str | None = Field(
-        default=None,
-        description=(
-            "Finest bucket size the query may use, from the same set as `interval`;"
-            " raises a finer interval or auto pick"
-        ),
-    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: MetricsQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -34401,6 +34477,7 @@ class VisualizationArtifactContent(BaseModel):
     )
 
 
+BIConditionGroup.model_rebuild()
 ProsemirrorJSONContent.model_rebuild()
 PropertyGroupFilterValue.model_rebuild()
 HumanMessage.model_rebuild()

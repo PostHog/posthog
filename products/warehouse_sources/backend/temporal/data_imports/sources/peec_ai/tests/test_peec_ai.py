@@ -189,6 +189,37 @@ def test_model_channels_stops_at_empty_page_without_total(
     assert all("project_id" not in request_params(request) for request in http.requests)
 
 
+def test_actions_paginate_through_post_body(http: HTTPStub, config: PeecAISourceConfig, manager: MagicMock) -> None:
+    http.responses = [
+        (200, {"data": [{"id": "a"}, {"id": "b"}], "total_count": 3}),
+        (200, {"data": [{"id": "c"}], "total_count": 3}),
+    ]
+    batches = list(items(peec_ai_source(config, "actions", "v1", 1, "job", manager, False, None)))
+    assert [row for batch in batches for row in batch] == [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+    for offset, request in zip([0, 2], http.requests, strict=True):
+        assert request.method == "POST"
+        assert request.url == "https://api.peec.ai/customer/v1/actions/list"
+        assert request.body is not None
+        assert json.loads(request.body) == {
+            "project_id": "or_example",
+            "order_by": "created_at",
+            "direction": "asc",
+            "limit": 2,
+            "offset": offset,
+        }
+
+
+def test_tag_groups_fetch_one_unpaginated_page(http: HTTPStub, config: PeecAISourceConfig, manager: MagicMock) -> None:
+    rows = [{"group": "persona", "color": "blue", "tag_count": 3}, {"group": "region", "color": None, "tag_count": 1}]
+    http.responses = [(200, {"data": rows})]
+    response = peec_ai_source(config, "tag_groups", "v1", 1, "job", manager, False, None)
+    assert list(items(response)) == [rows]
+    assert response.primary_keys == ["group"]
+    assert len(http.requests) == 1
+    assert request_params(http.requests[0]) == {"project_id": ["or_example"]}
+    manager.save_state.assert_not_called()
+
+
 @pytest.mark.parametrize("status", [429, 500])
 def test_sync_retries_transient_errors(
     http: HTTPStub, config: PeecAISourceConfig, manager: MagicMock, status: int
