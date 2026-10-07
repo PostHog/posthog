@@ -112,7 +112,7 @@ Do not polish the prompt before it runs. The first batch shows how the prompt ac
 1. Hand off to [[creating-replay-vision-scanners]] for the estimate, the quota check, and the create call. Ask for the scanner created disabled when the estimate is material. Return here once it exists.
 2. Run it on a small batch of recent recordings. Use the bulk scan action from the recordings list, or call `vision-scanners-scan-session` for a handful of session IDs.
 3. Read each observation beside its recording. Look for four failures: overclaims, missed proof, weak labels, and instructions the model read literally.
-4. Rate each observation thumbs up or down with `vision-observations-label-create`. Add a sentence when the scanner got the premise wrong. Ratings steer the scanner automatically. To change the prompt yourself, use `vision-scanners-update`.
+4. Show the user your assessment of each observation and ask for their verdict. A rating is shared with the whole team and steers the scanner, so record one with `vision-observations-label-create` only after the user gives or confirms it. Add a sentence when the scanner got the premise wrong. To change the prompt yourself, use `vision-scanners-update`.
 5. Add the cross-observation step. Create a scout from the scanner's Scouts tab. Every template ships a full brief and a schedule; only `scratch` has placeholders to fill. The scout compares observations. The scanner never does.
 
 Return to Step 3 before Step 4 when the observations are mostly "no" or "inconclusive". A weak query is the usual cause, not a weak prompt.

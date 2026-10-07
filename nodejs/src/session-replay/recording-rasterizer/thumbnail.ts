@@ -8,7 +8,12 @@ import { toFiniteNumber } from './capture/config'
 import { RasterizationError } from './errors'
 import { createLogger } from './logger'
 import { downloadFromS3, parseS3Uri, uploadToS3 } from './storage'
-import type { ExtractThumbnailsInput, ExtractThumbnailsOutput } from './types'
+import type {
+    ExtractThumbnailInput,
+    ExtractThumbnailOutput,
+    ExtractThumbnailsInput,
+    ExtractThumbnailsOutput,
+} from './types'
 
 const execFileAsync = promisify(execFile)
 const log = createLogger()
@@ -284,4 +289,13 @@ export async function extractThumbnails(input: ExtractThumbnailsInput): Promise<
         }
         return { frames: extracted }
     })
+}
+
+/** The single-frame shape of media workflows started before the batch path. Delete once they drain. */
+export async function extractThumbnail(input: ExtractThumbnailInput): Promise<ExtractThumbnailOutput> {
+    const { frames } = await extractThumbnails({
+        ...input,
+        frames: [{ video_time_s: input.video_time_s, id: input.id, required: true }],
+    })
+    return { s3_uri: frames[0].s3_uri, file_size_bytes: frames[0].file_size_bytes }
 }

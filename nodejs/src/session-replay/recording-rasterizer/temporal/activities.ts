@@ -14,9 +14,10 @@ import { createLogger } from '~/session-replay/recording-rasterizer/logger'
 import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
 import { renderOutputFields } from '~/session-replay/recording-rasterizer/postprocess'
 import { uploadToS3 } from '~/session-replay/recording-rasterizer/storage'
-import { extractThumbnails } from '~/session-replay/recording-rasterizer/thumbnail'
+import { extractThumbnail, extractThumbnails } from '~/session-replay/recording-rasterizer/thumbnail'
 import {
     ActivityTimings,
+    ExtractThumbnailInput,
     ExtractThumbnailsInput,
     RasterizationProgress,
     RasterizeRecordingInput,
@@ -245,6 +246,7 @@ export function createActivities(pool: BrowserPool, playerHtml: string) {
     return {
         'rasterize-recording': (input: RasterizeRecordingInput) => rasterizeRecordingActivity(pool, playerHtml, input),
         // No browser and no pool: this one reads an MP4 the rasterizer already produced.
+        'extract-thumbnail': (input: ExtractThumbnailInput) => runMediaActivity(() => extractThumbnail(input)),
         'extract-thumbnails': (input: ExtractThumbnailsInput) => runMediaActivity(() => extractThumbnails(input)),
     }
 }
