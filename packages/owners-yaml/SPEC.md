@@ -165,7 +165,7 @@ To resolve a path `P`:
 
 1. Normalize `P`: replace each `\` with `/`. Then, while `P` starts with `./`, remove that `./`. Then remove every `/` at the start and at the end of `P`.
 2. List the directories from the repository root down to the parent directory of `P`, root first.
-3. For each directory, find its ownership file. Skip the directory when it has none. A file that is not a YAML mapping, or that lacks `version: 1` or `owners`, counts as absent.
+3. For each directory, find its ownership file. Skip the directory when it has none. An `owners.yaml` that is not a YAML mapping, or that lacks `version: 1` or `owners`, counts as absent. Section 6 says when an alias file counts as absent.
 4. Start with an empty result: owners unset, status unset, sensitive unset, source unset, additions empty.
 5. For each file found in step 3, in order:
    1. Take the file-level `owners`, `status`, `inherit`, `sensitive`, and `additions`.
