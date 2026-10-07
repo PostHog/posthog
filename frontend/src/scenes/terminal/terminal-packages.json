@@ -28,15 +28,15 @@
         },
         "doom": {
             "name": "Doom (Freedoom)",
-            "version": "0.13.0-3",
-            "file": "archives/doom-0.13.0-3-linux-i386.tar.gz",
-            "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/99f6e0a5569d5706f143f96c478a6193d761c454",
-            "sha256": "82ae59103d9aec578381541414edbe4998b62a47c7fa39e75acbffe69a3cc003",
-            "size": 10553575,
+            "version": "0.13.0-4",
+            "file": "archives/doom-0.13.0-4-linux-i386.tar.gz",
+            "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/c1cea5819fbe981dddbd0bf85513e92f52e178da",
+            "sha256": "a12596c8ad98315bcfbda5aec405702f11088ddaf5ff57d504de95c7693a88bb",
+            "size": 10553882,
             "archiveSize": 29757440,
             "dependencies": [],
             "commands": {
-                "doom": "/opt/posthog-packages/doom-0.13.0-3/bin/doom"
+                "doom": "/opt/posthog-packages/doom-0.13.0-4/bin/doom"
             }
         },
         "sl": {
