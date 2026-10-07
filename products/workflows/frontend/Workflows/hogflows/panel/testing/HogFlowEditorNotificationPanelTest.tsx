@@ -18,7 +18,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { isEmail } from 'lib/utils/url'
 import { HogFunctionTestEditor } from 'scenes/hog-functions/configuration/HogFunctionTest'
 import { LogsViewerTable } from 'scenes/hog-functions/logs/LogsViewer'
 
@@ -51,7 +50,9 @@ export function EmailActionTestContent(): JSX.Element | null {
         sampleGlobals,
         sampleGlobalsLoading,
         sampleGlobalsError,
+        testEmailAddress,
         emailAddressOverride,
+        runTestDisabledReason,
     } = useValues(hogFlowEditorNotificationTestLogic(logicProps))
     const {
         submitTestInvocation,
@@ -63,8 +64,6 @@ export function EmailActionTestContent(): JSX.Element | null {
         setEmailAddressOverride,
         setSampleGlobals,
     } = useActions(hogFlowEditorNotificationTestLogic(logicProps))
-
-    const emailInput = emailAddressOverride || sampleGlobals?.person?.properties?.email || ''
 
     const isLoading = samplePersonsLoading || (sampleGlobalsLoading && !sampleGlobals)
 
@@ -106,37 +105,42 @@ export function EmailActionTestContent(): JSX.Element | null {
             enableFormOnSubmit
             className="flex overflow-hidden flex-col flex-1"
         >
-            <div className="flex gap-2 items-center p-2">
-                <LemonField name="mock_async_functions" className="flex-1">
+            <div className="flex flex-wrap gap-2 items-center p-2">
+                <LemonField name="mock_async_functions" className="flex-1 min-w-60">
                     {({ value, onChange }) => (
-                        <LemonSwitch
-                            onChange={(v) => onChange(!v)}
-                            checked={!value}
-                            data-attr="toggle-workflow-test-panel-new-mocking"
-                            className="whitespace-nowrap"
-                            size="small"
-                            bordered
-                            label={
-                                <Tooltip
-                                    title={
-                                        <>
-                                            When disabled, message deliveries and other async actions will not be
-                                            called. Instead they will be mocked out and logged.
-                                        </>
-                                    }
-                                >
-                                    <span className="flex gap-2">
-                                        Make real HTTP requests
-                                        <IconInfo className="text-lg" />
-                                    </span>
-                                </Tooltip>
-                            }
-                        />
+                        <div className="flex flex-wrap gap-2 items-center">
+                            <LemonSwitch
+                                onChange={(v) => onChange(!v)}
+                                checked={!value}
+                                data-attr="toggle-workflow-test-panel-new-mocking"
+                                className="whitespace-nowrap"
+                                size="small"
+                                bordered
+                                label={
+                                    <Tooltip title="When off, the test does not send the email. It logs it instead.">
+                                        <span className="flex gap-2">
+                                            Send real email to
+                                            <IconInfo className="text-lg" />
+                                        </span>
+                                    </Tooltip>
+                                }
+                            />
+                            <LemonInput
+                                type="email"
+                                size="small"
+                                value={emailAddressOverride ?? ''}
+                                onChange={setEmailAddressOverride}
+                                placeholder={testEmailAddress || 'Enter email address'}
+                                disabledReason={value ? 'Turn on "Send real email to" to change the address' : null}
+                                aria-label="Test email address"
+                                className="flex-1 min-w-40"
+                                data-attr="workflow-test-email-recipient"
+                            />
+                        </div>
                     )}
                 </LemonField>
                 {testResult ? (
                     <>
-                        <div className="flex-1" />
                         <LemonButton
                             type="secondary"
                             onClick={() => setTestResult(null)}
@@ -162,8 +166,6 @@ export function EmailActionTestContent(): JSX.Element | null {
                     </>
                 ) : (
                     <>
-                        <div className="flex-1" />
-
                         <LemonButton
                             type="primary"
                             data-attr="test-workflow-panel-new"
@@ -173,7 +175,7 @@ export function EmailActionTestContent(): JSX.Element | null {
                                 if (shouldShowConfirmation) {
                                     LemonDialog.open({
                                         title: 'Confirm email test',
-                                        description: `This will send an email to ${emailInput}, do you want to proceed?`,
+                                        description: `This will send an email to ${testEmailAddress}, do you want to proceed?`,
                                         primaryButton: {
                                             children: 'Send email',
                                             type: 'primary',
@@ -190,13 +192,7 @@ export function EmailActionTestContent(): JSX.Element | null {
                                 }
                             }}
                             loading={isTestInvocationSubmitting}
-                            disabledReason={
-                                !sampleGlobals
-                                    ? 'Must load person to run test'
-                                    : !isEmail(emailInput)
-                                      ? 'Must enter a valid email address'
-                                      : undefined
-                            }
+                            disabledReason={runTestDisabledReason}
                             size="small"
                         >
                             Run test
@@ -324,15 +320,7 @@ export function EmailActionTestContent(): JSX.Element | null {
                         <div className="flex gap-2 items-center mb-4">
                             <ProfilePicture name={asDisplay(sampleGlobals.person)} />
                             <div className="flex-1">
-                                <div className="font-semibold mb-2">{sampleGlobals.person.name || 'Sample Person'}</div>
-                                <LemonLabel>Email address</LemonLabel>
-                                <LemonInput
-                                    value={emailInput}
-                                    onChange={setEmailAddressOverride}
-                                    placeholder="Enter email address"
-                                    type="email"
-                                    className="mt-1"
-                                />
+                                <div className="font-semibold">{sampleGlobals.person.name || 'Sample Person'}</div>
                             </div>
                         </div>
                     ) : null}

@@ -1,10 +1,15 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
+
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { CyclotronJobInvocationGlobals } from '~/types'
 
 import { workflowLogic } from '../../../workflowLogic'
+import type { HogFlowAction } from '../../types'
 import { hogFlowEditorNotificationTestLogic } from './hogFlowEditorNotificationTestLogic'
 
 jest.mock('~/queries/query', () => {
@@ -457,6 +462,140 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             })
 
             newLogic.unmount()
+        })
+    })
+
+    describe('test email recipient', () => {
+        const emailAction = (id: string): HogFlowAction => ({
+            id,
+            type: 'function_email',
+            name: id,
+            description: '',
+            created_at: 0,
+            updated_at: 0,
+            config: {
+                template_id: 'template-email',
+                inputs: {
+                    email: {
+                        value: {
+                            to: { email: '{{ person.properties.email }}', name: '{{ person.properties.name }}' },
+                            cc: 'account-manager@example.com',
+                            bcc: 'audit@example.com',
+                            subject: 'Welcome',
+                        },
+                    },
+                },
+            },
+        })
+        let postedBody: Record<string, any> | null = null
+
+        beforeEach(() => {
+            postedBody = null
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
+                        postedBody = (await request.json()) as Record<string, any>
+                        return [200, { status: 'success', nextActionId: null, logs: [] }]
+                    },
+                },
+            })
+            workflowLogicInstance.actions.setWorkflowValue('actions', [
+                emailAction('welcome_email'),
+                emailAction('follow_up_email'),
+            ])
+            logic.actions.setSampleGlobals(
+                JSON.stringify({
+                    event: { uuid: 'e1', distinct_id: 'd1', event: '$pageview', properties: {} },
+                    person: { id: 'p1', properties: { email: 'customer@example.com' }, name: 'Customer', url: '' },
+                })
+            )
+        })
+
+        it.each([
+            [
+                'sends a real test only to the signed-in user',
+                false,
+                null,
+                { to: { email: MOCK_DEFAULT_USER.email }, cc: '', bcc: '' },
+            ],
+            [
+                'sends a real test only to the address typed for tests',
+                false,
+                'qa@example.com',
+                { to: { email: 'qa@example.com' }, cc: '', bcc: '' },
+            ],
+            [
+                'leaves the recipients of a mocked test as configured',
+                true,
+                'qa@example.com',
+                {
+                    to: { email: '{{ person.properties.email }}' },
+                    cc: 'account-manager@example.com',
+                    bcc: 'audit@example.com',
+                },
+            ],
+        ])('%s', async (_, mocked, typedAddress, expectedRecipients) => {
+            if (typedAddress) {
+                logic.actions.setEmailAddressOverride(typedAddress)
+            }
+            logic.actions.setTestInvocationValue('mock_async_functions', mocked)
+
+            await expectLogic(logic, () => logic.actions.submitTestInvocation()).toDispatchActions([
+                'submitTestInvocationSuccess',
+            ])
+
+            expect(postedBody!.configuration.actions.map((action: Record<string, any>) => action.id)).toEqual([
+                'welcome_email',
+                'follow_up_email',
+            ])
+            for (const action of postedBody!.configuration.actions) {
+                expect(action.config.inputs.email.value).toMatchObject({ ...expectedRecipients, subject: 'Welcome' })
+            }
+            expect(postedBody!.globals.person.properties.email).toEqual('customer@example.com')
+        })
+
+        it.each([
+            ['nothing is typed', (): void => {}, MOCK_DEFAULT_USER.email],
+            [
+                'an address is typed',
+                (): void => logic.actions.setEmailAddressOverride('qa@example.com'),
+                'qa@example.com',
+            ],
+            [
+                'the typed address is cleared',
+                (): void => {
+                    logic.actions.setEmailAddressOverride('qa@example.com')
+                    logic.actions.setEmailAddressOverride('')
+                },
+                MOCK_DEFAULT_USER.email,
+            ],
+            [
+                'another user typed an address in this browser',
+                (): void => {
+                    logic.actions.setEmailAddressOverride('qa@example.com')
+                    userLogic.actions.loadUserSuccess({
+                        ...MOCK_DEFAULT_USER,
+                        uuid: 'another-user',
+                        email: 'another-user@example.com',
+                    })
+                },
+                'another-user@example.com',
+            ],
+        ])('sends test emails to the right address when %s', (_, act, expectedAddress) => {
+            act()
+
+            expect(logic.values.testEmailAddress).toEqual(expectedAddress)
+        })
+
+        it.each([
+            ['a mocked test with a half-typed address', true, 'qa@', null],
+            ['a real send with a half-typed address', false, 'qa@', 'Must enter a valid email address'],
+            ['a real send to your own address', false, '', null],
+        ])('lets %s run only when the address it sends to is valid', (_, mocked, typedAddress, reason) => {
+            logic.actions.setTestInvocationValue('mock_async_functions', mocked)
+            logic.actions.setEmailAddressOverride(typedAddress)
+
+            expect(logic.values.runTestDisabledReason).toEqual(reason)
         })
     })
 })
