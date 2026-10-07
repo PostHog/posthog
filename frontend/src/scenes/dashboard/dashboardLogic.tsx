@@ -260,6 +260,14 @@ function parseDashboardTileId(tileId: string | undefined): DashboardTileIdOrNew 
     return Number.isNaN(parsedTileId) ? null : parsedTileId
 }
 
+/** A response that left the server before a tile removal committed still carries that tile. */
+function withoutRemovedTiles<T extends DashboardType | null>(dashboard: T, removedTileIds: Set<number> | undefined): T {
+    if (!dashboard?.tiles || !removedTileIds?.size) {
+        return dashboard
+    }
+    return { ...dashboard, tiles: dashboard.tiles.filter((tile) => !removedTileIds.has(tile.id)) }
+}
+
 const tileLayoutsFromDashboard = (
     dashboard: DashboardType | null | undefined
 ): Record<number, DashboardTile['layouts']> => {
@@ -1658,7 +1666,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             throw new Error('Dashboard response was empty or invalid')
                         }
 
-                        return getQueryBasedDashboard(dashboard)
+                        return withoutRemovedTiles(getQueryBasedDashboard(dashboard), cache.removedTileIds)
                     } catch (error: any) {
                         if (error.status === 404) {
                             return null
@@ -1686,9 +1694,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             if (data.type === 'metadata') {
                                 metadataReceived = true
                                 actions.loadDashboardMetadataSuccess(
-                                    getQueryBasedDashboard(data.dashboard as DashboardType)
+                                    withoutRemovedTiles(
+                                        getQueryBasedDashboard(data.dashboard as DashboardType),
+                                        cache.removedTileIds
+                                    )
                                 )
-                            } else if (data.type === 'tile') {
+                            } else if (data.type === 'tile' && !cache.removedTileIds?.has(data.tile?.id)) {
                                 actions.receiveTileFromStream(data)
                             }
                         },
@@ -1803,7 +1814,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             })
                         }
                         cache.dashboardChangesPersisted = true
-                        return getQueryBasedDashboard(updatedDashboard)
+                        return withoutRemovedTiles(getQueryBasedDashboard(updatedDashboard), cache.removedTileIds)
                     } catch (e) {
                         lemonToast.error('Could not update dashboard: ' + String(e))
                         return values.dashboard
@@ -1811,6 +1822,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
                 removeTile: async ({ tile }) => {
                     // The reducer drops the tile optimistically; here we only persist and roll back on failure.
+                    cache.removedTileIds ??= new Set<number>()
+                    cache.removedTileIds.add(tile.id)
                     try {
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                         await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
@@ -1821,10 +1834,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             dashboardId: props.id,
                         })
 
-                        return values.dashboard
+                        return withoutRemovedTiles(values.dashboard, cache.removedTileIds)
                     } catch (e) {
                         lemonToast.error('Could not remove tile from dashboard: ' + String(e))
                         // Re-insert the tile (its layout puts it back in place) and suppress the undo toast.
+                        cache.removedTileIds.delete(tile.id)
                         cache.removedTileForUndo = undefined
                         return {
                             ...values.dashboard,
@@ -1871,7 +1885,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 tiles: tilesToUpdate.length > 0 ? tilesToUpdate : undefined,
                             }
                         )
-                        return getQueryBasedDashboard(dashboard)
+                        return withoutRemovedTiles(getQueryBasedDashboard(dashboard), cache.removedTileIds)
                     } catch (e) {
                         // Re-throw so duplicateTileFailure fires. Swallowing the error resolved it as a
                         // success, so the tile refreshed with no copy and the user kept clicking.
@@ -3741,6 +3755,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         [dashboardsModel.actionTypes.tileAddedToDashboard]: ({ dashboardId }) => {
             // when adding an insight to a dashboard, we need to reload the dashboard to get the new insight
             if (dashboardId === props.id) {
+                // The add can restore a removed tile with the same id.
+                cache.removedTileIds?.clear()
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
             }
         },
@@ -3907,6 +3923,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                         tiles: [{ id: tile.id, deleted: false }],
                     })
+                    cache.removedTileIds?.delete(tile.id)
 
                     if (tile.insight) {
                         const insight = tile.insight

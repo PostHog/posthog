@@ -624,6 +624,25 @@ describe('insightLogic', () => {
         await expectLogic(dashLogic).toDispatchActions(['loadDashboard'])
     })
 
+    test('saveInsight on an existing insight does not send its possibly stale dashboards list', async () => {
+        const insightProps: InsightLogicProps = { dashboardItemId: Insight42 }
+        logic = insightLogic(insightProps)
+        logic.mount()
+        insightDataLogic(insightProps).mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setInsight({ ...logic.values.insight, dashboards: [1, 2, 3] }, {})
+
+        jest.spyOn(api, 'update')
+        logic.actions.saveInsight()
+        await expectLogic(logic).toDispatchActions(['setInsight']).toFinishAllListeners()
+
+        expect(api.update).toHaveBeenCalledWith(
+            expect.stringContaining('/insights/42'),
+            expect.not.objectContaining({ dashboards: expect.anything() }),
+            expect.anything()
+        )
+    })
+
     test('updateInsight updates dashboards', async () => {
         savedInsightsLogic().mount()
         logic = insightLogic({

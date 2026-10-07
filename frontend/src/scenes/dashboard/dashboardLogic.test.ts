@@ -3923,6 +3923,29 @@ describe('dashboardLogic', () => {
 
             reportDeleteClicked.mockRestore()
         })
+
+        it('keeps a removed tile out of a stale dashboard response until the user undoes the removal', async () => {
+            const { fireEvent, render, waitFor, within } = await import('@testing-library/react')
+            const insightTile = logic.values.insightTiles[0]
+
+            await expectLogic(logic, () => {
+                logic.actions.removeTile(insightTile)
+            }).toFinishAllListeners()
+
+            // The mocked GET still returns the tile, the same as a response that left the server before the delete.
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+            })
+                .toDispatchActions(['loadDashboardSuccess'])
+                .toFinishAllListeners()
+            expect(logic.values.insightTiles.map((tile) => tile.id)).not.toContain(insightTile.id)
+
+            const toastContent = lemonToastInfoSpy.mock.calls.at(-1)?.[0]
+            const { container } = render(toastContent)
+            fireEvent.click(within(container).getByText('Undo'))
+
+            await waitFor(() => expect(logic.values.insightTiles.map((tile) => tile.id)).toContain(insightTile.id))
+        })
     })
 
     describe('widget tiles', () => {
