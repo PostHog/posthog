@@ -529,6 +529,68 @@ class TestGetRows:
 
         assert rows == [{"softwareTitleId": "s1", "upToDate": 4, "outOfDate": 1, "softwareTitleConfigurationId": "1"}]
 
+    def test_fan_out_pages_through_a_paginated_parent(self):
+        manager = self._manager()
+        parents_page_0 = _response(json_data={"totalCount": 201, "results": [{"id": str(i)} for i in range(200)]})
+        parents_page_1 = _response(json_data={"totalCount": 201, "results": [{"id": "200"}]})
+        child = _response(json_data={"totalCount": 1, "results": [{"deviceId": "d1", "statusEnum": "COMPLETE"}]})
+        rows, session = self._run(
+            manager, [parents_page_0, parents_page_1] + [child] * 201, endpoint="patch_policy_logs"
+        )
+
+        urls = [call.args[0] for call in session.get.call_args_list]
+        assert urls[0].startswith("https://example.jamfcloud.com/api/v2/patch-policies?")
+        assert "page=1" in urls[1]
+        assert "/patch-policies/200/logs?" in urls[-1]
+        assert len(rows) == 201
+        assert rows[-1] == {"deviceId": "d1", "statusEnum": "COMPLETE", "patchPolicyId": "200"}
+
+    def test_fan_out_refuses_an_unbounded_parent_list(self):
+        manager = self._manager()
+        endless_parents = _response(json_data={"totalCount": 10**9, "results": [{"id": "1"}, {"id": "2"}]})
+        session = _session(post_responses=[_response(json_data=TOKEN_JSON)], get_responses=[endless_parents] * 3)
+        with (
+            mock.patch.object(jamf_pro_module, "make_tracked_session", return_value=session),
+            mock.patch.object(jamf_pro_module, "MAX_PARENT_IDS", 3),
+        ):
+            with pytest.raises(JamfProPaginationLimitError):
+                list(
+                    get_rows(
+                        host="example.jamfcloud.com",
+                        credentials=CLIENT_CREDENTIALS,
+                        endpoint="patch_policy_logs",
+                        logger=mock.MagicMock(),
+                        resumable_source_manager=manager,
+                        team_id=1,
+                    )
+                )
+
+        assert all("/logs" not in call.args[0] for call in session.get.call_args_list)
+
+    @pytest.mark.parametrize(
+        "endpoint, expected_parent_ids",
+        [
+            ("mobile_device_smart_group_memberships", ["1"]),
+            ("mobile_device_static_group_memberships", ["2"]),
+        ],
+    )
+    def test_mobile_group_membership_fans_out_by_group_type_and_keeps_only_device_ids(
+        self, endpoint, expected_parent_ids
+    ):
+        manager = self._manager()
+        groups = _response(json_data=[{"id": 1, "isSmartGroup": True}, {"id": 2, "isSmartGroup": False}])
+        members = _response(
+            json_data={
+                "totalCount": 1,
+                "results": [{"mobileDeviceId": "5", "displayName": "iPad", "airPlayPassword": "pw"}],
+            }
+        )
+        rows, session = self._run(manager, [groups, members], endpoint=endpoint)
+
+        urls = [call.args[0] for call in session.get.call_args_list]
+        assert [url.split("?")[0].rsplit("/", 1)[1] for url in urls[1:]] == expected_parent_ids
+        assert rows == [{"mobileDeviceId": "5", "mobileDeviceGroupId": expected_parent_ids[0]}]
+
     def test_unpaginated_incremental_endpoint_sends_filter(self):
         manager = self._manager()
         page = _response(json_data={"totalCount": 1, "results": [{"osUpdatesStatusId": "1"}]})

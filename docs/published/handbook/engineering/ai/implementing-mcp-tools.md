@@ -68,6 +68,11 @@ For lookup tools, return an explicit normal result when absence is an expected a
 checking whether an event's session has a recording). Keep invalid inputs, permission failures, and
 server failures as tool errors so MCP Analytics measures genuine failures rather than routine misses.
 
+Preserve API errors with `throw result.error` or `wrapError(message, result.error)` from `@/lib/errors`.
+Copying only the message loses the HTTP status and retry guidance.
+For HTTP 503 responses, the shared client passes a numeric `Retry-After` value to the agent as a minimum wait.
+It does not retry these requests automatically.
+
 ## SQL-first data retrieval
 
 The MCP server instructs the agent to read data through a unified HogQL interface
@@ -353,10 +358,19 @@ Product teams own their definitions and control which operations are exposed as 
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
 
+   For list tools with a UI app, set `response.text_include` to the dot-path fields an agent
+   needs from each result row. This adds a compact text response for clients that cannot read
+   `structuredContent`, while preserving the full structured payload for the app and explicit
+   JSON output. For example, the error issue list includes issue IDs, status, severity, timestamps,
+   impact counts, and links, but leaves volume buckets to the app. Pagination metadata stays in
+   the text response, and `results[0]` explicitly identifies an empty page.
+
    For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
    `detail_args` keys against the tool's input schema snapshot, so a wrong argument
    name fails generation instead of silently dropping the argument at runtime.
    See "UI apps" in `services/mcp/CONTRIBUTING.md` for the rules.
+
+   Some clients display interactive apps with `render-ui`. Apps fetch data through read-only tools such as `query-trends` and `query-funnel`, which stay hidden from the model. After changing tools, refresh the client's tool list and start a new conversation.
 
    A custom UI app can set `resource_domains` when it loads an image, font, script, or stylesheet from an external source. Each value must be a CSP source expression. Declare only the required origin or path.
 
