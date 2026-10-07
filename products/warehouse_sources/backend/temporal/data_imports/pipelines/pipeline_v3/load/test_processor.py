@@ -8,6 +8,7 @@ import pytest
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pyarrow as pa
+from asgiref.sync import async_to_sync
 from deltalake import DeltaTable, write_deltalake
 from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -25,7 +26,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
     make_local_table_ref,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import commit_covers_batch
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import (
+    DeltaWriter,
+    commit_covers_batch,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
     SUMMARY_EVENT,
     post_load_phase,
@@ -33,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.pos
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     _apply_partitioning,
     _enrich_cdc_rows,
+    _file_count_after_write,
     _get_write_type,
     _mark_job_completed,
     _promote_staged_cursor,
@@ -105,8 +110,8 @@ def _schema(**overrides: Any) -> MagicMock:
     return schema
 
 
-_COL_ID = pa.field("id", pa.int64())
-_COL_PARTITION = pa.field(PARTITION_KEY, pa.string())
+_COL_ID: pa.Field[pa.DataType] = pa.field("id", pa.int64())
+_COL_PARTITION: pa.Field[pa.DataType] = pa.field(PARTITION_KEY, pa.string())
 
 
 class TestApplyPartitioning:
@@ -518,7 +523,7 @@ class TestMarkJobCompleted:
 class TestRedeliveredFinalBatchPostLoad:
     @parameterized.expand([("companion", "scd2_append"), ("consolidated", "incremental_merge"), ("snapshot", None)])
     @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=_POST_LOAD_RESULT)
-    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.read_parquet_first_values", return_value=pa.table({"id": [1], "payload": ['{"a": 1}']}))
     @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
     def test_forwards_the_batch_write_mode(
@@ -534,7 +539,7 @@ class TestRedeliveredFinalBatchPostLoad:
         # write (register the _cdc table, leave schema.table alone) or a snapshot to seed the
         # companion from. Dropping it here let a redelivered streaming batch re-seed the companion,
         # wiping its SCD2 history, and point schema.table at the companion's folder.
-        delta_table = MagicMock(schema=MagicMock(return_value=pa.schema([_COL_ID])))
+        delta_table = MagicMock(schema=MagicMock(return_value=pa.schema([_COL_ID, pa.field("payload", pa.string())])))
         mock_job_model.objects.prefetch_related.return_value.aget = AsyncMock(return_value=MagicMock())
         mock_helper_cls.return_value.get_delta_table = AsyncMock(return_value=delta_table)
 
@@ -545,6 +550,11 @@ class TestRedeliveredFinalBatchPostLoad:
 
         assert mock_post_load.await_args is not None
         assert mock_post_load.await_args.kwargs["cdc_write_mode"] == cdc_write_mode
+        # The table schema alone types the column as a plain string; the batch's first value says JSON.
+        assert mock_post_load.await_args.kwargs["table_schema_dict"] == {
+            "id": "IntegerDatabaseField",
+            "payload": "StringJSONDatabaseField",
+        }
 
 
 class TestPostWriteHandleReads:
@@ -552,7 +562,18 @@ class TestPostWriteHandleReads:
     # types survive that lag, a file list does not: partial data loading must read its file list
     # through the ref, which catches the handle up, and a plain batch must not pay that read.
 
-    @parameterized.expand([("plain_batch", False, 1), ("partial_data_loading", True, 2)])
+    @parameterized.expand(
+        [
+            ("plain_batch", 1, False, 1, 1, 1, None),
+            ("partial_data_loading", 1, True, 1, 1, 2, None),
+            # Batch 0 is a file-count sample and is the only batch of most runs.
+            ("sampled_batch_after_a_deltalite_commit", 0, False, 1, 1, 1, 3),
+            ("sampled_batch_on_a_current_handle", 0, False, 0, None, 1, 2),
+            ("sampled_batch_behind_by_a_foreign_commit", 0, False, 2, 1, 2, 5),
+            ("sampled_batch_with_no_commit_stats", 0, False, 1, None, 2, 5),
+        ]
+    )
+    @patch(f"{_PROCESSOR}.logger")
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}.mark_batch_as_processed")
     @patch(f"{_PROCESSOR}._handle_partial_data_loading", new_callable=AsyncMock)
@@ -565,8 +586,12 @@ class TestPostWriteHandleReads:
     def test_file_list_readers_go_through_the_ref(
         self,
         _case: str,
+        batch_index: int,
         is_first_ever_sync: bool,
+        commits_behind: int,
+        deltalite_file_count_change: int | None,
         expected_handle_reads: int,
+        expected_file_count: int | None,
         mock_job_model: MagicMock,
         mock_helper_cls: MagicMock,
         mock_writer_cls: MagicMock,
@@ -576,23 +601,64 @@ class TestPostWriteHandleReads:
         mock_partial: AsyncMock,
         _mark: MagicMock,
         _analytics: MagicMock,
+        mock_logger: MagicMock,
     ) -> None:
         returned = MagicMock()
         returned.schema.return_value = pa.schema([_COL_ID])
+        returned.version.return_value = 7
+        returned.file_uris.return_value = ["a", "b"]
         current = MagicMock()
         current.schema.return_value = pa.schema([_COL_ID])
-        current.file_uris.return_value = []
+        current.file_uris.return_value = ["a", "b", "c", "d", "e"]
         helper = mock_helper_cls.return_value
         helper.get_delta_table = AsyncMock(return_value=current)
+        helper.latest_known_version.return_value = 7 + commits_behind
         mock_writer_cls.return_value.write = AsyncMock(return_value=returned)
+        mock_writer_cls.return_value.deltalite_file_count_change = deltalite_file_count_change
         mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
 
-        process_message(_message(batch_index=1, is_first_ever_sync=is_first_ever_sync))
+        process_message(_message(batch_index=batch_index, is_first_ever_sync=is_first_ever_sync))
 
         # One read opens the table before the write; only a file-list reader adds a second.
         assert helper.get_delta_table.await_count == expected_handle_reads
         assert mock_partial.await_args is not None
-        assert mock_partial.await_args.kwargs["delta_table"] is (current if is_first_ever_sync else returned)
+        assert mock_partial.await_args.kwargs["delta_table"] is (current if expected_handle_reads == 2 else returned)
+        written = [call for call in mock_logger.debug.call_args_list if call.args[0] == "batch_written_to_delta_lake"]
+        assert len(written) == 1
+        assert written[0].kwargs["file_count"] == expected_file_count
+
+
+class TestFileCountAfterWrite:
+    def test_the_count_from_memory_is_the_count_in_the_log(self, tmp_path: Path) -> None:
+        # The sampled file count comes from the handle `write` returns plus the commit's own numbers,
+        # with no read of the log. If the handle's lag or the upsert stats stop meaning what the
+        # arithmetic assumes, the log line goes wrong without an error.
+        path = str(tmp_path / "table")
+        seed = pa.table({"id": pa.array([1, 2, 101], pa.int64()), PARTITION_KEY: ["a", "a", "b"], "v": ["x", "y", "z"]})
+        write_deltalake(path, seed, partition_by=PARTITION_KEY)
+        ref = make_local_table_ref(path)
+        writer = DeltaWriter(ref)
+        handle_lags: set[int] = set()
+
+        writes: list[tuple[list[int], list[str], Any, list[str] | None]] = [
+            ([1], ["a"], "incremental", ["id"]),
+            ([500], ["c"], "incremental", ["id"]),
+            ([1, 101, 500, 900], ["a", "b", "c", "d"], "incremental", ["id"]),
+            ([7], ["a"], "append", None),
+        ]
+        for ids, partitions, write_type, primary_keys in writes:
+            batch = pa.table({"id": pa.array(ids, pa.int64()), PARTITION_KEY: partitions, "v": ["new"] * len(ids)})
+            returned = async_to_sync(writer.write)(
+                data=batch, write_type=write_type, should_overwrite_table=False, primary_keys=primary_keys
+            )
+            handle_lags.add(ref.latest_known_version(returned) - returned.version())
+
+            file_count = _file_count_after_write(returned, ref, writer.deltalite_file_count_change)
+
+            assert file_count == len(DeltaTable(path).file_uris())
+
+        # Both a current handle and one that a deltalite commit left behind were read.
+        assert handle_lags == {0, 1}
 
 
 class TestFinalDataBatch:

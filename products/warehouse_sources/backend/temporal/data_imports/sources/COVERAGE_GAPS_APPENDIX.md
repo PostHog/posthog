@@ -4759,13 +4759,13 @@ Today (5): `apps`, `browsers`, `deployments`, `invocations`, `profiles`
 
 Diffed against: <https://docs.onkernel.com/llms.txt>
 
-- [ ] `audit-logs (list audit logs)` — organization-wide event history — the only cross-resource activity log the API offers (high)
-- [ ] `browser-pools (list browser pools)` — lookup resolving the pool a browser session was leased from; also carries pool sizing config for utilization analysis (medium)
-- [ ] `projects (list projects)` — lookup resolving the project ID carried on apps, deployments, browsers, proxies and extensions (medium)
+- [x] `audit-logs (list audit logs)` — organization-wide event history — the only cross-resource activity log the API offers (high)
+- [x] `browser-pools (list browser pools)` — lookup resolving the pool a browser session was leased from; also carries pool sizing config for utilization analysis (medium)
+- [x] `projects (list projects)` — lookup resolving the project ID carried on apps, deployments, browsers, proxies and extensions (medium)
 - [ ] `browser-replays (list browser session replays)` — replay records per browser session, linking runs to recorded evidence (medium)
 - [ ] `managed-auth (list auth connections)` — auth connection inventory with health state, joinable to profiles we already sync (medium)
 - [ ] `managed-auth (get auth connection event timeline)` — chronological login/re-auth/health-check events per connection — state transition history (medium)
-- [ ] `proxies (list proxies)` — lookup resolving proxy IDs referenced by browser sessions (medium)
+- [x] `proxies (list proxies)` — lookup resolving proxy IDs referenced by browser sessions (medium)
 - [ ] `invocations/{id}/browsers` — join table mapping invocations to the browser sessions they created (low)
 - [ ] `extensions (list browser extensions)` — extension inventory per project (low)
 - [x] `browsers/{id_or_name}/telemetry/events` — archived per-session telemetry events (console, network, page, interaction) within the 30-day retention window (medium)
