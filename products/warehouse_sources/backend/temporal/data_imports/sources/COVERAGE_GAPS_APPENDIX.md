@@ -1326,6 +1326,17 @@ Diffed against: <https://developers.chameleon.io/apis/overview.md>
 
 Note: Chameleon's published OpenAPI at developers.chameleon.io/api-reference/openapi.json is a stub (it documents a /plants toy API), so the authoritative endpoint table is the markdown overview page. Alert groups, rate limit groups, webhooks, domains and data imports were excluded as config/plumbing. Embeddables, Product Demos and Changes have doc pages in llms.txt but do not appear in the overview endpoint table, so no list endpoint could be confirmed for them - they are not reported as gaps.
 
+## Chargebee — gaps
+
+Today (10): `CreditUnits`, `Customers`, `Events`, `Invoices`, `ItemPrices`, `Items`, `Meters`, `Orders`, `Subscriptions`, `Transactions`
+
+Diffed against: <https://raw.githubusercontent.com/chargebee/openapi/main/spec/chargebee_api_v2_pc_v2_spec.json>
+
+- [x] `GET /meters` — usage-based billing meters: how usage of each metered feature is measured (medium)
+- [x] `GET /credit_units` — credit unit definitions that credit-based billing grants and consumes (medium)
+
+Note: `metered_features` has only write endpoints (create, archive, reactivate, delete) and no list endpoint; the same configuration is readable through `GET /meters`, whose `id` equals the feature id. `ledger_entries` is a documented resource with no list endpoint. The credit ledger is listable through `GET /ledger_operations`.
+
 ## Chargedesk — gaps
 
 Today (7): `activity_log`, `charge_items`, `charges`, `customers`, `products`, `subscription_cancellations`, `subscriptions`
