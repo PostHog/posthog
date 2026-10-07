@@ -62,18 +62,22 @@ describe('emailDomainStatusLogic', () => {
         expect(statusChecks()).toBe(81)
     })
 
-    it('pauses polling while the tab is hidden and resumes when it is shown', async () => {
-        await mountAndLoad()
-        expect(statusChecks()).toBe(1)
+    it.each([MINUTE, 31 * MINUTE])(
+        'pauses polling for %s milliseconds hidden and resumes within the original deadline',
+        async (hiddenDuration) => {
+            await mountAndLoad()
+            expect(statusChecks()).toBe(1)
 
-        setDocumentHidden(true)
-        await jest.advanceTimersByTimeAsync(MINUTE)
-        expect(statusChecks()).toBe(1)
+            setDocumentHidden(true)
+            await jest.advanceTimersByTimeAsync(hiddenDuration)
+            expect(statusChecks()).toBe(1)
 
-        setDocumentHidden(false)
-        await jest.advanceTimersByTimeAsync(10_000)
-        expect(statusChecks()).toBe(2)
-    })
+            setDocumentHidden(false)
+            await jest.advanceTimersByTimeAsync(10_000)
+            expect(statusChecks()).toBe(hiddenDuration < 30 * MINUTE ? 2 : 1)
+            expect(logic.values.pollingStopped).toBe(hiddenDuration >= 30 * MINUTE)
+        }
+    )
 
     it('restarts the schedule with an uncached check when the person checks again after polling stopped', async () => {
         await mountAndLoad()
