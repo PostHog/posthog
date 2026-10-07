@@ -1050,8 +1050,9 @@ def get_primary_keys_for_schemas(
 DUPLICATE_PK_CHECK_ROW_BUDGET = 10_000_000
 
 # Settings for the duplicate-PK probe.
-# - optimize_aggregation_in_order streams the GROUP BY along the sorting
-#   key without building a hash table (bounded memory).
+# - optimize_aggregation_in_order streams the GROUP BY without a hash table
+#   when the merge key is a prefix of the sorting key. Any other key is a
+#   hash aggregation, which max_memory_usage bounds.
 # - max_rows_to_read + read_overflow_mode='break' cap the scan at
 #   DUPLICATE_PK_CHECK_ROW_BUDGET and *silently stop* instead of throwing.
 # - max_execution_time and max_memory_usage are belt-and-braces bounds.
@@ -1064,18 +1065,19 @@ _DUPLICATE_PK_CHECK_SETTINGS: dict[str, Any] = {
 }
 
 # Substrings of probe errors that are expected environment limits or designed
-# fallbacks rather than bugs on our side. In every case we fall back to append
-# mode, so capturing them only adds error-tracking noise:
+# fallbacks rather than bugs on our side. In every case the probe compared no
+# rows, so the key stays unverified and the sync continues. Capturing them only
+# adds error-tracking noise:
 #   - "is unknown or readonly": clickhouse-connect validates session settings
 #     client-side and refuses any the server reports as readonly or unknown
 #     ("Setting <x> is unknown or readonly"), routine on managed offerings
 #     (ClickHouse Cloud) and readonly user profiles.
 #   - MEMORY_LIMIT_EXCEEDED / TIMEOUT_EXCEEDED: the bounded probe exhausted one
 #     of its own budgets (`max_memory_usage` / `max_execution_time`).
-#     `optimize_aggregation_in_order` keeps the GROUP BY streaming, but on
-#     large/slow (e.g. S3-backed) source tables the scan can still hit these
-#     caps before `read_overflow_mode='break'` truncates on rows — the probe
-#     behaving exactly as designed. Some managed servers also enforce a memory
+#     A merge key that is not a sorting-key prefix needs a hash table, and on
+#     large/slow (e.g. S3-backed) source tables even a streamed scan can hit
+#     these caps before `read_overflow_mode='break'` truncates on rows — the
+#     probe behaving exactly as designed. Some managed servers also enforce a memory
 #     cap below our `max_memory_usage`, surfacing the same way.
 #   - "Read timed out": the probe's `max_execution_time` only bounds server-side
 #     execution, not ClickHouse Cloud's cold-resume wake-up latency or a scan
@@ -1130,11 +1132,10 @@ def _has_duplicate_primary_keys(
         result = client.query(query, settings=_DUPLICATE_PK_CHECK_SETTINGS)
         return len(result.result_rows) > 0
     except ClickHouseError as e:
-        # Exhausting the probe's own memory/time budget, or a server that rejects our tuning
-        # settings, says nothing about the key: no two rows were ever compared. Reporting that
-        # as a duplicate stops a table the customer can still merge, so the key stays unverified
-        # and the next run probes it again. (We don't hit max_rows_to_read here because
-        # read_overflow_mode='break' turns that into a silent truncation.)
+        # An exhausted budget or a rejected setting compared no rows, so it says nothing about
+        # the key. Reporting it as a duplicate would stop a table that can still merge. (We
+        # don't hit max_rows_to_read here because read_overflow_mode='break' turns that into a
+        # silent truncation.)
         if _is_expected_probe_failure(str(e)):
             logger.warning(
                 f"_has_duplicate_primary_keys: probe did not complete for {database}.{table_name}, "
@@ -1715,10 +1716,8 @@ def clickhouse_source(
                 _get_partition_settings(client, database, table_name, logger) if should_use_incremental_field else None
             )
 
-            # The sorting key is not what the merge matches rows on — the schema's stored key wins
-            # there (`resolve_primary_keys`) — and a sorting key read from `system.columns` drops the
-            # expression parts of `ORDER BY`, so grouping by what is left neither describes the merge
-            # key nor streams in sort order. Probe the key the merge will actually use.
+            # The merge matches rows on the stored key when one exists (`resolve_primary_keys`),
+            # so the probe must check that key and not the sorting key.
             merge_keys = resolve_merge_keys(
                 stored_primary_keys, primary_keys, [column.name for column in table.columns]
             )

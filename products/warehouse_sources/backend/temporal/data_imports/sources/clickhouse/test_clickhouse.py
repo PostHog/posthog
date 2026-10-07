@@ -1389,18 +1389,30 @@ class TestHasDuplicatePrimaryKeys:
 
 
 class TestDuplicateProbeTargetsMergeKey:
-    """The merge matches rows on the schema's stored key, so that is the key the probe has to
-    check — not the sorting key, which is a different column set and is not unique in ClickHouse."""
+    _MEMORY_LIMIT = ClickHouseError("Code: 241. DB::Exception: Query memory limit exceeded. (MEMORY_LIMIT_EXCEEDED)")
 
-    def _build_source(self, *, stored_primary_keys, sorting_key, probe_result):
-        from contextlib import contextmanager
+    def _run(self, *, stored_primary_keys, sorting_key, probe_outcome):
+        probe_queries: list[str] = []
 
-        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+        def fake_query(query, **_kwargs):
+            result = MagicMock()
+            if "is_in_sorting_key" in query:
+                result.result_rows = [(name,) for name in sorting_key]
+            elif "HAVING count() > 1" in query:
+                probe_queries.append(query)
+                if isinstance(probe_outcome, Exception):
+                    raise probe_outcome
+                result.result_rows = probe_outcome
+            else:
+                result.result_rows = []
+            return result
+
+        client = MagicMock()
+        client.query.side_effect = fake_query
 
         mock_table = MagicMock()
         mock_table.columns = [
-            ClickHouseColumn(name=n, data_type="String", nullable=False)
-            for n in ("environment", "timestamp", "correlation_id", "id")
+            ClickHouseColumn(name=n, data_type="String", nullable=False) for n in ("region", "created_at", "id")
         ]
         mock_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.string())])
 
@@ -1408,12 +1420,9 @@ class TestDuplicateProbeTargetsMergeKey:
         def fake_tunnel():
             yield ("localhost", 8443)
 
-        probe = MagicMock(return_value=probe_result)
         with (
-            patch.object(ch_module, "_get_client", return_value=MagicMock()),
+            patch.object(ch_module, "_get_client", return_value=client),
             patch.object(ch_module, "_get_table", return_value=mock_table),
-            patch.object(ch_module, "_get_primary_keys", return_value=sorting_key),
-            patch.object(ch_module, "_has_duplicate_primary_keys", probe),
             patch.object(ch_module, "_get_partition_settings", return_value=None),
             patch.object(ch_module, "get_clickhouse_row_count", return_value={}),
         ):
@@ -1426,47 +1435,56 @@ class TestDuplicateProbeTargetsMergeKey:
                 verify=True,
                 table_names=["events"],
                 should_use_incremental_field=True,
-                incremental_field="timestamp",
+                incremental_field="created_at",
                 incremental_field_type=IncrementalFieldType.Timestamp,
                 logger=MagicMock(),
                 db_incremental_field_last_value=None,
                 stored_primary_keys=stored_primary_keys,
             )
-        return response, probe
+        return response, probe_queries
 
-    def test_probes_stored_key_not_sorting_key(self):
-        _, probe = self._build_source(
-            stored_primary_keys=["id"],
-            sorting_key=["environment", "timestamp", "correlation_id", "id"],
-            probe_result=False,
+    @pytest.mark.parametrize(
+        "stored_primary_keys,sorting_key,probe_outcome,expected_group_by,expected_blocked",
+        [
+            (["id"], ["created_at", "id", "region"], [], "GROUP BY `id` HAVING", False),
+            (None, ["region", "id"], [], "GROUP BY `region`, `id` HAVING", False),
+            (["id"], ["region", "id"], [(1,)], "GROUP BY `id` HAVING", True),
+            (["id"], ["region", "id"], _MEMORY_LIMIT, "GROUP BY `id` HAVING", False),
+        ],
+        ids=[
+            "stored_key_wins",
+            "sorting_key_when_nothing_stored",
+            "duplicates_block",
+            "exhausted_budget_does_not_block",
+        ],
+    )
+    def test_probe_checks_the_merge_key(
+        self, stored_primary_keys, sorting_key, probe_outcome, expected_group_by, expected_blocked
+    ):
+        response, probe_queries = self._run(
+            stored_primary_keys=stored_primary_keys, sorting_key=sorting_key, probe_outcome=probe_outcome
         )
-        assert probe.call_args.args[3] == ["id"]
 
-    def test_falls_back_to_sorting_key_when_nothing_stored(self):
-        _, probe = self._build_source(
-            stored_primary_keys=None,
-            sorting_key=["environment", "id"],
-            probe_result=False,
-        )
-        assert probe.call_args.args[3] == ["environment", "id"]
+        assert len(probe_queries) == 1
+        assert expected_group_by in probe_queries[0]
+        assert response.has_duplicate_primary_keys is expected_blocked
 
-    def test_unproven_probe_does_not_block_the_merge(self):
-        # A probe that never compared any rows (an environment limit) must not pause the schema:
-        # the key stays unverified and the next run probes it again.
-        response, _ = self._build_source(
-            stored_primary_keys=["id"],
-            sorting_key=["environment", "id"],
-            probe_result=None,
-        )
-        assert response.has_duplicate_primary_keys is False
+    def test_source_for_pipeline_passes_the_schema_key_to_the_probe(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
 
-    def test_real_duplicates_still_block_the_merge(self):
-        response, _ = self._build_source(
-            stored_primary_keys=["id"],
-            sorting_key=["environment", "id"],
-            probe_result=True,
-        )
-        assert response.has_duplicate_primary_keys is True
+        source = ClickHouseSource()
+        inputs = MagicMock()
+        inputs.primary_keys = ["id"]
+
+        with (
+            patch.object(ExternalDataSchema, "objects"),
+            patch.object(source, "make_ssh_tunnel_func"),
+            patch.object(source, "_bypass_env_proxy", return_value=None),
+            patch.object(source_module, "clickhouse_source") as mock_clickhouse_source,
+        ):
+            source.source_for_pipeline(MagicMock(), inputs)
+
+        assert mock_clickhouse_source.call_args.kwargs["stored_primary_keys"] == ["id"]
 
 
 class TestGetIncrementalRowCount:
