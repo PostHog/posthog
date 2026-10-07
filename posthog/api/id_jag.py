@@ -24,6 +24,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.jwt import ASYMMETRIC_SIGNING_ALGORITHMS
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.user import User
 from posthog.scopes import get_oauth_scopes_supported
@@ -42,10 +43,6 @@ JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 
 # draft-ietf-oauth-identity-assertion-authz-grant §7.2 — advertised in metadata for ID-JAG discovery.
 ID_JAG_GRANT_PROFILE = "urn:ietf:params:oauth:grant-profile:id-jag"
-
-# Asymmetric signatures only. An HMAC family would let anyone who can read the IdP's public
-# JWKS sign with it as a shared secret, and "none" carries no signature at all.
-ID_JAG_ALLOWED_ALGORITHMS = ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"]
 
 
 GENERIC_ID_JAG_REJECTION = "ID-JAG could not be verified"
@@ -326,7 +323,7 @@ def _verify_and_extract_id_jag_token(assertion: str) -> _VerifiedIdJag:
             jwt.decode(
                 assertion,
                 signing_key.key,
-                algorithms=ID_JAG_ALLOWED_ALGORITHMS,
+                algorithms=ASYMMETRIC_SIGNING_ALGORITHMS,
                 audience=allowed_audiences,
                 leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                 options={
