@@ -71,7 +71,7 @@ _ROW_LIMIT = 5000
 # callers that need the long tail opt into a higher `limit` (up to _ROW_LIMIT) or paginate.
 DEFAULT_AGGREGATION_ROW_LIMIT = 100
 
-RECENT_TRACES_SPANS_PER_TRACE = 10
+RECENT_TRACES_SPANS_PER_TRACE = 100
 
 # Value-search probes attribute_value with ILIKE %search%, which scans far more rows than
 # the key-only path. Require a meaningfully specific term so short prefixes (e.g. "id")

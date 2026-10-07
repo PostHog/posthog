@@ -3,6 +3,7 @@ import base64
 import datetime as dt
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -16,6 +17,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 
+from products.tracing.backend import logic
 from products.tracing.backend.logic import TraceSpansQueryRunner
 
 DATE_FROM = "2026-06-02T07:00:00Z"
@@ -362,4 +364,5 @@ class TestTraceSpansRecentTraceSelection(_TraceSpansTestBase):
             rootSpans=False,
             prefetchSpans=20,
         )
-        self.assertEqual({int(row[1], 16) for row in self._execute(query)}, expected)
+        with patch.object(logic, "RECENT_TRACES_SPANS_PER_TRACE", 10):
+            self.assertEqual({int(row[1], 16) for row in self._execute(query)}, expected)
