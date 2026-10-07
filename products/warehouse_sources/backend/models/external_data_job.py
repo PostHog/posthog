@@ -98,6 +98,14 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["pipeline", "-created_at"],
                 name="idx_extdatajob_pipe_created",
             ),
+            # Serves the CDC billing-expiry sweep (_billing_blocked_since): equality on
+            # team/pipeline/schema/status, ordered by created_at in either direction with LIMIT.
+            # It names team and pipeline too, because the planner treats them as independent of
+            # schema and otherwise keeps a bitmap scan over every job of the source with that status.
+            models.Index(
+                fields=["team", "pipeline", "schema", "status", "created_at"],
+                name="idx_extdatajob_schema_status",
+            ),
         ]
 
     def folder_path(self) -> str:
