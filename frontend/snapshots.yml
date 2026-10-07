@@ -616,6 +616,14 @@ snapshots:
         hash: v1.k794b7964.c5168eae4c3faf5aedbd64a29598f2d0a972f1864d5051dc8f7567a960777c7b.wtf7NrB3yC_1-AcfkjfR33aOe81OdBTQcI3GITUGcC0
     components-chart-legend-series-menu--single-series--light:
         hash: v1.k794b7964.45544c43c187fd1d1fc7b204e7c33c7e422c5c56838cac44e5d63318c7f5e283.phbzfcS5A5m2LHaspjABfv-I6FPQ1-LnsCFRwyX81uQ
+    components-command-k-search--chip-and-value-suggestions--dark:
+        hash: v1.k794b7964.bb2146400c33663fe6dcf1bd8ed3b728759ad68c72c676ac86f03d4abb209507.gdnIyse2UFs7BPGXjLG1EJXyF7jtrfDzCNo7LLzCwKM
+    components-command-k-search--chip-and-value-suggestions--light:
+        hash: v1.k794b7964.7c546a5379c0a5d025630508266a9f40c2e216a45bfa6d894d983ace0c4cae5b.MXIWq8T3Rb_keioh261ukhjJk0E279_P42OuZVDakfA
+    components-command-k-search--empty--dark:
+        hash: v1.k794b7964.458b55fd345ec31873d513d00258ebe6f6f6e9b1e91c4504ad4f0c16046f5151.wfpwrARigE_uao91HNDgU7NeZN24s2vP9Q3H4W4mEX4
+    components-command-k-search--empty--light:
+        hash: v1.k794b7964.16a8fc2aa9fe572f42c756f561dec1d929c15e01d0cf52f699cfd8eb2213a117.dQLxyVraHzdQpjon_SuAJml5zKhCoFXSJb8t4odcbj8
     components-compact-list--compact-list--dark:
         hash: v1.k794b7964.59d9b22dc4c1fabb38cfa1c8072b3f6e3e4140bfddef6160e568f935c0ba7f29.aeZmv2PM9H27yaixZr0lFX-5hBEr1ET0-8F-DJP_QS4
     components-compact-list--compact-list--light:
