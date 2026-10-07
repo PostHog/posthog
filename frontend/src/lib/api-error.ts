@@ -275,16 +275,7 @@ export class ApiError extends Error {
         const retryAfter = status === 503 ? headers?.get('Retry-After') : null
         const seconds = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) : NaN
         this.retryAfterSeconds = Number.isSafeInteger(seconds) ? seconds : null
-        let retryAfterTimestamp = NaN
-        if (this.retryAfterSeconds !== null) {
-            retryAfterTimestamp = Date.now() + this.retryAfterSeconds * 1000
-        } else if (retryAfter?.endsWith('GMT')) {
-            // Compare server dates to keep device clock skew out of the cooldown.
-            const serverDate = headers?.get('Date')
-            if (serverDate) {
-                retryAfterTimestamp = Date.now() + Math.max(0, Date.parse(retryAfter) - Date.parse(serverDate))
-            }
-        }
+        const retryAfterTimestamp = this.retryAfterSeconds !== null ? Date.now() + this.retryAfterSeconds * 1000 : NaN
         this.retryAfterTimestamp = Number.isSafeInteger(retryAfterTimestamp) ? retryAfterTimestamp : null
     }
 

@@ -32,8 +32,7 @@ describe('api-error', () => {
             }
         )
 
-        it.each([-3_600_000, 3_600_000])('honors HTTP dates with %i ms of device clock skew', (clockSkew) => {
-            jest.useFakeTimers({ now: Date.parse('Mon, 05 Oct 2026 12:00:00 GMT') + clockSkew })
+        it('ignores HTTP-date capacity hints even with a server Date header', () => {
             const error = new ApiError(
                 '',
                 503,
@@ -43,23 +42,9 @@ describe('api-error', () => {
                 })
             )
 
-            expect(error.retryAfterTimestamp).toBe(Date.now() + 45_000)
+            expect(error.retryAfterTimestamp).toBeNull()
             expect(error.retryAfterSeconds).toBeNull()
         })
-
-        it.each([undefined, 'invalid'])(
-            'does not enforce an HTTP-date cooldown without a valid server Date: %s',
-            (date) => {
-                const headers = new Headers({ 'Retry-After': 'Mon, 05 Oct 2026 12:00:45 GMT' })
-                if (date) {
-                    headers.set('Date', date)
-                }
-
-                const error = new ApiError('', 503, headers)
-                expect(error.retryAfterTimestamp).toBeNull()
-                expect(error.retryAfterSeconds).toBeNull()
-            }
-        )
 
         it.each([undefined, '', '-1', '1.5', '1e3', 'unknown', 'Infinity', '9'.repeat(400)])(
             'ignores an invalid Retry-After header: %s',

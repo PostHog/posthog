@@ -198,10 +198,9 @@ describe('insight error states', () => {
         expect(screen.queryByText(/DB::Exception/)).toBeNull()
     })
 
-    it.each(['seconds', 'HTTP date'])('honors a capacity cooldown in %s across remounts', (format) => {
+    it('honors a numeric capacity cooldown across remounts', () => {
         jest.useFakeTimers()
-        const retryAfter = format === 'seconds' ? '45' : new Date(Date.now() + 45_000).toUTCString()
-        const error = new ApiError('', 503, new Headers({ 'Retry-After': retryAfter, Date: new Date().toUTCString() }))
+        const error = new ApiError('', 503, new Headers({ 'Retry-After': '45' }))
         const onRetry = jest.fn()
         const view = (
             <InsightErrorState
