@@ -186,9 +186,12 @@ def build_metric(metric_dict: dict[str, Any]) -> ExperimentMetric:
     return METRIC_BUILDERS[metric_dict["metric_type"]](**metric_dict)
 
 
+# A metric reads a data warehouse table when any of its source nodes is an ExperimentDataWarehouseNode.
+# Such metrics never precompute (the precomputed table lacks the join keys). The source-bearing fields
+# are the same across the two readers below: source, series[*], numerator, denominator, start_event,
+# completion_event. Keep the pair in step — one reads the typed metric, the other a raw saved definition.
 def metric_reads_data_warehouse(metric: ExperimentMetric) -> bool:
-    """True when any side of the metric reads a data warehouse table. These metrics never precompute
-    (the precomputed table lacks the join keys). The event side of each shape is None or an events node."""
+    """Typed check, for callers that already hold a built metric (the query runner)."""
     if isinstance(metric, ExperimentMeanMetric):
         nodes: list[Any] = [metric.source]
     elif isinstance(metric, ExperimentFunnelMetric):
@@ -198,3 +201,17 @@ def metric_reads_data_warehouse(metric: ExperimentMetric) -> bool:
     else:
         nodes = [metric.start_event, metric.completion_event]
     return any(isinstance(node, ExperimentDataWarehouseNode) for node in nodes)
+
+
+def metric_dict_reads_data_warehouse(metric_dict: dict[str, Any]) -> bool:
+    """Dict check, for callers that only hold a saved definition they may not be able to build (canary
+    sampling). A field absent on a shape is simply missing from the dict."""
+    nodes = [
+        metric_dict.get("source"),
+        *(metric_dict.get("series") or []),
+        metric_dict.get("numerator"),
+        metric_dict.get("denominator"),
+        metric_dict.get("start_event"),
+        metric_dict.get("completion_event"),
+    ]
+    return any(isinstance(node, dict) and node.get("kind") == "ExperimentDataWarehouseNode" for node in nodes)
