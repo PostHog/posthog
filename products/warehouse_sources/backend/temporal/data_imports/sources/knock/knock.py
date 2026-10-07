@@ -36,7 +36,7 @@ NO_OBJECT_COLLECTIONS_ERROR = (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class KnockResumeConfig:
     after: str | None = None
     # Set only by the objects table, which walks one collection after another.
