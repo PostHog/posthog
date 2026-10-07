@@ -134,6 +134,11 @@ describe('batchExportHogQLQueryLogic', () => {
                 projectConvertsToProjectTimezone: projectConverts,
                 queryTimezone,
             })
+            const { start, end } = logic.values.previewInterval
+            expect(editorLogic().values.placeholders.map((placeholder) => placeholder.previewValue)).toEqual([
+                start.tz(queryTimezone).format('YYYY-MM-DD HH:mm:ss'),
+                end.tz(queryTimezone).format('YYYY-MM-DD HH:mm:ss'),
+            ])
         }
     )
 
