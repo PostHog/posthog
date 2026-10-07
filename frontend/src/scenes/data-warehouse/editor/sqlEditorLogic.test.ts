@@ -2077,7 +2077,7 @@ describe('sqlEditorLogic', () => {
             logic.actions.updateView({
                 id: MOCK_VIEW.id,
                 query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
-                types: [],
+                types: [['total', 'UInt64']],
             })
             // An edit made while the save is in flight.
             logic.actions.setQueryInput('SELECT 3')
@@ -2094,6 +2094,7 @@ describe('sqlEditorLogic', () => {
 
             expect(patchBodies[1]).toMatchObject({
                 query: { query: 'SELECT 3' },
+                types: [],
                 edited_history_id: 'their-head',
             })
             expect(logic.values.queryInput).toBe('SELECT 3')

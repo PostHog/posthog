@@ -3378,6 +3378,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             await saveOrReviewConflict({
                                 ...view,
                                 query: { kind: NodeKind.HogQLQuery, ...view.query, query: reviewedQuery },
+                                // The request's types come from the run of its own query. The backend
+                                // trusts nonempty types and skips inference, so send none for edited SQL.
+                                types: reviewedQuery === view.query?.query ? view.types : [],
                                 edited_history_id: currentHistoryId ?? undefined,
                             })
                         },
