@@ -1702,6 +1702,36 @@ describe('insightNavLogic', () => {
                     },
                 },
                 {
+                    label: 'trends flag calls by group to funnels',
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        aggregation_group_type_index: 0,
+                        series: [
+                            {
+                                kind: NodeKind.DataWarehouseNode,
+                                id: 'posthog.flag_evaluations',
+                                name: 'posthog.flag_evaluations',
+                                table_name: 'posthog.flag_evaluations',
+                                id_field: 'uuid',
+                                timestamp_field: 'timestamp',
+                                distinct_id_field: 'distinct_id',
+                            },
+                        ],
+                    },
+                    targetView: InsightType.FUNNELS,
+                    expectedSource: {
+                        kind: NodeKind.FunnelsQuery,
+                        aggregation_group_type_index: 0,
+                        series: [
+                            {
+                                kind: NodeKind.FunnelsDataWarehouseNode,
+                                table_name: 'posthog.flag_evaluations',
+                                aggregation_target_field: '$group_0',
+                            },
+                        ],
+                    },
+                },
+                {
                     label: 'trends flag calls to retention',
                     source: {
                         kind: NodeKind.TrendsQuery,

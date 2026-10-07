@@ -22,6 +22,7 @@ import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFil
 import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import { withFlagCallsAggregationTarget } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -3018,6 +3019,16 @@ const handleQuerySourceUpdateSideEffects = (
     // We do not support properties, filtering test accounts, and sampling for DWH nodes
     // Disable them if there are any. Check the query after the update, so a later edit cannot turn them on again.
     const nextQuery = { ...currentState, ...mergedUpdate } as InsightQueryNode
+    const retargetedQuery = withFlagCallsAggregationTarget(nextQuery)
+    if (retargetedQuery !== nextQuery) {
+        if (isRetentionQuery(retargetedQuery)) {
+            ;(mergedUpdate as RetentionQuery).retentionFilter = retargetedQuery.retentionFilter
+        } else {
+            ;(mergedUpdate as FunnelsQuery | LifecycleQuery).series = (
+                retargetedQuery as FunnelsQuery | LifecycleQuery
+            ).series
+        }
+    }
     const nextRetentionEntities = isRetentionQuery(nextQuery)
         ? [nextQuery.retentionFilter?.targetEntity, nextQuery.retentionFilter?.returningEntity]
         : []

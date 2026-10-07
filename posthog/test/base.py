@@ -1803,11 +1803,12 @@ def _create_flag_evaluations(
     distinct_id: str = "evaluator",
     person_id: uuid.UUID | str | None = None,
     response: str | bool = True,
+    properties: dict[str, str] | None = None,
 ) -> None:
     """Insert `count` $feature_flag_called rows for flag_key into flag_evaluations. Unlike _create_event, it writes
     the rows immediately. Each row gets a new random person_id unless the caller passes one."""
     timestamp = timestamp or dt.datetime.now(dt.UTC)
-    properties = json.dumps({"$feature_flag": flag_key, "$feature_flag_response": response})
+    properties_json = json.dumps({**(properties or {}), "$feature_flag": flag_key, "$feature_flag_response": response})
     # writable_flag_evaluations does not declare flag_key. The shard computes it from properties.$feature_flag.
     sync_execute(
         """
@@ -1819,7 +1820,7 @@ def _create_flag_evaluations(
             (
                 str(uuid.uuid4()),
                 "$feature_flag_called",
-                properties,
+                properties_json,
                 timestamp,
                 team_id,
                 distinct_id,

@@ -449,6 +449,45 @@ describe('insightVizDataLogic', () => {
             expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).breakdownFilter).toEqual(expected)
         })
 
+        const flagCallsNode = {
+            id: 'posthog.flag_evaluations',
+            table_name: 'posthog.flag_evaluations',
+            name: 'Feature flag called',
+            timestamp_field: 'timestamp',
+            aggregation_target_field: 'person_id',
+        }
+        const flagCallsEntity = { ...flagCallsNode, type: 'data_warehouse' as const }
+        it.each([
+            {
+                kind: NodeKind.FunnelsQuery,
+                flagCalls: { series: [{ ...flagCallsNode, kind: NodeKind.FunnelsDataWarehouseNode }] },
+                targets: (source: any) => [source.series[0].aggregation_target_field],
+            },
+            {
+                kind: NodeKind.LifecycleQuery,
+                flagCalls: { series: [{ ...flagCallsNode, kind: NodeKind.LifecycleDataWarehouseNode }] },
+                targets: (source: any) => [source.series[0].aggregation_target_field],
+            },
+            {
+                kind: NodeKind.RetentionQuery,
+                flagCalls: { retentionFilter: { targetEntity: flagCallsEntity, returningEntity: flagCallsEntity } },
+                targets: (source: any) => [
+                    source.retentionFilter.targetEntity.aggregation_target_field,
+                    source.retentionFilter.returningEntity.aggregation_target_field,
+                ],
+            },
+        ])('counts $kind flag calls by the aggregation group', ({ kind, flagCalls, targets }) => {
+            const update = (source: Record<string, unknown>): void =>
+                builtInsightVizDataLogic.actions.updateQuerySource({ kind, ...source } as QuerySourceUpdate)
+
+            update({ aggregation_group_type_index: 1 })
+            update(flagCalls)
+            expect(new Set(targets(builtInsightVizDataLogic.values.querySource))).toEqual(new Set(['$group_1']))
+
+            update({ aggregation_group_type_index: undefined })
+            expect(new Set(targets(builtInsightVizDataLogic.values.querySource))).toEqual(new Set(['person_id']))
+        })
+
         it('keeps test accounts off when a later edit turns them on for a retention insight with a data warehouse entity', () => {
             builtInsightVizDataLogic.actions.updateQuerySource({
                 kind: NodeKind.RetentionQuery,

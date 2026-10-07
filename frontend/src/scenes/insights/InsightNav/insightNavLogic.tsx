@@ -8,6 +8,7 @@ import { identifierToHuman } from 'lib/utils/strings'
 import {
     FLAG_EVALUATIONS_SERIES_FIELDS,
     FLAG_EVALUATIONS_TABLE,
+    withFlagCallsAggregationTarget,
 } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -912,11 +913,11 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     }
 
     // Insight-specific filter merge (web analytics already returned above)
-    return {
+    return withFlagCallsAggregationTarget({
         ...mergedQuery,
         ...buildCachedFields(query, cache),
         ...buildInsightFilter(query, cache),
-    } as InsightQueryNode
+    } as InsightQueryNode)
 }
 
 const buildCachedFields = (query: InsightQueryNode, cache: QueryPropertyCache): Partial<QueryPropertyCache> => {

@@ -557,7 +557,11 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         table_name = entity.table_name if entity_is_dwh else "events"
         assert table_name
-        where_expr = None if entity_is_dwh else ast.And(exprs=self._arm_where_filters(entity, query_kind))
+        where_expr: ast.Expr | None = None
+        if not entity_is_dwh:
+            where_expr = ast.And(exprs=self._arm_where_filters(entity, query_kind))
+        elif self.runner.group_type_index is not None:
+            where_expr = parse_expr("toString({actor}) != ''", {"actor": self.entity_actor_id_expr(entity)})
 
         select_fields: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=actor_field),
