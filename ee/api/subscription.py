@@ -63,8 +63,8 @@ from products.exports.backend.models.subscription import (
 )
 from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.exports.backend.subscription_query_access import (
+    blocked_access_for_subscription,
     should_check_table_access,
-    tables_blocking_subscription_write,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
@@ -1007,7 +1007,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         # Compiling the queries as the requester needs a real user.
         if not isinstance(user, User):
             return
-        blocked_names = tables_blocking_subscription_write(
+        blocked_names = blocked_access_for_subscription(
             user=user,
             team=self.context["get_team"](),
             user_access_control=self.context["view"].user_access_control,
