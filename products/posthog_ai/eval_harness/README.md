@@ -102,7 +102,7 @@ The experiment metadata records `skill_delivery`; compare the shared `expected_s
 
 `--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-5.5`.
 It requires `LLM_GATEWAY_OPENAI_API_KEY` in the environment (checked by preflight), which the harness's LLM gateway uses to proxy the agent's OpenAI calls.
-Experiment names don't change with the runtime or skill delivery. Each Braintrust experiment records `agent_runtime`, `agent_model`, and `skill_delivery` in its metadata, so compare cross-run scores within one runtime and delivery mode.
+Experiment names don't change with the runtime or skill delivery. Each Braintrust experiment and every PostHog event records `agent_model`, `agent_runtime`, `skill_delivery`, `reasoning_effort`, `trials`, `git_sha` and `git_dirty`, so compare cross-run scores within one runtime and delivery mode.
 
 ## Providers
 

@@ -4,6 +4,7 @@ import time
 import atexit
 import asyncio
 import logging
+import subprocess
 from collections.abc import Sequence
 from contextlib import AsyncExitStack, ExitStack
 from dataclasses import replace
@@ -17,6 +18,7 @@ from django.test import override_settings
 import posthoganalytics
 from posthoganalytics import Posthog
 
+from posthog.git import get_git_commit_full
 from posthog.ph_client import get_client
 
 from products.tasks.backend.constants import (
@@ -37,7 +39,7 @@ from .cli import (
 )
 from .context import EvalContext
 from .demo_data import SandboxedDemoData, ensure_demo_ready
-from .discovery import MULTI_TURN_MODULE_MARKER, EvalSuite, discover_suites
+from .discovery import MULTI_TURN_MODULE_MARKER, REPO_ROOT, EvalSuite, discover_suites
 from .django_env import EvalDatabase
 from .env_preflight import validate_eval_env
 from .kernel_sandboxes import reclaim_kernels
@@ -85,6 +87,22 @@ def eval_feature_enabled(
     if key == MCP_EXEC_SKILLS_FEATURE_FLAG:
         return skill_delivery == "exec"
     return key not in FORCED_OFF_FEATURE_FLAGS
+
+
+def _worktree_dirty() -> bool | None:
+    """Whether tracked files differ from ``HEAD``; ``None`` when git can't tell."""
+    try:
+        status = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return bool(status.stdout.strip())
 
 
 class SandboxedEvalHarness:
@@ -403,6 +421,8 @@ class SandboxedEvalHarness:
             engine=self._engine,
             per_case_timeout_seconds=self.options.per_case_timeout_seconds,
             trials=self.options.trials,
+            git_sha=get_git_commit_full(),
+            git_dirty=_worktree_dirty(),
         )
 
     async def _run_suite(self, suite: EvalSuite, ctx: EvalContext) -> SuiteRunResult:

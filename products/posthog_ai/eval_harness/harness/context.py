@@ -81,3 +81,9 @@ class EvalContext:
     trials: int
     """Times each case runs. Agents are stochastic, so N runs per case measure
     the variance a single run can't reveal."""
+
+    git_sha: str | None
+    """Commit under test; ``None`` when unknown."""
+
+    git_dirty: bool | None
+    """Whether tracked files differed from ``git_sha``; ``None`` when unknown."""
