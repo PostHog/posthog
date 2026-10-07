@@ -120,8 +120,8 @@ class TestSelectChanged:
                 return str.__ne__(self, other)
 
         distinct = 500
-        first_pass = [(CountingId(f"id-{i}"), {"plan_tier": "old"}) for i in range(distinct)]
-        second_pass = [(CountingId(f"id-{i}"), {"plan_tier": "new"}) for i in range(distinct)]
+        first_pass: list[tuple[str, dict]] = [(CountingId(f"id-{i}"), {"plan_tier": "old"}) for i in range(distinct)]
+        second_pass: list[tuple[str, dict]] = [(CountingId(f"id-{i}"), {"plan_tier": "new"}) for i in range(distinct)]
 
         changed, new_hashes = pps.select_changed(first_pass + second_pass, {})
 
