@@ -218,6 +218,12 @@ tools:
                 - errors
                 - created_at
                 - created_by
+    integrations-microsoft-teams-channels-retrieve:
+        operation: integrations_microsoft_teams_channels_retrieve
+        enabled: false
+    integrations-microsoft-teams-teams-retrieve:
+        operation: integrations_microsoft_teams_teams_retrieve
+        enabled: false
     integrations-request-access-create:
         operation: integrations_request_access_create
         enabled: false
