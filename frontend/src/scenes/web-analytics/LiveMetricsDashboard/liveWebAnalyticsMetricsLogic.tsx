@@ -5,7 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, isTransientServerError } from 'lib/api-error'
 import { createStreamConnection } from 'lib/api-stream'
 import { applyPathCleaning } from 'lib/components/PathCleanFilters/pathCleaningUtils'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -706,12 +706,16 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             actions.loadInitialData(true)
         },
         loadInitialData: async ({ isBackground }) => {
+            // A new load must not be aborted by a reload scheduled by the previous one.
+            cache.disposables.dispose('hogqlReload')
             cache.loadAbortController?.abort()
             const abortController = new AbortController()
             cache.loadAbortController = abortController
             const { signal } = abortController
             let retryAfterTimestamp = 0
+            let hasTransientQueryError = false
             const onQueryError = (error: unknown): void => {
+                hasTransientQueryError ||= isTransientServerError(error)
                 if (error instanceof ApiError) {
                     retryAfterTimestamp = Math.max(retryAfterTimestamp, error.retryAfterTimestamp ?? 0)
                 }
@@ -841,7 +845,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     resetStreamStateAndReload(cache as FlushCache, actions)
                 }
                 // Counted from load completion, so a load slower than the interval is never aborted by the next one.
-                if (!signal.aborted && values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]) {
+                if (
+                    !signal.aborted &&
+                    (values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL] || hasTransientQueryError)
+                ) {
                     cache.disposables.add(() => {
                         const delay = Math.max(HOGQL_RELOAD_INTERVAL_MS, retryAfterTimestamp - Date.now())
                         const timeoutId = setTimeout(() => actions.loadInitialData(true), delay)
@@ -861,8 +868,6 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             cache.eventsConnection?.abort()
 
             if (values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]) {
-                // A new load is starting, so a reload scheduled by the previous one must not abort it.
-                cache.disposables.dispose('hogqlReload')
                 return
             }
 

@@ -13,17 +13,22 @@ describe('api-error', () => {
             jest.useRealTimers()
         })
 
-        it.each([0, 5, 45])(
-            'uses %i seconds without a server Date header and keeps the original deadline',
-            (seconds) => {
+        it.each([
+            { status: 503, seconds: 0, expected: 0 },
+            { status: 503, seconds: 5, expected: 5 },
+            { status: 503, seconds: 45, expected: 45 },
+            { status: 500, seconds: 45, expected: null },
+        ])(
+            'anchors a numeric capacity hint to receipt time only for 503 (status=$status, seconds=$seconds)',
+            ({ status, seconds, expected }) => {
                 jest.useFakeTimers()
                 const receivedAt = Date.now()
-                const error = new ApiError('', 503, new Headers({ 'Retry-After': String(seconds) }))
+                const error = new ApiError('', status, new Headers({ 'Retry-After': String(seconds) }))
 
                 jest.advanceTimersByTime(1000)
 
-                expect(error.retryAfterSeconds).toBe(seconds)
-                expect(error.retryAfterTimestamp).toBe(receivedAt + seconds * 1000)
+                expect(error.retryAfterSeconds).toBe(expected)
+                expect(error.retryAfterTimestamp).toBe(expected === null ? null : receivedAt + expected * 1000)
             }
         )
 

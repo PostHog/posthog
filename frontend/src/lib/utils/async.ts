@@ -56,6 +56,8 @@ export interface RetryOptions {
     maxRetryTimeMs?: number
 }
 
+const RETRY_TIMER_TOLERANCE_MS = 100
+
 /**
  * Retries a function with exponential backoff on failure.
  *
@@ -111,8 +113,8 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOp
                 throw e
             }
             await delay(delayMs, signal)
-            // Suspended tabs can resume after the deadline even when the requested delay fitted.
-            if (performance.now() > retryDeadline) {
+            // Allow timer jitter at the deadline, but reject retries delayed by a suspended tab.
+            if (performance.now() > retryDeadline + RETRY_TIMER_TOLERANCE_MS) {
                 throw e
             }
         }

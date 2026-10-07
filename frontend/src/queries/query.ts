@@ -85,17 +85,18 @@ function capacityWaitMs(error: unknown): number | undefined {
 /**
  * Treat eligible 502/503 responses as potentially transient and retry within a bounded budget.
  * A 502 does not establish whether the original query started (RFC 9110, section 15.6.3).
+ * Do not resubmit forced refreshes after a 502, since they bypass completed result caches.
  * Only retry a 503 with a numeric `Retry-After` that fits the total retry-start budget.
  * Without a fitting numeric hint the error goes to the caller at once, because an early
  * resubmit only adds load. A 504 means the gateway stopped waiting while the backend can still be
  * running the query, so a resubmit can compute it a second time.
  */
-function isRetryableSubmitFailure(error: unknown): boolean {
+function isRetryableSubmitFailure(error: unknown, refresh: RefreshType): boolean {
     if (!(error instanceof ApiError)) {
         return false
     }
     if (error.status === 502) {
-        return !error.headers?.has('Retry-After')
+        return refresh !== 'force_blocking' && refresh !== 'force_async' && !error.headers?.has('Retry-After')
     }
     return capacityWaitMs(error) !== undefined
 }
@@ -240,7 +241,7 @@ async function executeQuery<N extends DataNode>(
                 initialDelayMs: TRANSIENT_SUBMIT_DELAY_MS,
                 backoffMultiplier: 2,
                 signal: methodOptions?.signal,
-                shouldRetry: isRetryableSubmitFailure,
+                shouldRetry: (error) => isRetryableSubmitFailure(error, refreshParam),
                 getDelayMs: capacityWaitMs,
                 maxRetryTimeMs: TRANSIENT_SUBMIT_RETRY_BUDGET_MS,
             }

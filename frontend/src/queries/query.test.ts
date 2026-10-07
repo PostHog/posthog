@@ -4,7 +4,7 @@ import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
-import { EventsQuery, HogQLQuery, NodeKind, WebStatsBreakdown } from '~/queries/schema/schema-general'
+import { EventsQuery, HogQLQuery, NodeKind, RefreshType, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -493,23 +493,64 @@ describe('query', () => {
             expect(querySpy).toHaveBeenCalledTimes(2)
         })
 
-        it('does not submit a retry after a delayed timer misses the deadline', async () => {
-            jest.useFakeTimers()
-            const clock = jest.spyOn(performance, 'now').mockReturnValue(0)
-            const error = shortCapacityWait()
-            const querySpy = jest
-                .spyOn(api, 'query')
-                .mockRejectedValueOnce(error)
-                .mockResolvedValue({ results: ['ok'] } as any)
+        it.each([
+            { waitSeconds: 20, resumedAt: 20_050, retries: true },
+            { waitSeconds: 20, resumedAt: 21_000, retries: false },
+            { waitSeconds: 5, resumedAt: 21_000, retries: false },
+        ])(
+            'bounds timer lateness after a $waitSeconds second hint (resumed at $resumedAt ms)',
+            async ({ waitSeconds, resumedAt, retries }) => {
+                jest.useFakeTimers()
+                const clock = jest.spyOn(performance, 'now').mockReturnValue(0)
+                const error = new ApiError('', 503, new Headers({ 'Retry-After': String(waitSeconds) }))
+                const querySpy = jest
+                    .spyOn(api, 'query')
+                    .mockRejectedValueOnce(error)
+                    .mockResolvedValue({ results: ['ok'] } as any)
 
-            const outcome = Promise.allSettled([performQuery(query, undefined, 'blocking')])
-            await jest.advanceTimersByTimeAsync(0)
-            clock.mockReturnValue(21_000)
-            await jest.advanceTimersByTimeAsync(5000)
+                const outcome = Promise.allSettled([performQuery(query, undefined, 'blocking')])
+                await jest.advanceTimersByTimeAsync(0)
+                await jest.advanceTimersByTimeAsync(waitSeconds * 1000 - 1)
+                expect(querySpy).toHaveBeenCalledTimes(1)
+                clock.mockReturnValue(resumedAt)
+                await jest.advanceTimersByTimeAsync(1)
 
-            await expect(outcome).resolves.toEqual([{ status: 'rejected', reason: error }])
-            expect(querySpy).toHaveBeenCalledTimes(1)
-        })
+                await expect(outcome).resolves.toEqual([
+                    retries
+                        ? { status: 'fulfilled', value: { results: ['ok'] } }
+                        : { status: 'rejected', reason: error },
+                ])
+                expect(querySpy).toHaveBeenCalledTimes(retries ? 2 : 1)
+            }
+        )
+
+        it.each(
+            (['force_blocking', 'force_async'] as RefreshType[]).flatMap((refresh) =>
+                [502, 503].map((status) => ({ refresh, status }))
+            )
+        )(
+            'retries $refresh only with a capacity hint, not an ambiguous gateway failure (status=$status)',
+            async ({ refresh, status }) => {
+                jest.useFakeTimers()
+                const error = status === 502 ? badGateway() : shortCapacityWait()
+                const querySpy = jest
+                    .spyOn(api, 'query')
+                    .mockRejectedValueOnce(error)
+                    .mockResolvedValue({ results: ['ok'] } as any)
+
+                const outcome = Promise.allSettled([performQuery(query, undefined, refresh)])
+                await jest.advanceTimersByTimeAsync(4999)
+                expect(querySpy).toHaveBeenCalledTimes(1)
+                await jest.advanceTimersByTimeAsync(1)
+
+                await expect(outcome).resolves.toEqual([
+                    status === 502
+                        ? { status: 'rejected', reason: error }
+                        : { status: 'fulfilled', value: { results: ['ok'] } },
+                ])
+                expect(querySpy).toHaveBeenCalledTimes(status === 502 ? 1 : 2)
+            }
+        )
 
         it.each([
             ['a 503 without Retry-After', refused()],
