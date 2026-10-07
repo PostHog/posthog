@@ -228,9 +228,16 @@ export function SnapshotDiffViewer({
     const openAcceptQuarantinedDialog = (): void => {
         LemonDialog.open({
             title: 'Accept a change to a quarantined snapshot?',
-            description:
-                'This snapshot is quarantined because it renders inconsistently, so its change does not block your pull request. ' +
-                'Accept it only if your pull request changes this story. Otherwise leave it as it is: accepting it makes this picture the baseline for everyone.',
+            description: (
+                <div className="flex flex-col gap-2">
+                    <code className="break-all">{snapshot.identifier}</code>
+                    <p className="m-0">
+                        This snapshot is quarantined because it renders inconsistently, so its change does not block
+                        your pull request. Accept it only if your pull request changes this story. Otherwise leave it as
+                        it is: accepting it makes this picture the baseline for everyone.
+                    </p>
+                </div>
+            ),
             primaryButton: {
                 children: 'Accept change',
                 onClick: onApprove,
