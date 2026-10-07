@@ -59,6 +59,7 @@ from products.data_modeling.backend.logic.freshness import (
     format_cadence,
     validate_declared_target,
 )
+from products.data_modeling.backend.logic.materialized_column_types import check_saved_query_column_types
 from products.data_modeling.backend.logic.node_frequency import (
     FrequencyGraph,
     build_frequency_graph,
@@ -183,6 +184,8 @@ def apply_saved_query_frequency_target(
     two, and their reconciles are already queued. One node per saved query is the end state, which
     makes this a no-op then rather than something to unwind later.
     """
+    if target is not None:
+        check_saved_query_column_types(saved_query.team_id, saved_query.pk)
     written = 0
     with transaction.atomic():
         # target and anchor share one JSON field and each setter rewrites the whole blob, so an

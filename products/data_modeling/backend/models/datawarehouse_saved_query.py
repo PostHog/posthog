@@ -42,6 +42,7 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
+from products.data_modeling.backend.facade.contracts import UnstorableColumnTypeError
 from products.warehouse_sources.backend.facade.hogql import (
     LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
@@ -289,9 +290,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         triggered_by_id is the person who enabled materialization, and is who hears about it if
         that first run fails.
 
-        A rejected frequency propagates to the caller. Any other failure disables
-        materialization, because the alternative is a query that reports itself materialized
-        while nothing is scheduled to materialize it.
+        A rejected frequency propagates to the caller, and so does UnstorableColumnTypeError from
+        the frequency write, which checks the stored column types before it writes anything. Any
+        other failure disables materialization, because the alternative is a query that reports
+        itself materialized while nothing is scheduled to materialize it.
         """
         from products.data_modeling.backend.logic.freshness import (
             UnsatisfiableFrequencyError,
@@ -361,9 +363,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 return
 
             raise NoSchedulableDagError(f"Saved query {self.id} has no DAG that can schedule it")
-        except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
-            # The query is fine — the requested frequency is not. Surface it to the caller
-            # instead of silently disabling materialization.
+        except (UnstorableColumnTypeError, UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
+            # Refusing the query or cadence must leave the caller's previous materialization intact.
             raise
         except Exception as e:
             capture_exception(

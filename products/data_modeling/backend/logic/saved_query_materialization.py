@@ -14,8 +14,10 @@ from products.data_modeling.backend.facade.contracts import (
     MaterializationFailedError,
     MaterializationForbiddenError,
     MaterializationRefusedError,
+    UnstorableColumnTypeError,
 )
 from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
+from products.data_modeling.backend.logic.materialized_column_types import check_saved_query_column_types
 from products.data_modeling.backend.logic.node_frequency import SavedQueryFrequencyBounds, saved_query_target_bounds
 from products.data_modeling.backend.logic.node_materialization import SavedQueryNotFoundError
 from products.data_modeling.backend.logic.saved_query_dag_sync import update_node_type
@@ -72,6 +74,7 @@ def _enable_materialization(
 
     _require_edit_access(saved_query, user)
     assert_user_can_read_query(saved_query.query, saved_query.team_id, user)
+    check_saved_query_column_types(saved_query.team_id, saved_query.pk)
 
     if sync_frequency_interval is not None:
         # Ask before writing, so the ordinary refusal never has to be undone below. Names only
@@ -87,6 +90,11 @@ def _enable_materialization(
     # If this fails, it will set is_materialized = False
     try:
         saved_query.schedule_materialization(trigger_immediate_run=True, triggered_by_id=user.pk)
+    except UnstorableColumnTypeError:
+        _save_materialization(
+            saved_query, is_materialized=previously_materialized, sync_frequency_interval=previous_interval
+        )
+        raise
     except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as error:
         # The check above already refused every cadence the lineage forbids, so reaching here
         # means the lineage moved mid-request. Say so plainly rather than forwarding a message

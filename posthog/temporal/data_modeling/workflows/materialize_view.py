@@ -104,6 +104,7 @@ NON_RETRYABLE_ERRORS = [
     "EmptyHogQLResponseColumnsError",
     "DuplicateOutputColumnError",
     "UnstorableIntegerError",
+    "UnstorableOutputColumnError",
 ]
 
 

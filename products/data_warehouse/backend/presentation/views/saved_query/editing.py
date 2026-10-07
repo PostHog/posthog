@@ -94,7 +94,11 @@ def _apply_frequency_target(
     try:
         # Validate before commit so a rejected frequency rolls back the write.
         nodes_written = modeling_api.apply_saved_query_frequency_target(view, target, visible_names=visible)
-    except (modeling_api.UnsatisfiableFrequencyError, modeling_api.UnsupportedFrequencyTargetError) as e:
+    except (
+        modeling_api.MaterializationRefusedError,
+        modeling_api.UnsatisfiableFrequencyError,
+        modeling_api.UnsupportedFrequencyTargetError,
+    ) as e:
         raise serializers.ValidationError(str(e))
     if target is not None and nodes_written == 0:
         raise serializers.ValidationError(
@@ -546,6 +550,23 @@ class DataWarehouseSavedQuerySerializer(
                 if _as_uuid(edited_history_id) != locked_instance.query_revision:
                     raise serializers.ValidationError("The query was modified by someone else.")
 
+            if inferred_columns is not None:
+                # A scheduled VIEW node also materializes, even while is_materialized is false.
+                if frequency_given:
+                    has_cadence = sync_frequency not in (None, "never")
+                else:
+                    declared_targets = modeling_api.declared_targets_by_saved_query(
+                        locked_instance.team_id, [locked_instance.pk]
+                    )
+                    has_cadence = bool(declared_targets)
+                if locked_instance.is_materialized or has_cadence:
+                    unstorable = modeling_api.unstorable_columns(
+                        modeling_api.ClickHouseColumn(name=name, clickhouse_type=str(column["clickhouse"]))
+                        for name, column in inferred_columns.items()
+                    )
+                    if unstorable:
+                        raise serializers.ValidationError(str(modeling_api.UnstorableColumnTypeError(unstorable)))
+
             if query_changed:
                 validated_data["query_revision"] = uuid.uuid4()
 
@@ -554,6 +575,12 @@ class DataWarehouseSavedQuerySerializer(
                 # stays NULL so a stale v1 schedule can never be revived from it.
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
+
+            if inferred_columns is not None:
+                # Cadence validation must read the columns from this edit rather than the previous query.
+                locked_instance.set_columns(inferred_columns)
+                locked_instance.external_tables = inferred_external_tables
+                locked_instance.status = DataWarehouseSavedQuery.Status.MODIFIED
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
 
@@ -574,12 +601,6 @@ class DataWarehouseSavedQuerySerializer(
 
             if has_description:
                 self._write_view_description(view, description)
-
-            if inferred_columns is not None:
-                view.set_columns(inferred_columns)
-                view.external_tables = inferred_external_tables
-                view.status = DataWarehouseSavedQuery.Status.MODIFIED
-                view.save()
 
             try:
                 view.setup_model_paths()

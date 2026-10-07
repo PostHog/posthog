@@ -57,8 +57,10 @@ from posthog.temporal.data_modeling.activities.incremental_write import (
 from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
 
 from products.data_modeling.backend.facade.api import (
+    ClickHouseColumn,
     IncrementalConfig,
     IncrementalFilterError,
+    UnstorableColumnTypeError,
     clear_incremental_state,
     definition_fingerprint,
     get_incremental_config,
@@ -66,6 +68,7 @@ from products.data_modeling.backend.facade.api import (
     inject_incremental_filter,
     record_incremental_history,
     set_incremental_state,
+    unstorable_columns,
     window_start,
 )
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
@@ -230,6 +233,12 @@ class UnstorableIntegerError(NonReportableError):
             f"materialized table can store. Wrap the column in toString() to store it as text."
         )
         self.column = column
+
+
+class UnstorableOutputColumnError(UnstorableColumnTypeError, NonReportableError):
+    """Enabling materialization refuses these columns already. The run checks again because a
+    column's type can change after that, for example when an upstream table changes, and it checks
+    before reading any rows, because delta-rs only fails once the first batch is read."""
 
 
 class DuplicateOutputColumnError(NonReportableError):
@@ -759,6 +768,11 @@ async def hogql_table(
         )
 
     _reject_duplicate_output_columns(described_columns)
+    unstorable = unstorable_columns(
+        ClickHouseColumn(name=column.name, clickhouse_type=column.ch_type) for column in described_columns
+    )
+    if unstorable:
+        raise UnstorableOutputColumnError(unstorable)
 
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
     for column in described_columns:

@@ -21,7 +21,13 @@ from rest_framework.test import APIRequestFactory
 from posthog.models import ActivityLog
 from posthog.models.scoping import team_scope
 
-from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, mark_node_suspended, suspension_state
+from products.data_modeling.backend.facade.api import (
+    UnsatisfiableFrequencyError,
+    get_declared_target,
+    mark_node_suspended,
+    set_declared_target,
+    suspension_state,
+)
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import (
     DAG,
@@ -42,6 +48,14 @@ from products.data_warehouse.backend.presentation.views.saved_query.viewset impo
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
+
+# ClickHouse has no common type for Int64 (toInt) and UInt64 (length), so the column is a Variant.
+VARIANT_QUERY = "SELECT if(1 = 1, toInt(1), length('a')) AS compared"
+VARIANT_COLUMN_TYPE = "Variant(Int64, UInt64)"
+VARIANT_REFUSAL = (
+    'Column "compared" has type Variant(Int64, UInt64), which a materialized table cannot store. '
+    "Cast the expression to one type, for example with toInt(...) or toFloat(...)."
+)
 
 
 class TestSavedQuery(APIBaseTest):
@@ -429,6 +443,40 @@ class TestSavedQuery(APIBaseTest):
         saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
         assert saved_query.is_materialized is False
         assert saved_query.sync_frequency_interval is None
+
+    @parameterized.expand([("materialize",), ("cadence",)])
+    def test_materialize_refuses_a_column_a_materialized_table_cannot_store(self, action: str) -> None:
+        saved_query = DataWarehouseSavedQuery(
+            team=self.team,
+            name="compared_view",
+            query={"kind": "HogQLQuery", "query": VARIANT_QUERY},
+            created_by=self.user,
+        )
+        saved_query.set_columns(
+            {"compared": {"hogql": "UnknownDatabaseField", "clickhouse": VARIANT_COLUMN_TYPE, "valid": True}}
+        )
+        saved_query.save()
+        node = Node.objects.create(
+            team=self.team,
+            dag=DAG.get_or_create_default(self.team),
+            name=saved_query.name,
+            saved_query=saved_query,
+            type=NodeType.VIEW,
+        )
+
+        url = f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}"
+        if action == "materialize":
+            response = self.client.post(f"{url}/materialize", {"sync_frequency": "1hour"})
+        else:
+            response = self.client.patch(url, {"sync_frequency": "1hour"})
+
+        assert response.status_code == 400, response.content
+        assert response.json()["detail"] == VARIANT_REFUSAL
+        saved_query.refresh_from_db()
+        assert saved_query.is_materialized is False
+        assert saved_query.sync_frequency_interval is None
+        node.refresh_from_db()
+        assert get_declared_target(node) is None
 
     def test_materialize_honors_a_requested_sync_frequency(self):
         response = self.client.post(
@@ -1341,6 +1389,23 @@ class TestSavedQuery(APIBaseTest):
             get_declared_target(Node.objects.get(saved_query_id=response.json()["id"])), timedelta(hours=6)
         )
 
+    def test_create_refuses_to_schedule_a_variant_view(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "compared_view",
+                "query": {"kind": "HogQLQuery", "query": VARIANT_QUERY},
+                "types": [["compared", VARIANT_COLUMN_TYPE]],
+                "sync_frequency": "6hour",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()["detail"], VARIANT_REFUSAL)
+        self.assertFalse(DataWarehouseSavedQuery.objects.filter(team=self.team, name="compared_view").exists())
+        self.assertFalse(Node.objects.filter(team=self.team, name="compared_view").exists())
+
     def test_explicit_null_sync_frequency_clears_the_target(self) -> None:
         from products.data_modeling.backend.facade.api import get_declared_target
 
@@ -1991,6 +2056,52 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.json()["detail"], "Model contains a cycle")
         saved_query_row = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
         self.assertEqual(saved_query_row.query, {"kind": "HogQLQuery", "query": original_query})
+
+    @parameterized.expand([("materialized", True, None), ("cadence", False, "6hour"), ("scheduled", False, None)])
+    def test_update_refuses_to_give_a_materialized_view_a_column_it_cannot_store(
+        self, _name: str, is_materialized: bool, sync_frequency: str | None
+    ) -> None:
+        original_query = {"kind": "HogQLQuery", "query": "SELECT toInt(1) AS compared"}
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="compared_view",
+            query=original_query,
+            created_by=self.user,
+            is_materialized=is_materialized,
+        )
+
+        node = Node.objects.create(
+            team=self.team,
+            dag=DAG.get_or_create_default(self.team),
+            name=saved_query.name,
+            saved_query=saved_query,
+            type=NodeType.MAT_VIEW if is_materialized else NodeType.VIEW,
+        )
+        if _name == "scheduled":
+            set_declared_target(node, timedelta(hours=6))
+        previous_target = get_declared_target(node)
+
+        # The SQL editor sends the types from its own run of the query, so inference is skipped
+        payload = {
+            "query": {"kind": "HogQLQuery", "query": VARIANT_QUERY},
+            "types": [["compared", VARIANT_COLUMN_TYPE]],
+            "edited_history_id": str(saved_query.query_revision),
+        }
+        if sync_frequency is not None:
+            payload["sync_frequency"] = sync_frequency
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}",
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()["detail"], VARIANT_REFUSAL)
+        saved_query.refresh_from_db()
+        self.assertEqual(saved_query.query, original_query)
+        self.assertEqual(saved_query.is_materialized, is_materialized)
+        node.refresh_from_db()
+        self.assertEqual(get_declared_target(node), previous_target)
 
     def test_soft_update_with_query_change_skips_get_columns(self):
         response = self.client.post(
