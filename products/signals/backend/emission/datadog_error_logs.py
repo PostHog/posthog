@@ -14,18 +14,25 @@ from products.signals.backend.emission.registry import SignalEmitterOutput, Sign
 
 DATADOG_ERROR_LOG_FIELDS = ("service", "message_pattern", "occurrences", "first_seen", "last_seen")
 
+# Structured logs often leave `message` empty and put the text in Datadog's standard `error.message`
+# or `error.kind` attributes. Without this fallback they all fall into one empty group that never emits.
+_MESSAGE_TEXT_SQL = (
+    "coalesce(nullIf(message, ''), "
+    "nullIf(JSONExtractString(toString(attributes), 'error', 'message'), ''), "
+    "nullIf(JSONExtractString(toString(attributes), 'error', 'kind'), ''), '')"
+)
 # Replacing UUIDs, hex strings and digit runs puts lines that differ only by an id into one group.
 # The pattern is also the only message text that reaches the signal. Raw messages can hold personal
 # data, so the signal never carries a sample line.
 _UUID_REGEX = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 _HEX_OR_NUMBER_REGEX = "[0-9a-fA-F]{8,}|[0-9]+"
-_MESSAGE_PATTERN_SQL = (
-    f"substring(replaceRegexpAll(replaceRegexpAll(ifNull(message, ''), '{_UUID_REGEX}', '#'), "
+MESSAGE_PATTERN_SQL = (
+    f"substring(replaceRegexpAll(replaceRegexpAll({_MESSAGE_TEXT_SQL}, '{_UUID_REGEX}', '#'), "
     f"'{_HEX_OR_NUMBER_REGEX}', '#'), 1, 200)"
 )
 _SELECT_SQL = f"""
     service,
-    {_MESSAGE_PATTERN_SQL} AS message_pattern,
+    {MESSAGE_PATTERN_SQL} AS message_pattern,
     count() AS occurrences,
     min(timestamp) AS first_seen,
     max(timestamp) AS last_seen

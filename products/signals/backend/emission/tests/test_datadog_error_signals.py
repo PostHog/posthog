@@ -1,7 +1,7 @@
 from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
@@ -9,6 +9,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import Team
@@ -20,6 +21,7 @@ from products.signals.backend.emission.datadog_error_issues import (
 )
 from products.signals.backend.emission.datadog_error_logs import (
     DATADOG_ERROR_LOGS_CONFIG,
+    MESSAGE_PATTERN_SQL,
     datadog_error_log_emitter,
     log_source_id,
 )
@@ -373,3 +375,27 @@ class TestGroupedWarehouseRecordFetcher(BaseTest):
         records, _ = self._fetch(DATADOG_ERROR_SPANS_CONFIG, rows)
 
         assert len(records) == 1
+
+
+@pytest.mark.django_db
+class TestErrorLogMessagePattern(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(
+        [
+            ("top_level_message", "'Payment 4021 failed'", "'{}'", "Payment # failed"),
+            (
+                "structured_log_error_message",
+                "''",
+                """'{"error": {"kind": "TimeoutError", "message": "Upstream timed out after 30s"}}'""",
+                "Upstream timed out after #s",
+            ),
+            ("structured_log_error_kind_only", "''", """'{"error": {"kind": "AccessDenied"}}'""", "AccessDenied"),
+            ("no_text_anywhere", "''", "'{}'", ""),
+        ]
+    )
+    def test_pattern_falls_back_to_standard_error_attributes(self, _name, message, attributes, expected):
+        result = execute_hogql_query(
+            f"SELECT {MESSAGE_PATTERN_SQL} FROM (SELECT {message} AS message, {attributes} AS attributes)",
+            team=self.team,
+        )
+
+        assert result.results[0][0] == expected
