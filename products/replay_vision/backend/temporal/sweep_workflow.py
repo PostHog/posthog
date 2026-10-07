@@ -57,8 +57,6 @@ class SweepScannerWorkflow(PostHogWorkflow):
     async def run(self, inputs: SweepScannerInputs) -> None:
         # A capped scanner scans no sessions this tick. Fails open because admissions stay gated at the
         # persistence boundary.
-        wf.deprecate_patch("drop-prompt-suggestion-refresh-2026-10")
-        wf.deprecate_patch("replay-vision-scanner-credit-limit")
         try:
             budget = await wf.execute_activity(
                 check_scanner_budget_activity,
@@ -77,7 +75,6 @@ class SweepScannerWorkflow(PostHogWorkflow):
         # min of the two headrooms. Skip entirely when saturated. Keeps any single tenant from flooding the
         # shared rasterizer + provider concurrency. A DB error fails the count (single attempt), so the sweep
         # skips this tick rather than dispatching against an unknown load; the next tick retries in 5 minutes.
-        wf.deprecate_patch("replay-vision-team-in-flight-caps")
         in_flight = await wf.execute_activity(
             count_in_flight_by_team_activity,
             CountInFlightAppliesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id),
@@ -85,7 +82,6 @@ class SweepScannerWorkflow(PostHogWorkflow):
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         )
         scanner_in_flight, team_in_flight = in_flight.scanner, in_flight.team
-        wf.deprecate_patch("replay-vision-on-demand-reserved-headroom")
         headroom = in_flight_headroom(scanner_in_flight, team_in_flight)
         if headroom <= 0:
             # At a cap — drain before fetching more. Don't advance the watermark; resume next tick.
