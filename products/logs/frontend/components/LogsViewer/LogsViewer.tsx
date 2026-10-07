@@ -18,7 +18,7 @@ import { LogsQueryBar } from 'products/logs/frontend/components/LogsViewer/Filte
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsExportLogic } from 'products/logs/frontend/components/LogsViewer/logsExportLogic'
-import { QueryFailedIndicator } from 'products/logs/frontend/components/QueryFailedIndicator'
+import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 
@@ -144,7 +144,7 @@ function LogsViewerContent({
         hasMoreLogsToLoad,
         totalLogsMatchingFilters,
     } = useValues(logsViewerDataLogic)
-    const { refreshQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
+    const { refreshQuery, fetchNextLogsPage, fetchLogs, fetchSparkline } = useActions(logsViewerDataLogic)
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
     const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
@@ -319,6 +319,7 @@ function LogsViewerContent({
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
                 sparklineError={sparklineError}
+                onRetry={() => fetchSparkline()}
                 onDateRangeChange={setDateRange}
                 displayTimezone={timezone}
                 collapsed={sparklineCollapsed}
@@ -366,7 +367,12 @@ function LogsViewerContent({
                     orderBy={orderBy}
                     onChangeOrderBy={(newOrderBy) => setOrderBy(newOrderBy, 'header')}
                 />
-                <QueryFailedIndicator error={logsError} label="logs" />
+                <QueryFailedOverlay
+                    error={logsError}
+                    title="Couldn't load logs"
+                    onRetry={() => fetchLogs()}
+                    className="rounded border bg-bg-light"
+                />
             </div>
         </>
     )

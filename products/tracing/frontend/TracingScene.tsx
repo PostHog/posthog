@@ -19,7 +19,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
-import { QueryFailedIndicator } from 'products/logs/frontend/components/QueryFailedIndicator'
+import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 
 import { ComparisonBar } from './components/Comparison/ComparisonBar'
 import { FacetRail } from './components/FacetRail/FacetRail'
@@ -135,6 +135,8 @@ function TracingSceneContents(): JSX.Element {
         openCompareFlame,
         closeCompareFlame,
         fetchNextPage,
+        fetchSpans,
+        fetchSparkline,
         loadMoreTraceSpans,
         setVisibleRowRange,
         selectInspectorTab,
@@ -260,6 +262,7 @@ function TracingSceneContents(): JSX.Element {
                     sparklineLoading={sparklineLoading || (isDurationMode && !showHeatmap && durationHistogramLoading)}
                     // The duration histogram replaces the sparkline in this mode.
                     sparklineError={isDurationMode && !showHeatmap ? null : sparklineError}
+                    onRetry={() => fetchSparkline()}
                     onDateRangeChange={setDateRange}
                     displayTimezone={TRACING_DISPLAY_TIMEZONE}
                     currentDateTo={utcDateRange.date_to}
@@ -335,7 +338,12 @@ function TracingSceneContents(): JSX.Element {
                                     }
                                     onRowClick={onRowClick}
                                 />
-                                <QueryFailedIndicator error={spansError} label="traces" />
+                                <QueryFailedOverlay
+                                    error={spansError}
+                                    title="Couldn't load traces"
+                                    onRetry={() => fetchSpans()}
+                                    className="rounded border bg-bg-light"
+                                />
                             </div>
                         )}
                     </div>

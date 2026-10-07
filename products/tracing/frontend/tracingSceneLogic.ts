@@ -159,6 +159,8 @@ export interface tracingSceneLogicActions {
         serviceName: string
         spanName: string
     } // tracingDataLogic
+    fetchSpans: () => any // tracingDataLogic
+    fetchSparkline: () => any // tracingDataLogic
     handleFilterChange: (
         filterType: string,
         extraProps?: Record<string, unknown> | undefined
@@ -370,6 +372,8 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             [
                 'runQuery',
                 'fetchNextPage',
+                'fetchSpans',
+                'fetchSparkline',
                 'loadTraceSpans',
                 'loadMoreTraceSpans',
                 'fetchAggregation',
