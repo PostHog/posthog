@@ -1687,8 +1687,6 @@ class TestSchemaWebhookCapability:
             assert schema.supports_webhooks is expected, name
 
     def test_balance_transaction_does_not_offer_webhook_sync(self):
-        # No Stripe event carries a `balance_transaction` object, so a webhook-mode table would
-        # complete every run with zero rows.
         assert self.by_name[BALANCE_TRANSACTION_RESOURCE_NAME].supports_webhooks is False
 
 
