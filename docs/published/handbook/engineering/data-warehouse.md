@@ -18,13 +18,17 @@ This reservation does not add qualified names to existing models or require a na
 
 ## SQL editor drafts
 
+Saving a view infers its column types with LIMIT 0 on the outer SELECT branches and explicit IN subqueries.
+Scalar subqueries can still read data, so column inference shares the organization's foreground query concurrency limit.
+API-key requests and background jobs retain the query runner's existing exemptions from that limit.
+
 The SQL editor keeps unrun edits in browser storage, scoped to the user, project, and saved query. Explicit logout clears these drafts.
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
 
 ## Choosing data in Business intelligence
 
-**Business intelligence** opens a visual worksheet at `/bi`, separately from the SQL editor, when the `sql-editor-bi-mode` feature flag is enabled. Both products keep their own unsaved working copies, including edits to the same saved view, insight, or draft. Existing SQL working copies remain available. Worksheet breadcrumbs preserve the visual configuration, and existing SQL editor links with `mode=bi` open in Business intelligence.
+**Business intelligence** lists saved worksheets at `/bi` when the `sql-editor-bi-mode` feature flag is enabled. Search all worksheets or switch to those viewed in the last 30 days. **New worksheet** opens `/bi/new`; selecting a saved worksheet opens `/bi/<short_id>` in edit mode. The project tree's **New → Worksheet** entry opens the same editor. Worksheets retain their insight identities and folder placements, but use their own file subtype and no longer appear in the Product analytics insights list. Legacy `/bi?open_insight=...` links and shared worksheet URLs still open the editor. Business intelligence and SQL keep separate unsaved working copies, and existing SQL editor links with `mode=bi` open in Business intelligence.
 
 Choose a connection in the **Data** panel, then select a table below it. **Run** is the first toolbar action, before **Swap rows and columns**.
 
@@ -32,11 +36,13 @@ Choose a connection in the **Data** panel, then select a table below it. **Run**
 
 BI usage keeps the existing `sql-editor-bi-mode-selected`, `sql-editor-bi-query-run`, and `sql-editor-bi-query-saved` events. Their properties describe table calculations, Top N, comparisons, formatting, axes, totals, and related/property field counts. The `bi-worksheet-action` event's `action` property defines the funnel: `opened`, `source_selected`, `first_chart`, `saved`, `added_to_dashboard`. The first chart is the first nonempty successful result per editor visit; reruns and failures do not count again. Saved and dashboard steps include `insight_id`. Additional actions record drill-down choices, related-table expansion, and property browsing/search. These events exclude SQL, source names, field names, formulas, search text, filter values, and result contents.
 
+**Undo** and **Redo** restore shelves, filters, calculations, formatting, chart settings, and worksheet names. The editor keeps the last 100 changes during a visit; opening another worksheet or discarding changes starts a new history. Use Cmd/Ctrl+Z and Cmd/Ctrl+Shift+Z outside text inputs. Undo respects **Auto update**: with it off, click **Run** to refresh results. **Save a copy** creates a separate worksheet and opens it in the editor without changing the original or copying its dashboard placements. Copy failures leave the original and your edits in place. Usage tracking adds `undo`, `redo`, and `copied` actions.
+
 For older saves without worksheet configuration, discarding query edits preserves the current source and shelves.
 
 SQL query-scan advisories are hidden in Business intelligence. Query errors and warnings about stale sources or restricted data remain visible.
 
-Saving a worksheet as an insight preserves its connection, table, shelves, measures, filters, chart type, limit, sort order, and visualization settings in a `BIVisualizationNode`. The wrapper contains the worksheet configuration and a plain `HogQLQuery` source. Saved insights use the normal insight view; **Edit** reopens Business intelligence when the feature is enabled, including from a dashboard. **Discard changes** restores the saved worksheet. **Save as SQL view** exports only the generated SQL to a warehouse view; save an insight to retain editable worksheet state.
+Saving a worksheet preserves its connection, table, shelves, measures, filters, chart type, limit, sort order, and visualization settings in a `BIVisualizationNode`. The wrapper contains the worksheet configuration and a plain `HogQLQuery` source. Saving keeps the worksheet in the BI editor; dashboard tiles can still use the normal insight view. **Edit** reopens Business intelligence when the feature is enabled, including from a dashboard. Leaving a worksheet with unsaved edits asks for confirmation, including when returning to **Worksheets**. **Discard changes** restores the saved worksheet. **Save as SQL view** exports only the generated SQL to a warehouse view; save a worksheet to retain editable worksheet state.
 
 Older saves containing only SQL still open in the SQL editor. Their original shelves cannot be reconstructed without the worksheet configuration from a draft or shared URL.
 
@@ -62,7 +68,7 @@ The **Analysis** card ranks **Top N** categories by a selected measure across th
 
 Each measure's **Format and display** dialog sets its label, currency, decimal precision, abbreviation, percentage format, and suffix. Percentage formatting expects fractional values (0.25 displays as 25%); percent-of-total and percent-change calculations produce that scale automatically. Formats persist in saved insights and apply to charts, tables, and pivot cells. Bar, line, and area charts support a separate series style and left/right axis for each measure. **Combine line + bar** assigns two measures to separate axes with bar and line styles.
 
-Click a bar, line point, table cell, or pivot cell to explore its source rows. **Filter in new worksheet** preserves the original insight and adds the selected dimensions to a new worksheet. **View underlying rows** loads up to 1,000 matching source rows before aggregation; **Open in SQL editor** carries the same conditions, connection, and effective dashboard filters. Total cells omit rolled-up dimensions, and **Other** selects the categories outside the current Top N. Comparison-period points open rows from their original dates; their filtered-worksheet action is disabled to avoid combining current dates with prior-period conditions. These actions are unavailable on public shared insights.
+Click a bar, line point, table cell, or pivot cell to explore its source rows. **Filter in new worksheet** preserves the original insight and adds the selected dimensions to a new worksheet. **View underlying rows** loads up to 1,000 matching source rows before aggregation; **Open in SQL editor** carries the same conditions, connection, and effective dashboard filters. When adding a drill-down condition would exceed the filter-group nesting limit, use **View underlying rows** or **Open in SQL editor**. Total cells omit rolled-up dimensions, and **Other** selects the categories outside the current Top N. Comparison-period points open rows from their original dates; their filtered-worksheet action is disabled to avoid combining current dates with prior-period conditions. These actions are unavailable on public shared insights.
 
 **Compare previous period** turns date comparison on or off in one click. The adjacent comparison picker still supports custom offsets. Select a bounded date range before enabling comparison.
 
@@ -92,6 +98,12 @@ ignore a filter without losing its settings. Click the field pill to edit the fi
 part, or custom SQL condition, or to remove the filter. Filter changes respect the worksheet's
 auto-update setting and are preserved with its saved configuration.
 Numeric filters preserve the precision of entered values. Invalid numbers show an error and prevent the worksheet from running until corrected or disabled.
+
+**Row filters** apply before aggregation. **Result filters** apply to aggregated measures, calculated measures, and table calculations after they run, before sorting and the final row limit. For example, add result filters for revenue greater than 1,000 and purchase count at least five. Each filter can be disabled without removing it. Removing a measure removes its result filters; the remaining filters keep their measure assignments. If a filter or Top N uses the default Count, adding another measure keeps Count on the worksheet so that condition keeps its target.
+
+Both cards have **AND / OR groups**. Choose **AND (match all)** or **OR (match any)**, add nested groups, and move existing filters into them. Empty groups have no effect. Ungroup moves its conditions and nested groups into the immediate parent group. Existing worksheets retain their flat AND conditions. Date ranges and dashboard filters always combine with worksheet row conditions using AND; drill-down selections do too.
+
+Top N selects categories before result filters run. Comparison periods apply the same result conditions independently. Result filters hide detail groups; totals still aggregate all data matching the row filters. Table calculations use the full aggregated result before result filtering. Query usage events include result-filter and group counts without their values.
 
 ## Apple Ads in Marketing analytics
 

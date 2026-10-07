@@ -5,6 +5,8 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday import (
     ITEMS_PAGE_SIZE,
+    MONDAY_VERSION_2026_07,
+    MONDAY_VERSION_V2,
     PAGE_SIZE,
     MondayGraphQLError,
     MondayRetryableError,
@@ -15,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.monday.mon
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.settings import ENDPOINTS, MONDAY_ENDPOINTS
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday"
+API_VERSION = MONDAY_VERSION_2026_07
 
 
 def _response(data: dict[str, Any], errors: list[dict[str, Any]] | None = None) -> mock.MagicMock:
@@ -32,22 +35,22 @@ class TestValidateCredentials:
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_valid_when_me_returns_id(self, mock_session):
         mock_session.return_value.post.return_value = _response({"me": {"id": "user-1"}})
-        assert validate_credentials("token") is True
+        assert validate_credentials("token", API_VERSION) is True
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_invalid_when_me_is_empty(self, mock_session):
         mock_session.return_value.post.return_value = _response({"me": None})
-        assert validate_credentials("token") is False
+        assert validate_credentials("token", API_VERSION) is False
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_invalid_on_graphql_errors(self, mock_session):
         mock_session.return_value.post.return_value = _response({}, errors=[{"message": "Not Authenticated"}])
-        assert validate_credentials("token") is False
+        assert validate_credentials("token", API_VERSION) is False
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_invalid_on_exception(self, mock_session):
         mock_session.return_value.post.side_effect = Exception("boom")
-        assert validate_credentials("token") is False
+        assert validate_credentials("token", API_VERSION) is False
 
 
 class TestGetRowsPaged:
@@ -59,7 +62,7 @@ class TestGetRowsPaged:
             _response({"boards": [{"id": "last"}]}),
         ]
 
-        batches = list(get_rows("token", "boards", mock.MagicMock()))
+        batches = list(get_rows("token", "boards", mock.MagicMock(), API_VERSION))
 
         assert len(batches) == 2
         first_vars = mock_session.return_value.post.call_args_list[0].kwargs["json"]["variables"]
@@ -72,7 +75,7 @@ class TestGetRowsPaged:
         mock_session.return_value.post.return_value = _response({}, errors=[{"message": "Field not found"}])
 
         with pytest.raises(MondayGraphQLError):
-            list(get_rows("token", "users", mock.MagicMock()))
+            list(get_rows("token", "users", mock.MagicMock(), API_VERSION))
 
     @mock.patch("time.sleep")
     @mock.patch(f"{_MODULE}.make_tracked_session")
@@ -82,7 +85,7 @@ class TestGetRowsPaged:
             _response({"users": [{"id": "1"}]}),
         ]
 
-        batches = list(get_rows("token", "users", mock.MagicMock()))
+        batches = list(get_rows("token", "users", mock.MagicMock(), API_VERSION))
 
         assert batches == [[{"id": "1"}]]
         assert mock_session.return_value.post.call_count == 2
@@ -93,7 +96,7 @@ class TestGetRowsPaged:
         mock_session.return_value.post.return_value = _response({}, errors=[{"message": "Internal Server Error"}])
 
         with pytest.raises(MondayRetryableError):
-            list(get_rows("token", "users", mock.MagicMock()))
+            list(get_rows("token", "users", mock.MagicMock(), API_VERSION))
 
     @mock.patch("time.sleep")
     @mock.patch(f"{_MODULE}.make_tracked_session")
@@ -104,20 +107,34 @@ class TestGetRowsPaged:
             _response({"users": [{"id": "1"}]}),
         ]
 
-        batches = list(get_rows("token", "users", mock.MagicMock()))
+        batches = list(get_rows("token", "users", mock.MagicMock(), API_VERSION))
 
         assert batches == [[{"id": "1"}]]
         assert mock_session.return_value.post.call_count == 2
 
+    @pytest.mark.parametrize(
+        "api_version, expected_header",
+        [
+            (MONDAY_VERSION_V2, "2024-10"),
+            (MONDAY_VERSION_2026_07, "2026-07"),
+        ],
+    )
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_requests_carry_token_and_api_version(self, mock_session):
+    def test_requests_carry_token_and_pinned_api_version(self, mock_session, api_version, expected_header):
         mock_session.return_value.post.return_value = _response({"users": []})
 
-        list(get_rows("token", "users", mock.MagicMock()))
+        list(get_rows("token", "users", mock.MagicMock(), api_version))
 
         headers = mock_session.call_args.kwargs["headers"]
         assert headers["Authorization"] == "token"
-        assert headers["API-Version"]
+        assert headers["API-Version"] == expected_header
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_unknown_api_version_is_rejected_instead_of_sent_without_header(self, mock_session):
+        with pytest.raises(ValueError, match="Unsupported monday.com API version"):
+            list(get_rows("token", "users", mock.MagicMock(), "2024-10"))
+
+        mock_session.assert_not_called()
 
 
 class TestGetRowsItems:
@@ -130,7 +147,7 @@ class TestGetRowsItems:
             _response({"next_items_page": {"cursor": None, "items": [{"id": "tail"}]}}),
         ]
 
-        batches = list(get_rows("token", "items", mock.MagicMock()))
+        batches = list(get_rows("token", "items", mock.MagicMock(), API_VERSION))
 
         flat = [item for batch in batches for item in batch]
         assert len(flat) == ITEMS_PAGE_SIZE + 1
@@ -145,7 +162,7 @@ class TestGetRowsItems:
             _response({"boards": [{"items_page": {"cursor": None, "items": [{"id": "only"}]}}]}),
         ]
 
-        batches = list(get_rows("token", "items", mock.MagicMock()))
+        batches = list(get_rows("token", "items", mock.MagicMock(), API_VERSION))
 
         assert [item["id"] for batch in batches for item in batch] == ["only"]
         assert mock_session.return_value.post.call_count == 2
@@ -157,14 +174,14 @@ class TestGetRowsItems:
             _response({"boards": []}),
         ]
 
-        assert list(get_rows("token", "items", mock.MagicMock())) == []
+        assert list(get_rows("token", "items", mock.MagicMock(), API_VERSION)) == []
 
 
 class TestMondaySourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
         config = MONDAY_ENDPOINTS[endpoint]
-        response = monday_source("token", endpoint, mock.MagicMock())
+        response = monday_source("token", endpoint, mock.MagicMock(), API_VERSION)
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
@@ -173,5 +190,5 @@ class TestMondaySourceResponse:
         assert response.partition_keys is None
 
     def test_items_have_composite_primary_key(self):
-        response = monday_source("token", "items", mock.MagicMock())
+        response = monday_source("token", "items", mock.MagicMock(), API_VERSION)
         assert response.primary_keys == ["_board_id", "id"]

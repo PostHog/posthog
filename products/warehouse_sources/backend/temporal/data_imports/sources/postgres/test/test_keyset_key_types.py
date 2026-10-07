@@ -69,6 +69,7 @@ def test_uuid_key_returns_from_the_checkpoint_as_text():
     key = (7, uuid.UUID(int=0xABCDEF << 64))
 
     manager.save_state(keyset_state(key))
+    manager.confirm()
     manager.commit()
 
     assert keyset_last_key(manager.load_state(), key_length=2) == (7, str(key[1]))
