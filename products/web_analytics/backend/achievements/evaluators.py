@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from django.utils import timezone
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import action_to_expr
@@ -304,6 +304,8 @@ def _add_conversion_counts(
             query.select[0],
             *(ast.Call(name="countIf", args=[action_to_expr(action)]) for action in actions),
         ]
+        # Future slices can group more than the default 100 days; the largest bounded slice is 50 years.
+        query.limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
         response = execute_hogql_query(
             query=query,
             team=team,

@@ -317,6 +317,28 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(evaluation.value, 2)
         self.assertEqual(checkpoint["counted_through"], created_until.isoformat())
 
+    def test_conversions_future_slice_keeps_more_than_default_query_limit_days(self) -> None:
+        action = self._pay_action("$autocapture")
+        now = timezone.now()
+        for offset in range(1, 102):
+            self._pay_click(timestamp=now + timedelta(days=offset), created_at=now - timedelta(hours=2))
+        flush_persons_and_events()
+
+        daily: dict[str, list[int]] = {}
+        has_rows = _add_conversion_counts(
+            self._ctx(),
+            [action],
+            daily,
+            None,
+            now - timedelta(hours=1),
+            now,
+            now + timedelta(days=224),
+        )
+
+        self.assertTrue(has_rows)
+        self.assertEqual(len(daily), 101)
+        self.assertEqual(sum(counts[0] for counts in daily.values()), 101)
+
     def test_conversions_catchup_bounds_later_days_and_preserves_future_timestamps(self) -> None:
         action = self._pay_action("$autocapture")
         first_now = timezone.now()
