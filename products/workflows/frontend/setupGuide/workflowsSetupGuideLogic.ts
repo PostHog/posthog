@@ -21,6 +21,7 @@ import { urlForNewWorkflowComposer } from '../Workflows/newWorkflowLogic'
 import { workflowTemplatesLogic } from '../Workflows/templates/workflowTemplatesLogic'
 import type { WorkflowTemplateTypeFilter } from '../Workflows/workflowTypeFilters'
 import { SetupGuideStep, SetupGuideStepKey, deriveSetupGuideSteps } from './setupGuideSteps'
+import { onboardingWizardUrl } from './wizard/onboardingWizardSteps'
 
 // pinned: analytics property values for `workflows onboarding path selected` - renaming breaks dashboards
 export type WorkflowsOnboardingPath = 'messaging' | 'automation'
@@ -256,7 +257,14 @@ export const workflowsSetupGuideLogic = kea<workflowsSetupGuideLogicType>([
             }
             // pinned: analytics event name - renaming breaks dashboards
             posthog.capture('workflows onboarding path selected', { path })
-            if (path === 'messaging') {
+            if (values.featureFlags[FEATURE_FLAGS.WORKFLOWS_ONBOARDING_WIZARD]) {
+                // A finished messaging setup has nothing left to guide, so it goes straight to the journeys.
+                if (path === 'messaging' && values.isComplete) {
+                    actions.browseTemplates('messaging')
+                } else {
+                    router.actions.push(onboardingWizardUrl(path))
+                }
+            } else if (path === 'messaging') {
                 router.actions.push(urls.workflows('channels'))
             } else {
                 actions.browseTemplates('automation')

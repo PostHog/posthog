@@ -628,6 +628,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_ISP_SENDING_HEALTH: 'workflows-isp-sending-health', // owner: #team-workflows
     WORKFLOWS_LINEAR_VIEW: 'workflows-linear-view', // owner: #team-workflows
     WORKFLOWS_NEW_NAVIGATION: 'workflows-new-navigation', // owner: #team-workflows, groups the workflows tabs into Workflows, Library and Messaging setup
+    WORKFLOWS_ONBOARDING_WIZARD: 'workflows-onboarding-wizard', // owner: #team-workflows, step-by-step setup after the first-run path choice, needs workflows-guided-onboarding
     WORKFLOWS_PUSH_NOTIFICATIONS: 'workflows-push-notifications', // owner: #team-workflows
     WORKFLOWS_TRIGGER_VOLUME_ESTIMATE: 'workflows-trigger-volume-estimate', // owner: @mayteio #team-workflows
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features
