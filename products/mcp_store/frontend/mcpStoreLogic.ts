@@ -117,6 +117,7 @@ export interface mcpStoreLogicValues {
     installationsLoading: boolean
     installedServerUrls: Set<string>
     installedTemplateIds: Set<string>
+    installingTemplateId: string | null
     isCustomServerFormSubmitting: boolean
     isCustomServerFormValid: boolean
     recommendedServers: MCPServerTemplateApi[]
@@ -138,8 +139,14 @@ export interface mcpStoreLogicActions {
     closeAddCustomServerModal: () => {
         value: true
     }
+    connectTemplate: (template: MCPServerTemplateApi) => {
+        template: MCPServerTemplateApi
+    }
     installTemplate: ({ templateId }: { templateId: string }) => {
         templateId: string
+    }
+    installTemplateFinished: () => {
+        value: true
     }
     loadInstallationTools: ({ installationId }: { installationId: string }) => {
         installationId: string
@@ -430,7 +437,9 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
         closeAddCustomServerModal: true,
         toggleServerEnabled: ({ id, enabled }: { id: string; enabled: boolean }) => ({ id, enabled }),
         setInstallations: (installations: MCPServerInstallationApi[]) => ({ installations }),
+        connectTemplate: (template: MCPServerTemplateApi) => ({ template }),
         installTemplate: ({ templateId }: { templateId: string }) => ({ templateId }),
+        installTemplateFinished: true,
         loadInstallationTools: ({ installationId }: { installationId: string }) => ({ installationId }),
         refreshInstallationTools: ({ installationId }: { installationId: string }) => ({ installationId }),
         setToolApprovalState: ({
@@ -511,6 +520,13 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 },
             },
         ],
+        installingTemplateId: [
+            null as string | null,
+            {
+                installTemplate: (_, { templateId }) => templateId,
+                installTemplateFinished: () => null,
+            },
+        ],
         sceneView: [
             'marketplace' as McpSceneView,
             {
@@ -542,9 +558,10 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
     forms(({ actions }) => ({
         customServerForm: {
             defaults: CUSTOM_SERVER_FORM_DEFAULTS,
-            errors: ({ name, url }) => ({
+            errors: ({ name, url, auth_type, api_key, template_id }) => ({
                 name: !name ? 'Name is required' : undefined,
                 url: !url ? 'URL is required' : undefined,
+                api_key: template_id && auth_type === 'api_key' && !api_key ? 'API key is required' : undefined,
             }),
             submit: async ({
                 name,
@@ -584,9 +601,6 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     actions.loadInstallations()
                     actions.closeAddCustomServerModal()
                 } catch (e: any) {
-                    if (e.status === 302 || e.detail?.includes?.('redirect')) {
-                        return
-                    }
                     lemonToast.error(e.detail || 'Failed to add server')
                     throw e
                 }
@@ -772,12 +786,26 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 )
             }
         },
+        connectTemplate: ({ template }) => {
+            if (template.auth_type === 'api_key') {
+                actions.openAddCustomServerModalWithDefaults({
+                    name: template.name,
+                    url: template.url,
+                    description: template.description,
+                    auth_type: 'api_key',
+                    template_id: template.id,
+                })
+            } else {
+                actions.installTemplate({ templateId: template.id })
+            }
+        },
         installTemplate: async ({ templateId }) => {
             try {
                 const result = await mcpServerInstallationsInstallTemplateCreate(projectId(), {
                     template_id: templateId,
                 })
                 if ('redirect_url' in result) {
+                    // Keep the loading state while the browser leaves for the OAuth provider.
                     window.location.href = result.redirect_url
                     return
                 }
@@ -786,6 +814,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             } catch (e: any) {
                 lemonToast.error(e.detail || 'Failed to install server')
             }
+            actions.installTemplateFinished()
         },
         setToolApprovalState: async ({ installationId, toolName, approvalState }) => {
             // Optimistic update already applied in the reducer. Reload from server on failure.

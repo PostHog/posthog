@@ -212,11 +212,11 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
         setSceneView,
         toggleServerEnabled,
         uninstallServer,
-        installTemplate,
+        connectTemplate,
         shareInstallation,
         unshareInstallation,
     } = useActions(mcpStoreLogic)
-    const { installationsLoading } = useValues(mcpStoreLogic)
+    const { installationsLoading, installingTemplateId } = useValues(mcpStoreLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Member,
@@ -295,7 +295,8 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
                     {!installation && template ? (
                         <LemonButton
                             type="primary"
-                            onClick={() => installTemplate({ templateId: template.id })}
+                            onClick={() => connectTemplate(template)}
+                            loading={installingTemplateId === template.id}
                             disabledReason={restrictedReason}
                         >
                             Connect

@@ -2,7 +2,11 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
 import * as generated from './generated/api'
-import type { MCPServerInstallationApi, MCPServerInstallationToolApi } from './generated/api.schemas'
+import type {
+    MCPServerInstallationApi,
+    MCPServerInstallationToolApi,
+    MCPServerTemplateApi,
+} from './generated/api.schemas'
 import { mcpStoreLogic } from './mcpStoreLogic'
 
 jest.mock('./generated/api')
@@ -44,6 +48,18 @@ function tool(installationId: string): MCPServerInstallationToolApi {
         removed_at: null,
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',
+    }
+}
+
+function template(id: string, auth_type: 'api_key' | 'oauth'): MCPServerTemplateApi {
+    return {
+        id,
+        name: id,
+        url: `https://${id}.example.com/mcp`,
+        description: '',
+        auth_type,
+        icon_key: '',
+        icon_domain: '',
     }
 }
 
@@ -92,5 +108,35 @@ describe('mcpStoreLogic', () => {
             'same-server',
             'source',
         ])
+    })
+
+    it('shows the template as installing until the install request fails', async () => {
+        let rejectInstall: (error: unknown) => void = () => {}
+        mocked.mcpServerInstallationsInstallTemplateCreate.mockReturnValue(
+            new Promise((_, reject) => {
+                rejectInstall = reject
+            })
+        )
+
+        logic.actions.connectTemplate(template('linear', 'oauth'))
+        expect(logic.values.installingTemplateId).toEqual('linear')
+
+        rejectInstall({ detail: 'OAuth discovery failed.' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.installingTemplateId).toBeNull()
+    })
+
+    it('asks for the API key of an api_key template instead of sending a request without it', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.connectTemplate(template('stripe', 'api_key'))
+        }).toFinishAllListeners()
+        expect(logic.values.addCustomServerModalVisible).toBe(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.submitCustomServerForm()
+        }).toFinishAllListeners()
+
+        expect(logic.values.customServerFormValidationErrors.api_key).toEqual('API key is required')
+        expect(mocked.mcpServerInstallationsInstallTemplateCreate).not.toHaveBeenCalled()
     })
 })

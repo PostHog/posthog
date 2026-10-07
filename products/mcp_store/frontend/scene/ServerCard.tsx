@@ -14,9 +14,8 @@ interface Props {
 }
 
 export function ServerCard({ server }: Props): JSX.Element {
-    const { installedServerUrls, installations } = useValues(mcpStoreLogic)
-    const { installTemplate, openAddCustomServerModalWithDefaults, selectServer, uninstallServer } =
-        useActions(mcpStoreLogic)
+    const { installedServerUrls, installations, installingTemplateId } = useValues(mcpStoreLogic)
+    const { connectTemplate, selectServer, uninstallServer } = useActions(mcpStoreLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Member,
@@ -27,20 +26,6 @@ export function ServerCard({ server }: Props): JSX.Element {
 
     const openDetail = (): void => {
         selectServer(installation ? installation.id : server.id)
-    }
-
-    const handleConnect = (): void => {
-        if (server.auth_type === 'api_key') {
-            openAddCustomServerModalWithDefaults({
-                name: server.name,
-                url: server.url,
-                description: server.description,
-                auth_type: 'api_key',
-                template_id: server.id,
-            })
-        } else {
-            installTemplate({ templateId: server.id })
-        }
     }
 
     return (
@@ -68,7 +53,8 @@ export function ServerCard({ server }: Props): JSX.Element {
                     <LemonButton
                         size="small"
                         type="primary"
-                        onClick={handleConnect}
+                        onClick={() => connectTemplate(server)}
+                        loading={installingTemplateId === server.id}
                         disabledReason={restrictedReason}
                         stopPropagation
                     >
