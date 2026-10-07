@@ -3,7 +3,7 @@ import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
 import { activityEventsSampleEvents } from '../../widgets/activity/activityEventsSampleData'
 import type { ConversationsWidgetTicket } from '../../widgets/conversations/conversationsWidgetUtils'
 import { logsWidgetSampleLogLines } from '../../widgets/logs/logsWidgetSampleData'
-import type { WorkflowsWidgetRow } from '../../widgets/workflows/WorkflowsWidget'
+import type { WorkflowsWidgetRow } from '../../widgets/workflows/WorkflowsWidgetRowItem'
 
 export type WidgetOverviewDemoState = {
     title?: string

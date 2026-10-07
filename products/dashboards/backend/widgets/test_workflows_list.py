@@ -7,27 +7,23 @@ from unittest.mock import patch
 from products.dashboards.backend.widget_specs.registry import get_widget_registry_entry, validate_widget_config
 from products.workflows.backend.facade.contracts import WorkflowActivityPage, WorkflowActivityRow
 
-
-def _row(**overrides) -> WorkflowActivityRow:
-    values = {
-        "id": "flow-1",
-        "name": "Welcome",
-        "description": "",
-        "status": "active",
-        "workflow_type": "messaging",
-        "trigger_type": "event",
-        "has_email_step": True,
-        "updated_at": datetime(2026, 8, 9, 12, 0, tzinfo=UTC),
-        "started": 5,
-        "completed": 3,
-        "failed": 1,
-        "email_sent": 3,
-        "email_delivered": 3,
-        "email_opened": 2,
-        "email_bounced": 0,
-    }
-    values.update(overrides)
-    return WorkflowActivityRow(**values)
+BASE_ROW = WorkflowActivityRow(
+    id="flow-1",
+    name="Welcome",
+    description="",
+    status="active",
+    workflow_type="messaging",
+    trigger_type="event",
+    has_email_step=True,
+    updated_at=datetime(2026, 8, 9, 12, 0, tzinfo=UTC),
+    started=5,
+    completed=3,
+    failed=1,
+    email_sent=3,
+    email_delivered=3,
+    email_opened=2,
+    email_bounced=0,
+)
 
 
 @time_machine.travel("2026-08-10 12:00:00", tick=False)
@@ -43,7 +39,7 @@ class TestWorkflowsListWidget(BaseTest):
         assert entry is not None
         with patch(
             "products.dashboards.backend.widgets.workflows_list.list_workflow_activity",
-            return_value=WorkflowActivityPage(rows=(_row(),), has_more=True),
+            return_value=WorkflowActivityPage(rows=(BASE_ROW,), has_more=True),
         ) as facade:
             result = entry["query_fn"](
                 self.team,

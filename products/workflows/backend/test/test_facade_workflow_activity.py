@@ -9,6 +9,7 @@ from parameterized import parameterized
 from posthog.test.fixtures import create_app_metric2
 
 from products.workflows.backend.facade.api import list_workflow_activity
+from products.workflows.backend.facade.contracts import WorkflowActivityPage
 from products.workflows.backend.metrics import HOG_FLOW_VERSION_APP_SOURCE
 from products.workflows.backend.models import HogFlow
 
@@ -42,19 +43,19 @@ class TestListWorkflowActivity(ClickhouseTestMixin, BaseTest):
             timestamp=timezone.now() - timedelta(days=days_ago),
         )
 
-    def _list(self, **overrides):
+    def _list(
+        self, *, status: str | None = None, workflow_type: str | None = None, limit: int = 10
+    ) -> WorkflowActivityPage:
         now = timezone.now()
-        params = {
-            "team_id": self.team.pk,
-            "access_control": None,
-            "status": None,
-            "workflow_type": None,
-            "limit": 10,
-            "after": now - timedelta(days=7),
-            "before": now,
-        }
-        params.update(overrides)
-        return list_workflow_activity(**params)
+        return list_workflow_activity(
+            team_id=self.team.pk,
+            access_control=None,
+            status=status,
+            workflow_type=workflow_type,
+            limit=limit,
+            after=now - timedelta(days=7),
+            before=now,
+        )
 
     def test_counts_runs_at_run_level_and_sums_email_steps_within_window(self) -> None:
         flow = self._flow("Welcome", email=True)
@@ -81,18 +82,20 @@ class TestListWorkflowActivity(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("status", {"status": "draft"}, {"Draft automation"}),
-            ("messaging", {"workflow_type": "messaging"}, {"Welcome"}),
-            ("automation", {"workflow_type": "automation"}, {"Draft automation"}),
-            ("broadcast", {"workflow_type": "broadcast"}, {"Launch"}),
+            ("status", "draft", None, {"Draft automation"}),
+            ("messaging", None, "messaging", {"Welcome"}),
+            ("automation", None, "automation", {"Draft automation"}),
+            ("broadcast", None, "broadcast", {"Launch"}),
         ]
     )
-    def test_filters_by_status_and_type(self, _name: str, filters: dict[str, str], expected: set[str]) -> None:
+    def test_filters_by_status_and_type(
+        self, _name: str, status: str | None, workflow_type: str | None, expected: set[str]
+    ) -> None:
         self._flow("Welcome", email=True)
         self._flow("Draft automation", status="draft")
         self._flow("Launch", origin_product=HogFlow.OriginProduct.BROADCASTS, email=True)
 
-        page = self._list(**filters)
+        page = self._list(status=status, workflow_type=workflow_type)
 
         assert {row.name for row in page.rows} == expected
 

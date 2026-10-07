@@ -37,8 +37,8 @@ def fetch_hog_flow_totals(
         WHERE team_id = %(team_id)s
         AND app_source = %(app_source)s
         AND splitByChar('/', app_source_id)[1] IN %(flow_ids)s
-        AND timestamp >= toDateTime64(%(after)s, 6)
-        AND timestamp <= toDateTime64(%(before)s, 6)
+        AND timestamp >= toDateTime64(%(after)s, 6, 'UTC')
+        AND timestamp <= toDateTime64(%(before)s, 6, 'UTC')
         AND (
             (metric_name IN %(run_metric_names)s AND instance_id = %(run_level_instance_id)s)
             OR metric_name IN %(email_metric_names)s
@@ -49,8 +49,8 @@ def fetch_hog_flow_totals(
             "team_id": team_id,
             "app_source": HOG_FLOW_VERSION_APP_SOURCE,
             "flow_ids": flow_ids,
-            # The naive string is read as UTC by toDateTime64, so a team-timezone-aware bound would
-            # otherwise shift the window by the team's offset.
+            # Both bounds are formatted and parsed as UTC so neither the team's timezone nor the
+            # ClickHouse session timezone can shift the window.
             "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
             "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
             "run_metric_names": list(RUN_METRIC_NAMES),
