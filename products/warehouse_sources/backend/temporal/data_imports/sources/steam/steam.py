@@ -1,7 +1,11 @@
 import re
+import hmac
+import hashlib
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
+
+from django.conf import settings
 
 from requests import HTTPError, Session
 from structlog.types import FilteringBoundLogger
@@ -35,6 +39,14 @@ def parse_steam_ids(raw: str) -> list[str]:
     return steam_ids
 
 
+def player_key(team_id: int, steam_id: str) -> str:
+    """An opaque key for a player. It is stable across syncs and different in every project."""
+    # A Steam ID is public and opens the player's profile, so the tables must not hold it.
+    # The secret stops anyone from hashing every Steam ID to reverse a key.
+    message = f"{team_id}:{steam_id}".encode()
+    return hmac.new(settings.SECRET_KEY.encode(), message, hashlib.sha256).hexdigest()[:32]
+
+
 def probe_api_key(api_key: str) -> int:
     """The HTTP status of a minimal request with this key, or -1 when Steam cannot be reached."""
     _ok, status = validate_via_probe(
@@ -58,19 +70,15 @@ def _timestamp(value: int | None) -> datetime | None:
     return datetime.fromtimestamp(value, tz=UTC) if value else None
 
 
-def _players(session: Session, api_key: str, steam_ids: list[str]) -> Iterator[list[dict[str, Any]]]:
+def _players(session: Session, api_key: str, team_id: int, steam_ids: list[str]) -> Iterator[list[dict[str, Any]]]:
     for start in range(0, len(steam_ids), PLAYER_SUMMARIES_BATCH):
         batch = steam_ids[start : start + PLAYER_SUMMARIES_BATCH]
         body = _get(session, api_key, "/ISteamUser/GetPlayerSummaries/v2/", {"steamids": ",".join(batch)})
         rows = [
             {
-                "steam_id": player["steamid"],
-                "persona_name": player.get("personaname"),
-                "profile_url": player.get("profileurl"),
+                "player_key": player_key(team_id, player["steamid"]),
                 # 3 is a public profile. Steam returns no games for any other value.
                 "is_public": player.get("communityvisibilitystate") == 3,
-                "country_code": player.get("loccountrycode"),
-                "created_at": _timestamp(player.get("timecreated")),
             }
             for player in body.get("players") or []
         ]
@@ -79,7 +87,7 @@ def _players(session: Session, api_key: str, steam_ids: list[str]) -> Iterator[l
 
 
 def _owned_games(
-    session: Session, api_key: str, steam_ids: list[str], logger: FilteringBoundLogger
+    session: Session, api_key: str, team_id: int, steam_ids: list[str], logger: FilteringBoundLogger
 ) -> Iterator[list[dict[str, Any]]]:
     for steam_id in steam_ids:
         body = _get(
@@ -91,12 +99,13 @@ def _owned_games(
         games = body.get("games") or []
         if not games:
             logger.warning(
-                "Steam returned no games for a player. Their game details are probably private.", steam_id=steam_id
+                "Steam returned no games for a player. Their game details are probably private.",
+                player_key=player_key(team_id, steam_id),
             )
             continue
         yield [
             {
-                "steam_id": steam_id,
+                "player_key": player_key(team_id, steam_id),
                 "app_id": game["appid"],
                 "name": game.get("name"),
                 "playtime_forever_minutes": game.get("playtime_forever"),
@@ -108,14 +117,14 @@ def _owned_games(
 
 
 def _playtime_snapshots(
-    session: Session, api_key: str, steam_ids: list[str], logger: FilteringBoundLogger
+    session: Session, api_key: str, team_id: int, steam_ids: list[str], logger: FilteringBoundLogger
 ) -> Iterator[list[dict[str, Any]]]:
     snapshot_date = datetime.now(UTC).date()
     for steam_id in steam_ids:
         body = _get(session, api_key, "/IPlayerService/GetRecentlyPlayedGames/v1/", {"steamid": steam_id})
         rows = [
             {
-                "steam_id": steam_id,
+                "player_key": player_key(team_id, steam_id),
                 "app_id": game["appid"],
                 "name": game.get("name"),
                 "snapshot_date": snapshot_date,
@@ -128,15 +137,17 @@ def _playtime_snapshots(
             yield rows
 
 
-def steam_source(api_key: str, steam_ids: list[str], endpoint: str, logger: FilteringBoundLogger) -> SourceResponse:
+def steam_source(
+    api_key: str, team_id: int, steam_ids: list[str], endpoint: str, logger: FilteringBoundLogger
+) -> SourceResponse:
     def get_rows() -> Iterator[list[dict[str, Any]]]:
         session = make_tracked_session(redact_values=(api_key,))
         if endpoint == PLAYERS:
-            yield from _players(session, api_key, steam_ids)
+            yield from _players(session, api_key, team_id, steam_ids)
         elif endpoint == OWNED_GAMES:
-            yield from _owned_games(session, api_key, steam_ids, logger)
+            yield from _owned_games(session, api_key, team_id, steam_ids, logger)
         else:
-            yield from _playtime_snapshots(session, api_key, steam_ids, logger)
+            yield from _playtime_snapshots(session, api_key, team_id, steam_ids, logger)
 
     if endpoint == PLAYTIME_SNAPSHOTS:
         # Steam reports running totals and no sessions. One row per game per day lets a query

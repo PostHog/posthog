@@ -19,7 +19,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 
 # Each key includes the player, because every table holds rows from all listed players.
 PRIMARY_KEYS: dict[str, list[str]] = {
-    PLAYERS: ["steam_id"],
-    OWNED_GAMES: ["steam_id", "app_id"],
-    PLAYTIME_SNAPSHOTS: ["steam_id", "app_id", "snapshot_date"],
+    PLAYERS: ["player_key"],
+    OWNED_GAMES: ["player_key", "app_id"],
+    PLAYTIME_SNAPSHOTS: ["player_key", "app_id", "snapshot_date"],
 }

@@ -54,6 +54,7 @@ class SteamSource(SimpleSource[SteamSourceConfig]):
                 "Sync the games and playtime of a list of Steam players.\n\n"
                 "Create a key on the [Steam Web API key page](https://steamcommunity.com/dev/apikey). "
                 "Each player's profile and game details must be public, or Steam returns no games for them.\n\n"
+                "The tables identify each player by an opaque key. They hold no Steam ID, name, or location.\n\n"
                 "Steam reports playtime totals, not sessions. Sync the `playtime_snapshots` table daily and "
                 "subtract consecutive days to get the time played on each day."
             ),
@@ -127,6 +128,7 @@ class SteamSource(SimpleSource[SteamSourceConfig]):
             raise ValueError(f"Unknown Steam table: {inputs.schema_name}")
         return steam_source(
             api_key=config.api_key,
+            team_id=inputs.team_id,
             steam_ids=parse_steam_ids(config.steam_ids),
             endpoint=inputs.schema_name,
             logger=inputs.logger,

@@ -12,11 +12,16 @@ from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.steam import SteamSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.steam.source import SteamSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.steam.steam import parse_steam_ids, steam_source
+from products.warehouse_sources.backend.temporal.data_imports.sources.steam.steam import (
+    parse_steam_ids,
+    player_key,
+    steam_source,
+)
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.steam.steam"
 ADA = "76561197960287930"
 GRACE = "76561197960435530"
+TEAM_ID = 1
 
 
 def _response(status_code: int, body: dict[str, Any] | None = None) -> Response:
@@ -29,7 +34,7 @@ def _response(status_code: int, body: dict[str, Any] | None = None) -> Response:
 
 def _rows(endpoint: str, session: MagicMock, steam_ids: list[str]) -> list[dict[str, Any]]:
     with patch(f"{MODULE}.make_tracked_session", return_value=session):
-        response = steam_source("key", steam_ids, endpoint, MagicMock())
+        response = steam_source("key", TEAM_ID, steam_ids, endpoint, MagicMock())
         return [row for batch in cast(Iterable[list[dict[str, Any]]], response.items()) for row in batch]
 
 
@@ -59,7 +64,9 @@ class TestSteam:
 
         rows = _rows("owned_games", session, [GRACE, ADA])
 
-        assert [(row["steam_id"], row["app_id"], row["playtime_2weeks_minutes"]) for row in rows] == [(ADA, 620, 0)]
+        assert [(row["player_key"], row["app_id"], row["playtime_2weeks_minutes"]) for row in rows] == [
+            (player_key(TEAM_ID, ADA), 620, 0)
+        ]
 
     def test_snapshots_are_keyed_by_the_day_they_were_read(self) -> None:
         game = {"appid": 620, "name": "Portal 2", "playtime_forever": 600, "playtime_2weeks": 90}
@@ -71,7 +78,7 @@ class TestSteam:
 
         assert rows == [
             {
-                "steam_id": ADA,
+                "player_key": player_key(TEAM_ID, ADA),
                 "app_id": 620,
                 "name": "Portal 2",
                 "snapshot_date": date(2026, 10, 7),
@@ -79,6 +86,24 @@ class TestSteam:
                 "playtime_2weeks_minutes": 90,
             }
         ]
+
+    def test_no_table_holds_anything_that_identifies_the_player(self) -> None:
+        player = {
+            "steamid": ADA,
+            "personaname": "ada",
+            "profileurl": f"https://steamcommunity.com/profiles/{ADA}/",
+            "communityvisibilitystate": 3,
+            "loccountrycode": "GB",
+            "timecreated": 1063407589,
+        }
+        session = MagicMock()
+        session.get.return_value = _response(200, {"players": [player]})
+
+        rows = _rows("players", session, [ADA])
+
+        assert rows == [{"player_key": player_key(TEAM_ID, ADA), "is_public": True}]
+        assert ADA not in player_key(TEAM_ID, ADA)
+        assert player_key(TEAM_ID, ADA) != player_key(TEAM_ID + 1, ADA)
 
     def test_a_rejected_key_fails_the_sync_with_a_non_retryable_error(self) -> None:
         response = _response(403)

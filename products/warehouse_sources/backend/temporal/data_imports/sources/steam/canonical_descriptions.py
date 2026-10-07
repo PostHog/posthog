@@ -6,18 +6,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "players": {
         "description": "One row for each Steam player listed on the source.",
         "columns": {
-            "steam_id": "64-bit Steam ID of the player.",
-            "persona_name": "Display name of the player.",
-            "profile_url": "URL of the player's Steam Community profile.",
+            "player_key": "Opaque key of the player. The Steam ID is not stored.",
             "is_public": "Whether the profile is public. Steam returns no games for a profile that is not.",
-            "country_code": "Two-letter country code the player set on their profile.",
-            "created_at": "Date and time the Steam account was created.",
         },
     },
     "owned_games": {
         "description": "One row for each game a listed player owns or played for free.",
         "columns": {
-            "steam_id": "64-bit Steam ID of the player.",
+            "player_key": "Opaque key of the player. The Steam ID is not stored.",
             "app_id": "Steam application ID of the game.",
             "name": "Name of the game.",
             "playtime_forever_minutes": "Total minutes the player has played the game.",
@@ -31,7 +27,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "Subtract the total of the previous day to get the minutes played on a day."
         ),
         "columns": {
-            "steam_id": "64-bit Steam ID of the player.",
+            "player_key": "Opaque key of the player. The Steam ID is not stored.",
             "app_id": "Steam application ID of the game.",
             "name": "Name of the game.",
             "snapshot_date": "UTC date the totals were read.",
