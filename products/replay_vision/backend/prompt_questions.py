@@ -285,7 +285,7 @@ def backfill_prompt_questions(
 
     Writes through a queryset update, so the scanner's version, updated_at and activity log stay untouched.
     The update is conditional on the prompt still being the one condensed, so an edit that lands mid-run wins.
-    Each distinct prompt is condensed once per run and scanner type, since many scanners share one word for word.
+    Each distinct prompt is condensed once per run, team and scanner type, since many scanners share one word for word.
     Inline scanners only take a template's question, the same rule `create_inline_scanner` follows.
     """
     scanners = ReplayScanner.all_origins.order_by("created_at")
@@ -294,7 +294,7 @@ def backfill_prompt_questions(
     if team_id is not None:
         scanners = scanners.filter(team_id=team_id)
     checked = written = 0
-    condensed: dict[tuple[str, str], PromptQuestion] = {}
+    condensed: dict[tuple[int, str, str, str], PromptQuestion] = {}
     for scanner in scanners.only(
         "id", "team_id", "origin", "scanner_type", "scanner_config", "prompt_question_source", "prompt_valence"
     ).iterator():
@@ -311,8 +311,8 @@ def backfill_prompt_questions(
         if dry_run:
             written += 1
             continue
-        # The phrasing depends on the scanner type, so the same prompt on another type gets its own question.
-        key = (source, scanner.scanner_type)
+        # Keyed by every model input, and by team, since the answer can echo a team's own scale label.
+        key = (scanner.team_id, source, scanner.scanner_type, _scale_line(scanner.scanner_config))
         question = inline_template or condensed.get(key)
         if question is None:
             question = condense_prompt(

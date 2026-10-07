@@ -9,6 +9,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.team import Team
+
 from products.replay_vision.backend.inline_scan import create_inline_scanner
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -272,6 +274,21 @@ class TestPromptQuestions(APIBaseTest):
         assert ReplayScanner.objects.get(pk=fresh.pk).prompt_question == "Kept as is?"
         unjudged.refresh_from_db()
         assert (unjudged.prompt_question, unjudged.prompt_valence) == ("Judged before valence?", "bad")
+
+    def test_backfill_never_shares_an_answer_across_teams(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        scale = {"min": 0, "max": 10, "label": "checkout friction"}
+        ours = self._scanner(scanner_type=ScannerType.SCORER, scanner_config={"prompt": PROMPT, "scale": scale})
+        theirs = self._scanner(
+            team=other_team, scanner_type=ScannerType.SCORER, scanner_config={"prompt": PROMPT, "scale": scale}
+        )
+        ReplayScanner.all_origins.filter(pk__in=[ours.pk, theirs.pk]).update(
+            prompt_question="", prompt_question_source=""
+        )
+
+        backfill_prompt_questions()
+
+        assert self.client_mock.return_value.models.generate_content.call_count == 2
 
     def test_backfill_retries_the_model_for_each_scanner_after_a_failed_call(self) -> None:
         unjudged = self._scanner(name="unjudged")
