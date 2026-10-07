@@ -10,7 +10,7 @@ export function screenshotAccessNotice(
         return null
     }
     if (!settings.cookie_delivery_enabled) {
-        return 'This screenshot will run without a bypass cookie because cookie delivery is disabled on this installation. Contact your PostHog administrator to enable it.'
+        return 'This screenshot will run without a bypass cookie because delivery is turned off for this PostHog installation. On PostHog Cloud, contact support to turn it on.'
     }
     try {
         const parsed = new URL(url)
