@@ -2625,8 +2625,12 @@ describe('dashboardLogic', () => {
                                           ...tile.insight!,
                                           query_status: {
                                               id: 'test',
+                                              query_async: true,
+                                              team_id: 1,
+                                              complete: false,
                                               error: true,
                                               error_code: 'rate_limited',
+                                              error_message: 'concurrency_limit_exceeded',
                                           },
                                       },
                                   }

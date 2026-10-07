@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterator
 from typing import cast
 from uuid import uuid4
 
@@ -79,7 +80,10 @@ class TestDashboardQuerySharingExecution(ClickhouseTestMixin, NonAtomicAPIBaseTe
             )
             self.assertEqual(response.status_code, 200)
             stream_response = cast(StreamingHttpResponse, response)
-            events = [json.loads(chunk.removeprefix(b"data: ").strip()) for chunk in stream_response.streaming_content]
+            events = [
+                json.loads(chunk.removeprefix(b"data: ").strip())
+                for chunk in cast(Iterator[bytes], stream_response.streaming_content)
+            ]
             response.close()
             results = {event["tile"]["id"]: event["tile"] for event in events if event["type"] == "tile"}
             self.assertEqual(results[tiles[0].id]["insight"]["result"], expected[0], results)
@@ -103,7 +107,8 @@ class TestDashboardQuerySharingExecution(ClickhouseTestMixin, NonAtomicAPIBaseTe
             )
             stream_response = cast(StreamingHttpResponse, response)
             cached_events = [
-                json.loads(chunk.removeprefix(b"data: ").strip()) for chunk in stream_response.streaming_content
+                json.loads(chunk.removeprefix(b"data: ").strip())
+                for chunk in cast(Iterator[bytes], stream_response.streaming_content)
             ]
             response.close()
             self.assertEqual(sum(event["type"] == "tile" for event in cached_events), 2)

@@ -73,7 +73,7 @@ class DashboardQuerySharing:
                 [candidate, replace(candidate, query_id=f"{query.query_id}-probe")]
             )
             # A scalar count always returns one row, so the runner's pagination limit cannot affect it.
-            if probe.groups:
+            if len(probe.groups) == 1:
                 return candidate
         return query
 
@@ -152,6 +152,8 @@ class DashboardQuerySharing:
                 if self.cancelled.is_set():
                     raise CancelledError()
                 results = self._execute_group(executor, group)
+                if results.keys() != members.keys():
+                    raise ValueError("Missing shared query consumer result")
                 SHARING_EXECUTIONS.labels(outcome="shared").inc()
                 for member, entry in members.items():
                     entry.result.set_result(results[member])

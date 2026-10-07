@@ -681,6 +681,6 @@ tools:
     dashboards-stream-query-results-retrieve:
         operation: dashboards_stream_query_results_retrieve
         enabled: false
-        description: >
+        disabled_reason: >
             Browser-only experimental SSE refresh transport. MCP consumers use dashboard-insights-run
             for a bounded JSON response instead of holding an interactive dashboard refresh stream.
