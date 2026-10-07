@@ -199,7 +199,7 @@ def emit_github_event(event_type: str, payload: dict[str, Any], delivery_id: str
         with bounded_statement_timeout(_INTEGRATION_LOOKUP_TIMEOUT_MS, models=(Integration, HogFlow)):
             integrations = list(
                 Integration.objects.filter(kind="github", integration_id=str(installation_id)).values_list(
-                    "team_id", "id"
+                    "team_id", "team__uuid", "id"
                 )
             )
             # Most installations exist for other features and have no GitHub-triggered workflow, so
@@ -207,7 +207,7 @@ def emit_github_event(event_type: str, payload: dict[str, Any], delivery_id: str
             triggered_team_ids = (
                 set(
                     HogFlow.objects.filter(
-                        team_id__in={team_id for team_id, _ in integrations},
+                        team_id__in={team_id for team_id, _, _ in integrations},
                         status=HogFlow.State.ACTIVE,
                         trigger__contains={"filters": {"events": [{"id": GITHUB_EVENT_RECEIVED_EVENT}]}},
                     ).values_list("team_id", flat=True)
@@ -228,8 +228,8 @@ def emit_github_event(event_type: str, payload: dict[str, Any], delivery_id: str
 
     distinct_id = str((payload.get("sender") or {}).get("login") or f"installation:{installation_id}")
 
-    for team_id, integration_id in integrations:
-        if team_id not in triggered_team_ids or not _github_triggers_enabled(team_id):
+    for team_id, team_uuid, integration_id in integrations:
+        if team_id not in triggered_team_ids or not _github_triggers_enabled(team_id, team_uuid):
             continue
         try:
             produce_internal_event(
@@ -250,12 +250,15 @@ def emit_github_event(event_type: str, payload: dict[str, Any], delivery_id: str
             )
 
 
-def _github_triggers_enabled(team_id: int) -> bool:
+def _github_triggers_enabled(team_id: int, team_uuid: uuid.UUID) -> bool:
     try:
         return feature_enabled_or_false(
             GITHUB_WORKFLOW_TRIGGERS_FLAG,
             str(team_id),
-            groups={"project": str(team_id)},
+            # The browser registers the project group by uuid (frontend/src/scenes/userLogic.ts). A
+            # percentage rollout hashes the group key, so the numeric id could enable the trigger in
+            # the builder but drop the project's deliveries here.
+            groups={"project": str(team_uuid)},
             group_properties={"project": {"id": str(team_id)}},
             only_evaluate_locally=False,
             send_feature_flag_events=False,

@@ -97,7 +97,9 @@ def test_emits_once_per_connected_project_with_an_active_github_workflow(
     )
     if workflow_status is not None:
         _create_workflow(second_team, status=workflow_status, event=workflow_event)
-    flag_enabled.side_effect = lambda _key, distinct_id, **_kwargs: flag_on or distinct_id != str(second_team.pk)
+    flag_enabled.side_effect = lambda _key, _distinct_id, groups, **_kwargs: (
+        flag_on or groups["project"] != str(second_team.uuid)
+    )
 
     emit_github_event("issues", ISSUE_EVENT, "delivery-1")
 
