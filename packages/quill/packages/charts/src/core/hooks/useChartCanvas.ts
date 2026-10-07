@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { buildDimensions, sameDimensions, syncCanvasSize, type SizeRect } from '../canvas-size'
+import { markPaintPending } from '../paint-state'
 import type { ChartDimensions, ChartMargins } from '../types'
 import { useLatest } from './useLatest'
 
@@ -70,6 +71,9 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
 
             const staticWiped = syncCanvasSize(canvas, rect, dpr)
             const overlayWiped = syncCanvasSize(overlayCanvas, rect, dpr)
+            if (staticWiped) {
+                markPaintPending(canvas)
+            }
 
             // The draw loops key on `dimensions` *identity*, so publishing a fresh object is what
             // schedules a repaint. That matters whenever a bitmap was discarded without any value
