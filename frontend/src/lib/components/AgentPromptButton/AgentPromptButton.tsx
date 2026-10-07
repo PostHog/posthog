@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { IconChevronDown, IconCopy, IconLogomark, IconSparkles } from '@posthog/icons'
 
+import { MCP_INSTALL_COMMAND } from 'lib/components/MCPHint/constants'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -25,6 +26,7 @@ import {
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
@@ -38,6 +40,8 @@ export interface AgentPromptAction {
     icon?: React.ReactElement
     /** Returns the prompt text for this action */
     buildPrompt: () => string
+    /** Content that is not an agent prompt, like a raw stack trace, so it goes out without the PostHog MCP instructions. */
+    raw?: boolean
 }
 
 export type AgentPromptDestination =
@@ -58,8 +62,6 @@ export interface AgentPromptButtonProps {
     actions: AgentPromptAction[]
     /** Agent always shown on the main button, in place of the one the user last picked. */
     pinnedAgentKey?: AgentPromptDestination
-    /** Agents offered, in menu order. The first one is the default until the user picks one. */
-    agentKeys?: AgentPromptDestination[]
     /** `destination` names the agent on the main button ("Open in Cursor") instead of the prompt ("Open Fix prompt"). */
     labelMode?: 'action' | 'destination'
     /** Extra classes for the dropdown menu, e.g. a higher z-index when the button sits inside a toast. */
@@ -253,10 +255,23 @@ const AGENTS: AgentDef[] = [
     },
 ]
 
+export function buildAgentPrompt(
+    action: AgentPromptAction,
+    agentKey: AgentPromptDestination,
+    projectId: number | null
+): string {
+    const prompt = action.buildPrompt()
+    // PostHog AI reads PostHog data directly, so it has no use for the MCP server.
+    if (action.raw || agentKey === 'posthog-ai') {
+        return prompt
+    }
+    const project = projectId ? ` in PostHog project ${projectId}` : ''
+    return `${prompt.trimEnd()}\n\nUse the PostHog MCP server${project}. If the PostHog MCP server is not connected, stop and ask me to run \`${MCP_INSTALL_COMMAND}\` in a terminal, then try again.`
+}
+
 export function AgentPromptButton({
     actions,
     pinnedAgentKey,
-    agentKeys,
     labelMode = 'action',
     menuClassName,
     onOpenChange,
@@ -276,9 +291,8 @@ export function AgentPromptButton({
     const [open, setOpen] = useState(defaultOpen)
     const { askSidePanelMax } = useActions(maxGlobalLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
-    const availableAgents = (
-        agentKeys ? agentKeys.flatMap((key) => AGENTS.filter((agent) => agent.key === key)) : AGENTS
-    ).filter((agent) => !(todayRailEnabled && agent.key === 'posthog-ai'))
+    const { currentProjectId } = useValues(projectLogic)
+    const availableAgents = AGENTS.filter((agent) => !(todayRailEnabled && agent.key === 'posthog-ai'))
 
     if (actions.length === 0 || availableAgents.length === 0) {
         return null
@@ -296,9 +310,9 @@ export function AgentPromptButton({
         rememberAction(actionSetKey, actionKey)
     }
 
-    const runCombo = (actionKey: string, agentKey: string): void => {
+    const runCombo = (actionKey: string, agentKey: AgentPromptDestination): void => {
         const action = actions.find((a) => a.key === actionKey) ?? actions[0]
-        const prompt = action.buildPrompt()
+        const prompt = buildAgentPrompt(action, agentKey, currentProjectId)
         onRun?.({ actionKey, agentKey })
         const agent = availableAgents.find((a) => a.key === agentKey)
         if (!agent) {

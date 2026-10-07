@@ -45,6 +45,7 @@ export function StackTraceActions({ issue }: StackTraceActionsProps): JSX.Elemen
                             label: 'Stack trace',
                             icon: <IconCode />,
                             buildPrompt: () => copyableStacktraceText,
+                            raw: true,
                         },
                     ]}
                     onRun={({ actionKey, agentKey }) =>

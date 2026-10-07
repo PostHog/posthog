@@ -1,24 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { AgentPromptButton, type AgentPromptDestination } from 'lib/components/AgentPromptButton'
+import { AgentPromptButton } from 'lib/components/AgentPromptButton'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { projectLogic } from 'scenes/projectLogic'
 
 import { MCP_INSTALL_COMMAND } from './constants'
 import { type MCPHintPlacement, mcpHintLogic } from './mcpHintLogic'
-import { buildMCPAgentPrompt, type SurfaceKey } from './prompts'
-
-// PostHog AI already runs inside the app, and a cloud session on claude.ai cannot reach a locally configured MCP server.
-const MCP_AGENT_KEYS: AgentPromptDestination[] = [
-    'claude-code',
-    'claude-desktop',
-    'claude-code-vscode',
-    'cursor',
-    'codex',
-    'posthog-code',
-    'clipboard',
-]
+import { stripDisplayQuotes, type SurfaceKey } from './prompts'
 
 export function MCPHintActions({
     surfaceKey,
@@ -33,7 +21,6 @@ export function MCPHintActions({
     onMenuOpen?: () => void
 }): JSX.Element | null {
     const { isCloudOrDev } = useValues(preflightLogic)
-    const { currentProjectId } = useValues(projectLogic)
     const { reportAgentOpened } = useActions(mcpHintLogic)
 
     // The PostHog MCP server only serves cloud and dev instances, so a self-hosted user has nothing to connect to.
@@ -60,10 +47,9 @@ export function MCPHintActions({
                         {
                             key: 'prompt',
                             label: 'prompt',
-                            buildPrompt: () => buildMCPAgentPrompt(example, currentProjectId),
+                            buildPrompt: () => stripDisplayQuotes(example),
                         },
                     ]}
-                    agentKeys={MCP_AGENT_KEYS}
                     labelMode="destination"
                     size="sm"
                     variant="outline"
