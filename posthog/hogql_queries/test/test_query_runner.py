@@ -974,7 +974,7 @@ class TestQueryRunner(BaseTest):
             )
         elif where == "limiter":
             failing = mock.patch(
-                "posthog.hogql_queries.query_runner.get_app_org_rate_limiter", side_effect=error_class("over the limit")
+                "posthog.clickhouse.client.limit.get_app_org_rate_limiter", side_effect=error_class("over the limit")
             )
         elif where == "store":
             failing = mock.patch.object(QueryCache, "store_result", side_effect=error_class("cache store failed"))
