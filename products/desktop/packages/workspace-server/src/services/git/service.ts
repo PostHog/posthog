@@ -42,6 +42,12 @@ import { parseGithubUrl } from "@posthog/git/utils";
 import { TypedEventEmitter } from "@posthog/shared";
 import { injectable } from "inversify";
 import type { SidebarPrState } from "../workspace/schemas";
+import {
+  PR_PIPELINE_STATUS_JQ,
+  PR_PIPELINE_STATUS_QUERY,
+  prPipelineRawSchema,
+  toPrPipelineStatus,
+} from "./pr-pipeline-status";
 import type {
   ApprovePrOutput,
   ChangedFile,
@@ -52,6 +58,7 @@ import type {
   GetCommitConventionsOutput,
   GetPrChecksOutput,
   GetPrCommentsOutput,
+  GetPrPipelineStatusOutput,
   GetPrTemplateOutput,
   GhAuthTokenOutput,
   GhStatusOutput,
@@ -1452,6 +1459,40 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
       // A PR with no CI configured is not an error state.
       if ((result.stderr ?? "").includes("no checks reported")) return [];
       return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * CI and merge queue state of an open PR, summarised for a list row. Null
+   * when gh can't answer, so a row with no status reads the same as a row
+   * whose status is unknown.
+   */
+  async getPrPipelineStatus(prUrl: string): Promise<GetPrPipelineStatusOutput> {
+    const pr = parseGithubUrl(prUrl);
+    if (pr?.kind !== "pr") return null;
+
+    try {
+      const result = await execGh([
+        "api",
+        "graphql",
+        "-f",
+        `query=${PR_PIPELINE_STATUS_QUERY}`,
+        // -f keeps these strings; -F would type a numeric repo name as an int.
+        "-f",
+        `owner=${pr.owner}`,
+        "-f",
+        `repo=${pr.repo}`,
+        "-F",
+        `number=${pr.number}`,
+        "--jq",
+        PR_PIPELINE_STATUS_JQ,
+      ]);
+      if (result.exitCode !== 0 || !result.stdout.trim()) return null;
+      return toPrPipelineStatus(
+        prPipelineRawSchema.parse(JSON.parse(result.stdout)),
+      );
     } catch {
       return null;
     }

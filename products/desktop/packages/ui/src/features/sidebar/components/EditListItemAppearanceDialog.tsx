@@ -12,6 +12,7 @@ import {
   DialogTitle,
   Text,
 } from "@posthog/quill";
+import type { PrPipelineStatus } from "@posthog/shared";
 import {
   ANALYTICS_EVENTS,
   type TaskListAppearanceChangedProperties,
@@ -39,6 +40,8 @@ interface PreviewTask
   title: string;
   creatorName: string;
   spaceName: string;
+  /** One row per state a reader would want to tell apart at a glance. */
+  pipeline: PrPipelineStatus;
 }
 
 /** Ages that read as a list someone is actually working in. */
@@ -65,6 +68,10 @@ const PREVIEW_TASKS: Omit<PreviewTask, "lastActivityAt">[] = [
     linkedBranch: "posthog/session-list",
     creatorName: "Ada Lovelace",
     spaceName: "session-list",
+    pipeline: {
+      ci: { state: "passing", total: 42, failed: 0, pending: 0 },
+      mergeQueue: "testing",
+    },
   },
   {
     id: "preview-replay",
@@ -78,6 +85,10 @@ const PREVIEW_TASKS: Omit<PreviewTask, "lastActivityAt">[] = [
     linkedBranch: "fix/replay-loading",
     creatorName: "Grace Hopper",
     spaceName: "replay",
+    pipeline: {
+      ci: { state: "failing", total: 42, failed: 2, pending: 5 },
+      mergeQueue: null,
+    },
   },
   {
     id: "preview-docs",
@@ -91,6 +102,10 @@ const PREVIEW_TASKS: Omit<PreviewTask, "lastActivityAt">[] = [
     linkedBranch: null,
     creatorName: "Katherine Johnson",
     spaceName: "docs",
+    pipeline: {
+      ci: { state: "running", total: 42, failed: 0, pending: 12 },
+      mergeQueue: "queuing",
+    },
   },
 ];
 
@@ -228,6 +243,7 @@ export function EditListItemAppearanceDialog({
                     task.creatorName,
                     visibleFields,
                     task.spaceName,
+                    task.pipeline,
                   )}
                   tabIndex={-1}
                 />
@@ -241,7 +257,8 @@ export function EditListItemAppearanceDialog({
             </Text>
             <Text size="xs" variant="muted" className="mt-0.5 mb-3 block">
               Choose the details to show. Drag them into the order you want.
-              Leave all unchecked for a single-row list.
+              Leave all unchecked for a single-row list. CI status and merge
+              queue show only for sessions with an open pull request.
             </Text>
             <DragDropProvider
               onDragStart={handleDragStart}

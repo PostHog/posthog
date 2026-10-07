@@ -83,6 +83,10 @@ vi.mock("@posthog/ui/features/tasks/useTasks", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
   useChannelTaskStatus: () => null,
 }));
+// The CI and merge queue lookup is tRPC-backed, and this suite is about the row.
+vi.mock("@posthog/ui/features/sidebar/usePrPipelineStatus", () => ({
+  usePrPipelineStatus: () => null,
+}));
 // The bulk bar's actions span the archive, pin, and filing query stacks. What
 // the bar does has its own suites; this one is about the list's own states.
 vi.mock("@posthog/ui/features/sidebar/useSidebarBulkActions", () => ({

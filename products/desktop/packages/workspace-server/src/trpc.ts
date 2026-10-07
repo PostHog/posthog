@@ -90,6 +90,8 @@ import {
   getPrDiffStatsBatchOutput,
   getPrInfoByUrlInput,
   getPrInfoByUrlOutput,
+  getPrPipelineStatusInput,
+  getPrPipelineStatusOutput,
   getPrReviewCommentsInput,
   getPrReviewCommentsOutput,
   getPrTemplateInput,
@@ -557,6 +559,11 @@ export function createAppRouter({
         .input(getPrChecksInput)
         .output(getPrChecksOutput)
         .query(({ input }) => gitService().getPrChecks(input.prUrl)),
+
+      getPrPipelineStatus: t.procedure
+        .input(getPrPipelineStatusInput)
+        .output(getPrPipelineStatusOutput)
+        .query(({ input }) => gitService().getPrPipelineStatus(input.prUrl)),
 
       getPrComments: t.procedure
         .input(getPrCommentsInput)

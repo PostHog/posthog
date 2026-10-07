@@ -426,7 +426,10 @@ export function ChannelItemRow({
   onContextMenuOpenChange?: (open: boolean) => void;
 }) {
   const status = useChannelTaskStatus(item);
-  const subtitle = useChannelItemMetadata(item, spaceName);
+  const subtitle = useChannelItemMetadata(item, spaceName, {
+    prUrl: status?.prUrl,
+    prState: status?.prState,
+  });
   const archivePresentation = useArchivingTasksStore((state) =>
     item.kind !== "task"
       ? null
