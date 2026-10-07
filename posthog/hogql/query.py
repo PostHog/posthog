@@ -125,6 +125,7 @@ class HogQLQueryExecutor:
     hogql_context: Optional[HogQLContext] = None
     _sharing_ast: ast.SelectQuery | ast.SelectSetQuery | None = dataclasses.field(default=None, init=False, repr=False)
     _capture_sharing_ast: bool = dataclasses.field(default=False, init=False, repr=False)
+    _sharing_default_top_level_limit: bool = dataclasses.field(default=False, init=False, repr=False)
     clickhouse_prepared_ast: Optional[ast.AST] = None
     clickhouse_context: Optional[HogQLContext] = None
     clickhouse_sql: Optional[str] = None
@@ -336,6 +337,10 @@ class HogQLQueryExecutor:
         with self.timings.measure("print_prepared_ast"):
             if self._capture_sharing_ast:
                 self._sharing_ast = select_query_hogql
+                # The executor injects a safety limit for ordinary queries. It does not affect a
+                # top-level count, but must not make it look like the caller supplied LIMIT.
+                if self._sharing_default_top_level_limit and isinstance(self._sharing_ast, ast.SelectQuery):
+                    self._sharing_ast.limit = None
             self.hogql = print_prepared_ast(
                 select_query_hogql,
                 self.hogql_context,
@@ -837,6 +842,11 @@ class HogQLQueryExecutor:
         if embedded_select:
             _EmbeddedSelectSettingsValidator().visit(self.select_query)
         if not embedded_select:
+            self._sharing_default_top_level_limit = (
+                self._capture_sharing_ast
+                and isinstance(self.select_query, ast.SelectQuery)
+                and self.select_query.limit is None
+            )
             self._apply_limit()
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
@@ -1004,11 +1014,13 @@ class HogQLQueryExecutor:
         if self.connection_id is not None or self.send_raw_query:
             raise ExposedHogQLError("Only ClickHouse-backed HogQL queries can share execution.")
         self._capture_sharing_ast = True
+        self._sharing_default_top_level_limit = False
         try:
             prepared = self._prepare_execution()
             sharing_ast = self._sharing_ast
         finally:
             self._capture_sharing_ast = False
+            self._sharing_default_top_level_limit = False
             self._sharing_ast = None
         if prepared.engine != "clickhouse" or sharing_ast is None:
             raise ExposedHogQLError("Only ClickHouse-backed HogQL queries can share execution.")

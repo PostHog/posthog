@@ -44,7 +44,7 @@ from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_a
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.query_stats import query_stats_scope, record
-from posthog.hogql.sharing_rules import SameAggregationTopNRule
+from posthog.hogql.sharing_rules import CountFusionRule, SameAggregationTopNRule
 from posthog.hogql.test.utils import (
     execute_hogql_query_with_timings,
     json_dynamic_read_sql,
@@ -158,6 +158,26 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert "\n".join(line.rstrip() for line in sql.strip().splitlines()) == self._schema_snapshot(
                 use_new_events_schema_snapshot=settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             )
+
+    @patch(
+        "posthog.hogql.multi_query.posthoganalytics.feature_enabled",
+        side_effect=lambda key, *args, **kwargs: key == "hogql-query-sharing",
+    )
+    def test_prepared_unlimited_counts_can_share_execution(self, _flag: mock.Mock) -> None:
+        prepared = [
+            HogQLQueryExecutor(query=query, team=self.team).prepare_for_sharing(
+                query_id=str(index), scope_key="test-refresh"
+            )
+            for index, query in enumerate(
+                ("SELECT count() FROM events", "SELECT count() FROM events WHERE event = 'signup'")
+            )
+        ]
+
+        plan = MultiQueryPlanner([CountFusionRule()]).plan(prepared)
+
+        self.assertEqual(len(plan.groups), 1, plan.rejections)
+        self.assertEqual(plan.groups[0].query_ids, ("0", "1"))
+        self.assertIsNone(plan.groups[0].query.limit)
 
     @parameterized.expand(
         [
