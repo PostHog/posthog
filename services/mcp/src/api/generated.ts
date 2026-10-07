@@ -55683,6 +55683,15 @@ export namespace Schemas {
       yAxis?: MetricsYAxisSettings | null;
     }
 
+    export type MetricsQueryLanguage = typeof MetricsQueryLanguage[keyof typeof MetricsQueryLanguage];
+
+
+    export const MetricsQueryLanguage = {
+      Builder: 'builder',
+      Promql: 'promql',
+      Sql: 'sql',
+    } as const;
+
     export interface MetricsQueryPoint {
       /** Bucket start, ISO 8601 */
       time: string;
@@ -55729,6 +55738,7 @@ export namespace Schemas {
     }
 
     export interface MetricsQuery {
+      /** Empty when `language` is `promql` or `sql`. */
       clauses: MetricsQueryClause[];
       /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
       dateRange?: DateRange | null;
@@ -55739,9 +55749,15 @@ export namespace Schemas {
       /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
       interval?: string | null;
       kind?: 'MetricsQuery';
+      /** How the query is written; the builder when unset. */
+      language?: MetricsQueryLanguage | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** PromQL expression, run as a range query. Used when `language` is `promql`. */
+      promql?: string | null;
       response?: MetricsQueryResponse | null;
+      /** HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. `{date_from}`, `{date_to}`, `{interval}` and `{interval_seconds}` are filled in from the date range and interval. */
+      sql?: string | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
