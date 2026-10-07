@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import MetricsHistogramQuery
+from posthog.schema import DashboardFilter, MetricsHistogramQuery, MetricsQueryFilter
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -56,6 +56,17 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
             **overrides,
         )
         return MetricsHistogramQueryRunner(query=query, team=self.team).calculate()
+
+    def test_dashboard_metric_filters_add_to_the_query_filters(self):
+        own_filter = MetricsQueryFilter(key="namespace", op="eq", value="posthog")
+        dashboard_filter = MetricsQueryFilter(key="service.name", op="eq", value="checkout")
+        runner = MetricsHistogramQueryRunner(
+            query=MetricsHistogramQuery(metricName="latency", filters=[own_filter]), team=self.team
+        )
+
+        runner.apply_dashboard_filters(DashboardFilter(metricFilters=[dashboard_filter]))
+
+        self.assertEqual(runner.query.filters, [own_filter, dashboard_filter])
 
     def test_returns_a_time_by_bound_grid(self):
         self._seed_histogram(

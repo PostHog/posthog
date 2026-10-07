@@ -23,7 +23,7 @@ It is the only honest number in the product. A holdout AUC of 0.93 says the mode
 
   Every model that emitted predictions on the date is scored, whatever its role now. Inference shadow-scores every model in the shadow set on the champion's people, and each records its own inference run, so their realized numbers land here. That is what makes challenger promotion decidable on evidence rather than on holdout alone. A shadow model's events carry the emitted role `shadow`.
   Results land on `AutoresearchModel.realized_score` / `.calibration_error` / `.metrics["realized"]` via `_update_model_realized_metrics()`, and each validated date records an `AutoresearchRun` whose `metrics["per_model"]` keeps the emitted role next to the current one.
-  The model row keeps only the newest date. The history is on the runs: `online_performance()` in `../facade/api.py` (the pipeline's `online_performance` action and the `autoresearch-online-performance-retrieve` MCP tool) reads the newest completed run per (date, horizon) and returns one row per model per date, so an archived former champion keeps its evidence after a promotion.
+  The model row keeps only the newest date. The history is on the runs: `latest_validation_runs()` in `history.py` reads them, for `online_performance()` in `../facade/api.py` (the pipeline's `online_performance` action and the `autoresearch-online-performance-retrieve` MCP tool) reads the newest completed run per (date, horizon) and returns one row per model per date, so an archived former champion keeps its evidence after a promotion. The training brief reads the same history (`../training/realized_context.py`).
 
 ## Mental model
 

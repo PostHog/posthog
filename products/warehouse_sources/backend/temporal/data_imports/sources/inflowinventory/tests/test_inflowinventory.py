@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinve
 from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.inflowinventory import (
     INFLOWINVENTORY_API_VERSION_2023_04_01,
     INFLOWINVENTORY_API_VERSION_2026_07_10,
+    INFLOWINVENTORY_API_VERSION_2026_09_29,
     PAGE_SIZE,
     InflowInventoryResumeConfig,
     check_access,
@@ -187,7 +188,8 @@ class TestPagination:
     @parameterized.expand(
         [
             ("legacy", INFLOWINVENTORY_API_VERSION_2023_04_01),
-            ("current", INFLOWINVENTORY_API_VERSION_2026_07_10),
+            ("previous", INFLOWINVENTORY_API_VERSION_2026_07_10),
+            ("current", INFLOWINVENTORY_API_VERSION_2026_09_29),
         ]
     )
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -278,7 +280,8 @@ class TestCheckAccess:
     @parameterized.expand(
         [
             ("legacy", INFLOWINVENTORY_API_VERSION_2023_04_01),
-            ("current", INFLOWINVENTORY_API_VERSION_2026_07_10),
+            ("previous", INFLOWINVENTORY_API_VERSION_2026_07_10),
+            ("current", INFLOWINVENTORY_API_VERSION_2026_09_29),
         ]
     )
     @mock.patch.object(inflowinventory, "make_tracked_session")

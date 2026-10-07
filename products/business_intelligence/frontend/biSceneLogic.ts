@@ -40,7 +40,7 @@ import { BIVisualizationNodeApi, InsightApi } from 'products/product_analytics/f
 import type { BIConfig } from '../../../frontend/src/queries/schema/schema-business-intelligence'
 import type { DataWarehouseSavedQueryApi } from '../../data_warehouse/frontend/generated/api.schemas'
 import type { ExternalDataSourceConnectionOptionApi } from '../../warehouse_sources/frontend/generated/api.schemas'
-import { captureBIEditorQueryRun, captureBIEditorQuerySaved } from './biEditorAnalytics'
+import { captureBIEditorQueryRun, captureBIEditorQuerySaved, captureBIWorksheetAction } from './biEditorAnalytics'
 import { biEditorLogic } from './biEditorLogic'
 import {
     BIEditorView,
@@ -50,6 +50,7 @@ import {
     parseBIEditorState,
 } from './biEditorTypes'
 import type { BIQueryBuildResult } from './biEditorTypes'
+import { mergeBITableSettings } from './biMeasureSettings'
 import { applyBIDateRange, mergeBIQuerySource } from './biQueryFilters'
 
 export interface BISceneLogicProps {
@@ -287,6 +288,10 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                         ? await insightsPartialUpdate(String(values.currentTeamId), values.insight.id, payload)
                         : await insightsCreate(String(values.currentTeamId), payload)
                     captureBIEditorQuerySaved(state, 'insight', operation, !!payload.dashboards?.length)
+                    captureBIWorksheetAction('saved', state.config, { insight_id: insight.id })
+                    if (payload.dashboards?.length) {
+                        captureBIWorksheetAction('added_to_dashboard', state.config, { insight_id: insight.id })
+                    }
                     return insight
                 },
             },
@@ -350,6 +355,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                     ? mergeBIQuerySource(visualization.source, generatedQuery.node.source)
                     : { ...visualization.source, query: '' },
                 chartSettings: mergeBIChartSettings(visualization.chartSettings, generatedQuery?.node.chartSettings),
+                tableSettings: mergeBITableSettings(visualization.tableSettings, generatedQuery?.node.tableSettings),
             }),
         ],
         hasUnsavedChanges: [
@@ -384,6 +390,23 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
+        [dataNodeLogic({ key: `InsightViz.new-bi-${props.tabId}`, query: emptyWorksheet().source }).actionTypes
+            .loadDataSuccess]: ({ response }) => {
+            if (
+                !cache.firstChartCaptured &&
+                values.lastRunQuery &&
+                response &&
+                'results' in response &&
+                Array.isArray(response.results) &&
+                response.results.length
+            ) {
+                cache.firstChartCaptured = true
+                captureBIWorksheetAction('first_chart', values.lastRunQuery.config, {
+                    insight_id: values.insight?.id,
+                    result_count: response.results.length,
+                })
+            }
+        },
         resetConfig: () => {
             actions.restoreWorksheet({
                 ...emptyWorksheet(),
@@ -575,7 +598,8 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             databaseTableListLogic.actions.resetConnectionScope()
         }
     }),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
+        captureBIWorksheetAction('opened', values.config)
         connectionSelectorLogic.actions.maybeLoadConnectionOptions()
         actions.openWorksheet()
     }),
