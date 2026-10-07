@@ -21,6 +21,7 @@ from django.db.models import Q, prefetch_related_objects
 import structlog
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
+from temporalio.exceptions import CancelledError as TemporalCancelledError
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -987,6 +988,8 @@ class Database(BaseModel):
                     for view in build_revenue_views_for_handles(self._deferred_revenue_handles):
                         try:
                             views_node.add_child(TableNode.create_nested_for_chain(view.name.split("."), view))
+                        except TemporalCancelledError:
+                            raise
                         except Exception as e:
                             capture_exception(e)
                     self._add_views(views_node)
@@ -2032,6 +2035,8 @@ class Database(BaseModel):
                             revenue_source_handles = list_revenue_source_handles(team, timings)
                         else:
                             revenue_views = list(build_all_revenue_analytics_views(team, timings))
+                except TemporalCancelledError:
+                    raise
                 except Exception as e:
                     capture_exception(e)
 
@@ -2415,6 +2420,8 @@ class Database(BaseModel):
                                 ),
                                 table_conflict_mode="ignore",
                             )
+                except TemporalCancelledError:
+                    raise
                 except Exception as e:
                     capture_exception(e)
 
@@ -2445,6 +2452,8 @@ class Database(BaseModel):
                 for view in revenue_views_to_add:
                     try:
                         views.add_child(TableNode.create_nested_for_chain(view.name.split("."), view))
+                    except TemporalCancelledError:
+                        raise
                     except Exception as e:
                         capture_exception(e)
                         continue
@@ -2861,6 +2870,8 @@ class Database(BaseModel):
                                 resolver_params=data_warehouse_resolver_params(**dw_join_kwargs),
                             )
 
+                except TemporalCancelledError:
+                    raise
                 except Exception as e:
                     capture_exception(e)
 
@@ -2891,6 +2902,8 @@ class Database(BaseModel):
                     # foreign keys first); track it so only these fields, not event-modifier mappings, are
                     # overridable when the deferred build runs.
                     database._deferred_overridable_expression_field_ids.add(id(saved_expression_field))
+                except TemporalCancelledError:
+                    raise
                 except Exception as e:
                     capture_exception(e)
 

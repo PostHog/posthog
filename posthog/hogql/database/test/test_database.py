@@ -21,6 +21,7 @@ from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from pydantic import BaseModel
+from temporalio.exceptions import CancelledError as TemporalCancelledError
 
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
@@ -1453,6 +1454,23 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             assert allowed.get_table("stripe.stub.charges") is not denied.get_table("stripe.stub.charges")
             assert "secret_expr" in allowed.get_table("stripe.stub.charges").fields
             assert "secret_expr" not in denied.get_table("stripe.stub.charges").fields
+
+    def test_temporal_cancellation_during_revenue_views_fetch_propagates(self):
+        with (
+            patch(
+                "products.revenue_analytics.backend.views.orchestrator.list_revenue_source_handles",
+                side_effect=TemporalCancelledError("Cancelled"),
+            ),
+            patch(
+                "products.revenue_analytics.backend.views.orchestrator.build_all_revenue_analytics_views",
+                side_effect=TemporalCancelledError("Cancelled"),
+            ),
+            patch("posthog.hogql.database.database.capture_exception") as mock_capture,
+        ):
+            with pytest.raises(TemporalCancelledError):
+                Database.create_for(team=self.team, user=self.user)
+
+        mock_capture.assert_not_called()
 
     def test_cached_sources_expire_and_pick_up_new_views(self):
         Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
