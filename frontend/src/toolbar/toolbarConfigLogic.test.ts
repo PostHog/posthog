@@ -4,7 +4,13 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
-import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
+import {
+    cleanToolbarAuthHash,
+    LOCALSTORAGE_KEY,
+    OAUTH_LOCALSTORAGE_KEY,
+    PKCE_STORAGE_KEY,
+    readToolbarAuthHash,
+} from '~/toolbar/utils'
 
 // The toolbar logger mirrors intentional error/auth paths to the console (its job on
 // customer pages); tests exercise those paths on purpose, so stub the boundary.
@@ -636,6 +642,19 @@ describe('toolbar toolbarConfigLogic', () => {
             })
         })
 
+        it('mounts with a stale legacy temporaryToken without firing tokenExpired', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                token: 'phc_test',
+                temporaryToken: 'old-temp-token',
+            })
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toNotHaveDispatchedActions(['tokenExpired'])
+            logic.actions.persistConfig()
+            expect(JSON.parse(localStorage.getItem(LOCALSTORAGE_KEY)!)).not.toHaveProperty('temporaryToken')
+        })
+
         it('does not restore stored tokens when props already include tokens', () => {
             localStorage.setItem(
                 OAUTH_LOCALSTORAGE_KEY,
@@ -1093,19 +1112,6 @@ describe('toolbar toolbarConfigLogic', () => {
                 refreshToken: null,
                 isAuthenticated: true,
             })
-        })
-
-        it('does not trigger temporaryToken migration during code exchange', async () => {
-            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
-            mockTokenExchangeSuccess()
-
-            const logic = toolbarConfigLogic.build({
-                apiURL: 'http://localhost',
-                temporaryToken: 'old-temp-token',
-            })
-            logic.mount()
-
-            await expectLogic(logic).delay(0).toNotHaveDispatchedActions(['tokenExpired'])
         })
 
         it('cleans up localStorage PKCE key after exchange', async () => {

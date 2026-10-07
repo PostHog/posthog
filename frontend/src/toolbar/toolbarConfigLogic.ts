@@ -415,6 +415,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 experimentId: values.experimentId ?? undefined,
                 productTourId: values.productTourId ?? undefined,
                 userIntent: values.userIntent ?? undefined,
+                temporaryToken: undefined,
                 posthog: undefined,
             }
 
@@ -453,7 +454,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         }
 
         restoreOAuthTokens(!!authParams, values, actions)
-        maybeMigrateTemporaryToken(!!authParams, props, values, actions)
         initInstrumentation(props, values)
 
         // Reachability check is a UX helper: it detects misconfigured / unreachable
@@ -674,21 +674,6 @@ function restoreOAuthTokens(
         return
     }
     actions.setOAuthTokens(accessToken, storedRefreshToken, clientId)
-}
-
-/**
- * Migrate users from the old temporaryToken flow to OAuth.
- * TODO(@fcgomes): Remove after September 2026 — gives users 6 months to re-authenticate.
- */
-function maybeMigrateTemporaryToken(
-    pendingCodeExchange: boolean,
-    props: ToolbarProps,
-    values: { accessToken: string | null },
-    actions: { tokenExpired: () => void }
-): void {
-    if (!values.accessToken && props.temporaryToken && !pendingCodeExchange) {
-        actions.tokenExpired()
-    }
 }
 
 /** Set up PostHog instrumentation and capture the "toolbar loaded" event. */
