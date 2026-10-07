@@ -33,10 +33,15 @@ describe('issueAffectedBroadcastLogic', () => {
         }).toDispatchActions(['createAudienceSuccess'])
 
         const body = mockCohortsCreate.mock.calls[0][1]
-        expect(body).toMatchObject({ name: 'People affected by Checkout timeout', is_static: true })
-        expect((body?.query as { query: string }).query).toMatch(
-            /^SELECT DISTINCT person_id FROM events WHERE event = '\$exception' AND issue_id = 'issue-1'/
-        )
+        expect(body).toMatchObject({
+            name: 'People affected by Checkout timeout',
+            is_static: true,
+            query: {
+                query: expect.stringMatching(
+                    /^SELECT DISTINCT person_id FROM events WHERE event = '\$exception' AND issue_id = 'issue-1'/
+                ),
+            },
+        })
 
         const { pathname, searchParams } = router.values.currentLocation
         expect(pathname).toContain('/broadcasts/new')
