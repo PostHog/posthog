@@ -1393,6 +1393,7 @@ class SocialAuthExceptionMiddleware:
                 "gitlab_sso_enforced",
                 "sso_enforced",
                 "reauth_user_mismatch",
+                "access_blocked",
             ):
                 return redirect(sso_failure_redirect_url(request, error))
 
