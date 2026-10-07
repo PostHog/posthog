@@ -439,8 +439,12 @@ pub struct Config {
     // check, write, and read, the group type mapping lookup, and the properties fetch.
     // statement_timeout cannot cancel a query on a database that has stopped answering.
     // Only this timer bounds the request then. On expiry, the flags that need persons data
-    // return an error and the other flags evaluate normally. The default leaves 2s of the
-    // 4.5s REQUEST_TIMEOUT_MS for the rest of the request. 0 disables the deadline.
+    // return an error and the other flags evaluate normally. The budget starts just before
+    // evaluation. With no permit wait, the default leaves 2s of the 4.5s REQUEST_TIMEOUT_MS for
+    // the rest of the request. The request timeout starts earlier, when the request arrives. A
+    // long wait for a concurrency permit uses up that 2s. The deadline is therefore never later
+    // than 500ms (`Config::PERSONS_DB_DEADLINE_RESERVE`) before the request timeout ends. The
+    // rest of the request then has 500ms to finish. 0 disables the deadline.
     #[envconfig(from = "PERSONS_DB_DEADLINE_MS", default = "2500")]
     pub persons_db_deadline_ms: u64,
 
@@ -1333,10 +1337,23 @@ impl Config {
         }
     }
 
-    /// The budget for all persons DB work in one flag evaluation, or `None` when disabled.
-    pub fn persons_db_deadline(&self) -> Option<std::time::Duration> {
-        (self.persons_db_deadline_ms > 0)
-            .then(|| std::time::Duration::from_millis(self.persons_db_deadline_ms))
+    const PERSONS_DB_DEADLINE_RESERVE: std::time::Duration = std::time::Duration::from_millis(500);
+
+    /// The instant when all persons DB work in one flag evaluation stops, or `None` when disabled.
+    /// When `request_timeout_ms` is not more than the reserve, the deadline is the arrival time
+    /// and every persons DB call fails.
+    pub fn persons_db_deadline(
+        &self,
+        request_entered_at: tokio::time::Instant,
+    ) -> Option<tokio::time::Instant> {
+        (self.persons_db_deadline_ms > 0).then(|| {
+            let budget_end = tokio::time::Instant::now()
+                + std::time::Duration::from_millis(self.persons_db_deadline_ms);
+            let request_cap = request_entered_at
+                + std::time::Duration::from_millis(self.request_timeout_ms)
+                    .saturating_sub(Self::PERSONS_DB_DEADLINE_RESERVE);
+            budget_end.min(request_cap)
+        })
     }
 
     /// Check if persons database routing is enabled
@@ -1694,6 +1711,32 @@ mod tests {
         assert_eq!(
             config.redis_connection_timeout_ms,
             Config::MAX_CONNECTION_TIMEOUT_MS
+        );
+    }
+
+    // The cap is the request timeout minus the 500ms reserve, counted from arrival.
+    #[rstest::rstest]
+    #[case::short_permit_wait(2500, 4500, 1000, Some(3500))]
+    #[case::long_permit_wait(2500, 4500, 3000, Some(4000))]
+    #[case::waited_past_the_cap(2500, 4500, 4200, Some(4000))]
+    #[case::request_timeout_within_the_reserve(2500, 400, 0, Some(0))]
+    #[case::disabled(0, 4500, 0, None)]
+    #[tokio::test(start_paused = true)]
+    async fn test_persons_db_deadline_is_capped_by_the_request_timeout(
+        #[case] persons_db_deadline_ms: u64,
+        #[case] request_timeout_ms: u64,
+        #[case] permit_wait_ms: u64,
+        #[case] expected_ms_after_arrival: Option<u64>,
+    ) {
+        let mut config = Config::default_test_config();
+        config.persons_db_deadline_ms = persons_db_deadline_ms;
+        config.request_timeout_ms = request_timeout_ms;
+        let arrival = tokio::time::Instant::now();
+        tokio::time::advance(std::time::Duration::from_millis(permit_wait_ms)).await;
+
+        assert_eq!(
+            config.persons_db_deadline(arrival),
+            expected_ms_after_arrival.map(|ms| arrival + std::time::Duration::from_millis(ms))
         );
     }
 

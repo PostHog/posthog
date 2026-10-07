@@ -1,7 +1,7 @@
 use crate::{
     api::{
         body_read_metrics::BodyReadDuration,
-        concurrency_metrics::ConcurrencyLimitWait,
+        concurrency_metrics::{ConcurrencyEnterTime, ConcurrencyLimitWait},
         errors::{ClientFacingError, FlagError},
         flags_rate_limiter::RateLimitResult,
         types::{
@@ -276,6 +276,9 @@ pub async fn flags<C>(
     Extension(rate_limiters): Extension<router::FlagsEndpointRateLimiters<C>>,
     InsecureClientIp(direct_ip): InsecureClientIp,
     Query(query_params): Query<FlagsQueryParams>,
+    // Populated by the `record_concurrency_enter` middleware before the
+    // permit wait. Optional for the same reason as `concurrency_wait`.
+    concurrency_enter: Option<Extension<ConcurrencyEnterTime>>,
     // Populated by the `record_concurrency_wait` middleware after
     // `ConcurrencyLimitLayer` hands off a permit. Optional so the handler
     // tolerates the layer pair being removed or temporarily disabled.
@@ -294,6 +297,9 @@ where
     C: clock::Clock + Clone + Send + Sync + 'static,
 {
     let request_id = extract_request_id(&headers);
+    let request_entered_at = concurrency_enter
+        .map(|Extension(enter)| enter.0)
+        .unwrap_or_else(tokio::time::Instant::now);
 
     // Extract client IP, checking X-Forwarded-For header first
     let ip = extract_client_ip(&headers, direct_ip);
@@ -485,6 +491,7 @@ where
 
     let context = RequestContext {
         request_id,
+        request_entered_at,
         state: state.clone(),
         ip,
         headers: headers.clone(),

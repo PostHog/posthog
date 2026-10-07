@@ -12,7 +12,9 @@
 //!
 //! Layer wiring lives in `router::router` — see the comment block there.
 //! Both shims are no-ops when their counterpart is missing, so they can be
-//! rolled out / reverted independently without breaking requests.
+//! rolled out / reverted independently without breaking requests. Without
+//! [`record_concurrency_enter`], the `flags` handler cannot cap the persons
+//! DB deadline at the request timeout.
 //!
 //! # Load-bearing axum invariant
 //!
@@ -33,9 +35,10 @@
 //! `flags_concurrency_limit_wait_ms` histogram collapsing to ~0 in
 //! production dashboards.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::{extract::Request, middleware::Next, response::Response};
+use tokio::time::Instant;
 
 /// Wall-clock instant captured immediately before the request enters
 /// `ConcurrencyLimitLayer`. Read by [`record_concurrency_wait`] to compute

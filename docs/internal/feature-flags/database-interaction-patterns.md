@@ -79,7 +79,14 @@ The same hook also increments the `db_connection_created_total` counter when `po
 
 `PERSONS_DB_DEADLINE_MS` (default 2500ms) bounds all persons DB work in one flag evaluation.
 The hash key override check, write, and read, the group type mapping lookup, and the person, cohort, and group properties fetch share one deadline, so sequential calls cannot add up past it.
-The deadline starts when the matcher is built, just before evaluation.
+The budget starts when the matcher is built, just before evaluation.
+The request timeout (`REQUEST_TIMEOUT_MS`) starts earlier, when the request arrives and before it waits for a concurrency permit.
+So the deadline is the earlier of two instants: the budget's end, and 500ms before the request timeout ends.
+After a long permit wait, the second instant comes first.
+The rest of the request then has 500ms to finish before the request timeout returns a 503.
+When the request waited past that second instant, every persons DB call fails without taking a connection.
+Those flags report `timeout:persons_db_deadline` even when the persons DB is healthy.
+The canonical log line shows the wait in `concurrency_limit_wait_ms`.
 Postgres `statement_timeout` cannot cancel a query on a database that has stopped answering, so once a query is in flight this client-side timer is the only bound.
 When the pool has no free connection, the pool acquire timeout (`ACQUIRE_TIMEOUT_SECS`) can fire first, and the call fails with `timeout:pool_timeout` instead.
 
