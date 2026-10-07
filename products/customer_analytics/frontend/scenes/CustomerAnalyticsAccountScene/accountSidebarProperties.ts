@@ -1,3 +1,5 @@
+import type { AccountsTableAccountField } from '~/queries/schema/schema-general'
+
 import type {
     AccountApi,
     AccountRelationshipApi,
@@ -12,6 +14,16 @@ export interface AccountSidebarPropertyData {
     relationships: AccountRelationshipApi[]
     // Loaded only when an account field is pinned.
     account: AccountApi | null
+}
+
+// Some account fields are top-level attributes and the others live in `properties`.
+function accountFieldValue(account: AccountApi | null, field: AccountsTableAccountField): string | null {
+    if (!account) {
+        return null
+    }
+    const values: Record<string, unknown> = { ...account.properties, ...account }
+    const value = values[field]
+    return typeof value === 'string' && value !== '' ? value : null
 }
 
 export function buildAccountSidebarProperties(
@@ -30,7 +42,7 @@ export function buildAccountSidebarProperties(
                 key,
                 kind: 'account_field',
                 field: property.field,
-                value: data.account?.properties?.[property.field.key] || null,
+                value: accountFieldValue(data.account, property.field.key),
             }
         }
         if (property.kind === 'custom_property') {

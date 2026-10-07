@@ -33,10 +33,16 @@ export function AccountPropertyValue({ property }: AccountPropertyValueProps): J
     }
 
     if (property.kind === 'account_field') {
-        return property.value ? (
-            <span className="text-sm font-medium truncate select-all">{property.value}</span>
+        if (!property.value) {
+            return <span className="text-sm text-muted">Not set</span>
+        }
+        const parsed = property.field.isDateTime ? dayjs(property.value) : null
+        return parsed?.isValid() ? (
+            <span className="text-sm font-medium">
+                <TZLabel time={parsed} formatDate="MMM D, YYYY" formatTime="HH:mm" />
+            </span>
         ) : (
-            <span className="text-sm text-muted">Not set</span>
+            <span className="text-sm font-medium truncate select-all">{property.value}</span>
         )
     }
 

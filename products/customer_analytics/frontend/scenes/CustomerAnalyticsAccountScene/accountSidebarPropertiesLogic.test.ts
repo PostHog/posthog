@@ -129,27 +129,29 @@ describe('accountSidebarPropertiesLogic', () => {
         jest.clearAllMocks()
     })
 
-    it('shows a pinned account field from the account and keeps it read-only', async () => {
+    it('shows pinned account fields from the account and keeps them read-only', async () => {
         useMocks({
             get: {
                 '/api/projects/:project_id/user_customer_analytics_config/@me/': {
                     pinned_properties: [
                         { kind: 'account_field', id: 'stripe_customer_id' },
-                        { kind: 'custom_property', id: definition.id },
+                        { kind: 'account_field', id: 'external_id' },
                     ],
                 },
                 '/api/projects/:project_id/accounts/:id/': ({ params }) => ({
                     id: params.id,
+                    external_id: 'org-example',
                     properties: { stripe_customer_id: 'cus_example' },
                 }),
             },
         })
 
         await mount()
-        const [field] = logic.values.sidebarProperties
-        logic.actions.editProperty(field)
+        const [stripeField, externalIdField] = logic.values.sidebarProperties
+        logic.actions.editProperty(stripeField)
 
-        expect(field).toMatchObject({ key: 'field:stripe_customer_id', kind: 'account_field', value: 'cus_example' })
+        expect(stripeField).toMatchObject({ key: 'field:stripe_customer_id', value: 'cus_example' })
+        expect(externalIdField).toMatchObject({ key: 'field:external_id', value: 'org-example' })
         expect(logic.values.editingPropertyKey).toBeNull()
     })
 

@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { AccountsTableAccountField } from '~/queries/schema/schema-general'
+
 import type {
     AccountRelationshipDefinitionApi,
     CustomPropertyDefinitionApi,
@@ -18,7 +20,6 @@ import {
     AccountRelationshipMember,
     AccountRelationshipProperty,
     AccountSidebarProperty,
-    PINNABLE_ACCOUNT_FIELDS,
 } from './accountPropertyTypes'
 
 const MEMBERS: AccountRelationshipMember[] = [
@@ -108,7 +109,7 @@ const DISPLAY_PROPERTIES: AccountSidebarProperty[] = [
     {
         key: 'field:stripe_customer_id',
         kind: 'account_field',
-        field: PINNABLE_ACCOUNT_FIELDS[0],
+        field: { key: AccountsTableAccountField.StripeCustomerId, label: 'Stripe customer ID', isDateTime: false },
         value: 'cus_example',
     },
 ]

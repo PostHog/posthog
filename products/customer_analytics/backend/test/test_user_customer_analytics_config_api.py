@@ -144,6 +144,7 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
             {"kind": "custom_property", "id": str(first_custom.id)},
             {"kind": "account_field", "id": "stripe_customer_id"},
             {"kind": "relationship", "id": str(relationship.id)},
+            {"kind": "account_field", "id": "created_at"},
             {"kind": "custom_property", "id": str(second_custom.id)},
         ]
 
@@ -350,7 +351,7 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
                 [valid_reference, {"kind": "custom_property", "id": str(valid_custom.id).upper()}],
                 "duplicates",
             ),
-            ("unsupported account field", [{"kind": "account_field", "id": "sfdc_id"}], "account field"),
+            ("unknown account field", [{"kind": "account_field", "id": "not_a_column"}], "account field"),
             ("account field as custom", [{"kind": "custom_property", "id": "stripe_customer_id"}], "UUID"),
             ("wrong target", [{"kind": "custom_property", "id": str(person_custom.id)}], "account property"),
             ("relationship as custom", [{"kind": "custom_property", "id": str(relationship.id)}], "relationship"),

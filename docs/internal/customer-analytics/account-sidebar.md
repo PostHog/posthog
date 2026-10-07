@@ -1,8 +1,8 @@
 # Account detail sidebar properties
 
 Each user can pin up to 50 account custom properties, relationships, and account fields in their project.
-The only account field you can pin is the Stripe customer ID. It shows the account's value read-only.
-The account editor can change an existing Stripe ID.
+You can pin any account field that the Accounts list offers as a column, such as the Stripe customer ID or the external ID.
+Account fields show the account's value read-only. Use the account editor to change them.
 When `customer-analytics-account-scene` is enabled, the Accounts list also shows these pins in expanded rows.
 The left arrow expands or collapses the row. The account name opens account details.
 Expanded pins use the same Properties section and editable fields as the account sidebar.

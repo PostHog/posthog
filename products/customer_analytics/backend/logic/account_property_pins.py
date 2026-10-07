@@ -12,7 +12,8 @@ from products.customer_analytics.backend.models import (
 )
 
 MAX_PINNED_PROPERTIES = 50
-PINNABLE_ACCOUNT_FIELDS = frozenset({AccountTableField.STRIPE_CUSTOMER_ID.value})
+# Every native field the accounts list offers as a column can also be pinned.
+PINNABLE_ACCOUNT_FIELDS = frozenset(field.value for field in AccountTableField)
 
 
 def _parse_definition_id(reference_id: str) -> UUID | None:

@@ -1,3 +1,7 @@
+import { AccountsTableAccountField } from '~/queries/schema/schema-general'
+import { PropertyType } from '~/types'
+
+import { ACCOUNT_FIELD_TAXONOMIC_OPTIONS } from 'products/customer_analytics/frontend/components/Accounts/accountsPropertyFilters'
 import type {
     AccountRelationshipDefinitionApi,
     CustomPropertyDefinitionApi,
@@ -33,14 +37,15 @@ export interface AccountRelationshipProperty {
 }
 
 export interface PinnableAccountField {
-    key: 'stripe_customer_id'
+    key: AccountsTableAccountField
     label: string
+    isDateTime: boolean
 }
 
-// Keep in sync with PINNABLE_ACCOUNT_FIELDS in backend/logic/account_property_pins.py.
-export const PINNABLE_ACCOUNT_FIELDS: PinnableAccountField[] = [
-    { key: 'stripe_customer_id', label: 'Stripe customer ID' },
-]
+// The same native fields the accounts list offers as columns.
+export const PINNABLE_ACCOUNT_FIELDS: PinnableAccountField[] = ACCOUNT_FIELD_TAXONOMIC_OPTIONS.map(
+    ({ id, name, property_type }) => ({ key: id, label: name, isDateTime: property_type === PropertyType.DateTime })
+)
 
 export interface AccountFieldProperty {
     key: string
