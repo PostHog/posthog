@@ -236,21 +236,27 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                     if (values.currentTeamId === null) {
                         return null
                     }
-                    const result = await customerTasksList(
-                        String(values.currentTeamId),
-                        customerTasksQuery(
-                            values.filters,
-                            props.context,
-                            props.accountId,
-                            values.page,
-                            values.pageSize,
-                            values.timezone,
-                            props.canViewAll,
-                            values.ordering
+                    try {
+                        const result = await customerTasksList(
+                            String(values.currentTeamId),
+                            customerTasksQuery(
+                                values.filters,
+                                props.context,
+                                props.accountId,
+                                values.page,
+                                values.pageSize,
+                                values.timezone,
+                                props.canViewAll,
+                                values.ordering
+                            )
                         )
-                    )
-                    breakpoint()
-                    return result
+                        breakpoint()
+                        return result
+                    } catch (error) {
+                        // A superseded request must not reach loadTaskPageFailure, which would act on newer filters.
+                        breakpoint()
+                        throw error
+                    }
                 },
             },
         ],

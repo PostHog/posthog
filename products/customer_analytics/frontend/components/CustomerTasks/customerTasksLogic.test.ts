@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -45,6 +46,7 @@ const mockAccount = accountsRetrieve as jest.MockedFunction<typeof accountsRetri
 const URL_ACCOUNT_ID = '0199ed4a-5c03-0000-3220-df21df612e95'
 const SECOND_URL_ACCOUNT_ID = '0199ed4a-5c03-0000-3220-df21df612e96'
 const DELETED_ROLE_ID = '0199ed4a-5c03-0000-3220-df21df612e97'
+const NEWER_ROLE_ID = '0199ed4a-5c03-0000-3220-df21df612e98'
 
 function task(canEdit = true): CustomerTaskApi {
     return {
@@ -327,6 +329,32 @@ describe('customerTasksLogic', () => {
         expect(logic.values.filters.assignee).toBe('me')
         expect(router.values.searchParams.assignee).toBeUndefined()
         expect(mockList).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ assigned_to: 'me' }))
+    })
+
+    test('keeps a newer role when a superseded role request fails', async () => {
+        let rejectStaleRequest: (error: unknown) => void = () => {}
+        mockList.mockImplementationOnce(
+            () =>
+                new Promise((_, reject) => {
+                    rejectStaleRequest = reject
+                })
+        )
+        router.actions.push(urls.customerAnalyticsTasks(), { assignee: `role:${DELETED_ROLE_ID}` })
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true })
+        logic.mount()
+        await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1))
+
+        logic.actions.setAssignee({ roleId: NEWER_ROLE_ID })
+        rejectStaleRequest(
+            new ApiError(undefined, 400, undefined, { assigned_to: 'Select a role in this organization.' })
+        )
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.filters.assignee).toEqual({ roleId: NEWER_ROLE_ID })
+        expect(mockList).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ assigned_to: `role:${NEWER_ROLE_ID}` })
+        )
     })
 
     test('keeps the persisted filters when the link carries none', async () => {
