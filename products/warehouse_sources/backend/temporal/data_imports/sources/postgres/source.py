@@ -1620,6 +1620,7 @@ class PostgresSource(
                 tables_with_pks = set()
                 rls_active_by_table = {}
                 xmin_capable_tables = set()
+                    estimated_row_count=discovered_schema.estimated_row_count,
 
         for table_name, discovered_schema in db_schemas.items():
             incremental_field_tuples = filter_postgres_incremental_fields(discovered_schema.columns)

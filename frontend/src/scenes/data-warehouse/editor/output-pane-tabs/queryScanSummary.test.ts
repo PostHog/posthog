@@ -43,6 +43,7 @@ const unknownTable = (name: string): TableScanEstimate => ({
 const estimate = (overrides: Partial<ScanEstimate> = {}): ScanEstimate => ({
     rows: 42_000_000,
     upper_bound: false,
+    complete: true,
     tables: [eventsTable()],
     ...overrides,
 })
@@ -66,6 +67,11 @@ describe('queryScanSummary', () => {
             'Reads about 42M events (no date range, assuming a year)',
         ],
         [
+            'a lower bound alone reads as its length, not as the assumed year',
+            estimate({ tables: [eventsTable({ time_range: ScanEstimateTimeRange.Open, days: 7 })] }),
+            'Reads about 42M events (7 days)',
+        ],
+        [
             'several estimated tables count rows, not events',
             estimate({ tables: [eventsTable({ rows: 40_000_000 }), eventsTable({ rows: 2_000_000 })] }),
             'Reads about 42M rows · 2 tables',
@@ -73,14 +79,42 @@ describe('queryScanSummary', () => {
         [
             'a table with no estimate is called out',
             estimate({ tables: [eventsTable(), unknownTable('persons')] }),
-            'Reads about 42M rows · 1 of 2 tables estimated',
+            'Reads about 42M rows · 1 of 2 tables sized',
+        ],
+        [
+            'a single sized table is singular',
+            estimate({
+                rows: 812_000,
+                upper_bound: true,
+                tables: [
+                    {
+                        name: 'persons',
+                        source: ScanEstimateSource.Clickhouse,
+                        precision: ScanEstimatePrecision.SizeOnly,
+                        rows: 812_000,
+                    },
+                ],
+            }),
+            'Reads up to 812K rows · 1 table',
+        ],
+        [
+            'a read the estimate does not follow is called out',
+            estimate({ complete: false }),
+            'Reads about 42M events (30 days) · a subquery is not counted',
         ],
     ])('%s', (_name, input, expected) => {
         expect(summarizeScan(input)?.text).toBe(expected)
     })
 
-    it('says nothing when no table has a number', () => {
-        expect(summarizeScan(estimate({ rows: 0, tables: [unknownTable('persons')] }))).toBeNull()
+    it('says why there is no number when no table has one', () => {
+        expect(summarizeScan(estimate({ rows: 0, tables: [unknownTable('persons')] }))).toEqual({
+            text: 'No size estimate. 1 table without statistics',
+            warn: false,
+        })
+        expect(summarizeScan(estimate({ rows: 0, tables: [] }))).toBeNull()
+        expect(summarizeScan(estimate({ rows: 0, tables: [], complete: false }))?.text).toBe(
+            'No size estimate. The query reads tables only in a subquery'
+        )
     })
 
     it('warns at the large-scan threshold and not below it', () => {

@@ -20,12 +20,14 @@ DIRECT_POSTGRES_SCHEMA_OPTION = "direct_postgres_schema"
 DIRECT_POSTGRES_TABLE_OPTION = "direct_postgres_table"
 # The remote catalog's row estimate at the last schema refresh, read by the HogQL cost planner.
 DIRECT_ESTIMATED_ROW_COUNT_OPTION = "direct_estimated_row_count"
+# The remote catalog's row estimate at the last schema refresh, read by the HogQL cost planner.
+DIRECT_ESTIMATED_ROW_COUNT_OPTION = "direct_estimated_row_count"
 
 
 def get_direct_postgres_table_options(
     *, source_catalog: str | None = None, source_schema: str, source_table_name: str
 ) -> dict[str, str]:
-    options = {
+    options: dict[str, Any] = {
         DIRECT_POSTGRES_SCHEMA_OPTION: source_schema,
         DIRECT_POSTGRES_TABLE_OPTION: source_table_name,
     }
@@ -41,6 +43,7 @@ def upsert_direct_postgres_table(
     source: ExternalDataSource,
     columns: DirectPostgresColumns,
     source_catalog: str | None = None,
+    estimated_row_count: int | None = None,
     source_schema: str,
     source_table_name: str,
     estimated_row_count: int | None = None,
@@ -52,6 +55,8 @@ def upsert_direct_postgres_table(
         **get_direct_postgres_table_options(
             source_catalog=source_catalog,
             source_schema=source_schema,
+    if estimated_row_count is not None:
+        options[DIRECT_ESTIMATED_ROW_COUNT_OPTION] = estimated_row_count
             source_table_name=source_table_name,
         ),
     }

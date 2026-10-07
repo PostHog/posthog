@@ -4776,6 +4776,29 @@ export interface Response2Api {
     warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
+export type CostPlanStepKindApi = (typeof CostPlanStepKindApi)[keyof typeof CostPlanStepKindApi]
+
+export const CostPlanStepKindApi = {
+    Scan: 'scan',
+    Filter: 'filter',
+    Join: 'join',
+} as const
+
+export interface CostPlanStepApi {
+    /** Instruction for the editor's "Fix with AI" action, set only where rewriting the query helps. */
+    ai_fix_prompt?: string | null
+    /** The rest of the story for a reader who expands the line. */
+    detail?: string | null
+    /** Prose advice for a reader. Not replacement text. */
+    fix?: string | null
+    kind: CostPlanStepKindApi
+    /** One line, the way an EXPLAIN prints it. */
+    message: string
+    rows?: number | null
+    /** The table the step reads or filters, as the query names it. */
+    table?: string | null
+}
+
 export interface HogQLNoticeApi {
     end?: number | null
     fix?: string | null
@@ -4905,15 +4928,19 @@ export interface TableScanEstimateApi {
 }
 
 export interface ScanEstimateApi {
+    /** False when the query reads a table somewhere the estimate does not follow, such as a subquery in WHERE or in the select list, so `rows` leaves that read out. */
+    complete: boolean
     /** Sum of the rows of every table entry that has one. */
     rows: number
     tables: TableScanEstimateApi[]
-    /** True when the query reads at most `rows` of the tables that have a number: an indexed filter went unmodeled, or a table is known only by its size. False when every table is measured. */
+    /** True when the query reads at most `rows` of the tables that have a number: an indexed filter went unmodeled, or a table is known only by its size. False when every table that has a number is measured. A table with no number is not in `rows` at all; its `precision` says so. */
     upper_bound: boolean
 }
 
 export interface HogQLMetadataResponseApi {
     ch_table_names?: string[] | null
+    /** The estimate and the index verdicts as one readable plan: scans in FROM order, each with its filters, then the join. Present whenever `scan_estimate` is. */
+    cost_plan?: CostPlanStepApi[] | null
     errors: HogQLNoticeApi[]
     /** One entry per property filter, in query order. */
     index_usage?: PredicateIndexUsageApi[] | null
@@ -4923,7 +4950,7 @@ export interface HogQLMetadataResponseApi {
     /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
     output_columns?: HogQLMetadataColumnApi[] | null
     query?: string | null
-    /** Present when the query reads at least one table, directly or through subqueries, CTEs, UNIONs and joins. Absent when the FROM tree cannot be walked. */
+    /** Present when the estimator walked the query; `tables` is empty for a query that reads no table. Absent when the FROM tree cannot be walked or the estimator failed. */
     scan_estimate?: ScanEstimateApi | null
     table_names?: string[] | null
     warnings: HogQLNoticeApi[]

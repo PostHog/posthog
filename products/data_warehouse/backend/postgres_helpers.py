@@ -273,6 +273,7 @@ def reconcile_postgres_schemas(
             source_schema=resolved_schema,
             source_table_name=resolved_table,
             estimated_row_count=source_schema.estimated_row_count,
+            estimated_row_count=source_schema.estimated_row_count,
         )
         if matched.table_id != table_model.id:
             matched.table = table_model

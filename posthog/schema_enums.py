@@ -787,6 +787,12 @@ class CoreEventCategory(StrEnum):
     REACTIVATION = "reactivation"
 
 
+class CostPlanStepKind(StrEnum):
+    SCAN = "scan"
+    FILTER = "filter"
+    JOIN = "join"
+
+
 class CountPerActorMathType(StrEnum):
     AVG_COUNT_PER_ACTOR = "avg_count_per_actor"
     MIN_COUNT_PER_ACTOR = "min_count_per_actor"
@@ -1300,6 +1306,11 @@ class UrlMatching(Enum):
     EXACT = "exact"
     REGEX = "regex"
     NONE_TYPE_NONE = None
+
+
+class TimeRange(StrEnum):
+    BOUNDED = "bounded"
+    OPEN = "open"
 
 
 class MultipleVariantHandling(StrEnum):

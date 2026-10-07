@@ -971,6 +971,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
             <QueryIndexUsageBar
                 predicates={metadata?.index_usage ?? []}
                 estimate={metadata?.scan_estimate}
+                plan={metadata?.cost_plan}
                 refreshing={metadataLoading}
                 stale={indexReportStale}
                 onApplyQuickfix={applyIndexQuickfix}

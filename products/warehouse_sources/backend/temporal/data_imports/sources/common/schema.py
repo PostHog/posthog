@@ -31,6 +31,9 @@ class SourceSchema:
     # A catalog estimate of the table's size, for the HogQL cost planner. Unlike ``row_count`` it never
     # reads the table, so a source can fill it on every discovery.
     estimated_row_count: int | None = None
+    # A catalog estimate of the table's size, for the HogQL cost planner. Unlike ``row_count`` it never
+    # reads the table, so a source can fill it on every discovery.
+    estimated_row_count: int | None = None
     supports_webhooks: bool = False
     # True for resources whose only valid sync method is webhooks: either no API list endpoint
     # exists at all (e.g. Stripe `Discount`), or a non-webhook sync would destroy captured data

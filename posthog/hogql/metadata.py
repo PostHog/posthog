@@ -334,6 +334,7 @@ def _attach_scan_estimate(
     response.scan_estimate = ScanEstimate(
         rows=estimate.rows,
         upper_bound=estimate.upper_bound,
+        complete=estimate.complete,
         tables=[
             TableScanEstimate(
                 name=table.name,

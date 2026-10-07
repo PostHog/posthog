@@ -1,5 +1,7 @@
 import json
 
+import json
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -91,6 +93,10 @@ FROM
         {table_ref}
     WHERE
         and(equals(query_log_archive.team_id, {self.team.pk}), not(query_log_archive.lc_is_impersonated))) AS query_log
+        assert {row[0]: row[1:] for row in response.results} == {
+            "rows-only": (1, 2.0, 2.0, None, None),
+            "mixed": (4, 2.0, 2.0, 4.0, 4.0),
+        }
 LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"""
 
         from unittest.mock import ANY

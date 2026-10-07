@@ -5478,6 +5478,36 @@ class TestValidateCredentialsErrorMapping:
         assert "private network" in (error or "")
         # The host is spelled correctly, so the generic DNS guidance would send the user in circles.
         assert "spelled correctly" not in (error or "")
+    def test_get_schemas_carries_the_catalog_row_estimate(self):
+        # reltuples is -1 until the first ANALYZE, so the stats collector's count stands in for `orders`.
+        connection = self._mock_connection(
+            [("public", "users"), ("public", "orders"), ("public", "events")],
+            [
+                ("public", "users", "id", "integer", "NO", 1),
+                ("public", "orders", "id", "integer", "NO", 1),
+                ("public", "events", "id", "integer", "NO", 1),
+            ],
+            [
+                ("public", "users", 812_000.0, 811_990),
+                ("public", "orders", -1.0, 4_200),
+                ("public", "events", -1.0, None),
+            ],
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            return_value=connection,
+        ):
+            schemas = get_schemas(
+                host="localhost", port=5432, database="postgres", user="postgres", password="postgres", schema=""
+            )
+
+        assert {name: schema.estimated_row_count for name, schema in schemas.items()} == {
+            "public.users": 812_000,
+            "public.orders": 4_200,
+            "public.events": None,
+        }
+
 
     def test_railway_private_host_still_allowed_through_an_ssh_tunnel(self, source):
         config = source.parse_config(

@@ -20834,9 +20834,9 @@ class QueryResponseAlternative9(BaseModel):
     scan_estimate: ScanEstimate | None = Field(
         default=None,
         description=(
-            "Present when the query reads at least one table, directly or through"
-            " subqueries, CTEs, UNIONs and joins. Absent when the FROM tree cannot be"
-            " walked."
+            "Present when the estimator walked the query; `tables` is empty for a query"
+            " that reads no table. Absent when the FROM tree cannot be walked or the"
+            " estimator failed."
         ),
     )
     table_names: list[str] | None = None
@@ -28040,9 +28040,9 @@ class HogQLMetadataResponse(BaseModel):
     scan_estimate: ScanEstimate | None = Field(
         default=None,
         description=(
-            "Present when the query reads at least one table, directly or through"
-            " subqueries, CTEs, UNIONs and joins. Absent when the FROM tree cannot be"
-            " walked."
+            "Present when the estimator walked the query; `tables` is empty for a query"
+            " that reads no table. Absent when the FROM tree cannot be walked or the"
+            " estimator failed."
         ),
     )
     table_names: list[str] | None = None

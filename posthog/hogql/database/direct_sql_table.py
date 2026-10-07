@@ -15,6 +15,9 @@ class DirectSQLTable(FunctionCallTable):
     # The remote catalog's row estimate at the last schema refresh. A size, never a cost: the remote
     # database's indexes are not visible here, so nothing says how much of it a query reads.
     estimated_row_count: int | None = None
+    # The remote catalog's row estimate at the last schema refresh. A size, never a cost: the remote
+    # database's indexes are not visible here, so nothing says how much of it a query reads.
+    estimated_row_count: int | None = None
     # True for engines that resolve unquoted identifiers case-insensitively, so the resolver
     # accepts any spelling of a table qualifier while the printer keeps the discovered names.
     case_insensitive_identifiers: ClassVar[bool] = False

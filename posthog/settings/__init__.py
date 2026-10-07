@@ -149,6 +149,19 @@ OTEL_SERVICE_NAME: str | None = os.getenv("OTEL_SERVICE_NAME", None)
 PROM_PUSHGATEWAY_ADDRESS: str | None = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
 
 HOGQL_INCREASED_MAX_EXECUTION_TIME: int = get_from_env("HOGQL_INCREASED_MAX_EXECUTION_TIME", 600, type_cast=int)
+# Kill switch for the cost planner's estimate at query execution, which tags estimated_rows for the accuracy
+# query. Off, queries run as before and the accuracy query collects nothing.
+HOGQL_SCAN_ESTIMATE_AT_EXECUTION: bool = get_from_env("HOGQL_SCAN_ESTIMATE_AT_EXECUTION", True, type_cast=str_to_bool)
+
+# Switch for the cost planner's estimate at query execution, which tags estimated_rows for the accuracy query.
+# Off, queries run as before and the accuracy query collects nothing. Off by default until the statistics
+# lookups it runs are cached across requests and bounded; the planner's own tests switch it on.
+HOGQL_SCAN_ESTIMATE_AT_EXECUTION: bool = get_from_env("HOGQL_SCAN_ESTIMATE_AT_EXECUTION", False, type_cast=str_to_bool)
+
+# Switch for the cost planner's estimate at query execution, which tags estimated_rows for the accuracy query.
+# Off, queries run as before and the accuracy query collects nothing. Off by default until the statistics
+# lookups it runs are cached across requests and bounded; the planner's own tests switch it on.
+HOGQL_SCAN_ESTIMATE_AT_EXECUTION: bool = get_from_env("HOGQL_SCAN_ESTIMATE_AT_EXECUTION", False, type_cast=str_to_bool)
 
 # Switch for the cost planner's estimate at query execution, which tags estimated_rows for the accuracy query.
 # Off, queries run as before and the accuracy query collects nothing. Off by default until the statistics
