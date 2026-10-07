@@ -9,6 +9,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 
 import type { HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
 import { DEFAULT_BROADCAST_EMAIL, DELETED_SENDER_ERROR, broadcastWizardLogic } from './broadcastWizardLogic'
 
 const LOCAL_AUDIENCE: AnyPropertyFilter[] = [
@@ -126,6 +127,24 @@ describe('broadcastWizardLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    it('prefills the audience, name and source from a link without creating a draft', async () => {
+        const properties: AnyPropertyFilter[] = [
+            { key: 'id', type: PropertyFilterType.Cohort, value: 7, operator: PropertyOperator.In },
+        ]
+        logic.unmount()
+        router.actions.push(urlForNewBroadcastWithAudience({ properties, name: 'Fix shipped', source: 'cohort' }))
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['prefillFromLink', 'loadBlastRadius'])
+            .toNotHaveDispatchedActions(['ensureDraft'])
+        expect(logic.values.audienceProperties).toEqual(properties)
+        expect(logic.values.name).toEqual('Fix shipped')
+        expect(logic.values.entrySource).toEqual('cohort')
+        expect(router.values.searchParams).toEqual({})
     })
 
     test.each([

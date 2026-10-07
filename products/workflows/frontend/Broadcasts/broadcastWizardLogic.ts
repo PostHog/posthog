@@ -49,6 +49,13 @@ import {
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
 import type { UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
+import {
+    AUDIENCE_PREFILL_PARAM,
+    type BroadcastPrefill,
+    NAME_PREFILL_PARAM,
+    parseBroadcastAudiencePrefill,
+    SOURCE_PREFILL_PARAM,
+} from './broadcastAudiencePrefill'
 import { confirmArchiveBroadcast, confirmDeleteBroadcast, restoreBroadcast } from './broadcastLifecycle'
 import {
     BroadcastStatus,
@@ -219,6 +226,7 @@ export interface broadcastWizardLogicValues {
     email: BroadcastEmailValue
     emailRateLimit: HogFlowEmailSendingRateLimitApi | null
     emailSettings: BroadcastEmailSettings
+    entrySource: string | null
     expandedRunIds: string[]
     expandedRunOverride: string[] | null
     firstInvalidStep: BroadcastWizardStep | null
@@ -348,6 +356,9 @@ export interface broadcastWizardLogicActions {
     }
     nextStep: () => {
         value: true
+    }
+    prefillFromLink: (prefill: BroadcastPrefill) => {
+        prefill: BroadcastPrefill
     }
     prevStep: () => {
         value: true
@@ -526,6 +537,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         continueStep: true,
         reportReviewVisit: true,
         setName: (name: string) => ({ name }),
+        prefillFromLink: (prefill: BroadcastPrefill) => ({ prefill }),
         saveName: true,
         setAudienceProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setGoalEnabled: (enabled: boolean) => ({ enabled }),
@@ -644,15 +656,24 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             'New broadcast',
             {
                 setName: (_, { name }) => name,
+                prefillFromLink: (state, { prefill }) => prefill.name || state,
                 hydrateFromBroadcast: (state, { broadcast }) => broadcast.name || state,
                 applyExternalEdit: (state, { broadcast, base }) =>
                     changedElsewhere(broadcast, base, (b) => b.name) ? broadcast.name || state : state,
+            },
+        ],
+        // Kept for the launch event, so a launch counts toward the product it started from.
+        entrySource: [
+            null as string | null,
+            {
+                prefillFromLink: (_, { prefill }) => prefill.source ?? null,
             },
         ],
         audienceProperties: [
             [] as AnyPropertyFilter[],
             {
                 setAudienceProperties: (_, { properties }) => properties,
+                prefillFromLink: (_, { prefill }) => prefill.properties,
                 hydrateFromBroadcast: (state, { broadcast }) => {
                     const trigger = findAction(broadcast, 'trigger')
                     return (trigger?.config?.filters?.properties as AnyPropertyFilter[]) ?? state
@@ -1526,6 +1547,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     schedule_mode: values.scheduleMode,
                     audience_filter_count: values.audienceProperties.length,
                     has_goal: values.goalEnabled,
+                    entry_source: values.entrySource,
                     seconds_since_created: activated
                         ? Math.round((Date.now() - new Date(activated.created_at).getTime()) / 1000)
                         : null,
@@ -1684,9 +1706,33 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     afterMount(({ actions, props }) => {
         if (props.id !== 'new') {
             actions.loadBroadcast()
-        } else {
-            actions.loadBlastRadius()
+            return
         }
+        const {
+            [AUDIENCE_PREFILL_PARAM]: audience,
+            [NAME_PREFILL_PARAM]: name,
+            [SOURCE_PREFILL_PARAM]: source,
+            ...searchParams
+        } = router.values.searchParams
+        const properties = parseBroadcastAudiencePrefill(audience)
+        if (properties) {
+            const prefill: BroadcastPrefill = {
+                properties,
+                name: typeof name === 'string' ? name : undefined,
+                source: typeof source === 'string' ? source : undefined,
+            }
+            // Not setAudienceProperties: opening /broadcasts/new must not create a draft.
+            actions.prefillFromLink(prefill)
+            // pinned: analytics event name
+            posthog.capture('broadcast prefilled from link', {
+                entry_source: prefill.source ?? null,
+                audience_filter_count: properties.length,
+            })
+        }
+        if (audience !== undefined || name !== undefined || source !== undefined) {
+            router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
+        }
+        actions.loadBlastRadius()
     }),
 ])
 
