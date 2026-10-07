@@ -745,10 +745,10 @@ export interface metricsViewerLogicMeta {
             dateTo: string | null,
             metricsDisplay: MetricsDisplaySettings | undefined,
             interval: string | null,
-            language: any,
-            queryText: any
+            language: MetricsQueryLanguage,
+            queryText: string
         ) => MetricsQuery | null
-        queryTextChanged: (queryDraft: any, queryText: any) => boolean
+        queryTextChanged: (queryDraft: string, queryText: string) => boolean
         heatmapEligible: (namedClauses: MetricsViewerClause[], formula: string) => boolean
         histogramQueryNode: (
             namedClauses: MetricsViewerClause[],
