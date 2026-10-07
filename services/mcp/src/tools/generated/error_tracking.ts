@@ -950,8 +950,7 @@ const queryErrorTrackingIssuesList = (): ToolBase<
                     'aggregations.users',
                     'aggregations.sessions',
                     '_posthogUrl',
-                ],
-                pickResponseFields(params, ['dateRange'])
+                ]
             )
         },
     })

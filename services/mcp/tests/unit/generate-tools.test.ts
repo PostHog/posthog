@@ -1529,15 +1529,6 @@ describe('ToolConfigSchema validation', () => {
         expect(result.success).toBe(true)
     })
 
-    it.each([undefined, [], ['id']])('requires a text projection for request context (%j)', (fields) => {
-        const result = ToolConfigSchema.safeParse({
-            operation: 'things_list',
-            enabled: true,
-            response: { text_include: fields, text_include_params: ['dateRange'] },
-        })
-        expect(result.success).toBe(!!fields?.length)
-    })
-
     it('rejects response.strip_nulls on a list tool', () => {
         const result = ToolConfigSchema.safeParse({
             operation: 'things_list',
@@ -1804,13 +1795,13 @@ describe('generateToolCode with informational response wrapping', () => {
 })
 
 describe('generateToolCode with a text projection', () => {
-    it.each([undefined, ['dateRange']])('projects enriched rows with request fields %j', (textParams) => {
+    it('projects outside the enrichment, so the projected fields can name `_posthogUrl`', () => {
         const config: ToolConfig = {
             operation: 'things_list',
             enabled: true,
             list: true,
             enrich_url: '{id}',
-            response: { text_include: ['id', 'status', '_posthogUrl'], text_include_params: textParams },
+            response: { text_include: ['id', 'status', '_posthogUrl'] },
         }
 
         const result = generateToolCode(
@@ -1824,16 +1815,8 @@ describe('generateToolCode with a text projection', () => {
         )
 
         expect(result.code).toContain('withTextProjection(await withPostHogUrl(context, {')
-        if (textParams) {
-            expect(result.code).toContain(
-                "}, '/things'), ['id', 'status', '_posthogUrl'], pickResponseFields(params, ['dateRange']))"
-            )
-            expect(result.code).toContain('params: z.infer<')
-            expect(result.toolUtilsValueImports).toEqual(new Set(['withTextProjection', 'pickResponseFields']))
-        } else {
-            expect(result.code).toContain("}, '/things'), ['id', 'status', '_posthogUrl'])")
-            expect(result.toolUtilsValueImports).toEqual(new Set(['withTextProjection']))
-        }
+        expect(result.code).toContain("}, '/things'), ['id', 'status', '_posthogUrl'])")
+        expect(result.toolUtilsValueImports).toEqual(new Set(['withTextProjection']))
     })
 })
 

@@ -109,7 +109,7 @@ const TEXT_PROJECTION_NOTE =
  * `withInformationalResponse` fences its own. The informational key itself is deliberately not set: it
  * would make a JSON caller read the projection instead of the full rows.
  */
-export function withTextProjection<T>(result: T, fields: string[], request?: Record<string, unknown>): T {
+export function withTextProjection<T>(result: T, fields: string[]): T {
     if (result === null || typeof result !== 'object') {
         return result
     }
@@ -125,11 +125,7 @@ export function withTextProjection<T>(result: T, fields: string[], request?: Rec
         enumerable: false,
         get: () => {
             if (formattedResult === undefined) {
-                const projection = {
-                    ...source,
-                    ...(request ? { request } : {}),
-                    results: rows.map((item) => pickResponseFields(item, fields)),
-                }
+                const projection = { ...source, results: rows.map((item) => pickResponseFields(item, fields)) }
                 // Only the angle brackets are escaped: a row cannot close the tag without them, and
                 // escaping `&` as well would mangle the query strings in the URLs a row exists to carry.
                 const fenced = formatResponse(projection).replace(

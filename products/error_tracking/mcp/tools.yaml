@@ -721,5 +721,3 @@ tools:
                 - aggregations.users
                 - aggregations.sessions
                 - _posthogUrl
-            text_include_params:
-                - dateRange

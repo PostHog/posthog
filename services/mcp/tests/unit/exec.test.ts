@@ -103,7 +103,7 @@ describe('exec tool', () => {
             } as unknown as Context
             const tool = makeMockTool(GENERATED_TOOL_MAP['query-error-tracking-issues-list']!())
             const exec = createExecTool([tool], context, '', '', 'posthog-code')
-            const params = { dateRange: { date_from: '-7d', date_to: '-1d' }, limit: 1 }
+            const params = { limit: 1 }
             const result = (await exec.handler(context, {
                 command: `call query-error-tracking-issues-list ${JSON.stringify(params)}`,
             })) as ToolResultPayload
@@ -114,8 +114,6 @@ describe('exec tool', () => {
             expect(text).toContain(`results[${rows.length}]`)
             expect(text).toContain(`hasMore: ${!empty}`)
             expect(text).toContain('offset: 0')
-            expect(text).toContain('date_from: "-7d"')
-            expect(text).toContain('date_to: "-1d"')
             if (!empty) {
                 expect(text).toContain(issue.id)
                 expect(text).toContain(issue.name)
