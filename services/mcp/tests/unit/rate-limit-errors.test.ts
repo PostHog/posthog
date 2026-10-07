@@ -364,6 +364,7 @@ describe('outbound 503 retry hints', () => {
 
     it.each([
         { status: 503, header: '0', expected: 0 },
+        { status: 503, header: '45', expected: 45 },
         { status: 503, header: null, expected: null },
         { status: 503, header: 'unknown', expected: null },
         { status: 503, header: '-1', expected: null },
@@ -390,7 +391,7 @@ describe('outbound 503 retry hints', () => {
             expect(text).not.toContain('Wait at least')
             expect(text).toContain('Narrow the query and retry')
         } else {
-            expect(text).toContain('Wait at least 0 seconds')
+            expect(text).toContain(`Wait at least ${expected} seconds`)
         }
         expect(mockFetch).toHaveBeenCalledTimes(1)
     })
