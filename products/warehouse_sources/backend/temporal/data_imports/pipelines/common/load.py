@@ -128,10 +128,13 @@ def resolve_incremental_values(table: pa.Table, field_name: str) -> list | None:
     For parsed dotted paths, only the top-level column name is normalized; nested
     JSON keys retain their source spelling. Nested paths can resolve from JSON-string
     columns. If at least one row resolves, unresolved rows are None; otherwise the
-    normalized flat-column lookup is tried, including for paths rejected by the parser.
+    normalized flat-column lookup is tried, including for paths rejected by the parser
+    and for a batch whose nested root is entirely null.
     """
 
     parts = parse_member_path(field_name)
+    empty_nested_root = False
+
     if parts is not None:
         root_name = normalize_column_name(parts[0])
         if root_name in table.column_names:
@@ -141,22 +144,26 @@ def resolve_incremental_values(table: pa.Table, field_name: str) -> list | None:
             if len(parts) > 1 and (pa.types.is_string(root_column.type) or pa.types.is_large_string(root_column.type)):
                 root_values = root_column.to_pylist()
                 if not root_values or all(value is None for value in root_values):
-                    return []  # empty batch or an all-null parent column -> leave the cursor alone
-                values = [_get_json_path_value(v, parts[1:]) for v in root_values]
-                if any(v is not _UNRESOLVED for v in values):
-                    return [None if v is _UNRESOLVED else v for v in values]
+                    # Nothing observed through the nested path this batch, but the normalized flat
+                    # column may still carry the field; defer before leaving the cursor alone.
+                    empty_nested_root = True
+                else:
+                    values = [_get_json_path_value(v, parts[1:]) for v in root_values]
+                    if any(v is not _UNRESOLVED for v in values):
+                        return [None if v is _UNRESOLVED else v for v in values]
 
     # Fallback: a real top-level column. Covers single-segment paths, pre-flattened
     # keys such as "meta_updated_at", and (compatibility) names that are not valid
     # member paths but still normalize onto a real flat column.
-    flat_name = normalize_column_name(parts[0] if parts is not None and len(parts) == 1 else field_name)
-    if not flat_name or flat_name not in table.column_names:
-        return None
+    flat_name = normalize_column_name(".".join(parts) if parts is not None else field_name)
+    if flat_name and flat_name in table.column_names:
+        column = table[flat_name]
+        if not pa.types.is_nested(column.type):
+            return column.to_pylist()
 
-    column = table[flat_name]
-    if pa.types.is_nested(column.type):
-        return None
-    return column.to_pylist()
+    if empty_nested_root:
+        return []  # nothing observed anywhere -> leave the cursor alone
+    return None
 
 
 def get_incremental_field_value(

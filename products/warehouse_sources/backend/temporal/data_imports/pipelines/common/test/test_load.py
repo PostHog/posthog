@@ -504,6 +504,21 @@ class TestGetIncrementalFieldValue:
         with pytest.raises(IncrementalFieldMissingFromDataError):
             get_incremental_field_value(self._schema("meta.updated_at"), table)
 
+    def test_all_null_nested_root_falls_back_to_the_flat_column(self):
+        # An all-null root is not proof the field is absent: the normalized flat column can still
+        # carry it, and the pre-fix extractor read that column directly. Leaving the cursor alone
+        # here silently stalls a sync whose watermark is available.
+        table = pa.table({"meta": pa.array([None, None], type=pa.string()), "meta_updated_at": [10, 20]})
+
+        assert get_incremental_field_value(self._schema("meta.updated_at"), table) == 20
+
+    def test_rooted_multi_segment_path_falls_back_to_the_flat_column(self):
+        # The "$." prefix is stripped by the parser, so the flat lookup must normalize the parsed
+        # path rather than the raw configured string.
+        table = pa.table({"meta_updated_at": [10, 20]})
+
+        assert get_incremental_field_value(self._schema("$.meta.updated_at"), table) == 20
+
 
 class TestParseMemberPath:
     @parameterized.expand(
