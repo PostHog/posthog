@@ -37,7 +37,6 @@ export function SearchPerformanceTab(): JSX.Element {
         breakdown,
         channel,
         hasActiveFilters,
-        hasSelectedBingSource,
     } = useValues(searchPerformanceLogic)
     const {
         loadSources,
@@ -90,12 +89,6 @@ export function SearchPerformanceTab(): JSX.Element {
             ) : (
                 <>
                     {!hasActiveFilters && <SearchSourceSuggestions />}
-                    {breakdown === 'page' && channel !== 'organic' && hasSelectedBingSource && (
-                        <LemonBanner type="info">
-                            Bing Ads landing page metrics are not available in this view. Its keyword metrics are
-                            available under Keywords and queries.
-                        </LemonBanner>
-                    )}
                     {sourceNotices.map(({ sourceId, message }) => (
                         <LemonBanner
                             key={sourceId}

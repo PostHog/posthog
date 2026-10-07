@@ -318,6 +318,9 @@ SOCIAL_AUTH_PIPELINE = (
     # Must stay ahead of associate_by_email, which links an existing account by email with no check of its own
     "posthog.api.authentication.social_email_verified_by_provider",
     "social_core.pipeline.social_auth.associate_by_email",
+    # Must stay ahead of the end of the pipeline, where the session starts, and after the steps
+    # that resolve the existing account
+    "posthog.api.authentication.social_access_rules_allow",
     "posthog.api.signup.social_create_user",
     "social_core.pipeline.social_auth.associate_user",
     "social_core.pipeline.social_auth.load_extra_data",

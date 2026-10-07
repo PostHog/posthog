@@ -173,6 +173,9 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     # self-hosted object storage (MinIO) has hit its minimum free drive threshold and is
     # refusing writes — every retry hits the same full disk until an operator frees space
     "XMinioStorageFull",
+    # a role-based AWS destination has no external role configured in this environment — every
+    # retry fails identically until that's fixed, independent of the customer's own role ARN
+    "BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN is not set",
     # a destination's own settings refuse the connection (bad credentials, unknown database,
     # unroutable host); the next scheduled run tries again after the customer fixes them
     DESTINATION_CONFIGURATION_ERROR_MARKER,

@@ -167,6 +167,12 @@ export const EditMultiVariateFeatureFlag: Story = {
     },
 }
 
+export const EditExperimentFeatureFlag: Story = {
+    parameters: {
+        pageUrl: `${urls.featureFlag(1801)}?edit=true`,
+    },
+}
+
 export const EditRemoteConfigFeatureFlag: Story = {
     parameters: {
         pageUrl: urls.featureFlag(1738),

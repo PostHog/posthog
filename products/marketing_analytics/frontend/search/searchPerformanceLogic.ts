@@ -42,7 +42,6 @@ export interface searchPerformanceLogicValues extends Pick<
     missingSources: SearchPlatform[]
     hasActiveFilters: boolean
     hasSearchConsole: boolean
-    hasSelectedBingSource: boolean
     search: string
     querySearch: string
     sourcesError: boolean
@@ -142,23 +141,13 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
             (sources: ExternalDataSource[]): boolean =>
                 sources.some((source) => source.source_type === 'GoogleSearchConsole'),
         ],
-        hasSelectedBingSource: [
-            (s) => [s.allSearchSources, s.integrationFilter],
-            (sources: ExternalDataSource[], integrationFilter): boolean =>
-                selectedSearchSources(sources, integrationFilter.integrationSourceIds ?? []).some(
-                    (source) => source.source_type === 'BingAds'
-                ),
-        ],
         sources: [
-            (s) => [s.allSearchSources, s.integrationFilter, s.channel, s.breakdown],
-            (allSources, integrationFilter, channel, breakdown): ExternalDataSource[] =>
+            (s) => [s.allSearchSources, s.integrationFilter, s.channel],
+            (allSources, integrationFilter, channel): ExternalDataSource[] =>
                 selectedSearchSources(allSources, integrationFilter.integrationSourceIds ?? []).filter(
                     (source) =>
-                        (channel === 'all' ||
-                            (source.source_type === 'GoogleSearchConsole'
-                                ? channel === 'organic'
-                                : channel === 'paid')) &&
-                        (breakdown !== 'page' || source.source_type !== 'BingAds')
+                        channel === 'all' ||
+                        (source.source_type === 'GoogleSearchConsole' ? channel === 'organic' : channel === 'paid')
                 ),
         ],
         sourceNotices: [

@@ -50,7 +50,12 @@ const SOURCES = [
         description: 'Example Bing Ads',
         prefix: 'example',
         status: 'Completed',
-        schemas: ['campaigns', 'campaign_performance_report', 'keyword_performance_report'].map((name) => ({
+        schemas: [
+            'campaigns',
+            'campaign_performance_report',
+            'keyword_performance_report',
+            'destination_url_performance_report',
+        ].map((name) => ({
             id: `example-bing-${name}`,
             name,
             should_sync: true,
@@ -195,7 +200,7 @@ const MOCKS: Mocks = {
                         : undefined,
                     posthogAttributionMode: query.includePostHogConversions ? AttributionMode.LastTouch : undefined,
                     results: (query.breakdown === 'page'
-                        ? ROWS.filter((row) => row.platform !== 'BingAds' && row.clicks > 0).map((row) => ({
+                        ? ROWS.filter((row) => row.clicks > 0).map((row) => ({
                               ...row,
                               page: `https://example.com/${row.keyword?.replaceAll(' ', '-')}`,
                               keyword: null,
