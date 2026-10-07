@@ -56,6 +56,10 @@ export type SceneMainTitleProps = {
      * undefined to show the default description
      */
     description?: string | null
+    /**
+     * Optional node rendered below the description, shown and hidden by the same toggle
+     */
+    collapsibleContent?: React.ReactNode
     resourceType: ResourceType
     markdown?: boolean
     isLoading?: boolean
@@ -146,6 +150,7 @@ function LemonSceneTitleSection({
     name,
     nameSuffix,
     description,
+    collapsibleContent,
     resourceType,
     markdown = false,
     isLoading = false,
@@ -183,6 +188,7 @@ function LemonSceneTitleSection({
     const sentinelRef = useRef<HTMLDivElement>(null)
     const effectiveDescription = description
     const hasDescription = effectiveDescription != null && (effectiveDescription || canEdit)
+    const hasCollapsibleSection = hasDescription || Boolean(collapsibleContent)
     // Always include ProductSetupButton alongside other actions
     // Product auto-selection is handled by SceneContent via globalSetupLogic
     const effectiveActions = (
@@ -211,7 +217,9 @@ function LemonSceneTitleSection({
 
     const icon = sceneResourceIcon(resourceType)
 
-    const descriptionBlock = hasDescription && (descriptionAlwaysVisible || showDescription || forceEdit) && (
+    const collapsibleSectionShown = descriptionAlwaysVisible || showDescription || forceEdit
+
+    const descriptionBlock = hasDescription && collapsibleSectionShown && (
         <div className={cn('[&_svg]:size-6', noPadding ? cn('pl-4 pr-2', className) : '-mt-4')}>
             <SceneDescription
                 description={effectiveDescription}
@@ -291,7 +299,7 @@ function LemonSceneTitleSection({
                                         <>
                                             {releaseStageProduct && <ReleaseStageTag product={releaseStageProduct} />}
                                             {nameSuffix}
-                                            {hasDescription && !descriptionAlwaysVisible ? (
+                                            {hasCollapsibleSection && !descriptionAlwaysVisible ? (
                                                 <ButtonPrimitive
                                                     className={cn(
                                                         'size-[var(--button-height-sm)] shrink-0',
@@ -337,6 +345,9 @@ function LemonSceneTitleSection({
                 {/* Border is handled by the outer container's border-b */}
             </div>
             {descriptionBlock}
+            {collapsibleContent && collapsibleSectionShown && (
+                <div className="flex flex-col gap-y-4">{collapsibleContent}</div>
+            )}
         </>
     )
 }

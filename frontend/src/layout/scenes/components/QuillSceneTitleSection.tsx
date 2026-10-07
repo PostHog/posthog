@@ -25,6 +25,7 @@ export function QuillSceneTitleSection({
     name,
     nameSuffix,
     description,
+    collapsibleContent,
     resourceType,
     markdown = false,
     isLoading = false,
@@ -60,8 +61,12 @@ export function QuillSceneTitleSection({
         [releaseStageSceneId, name]
     )
     const hasDescription = description != null && (description || canEdit)
+    const hasCollapsibleSection = hasDescription || Boolean(collapsibleContent)
     const descriptionShown =
         hasDescription && (descriptionAlwaysVisible || (showDescription && !titleInPhoneHeader) || forceEdit)
+    // The phone header has no toggle, so the content stays visible there instead of becoming unreachable.
+    const collapsibleContentShown =
+        !!collapsibleContent && (descriptionAlwaysVisible || showDescription || titleInPhoneHeader || forceEdit)
 
     return (
         <>
@@ -95,7 +100,7 @@ export function QuillSceneTitleSection({
                                 <>
                                     {releaseStageProduct && <ReleaseStageTag product={releaseStageProduct} />}
                                     {nameSuffix}
-                                    {hasDescription && !descriptionAlwaysVisible && (
+                                    {hasCollapsibleSection && !descriptionAlwaysVisible && (
                                         <Button
                                             variant="default"
                                             size="icon-sm"
@@ -139,6 +144,7 @@ export function QuillSceneTitleSection({
                     />
                 </div>
             )}
+            {collapsibleContentShown && <div className="flex flex-col gap-y-4">{collapsibleContent}</div>}
         </>
     )
 }
