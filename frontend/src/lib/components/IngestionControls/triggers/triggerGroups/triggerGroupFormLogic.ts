@@ -296,6 +296,7 @@ export const triggerGroupFormLogic = kea<triggerGroupFormLogicType>([
             '',
             {
                 setNewUrl: (_, { url }) => url,
+                setIsAddingUrl: (state, { isAdding }) => (isAdding ? state : ''),
                 addUrl: () => '',
             },
         ],
