@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { fireEvent, within } from '@testing-library/react'
 import { useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
@@ -45,7 +46,13 @@ const globalTemplates = (
     ] as unknown as HogFlowTemplateApi[]
 ).map((template) => ({ ...template, tags: template.tags ?? [] }))
 
-function projectThatSends(seenEvents: string[]): Parameters<typeof mswDecorator>[0] {
+function project({
+    seenEvents,
+    personProperties,
+}: {
+    seenEvents: string[]
+    personProperties: string[]
+}): Parameters<typeof mswDecorator>[0] {
     return {
         get: {
             '/api/projects/:team_id/event_definitions/': ({ request }) => {
@@ -56,9 +63,16 @@ function projectThatSends(seenEvents: string[]): Parameters<typeof mswDecorator>
                     toPaginatedResponse(seen.map((name) => ({ id: name, name, last_seen_at: '2026-10-01T00:00:00Z' }))),
                 ]
             },
+            '/api/projects/:team_id/property_definitions/': ({ request }) => {
+                const names = new URL(request.url).searchParams.get('properties')?.split(',') ?? []
+                const defined = names.filter((name) => personProperties.includes(name))
+                return [200, toPaginatedResponse(defined.map((name) => ({ id: name, name })))]
+            },
         },
     }
 }
+
+const SENDS_SIGNUPS = ['signed_up', '$pageview', '$feature_view']
 
 const meta: Meta = {
     component: App,
@@ -90,15 +104,27 @@ export default meta
 type Story = StoryObj<{}>
 
 export const ProjectWithSignups: Story = {
-    decorators: [mswDecorator(projectThatSends(['signed_up', '$pageview', '$feature_view']))],
+    decorators: [mswDecorator(project({ seenEvents: SENDS_SIGNUPS, personProperties: ['email'] }))],
+}
+
+export const ProjectWithSignupsButNoEmails: Story = {
+    decorators: [mswDecorator(project({ seenEvents: SENDS_SIGNUPS, personProperties: [] }))],
 }
 
 export const ProjectWithOnlyPageviews: Story = {
-    decorators: [mswDecorator(projectThatSends(['$pageview']))],
+    decorators: [mswDecorator(project({ seenEvents: ['$pageview'], personProperties: ['email'] }))],
+}
+
+export const ProjectWithOnlyPageviewsAskingTheWizard: Story = {
+    ...ProjectWithOnlyPageviews,
+    play: async ({ canvasElement }) => {
+        fireEvent.click(await within(canvasElement).findByText('Let the Wizard do it'))
+        await within(canvasElement).findByText('npx -y @posthog/wizard@latest')
+    },
 }
 
 export const ProjectWithNoEvents: Story = {
-    decorators: [mswDecorator(projectThatSends([]))],
+    decorators: [mswDecorator(project({ seenEvents: [], personProperties: [] }))],
     render: function ProjectWithNoEvents(): JSX.Element {
         useMountedLogic(teamLogic)
         useEffect(() => {
@@ -109,7 +135,19 @@ export const ProjectWithNoEvents: Story = {
 }
 
 // A docked side panel leaves the scene about 520px wide on a laptop. This viewport gives the scene the same width.
+const NARROW_SCENE = { testOptions: { viewport: { width: 552, height: 2400 } } }
+
 export const ProjectWithSignupsInANarrowScene: Story = {
-    decorators: [mswDecorator(projectThatSends(['signed_up', '$pageview', '$feature_view']))],
-    parameters: { testOptions: { viewport: { width: 552, height: 2400 } } },
+    ...ProjectWithSignups,
+    parameters: NARROW_SCENE,
+}
+
+export const ProjectWithSignupsButNoEmailsInANarrowScene: Story = {
+    ...ProjectWithSignupsButNoEmails,
+    parameters: NARROW_SCENE,
+}
+
+export const ProjectWithOnlyPageviewsInANarrowScene: Story = {
+    ...ProjectWithOnlyPageviews,
+    parameters: NARROW_SCENE,
 }

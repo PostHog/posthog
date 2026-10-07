@@ -5,6 +5,7 @@ import { LemonBanner, LemonSegmentedButton, LemonSkeleton, Link } from '@posthog
 import { newWorkflowLogic } from '../Workflows/newWorkflowLogic'
 import { WorkflowTemplateBlankPreview } from '../Workflows/templates/WorkflowTemplateBlankPreview'
 import { WorkflowTemplateCard } from '../Workflows/templates/WorkflowTemplateCard'
+import { FirstRunAgentHelp } from './FirstRunAgentHelp'
 import { firstRunGalleryLogic, GalleryFilter } from './firstRunGalleryLogic'
 import { GalleryTemplateCard } from './GalleryTemplateCard'
 
@@ -25,6 +26,7 @@ export function WorkflowsFirstRunGallery(): JSX.Element {
                     <p className="mb-0 text-secondary">{gallerySubtitle(readyTemplates.length, activeFilter)}</p>
                 )}
             </div>
+            <FirstRunAgentHelp />
             {galleryTemplates === null ? (
                 galleryLoadFailed ? (
                     <LemonBanner type="error" action={{ children: 'Try again', onClick: loadEmailTemplates }}>
