@@ -39,6 +39,7 @@ import dataclasses
 from collections import defaultdict, deque
 from collections.abc import Iterable, Mapping
 from datetime import timedelta
+from functools import cache
 from typing import Literal
 
 # A streamed source (e.g. the events table) is continuously fresh, so it imposes no
@@ -186,6 +187,25 @@ def _bound_sort_key(bound: Bound) -> tuple[timedelta, str]:
 
 def _finest(bounds: list[Bound]) -> Bound:
     return min(bounds, key=_bound_sort_key)
+
+
+def max_data_age(
+    node_id: str,
+    edges: list[tuple[str, str]],
+    source_intervals: dict[str, timedelta],
+    declared_targets: dict[str, timedelta],
+) -> timedelta:
+    """The oldest data `node_id` can serve when read live: its slowest chain of upstream syncs and refreshes."""
+    parents: dict[str, list[str]] = defaultdict(list)
+    for upstream, downstream in edges:
+        parents[downstream].append(upstream)
+
+    @cache
+    def age_through(node: str) -> timedelta:
+        own_delay = source_intervals.get(node, declared_targets.get(node, STREAMING))
+        return own_delay + max((age_through(parent) for parent in parents[node]), default=STREAMING)
+
+    return max((age_through(parent) for parent in parents[node_id]), default=STREAMING)
 
 
 def ancestors_of(node_id: str, edges: list[tuple[str, str]]) -> set[str]:

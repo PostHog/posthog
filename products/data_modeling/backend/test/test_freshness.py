@@ -17,6 +17,7 @@ from products.data_modeling.backend.logic.freshness import (
     compute_target_bounds,
     find_invalid_targets,
     intersect_target_bounds,
+    max_data_age,
     normalize_seed_target,
     validate_declared_target,
 )
@@ -251,6 +252,20 @@ class TestComputeTargetBounds(TestCase):
     def test_crossed_bounds_leave_nothing_pickable(self):
         bounds, _ = self._options(declared_targets={"ep": M15})
         self.assertFalse(bounds.satisfiable)
+
+
+class TestMaxDataAge(TestCase):
+    @parameterized.expand(
+        [
+            ("slowest_of_two_sources", [("hourly", "v"), ("daily", "v")], {"hourly": H1, "daily": DAY}, {}, DAY),
+            ("fast_source_still_counts", [("src", "v")], {"src": M5}, {}, M5),
+            ("streaming_only", [("events", "v")], {"events": STREAMING}, {}, STREAMING),
+            ("refresh_adds_to_its_sources", [("src", "mat"), ("mat", "v")], {"src": H6}, {"mat": H12}, H6 + H12),
+            ("own_target_does_not_count", [("src", "v")], {"src": H1}, {"v": DAY}, H1),
+        ]
+    )
+    def test_takes_the_slowest_chain_of_syncs_and_refreshes(self, _name, edges, intervals, targets, expected):
+        self.assertEqual(max_data_age("v", edges, intervals, targets), expected)
 
 
 class TestIntersectTargetBounds(TestCase):

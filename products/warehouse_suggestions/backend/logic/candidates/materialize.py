@@ -110,7 +110,7 @@ class MaterializeCandidate(Candidate):
         if estimate is None:
             return "savings stay under the floors at every allowed refresh interval"
         sources = _classify_sources(context, saved_query.id, frequency)
-        freshness_today = int(frequency.bounds.floor.value.total_seconds()) if frequency.bounds.floor else None
+        freshness_today = int(frequency.max_data_age.total_seconds()) or None
         interval_seconds = int(estimate.interval.total_seconds())
         return _Proposal(
             payload=MaterializePayload(
