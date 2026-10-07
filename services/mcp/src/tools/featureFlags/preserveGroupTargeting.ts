@@ -166,9 +166,10 @@ function bestIndexes(scores: number[]): number[] {
 
 /**
  * A set that kept its filters keeps its source after a delete, an insert, or a move shifts its
- * index. A set split off another set reads that set without claiming it. A tie leaves a set with
- * no source, unless every tied set aggregates on the same group type. A plain rollout has no
- * property key to match, so only elimination pairs it.
+ * index. A set split off another set uses that set as its source. Another set can still pair with
+ * that source. A tie leaves a set with no source, unless every tied set aggregates on the same
+ * group type. A plain rollout has no property key to match, so only elimination and position pair
+ * it.
  */
 function attributeSourceSets(
     incomingGroups: FlagConditionGroup[],
@@ -202,12 +203,31 @@ function attributeSourceSets(
                     : 0
             )
         )
+        const pairs = new Map<number, number>()
         for (const [index, row] of scores.entries()) {
             const existingIndex = soleItem(bestIndexes(row))
             if (
                 existingIndex !== undefined &&
                 soleItem(bestIndexes(scores.map((otherRow) => otherRow[existingIndex] ?? 0))) === index
             ) {
+                pairs.set(index, existingIndex)
+            }
+        }
+        // An in-place edit can give a set the value that another set held. When no set was added
+        // or removed, a set whose own index holds a set with the same keys therefore stays there,
+        // unless another set's match takes that index.
+        const pairedExisting = new Set(pairs.values())
+        const sameSetCount = incomingGroups.length === existingSets.length
+        for (const [index, existingIndex] of pairs) {
+            const own = existingSets[index]
+            const propsByKey = incoming[index]
+            const keepsOwnIndex =
+                sameSetCount &&
+                !pairedExisting.has(index) &&
+                !!own &&
+                !!propsByKey &&
+                hasSameKeys(propsByKey, own.propsByKey)
+            if (!keepsOwnIndex) {
                 claim(index, existingIndex)
             }
         }
@@ -248,38 +268,43 @@ function attributeSourceSets(
             : undefined
     }
 
+    const claimMostSharedKeys = (): void => {
+        for (const [index, propsByKey] of incoming.entries()) {
+            if (!propsByKey || !needsSource(index)) {
+                continue
+            }
+            const unclaimedMatch = soleItem(bestMatches(propsByKey, { skipClaimed: true }))
+            if (unclaimedMatch !== undefined) {
+                claim(index, unclaimedMatch)
+                continue
+            }
+            const anyMatches = bestMatches(propsByKey, { skipClaimed: false })
+            const readOnlyMatch = soleItem(anyMatches) ?? sameGroupTypeMatch(anyMatches)
+            if (readOnlyMatch !== undefined) {
+                sources[index] = existingSets[readOnlyMatch]
+            } else if (anyMatches.length > 1) {
+                tied.add(index)
+            }
+        }
+    }
+
+    const claimByElimination = (): void => {
+        const incomingIndex = soleItem(
+            incoming.flatMap((propsByKey, index) => (propsByKey && needsSource(index) ? [index] : []))
+        )
+        const existingIndex = soleItem(
+            existingSets.flatMap((candidate, index) => (candidate && !claimed.has(index) ? [index] : []))
+        )
+        if (incomingIndex !== undefined && existingIndex !== undefined) {
+            claim(incomingIndex, existingIndex)
+        }
+    }
+
     claimMutualBest(matchingValueCount)
     claimMutualBest((propsByKey, candidate) => (hasSameKeys(propsByKey, candidate) ? 1 : 0))
     claimSamePosition({ requireSharedKey: true })
-
-    for (const [index, propsByKey] of incoming.entries()) {
-        if (!propsByKey || !needsSource(index)) {
-            continue
-        }
-        const unclaimedMatch = soleItem(bestMatches(propsByKey, { skipClaimed: true }))
-        if (unclaimedMatch !== undefined) {
-            claim(index, unclaimedMatch)
-            continue
-        }
-        const anyMatches = bestMatches(propsByKey, { skipClaimed: false })
-        const readOnlyMatch = soleItem(anyMatches) ?? sameGroupTypeMatch(anyMatches)
-        if (readOnlyMatch !== undefined) {
-            sources[index] = existingSets[readOnlyMatch]
-        } else if (anyMatches.length > 1) {
-            tied.add(index)
-        }
-    }
-
-    const incomingIndex = soleItem(
-        incoming.flatMap((propsByKey, index) => (propsByKey && needsSource(index) ? [index] : []))
-    )
-    const existingIndex = soleItem(
-        existingSets.flatMap((candidate, index) => (candidate && !claimed.has(index) ? [index] : []))
-    )
-    if (incomingIndex !== undefined && existingIndex !== undefined) {
-        claim(incomingIndex, existingIndex)
-    }
-
+    claimMostSharedKeys()
+    claimByElimination()
     claimSamePosition({ requireSharedKey: false })
 
     return sources
@@ -342,8 +367,8 @@ function mergeProperty(
 }
 
 type MergeConditionOptions = {
-    /** The payload states its own flag-level aggregation, which decides every set that sends none. */
-    payloadStatesFlagAggregation: boolean
+    /** The payload changes the flag-level aggregation, which decides every set that sends none. */
+    payloadChangesFlagAggregation: boolean
     /** This set never gains group targeting. See isPinnedToPerson. */
     pinnedToPerson: boolean
 }
@@ -375,16 +400,11 @@ function mergeConditionSet(
     const { pinnedToPerson } = options
 
     // Fill only when the key is absent. An explicit null means person aggregation. A payload
-    // that states its own flag level already decides this set, the same way the API
-    // distributes the flag level into every set that sends no index of its own. The merge also
-    // skips the fill when the payload only echoes the stored flag level back. That is safe
-    // because validate_filters in products/feature_flags/backend/api/feature_flag.py re-derives
-    // the stored flag level from the condition sets on every write. It sets the flag level to
-    // null when the sets disagree. A stored flag therefore never pairs a numeric flag level with
-    // a set that aggregates on a different group type.
-    // A group property that the agent typed with an index names the group type of its own set.
-    // A retarget that the agent sends only on the property therefore survives.
-    if (!pinnedToPerson && !options.payloadStatesFlagAggregation && !hasKey(out, 'aggregation_group_type_index')) {
+    // that changes the flag level already decides this set, the same way the API distributes
+    // the flag level into every set that sends no index of its own. A group property that the
+    // agent typed with an index names the group type of its own set. A retarget that the agent
+    // sends only on the property therefore survives.
+    if (!pinnedToPerson && !options.payloadChangesFlagAggregation && !hasKey(out, 'aggregation_group_type_index')) {
         const restored = explicitGroupPropertyIndex(incoming) ?? sourceSet?.group.aggregation_group_type_index
         if (isPresentGroupIndex(restored)) {
             out.aggregation_group_type_index = restored
@@ -432,11 +452,17 @@ export function preserveGroupTargetingFilters(
         ? existing.aggregation_group_type_index
         : undefined
 
-    const payloadStatesFlagAggregation = hasKey(incoming, 'aggregation_group_type_index')
+    // An echo of the stored flag level decides nothing new. validate_filters in
+    // products/feature_flags/backend/api/feature_flag.py re-derives the stored flag level from the
+    // condition sets on every write. It sets the flag level to null when the sets disagree. A
+    // stored numeric flag level therefore equals the aggregation of every set the merge restores.
+    const payloadChangesFlagAggregation =
+        hasKey(incoming, 'aggregation_group_type_index') &&
+        incoming.aggregation_group_type_index !== existing?.aggregation_group_type_index
     const incomingClearsAggregation = explicitlyClearsAggregation(incoming)
 
     // The flag-level index is the UI's "Target by" group type.
-    if (!payloadStatesFlagAggregation && isPresentGroupIndex(existingFlagGroupIndex)) {
+    if (!payloadChangesFlagAggregation && isPresentGroupIndex(existingFlagGroupIndex)) {
         result.aggregation_group_type_index = existingFlagGroupIndex
     }
 
@@ -460,8 +486,8 @@ export function preserveGroupTargetingFilters(
             }
 
             return mergeConditionSet(group, sourceSets[index], effectiveFlagGroupIndex, crossSetPropsByKey, {
-                payloadStatesFlagAggregation,
-                pinnedToPerson: isPinnedToPerson(group, incomingClearsAggregation),
+                payloadChangesFlagAggregation,
+                pinnedToPerson: pinnedToPerson[index] ?? false,
             })
         })
     }

@@ -751,6 +751,135 @@ describe('preserveGroupTargetingFilters', () => {
                 [0, 'group', 0],
             ],
         },
+        {
+            name: 'two sets that filter on the same key swap places and keep their values',
+            existing: {
+                aggregation_group_type_index: null,
+                groups: [
+                    {
+                        aggregation_group_type_index: 0,
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        aggregation_group_type_index: 1,
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 1, operator: 'exact', value: 'pro' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            groups: [
+                { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 },
+                { properties: [{ key: 'plan', operator: 'exact', value: 'enterprise' }], rollout_percentage: 100 },
+            ],
+            expected: [
+                [1, 'group', 1],
+                [0, 'group', 0],
+            ],
+        },
+        {
+            name: 'an in-place edit gives a set the value that the other set held',
+            existing: {
+                aggregation_group_type_index: null,
+                groups: [
+                    {
+                        aggregation_group_type_index: null,
+                        properties: [{ key: 'plan', type: 'person', operator: 'exact', value: 'free' }],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        aggregation_group_type_index: 0,
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            groups: [
+                { properties: [{ key: 'plan', operator: 'exact', value: 'enterprise' }], rollout_percentage: 100 },
+                { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 },
+            ],
+            expected: [
+                [undefined, 'person', undefined],
+                [0, 'group', 0],
+            ],
+        },
+        {
+            name: 'a group set and a person set that filter on the same key change their values in place',
+            existing: {
+                aggregation_group_type_index: null,
+                groups: [
+                    {
+                        aggregation_group_type_index: 0,
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        aggregation_group_type_index: null,
+                        properties: [{ key: 'plan', type: 'person', operator: 'exact', value: 'free' }],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            groups: [
+                { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 },
+                { properties: [{ key: 'plan', operator: 'exact', value: 'trial' }], rollout_percentage: 100 },
+            ],
+            expected: [
+                [0, 'group', 0],
+                [undefined, 'person', undefined],
+            ],
+        },
+        {
+            name: 'a moved set gains a key that a claimed set also holds',
+            existing: {
+                aggregation_group_type_index: null,
+                groups: [
+                    {
+                        aggregation_group_type_index: 0,
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
+                            { key: 'seats', type: 'group', group_type_index: 0, operator: 'gt', value: 10 },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        aggregation_group_type_index: 1,
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 1, operator: 'exact', value: 'pro' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            groups: [
+                {
+                    properties: [
+                        { key: 'plan', operator: 'exact', value: 'growth' },
+                        { key: 'seats', operator: 'gt', value: 50 },
+                    ],
+                    rollout_percentage: 100,
+                },
+                {
+                    properties: [
+                        { key: 'plan', operator: 'exact', value: 'enterprise' },
+                        { key: 'seats', operator: 'gt', value: 10 },
+                    ],
+                    rollout_percentage: 100,
+                },
+            ],
+            expected: [
+                [1, 'group', 1],
+                [0, 'group', 0],
+            ],
+        },
     ])('keeps each condition set on its own aggregation when $name', ({ existing, groups, expected }) => {
         const merged = preserveGroupTargetingFilters(existing, { groups })
 
@@ -783,6 +912,12 @@ describe('preserveGroupTargetingFilters', () => {
         {
             name: 'only the property carries it',
             flag: {},
+            group: {},
+            property: { type: 'group', group_type_index: 1 },
+        },
+        {
+            name: 'the payload echoes the stored flag level and only the property carries it',
+            flag: { aggregation_group_type_index: 0 },
             group: {},
             property: { type: 'group', group_type_index: 1 },
         },
