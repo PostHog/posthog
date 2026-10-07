@@ -4686,6 +4686,13 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             ("a new recipient", {}, {"target_value": "attacker@example.com"}, status.HTTP_400_BAD_REQUEST),
             ("turning it off", {}, {"deleted": True}, status.HTTP_200_OK),
             ("disabling it", {}, {"enabled": False}, status.HTTP_200_OK),
+            # The recipient change would outlive the disable, so turning it off does not excuse it.
+            (
+                "disabling it and changing recipients",
+                {},
+                {"enabled": False, "target_value": "attacker@example.com"},
+                status.HTTP_400_BAD_REQUEST,
+            ),
             ("restoring it", {"deleted": True}, {"deleted": False}, status.HTTP_400_BAD_REQUEST),
             ("re-enabling it", {"enabled": False}, {"enabled": True}, status.HTTP_400_BAD_REQUEST),
         ]
