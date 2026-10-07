@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { RpcSessionState } from "@earendil-works/pi-coding-agent";
 import type { ServerType } from "@hono/node-server";
 import { serve } from "@hono/node-server";
 import {
+  type AgentContent,
   type AgentConversationEvent,
   type AgentTurnUsage,
   MCP_TOOL_PERMISSION_OPTIONS,
@@ -45,6 +47,7 @@ import {
   type RpcExtensionUIResponse,
 } from "../pi/types";
 import { PostHogAPIClient } from "../posthog-api";
+import { attachmentFilePath } from "../utils/attachments";
 import { createEventIdSource } from "../utils/event-id";
 import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
@@ -59,6 +62,14 @@ const MODEL_CHANGING_RPC_COMMANDS: ReadonlySet<string> = new Set([
   "set_model",
   "cycle_model",
 ]);
+
+interface PiPreparedUserMessage {
+  /** The text Pi receives, with attachment paths appended for the model. */
+  prompt: string;
+  images: Parameters<PiRpcClient["prompt"]>[1];
+  /** What the conversation shows: the user's text and one `resource_link` per attachment. */
+  content: AgentContent[];
+}
 
 interface SseController {
   send(data: unknown): void;
@@ -933,28 +944,25 @@ export class PiAgentServer {
     );
     const result = await this.dispatchUserMessage(
       runtime,
-      message.content,
-      message.images,
+      message,
       typeof params.messageId === "string" ? params.messageId : randomUUID(),
       params.steer === true,
     );
     return result;
   }
 
+  /**
+   * Every attachment is written to the shared `.posthog/attachments` layout and shows in the
+   * conversation as a `resource_link`. The model gets the files as paths in the prompt text, and
+   * images inline as well, since Pi reads images natively.
+   */
   private async prepareUserMessage(
     content: string,
     artifacts: TaskRunArtifact[],
-  ): Promise<{
-    content: string;
-    images: Parameters<PiRpcClient["prompt"]>[1];
-  }> {
+  ): Promise<PiPreparedUserMessage> {
     const images: NonNullable<Parameters<PiRpcClient["prompt"]>[1]> = [];
     const filePaths: string[] = [];
-    const attachmentDirectory = join(
-      this.config.repositoryPath ?? "/tmp/workspace",
-      ".posthog",
-      "attachments",
-    );
+    const attachments: AgentContent[] = [];
 
     for (const artifact of artifacts) {
       if (!artifact.storage_path) {
@@ -969,6 +977,21 @@ export class PiAgentServer {
         throw new Error(`Failed to download attachment: ${artifact.name}`);
       }
 
+      const filePath = attachmentFilePath(
+        this.config.repositoryPath,
+        this.config.runId,
+        artifact,
+      );
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeFile(filePath, Buffer.from(data));
+      attachments.push({
+        type: "resource_link",
+        uri: pathToFileURL(filePath).toString(),
+        name: artifact.name,
+        ...(artifact.content_type ? { mimeType: artifact.content_type } : {}),
+        ...(typeof artifact.size === "number" ? { size: artifact.size } : {}),
+      });
+
       const mimeType = artifact.content_type ?? "application/octet-stream";
       if (mimeType.startsWith("image/")) {
         images.push({
@@ -977,34 +1000,35 @@ export class PiAgentServer {
           mimeType,
           fileName: artifact.name,
         } as (typeof images)[number]);
-        continue;
+      } else {
+        filePaths.push(filePath);
       }
-
-      await mkdir(attachmentDirectory, { recursive: true });
-      const fileName = `${artifact.id}-${basename(artifact.name)}`;
-      const filePath = join(attachmentDirectory, fileName);
-      await writeFile(filePath, Buffer.from(data));
-      filePaths.push(filePath);
     }
 
     const attachmentText = filePaths.length
       ? `Attached files:\n${filePaths.map((filePath) => `- ${filePath}`).join("\n")}`
       : "";
     return {
-      content: [content, attachmentText].filter(Boolean).join("\n\n"),
+      prompt: [content, attachmentText].filter(Boolean).join("\n\n"),
       images,
+      content: [
+        ...(content ? [{ type: "text" as const, text: content }] : []),
+        ...attachments,
+      ],
     };
   }
 
   private async dispatchUserMessage(
     runtime: PiRuntime,
-    content: string,
-    images: Parameters<PiRpcClient["prompt"]>[1],
+    message: PiPreparedUserMessage,
     id: string,
     steer: boolean,
   ): Promise<unknown> {
     const send = (type: "prompt" | "follow_up" | "steer") =>
-      runtime.sendCommand({ id, type, message: content, images });
+      runtime.sendCommand(
+        { id, type, message: message.prompt, images: message.images },
+        { conversationContent: message.content },
+      );
     const state = await runtime.client.getState();
     if (!state.isStreaming) {
       return send("prompt");

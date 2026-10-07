@@ -2163,7 +2163,7 @@ export function foldLogFromCheckpoint(
                     type: 'status',
                     status,
                     isComplete: true,
-                    errorMessage: stringifyOptional(params.message),
+                    message: stringifyOptional(params.message),
                 })
             } else {
                 items.push({ id: `status-${statusSeq++}`, type: 'status', status, isComplete })

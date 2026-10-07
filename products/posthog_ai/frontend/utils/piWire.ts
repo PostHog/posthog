@@ -1,4 +1,4 @@
-import type { TaskRunCommandRequestApi } from 'products/tasks/frontend/generated/api.schemas'
+import { ReasoningEffortEnumApi, type TaskRunCommandRequestApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { PermissionRequestRecord } from '../types/streamTypes'
 import type { PermissionOption, StoredLogEntry } from '../types/wireTypes'
@@ -8,19 +8,6 @@ export const PI_EXTENSION_CONFIRM_OPTION_ID = 'confirm'
 export const PI_EXTENSION_CANCEL_OPTION_ID = 'cancel'
 const PI_MCP_ALLOW_ONCE_OPTION_ID = 'allow'
 const PI_MCP_REJECT_HINT = 'Blocks this tool call. The agent keeps working.'
-
-const PI_BUILTIN_TOOL_NAMES: Record<string, string> = {
-    read: 'Read',
-    bash: 'Bash',
-    edit: 'Edit',
-    write: 'Write',
-    grep: 'Grep',
-    find: 'Glob',
-    ls: 'LS',
-}
-
-const PI_MCP_PROXY_TOOL = 'mcp'
-const PI_MCP_SEARCH_TOOL_NAME = 'ToolSearch'
 
 const PI_WIRE_TYPES = new Set([
     'pi_event',
@@ -50,6 +37,43 @@ export interface PiMcpPermissionResponse {
 
 export type PiPermissionCommand = PiExtensionUiResponse | PiMcpPermissionResponse
 
+/** The model and thinking level a live Pi session reports through `get_state`. */
+export interface PiSessionConfig {
+    model: string | null
+    effort: string | null
+}
+
+export const PI_GET_STATE_COMMAND = { type: 'get_state' } as const
+
+export function piSetModelCommand(modelId: string): { type: 'set_model'; provider: 'posthog'; modelId: string } {
+    return { type: 'set_model', provider: 'posthog', modelId }
+}
+
+export function piSetThinkingLevelCommand(level: string): { type: 'set_thinking_level'; level: string } {
+    return { type: 'set_thinking_level', level }
+}
+
+// Pi's thinking levels and the catalogue's reasoning efforts share these names. Pi also has levels
+// the catalogue does not describe (`off`, `minimal`), which read as no effort rather than a fake one.
+const PI_THINKING_LEVELS_AS_EFFORTS = new Set<string>([
+    ReasoningEffortEnumApi.Low,
+    ReasoningEffortEnumApi.Medium,
+    ReasoningEffortEnumApi.High,
+    ReasoningEffortEnumApi.Xhigh,
+    ReasoningEffortEnumApi.Max,
+])
+
+export function parsePiSessionConfig(result: unknown): PiSessionConfig | null {
+    const data = isRecord(result) ? result.data : undefined
+    if (!isRecord(data)) {
+        return null
+    }
+    const modelId = isRecord(data.model) ? optionalString(data.model.id) : undefined
+    const thinkingLevel = optionalString(data.thinkingLevel)
+    const effort = thinkingLevel && PI_THINKING_LEVELS_AS_EFFORTS.has(thinkingLevel) ? thinkingLevel : null
+    return modelId || effort ? { model: modelId ?? null, effort } : null
+}
+
 type Notification = StoredLogEntry['notification']
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -64,53 +88,17 @@ export function isPiWireEntry(value: unknown): value is Record<string, unknown> 
     return isRecord(value) && typeof value.type === 'string' && PI_WIRE_TYPES.has(value.type)
 }
 
-function mcpToolParts(name: string, separator: string): { server: string; tool: string } | undefined {
-    const bare = name.replace(/^mcp_+/, '')
-    if (bare.endsWith('_exec') && bare.length > '_exec'.length) {
-        return { server: bare.slice(0, -'_exec'.length), tool: 'exec' }
-    }
-    const split = bare.includes('__') ? '__' : separator
-    const at = bare.indexOf(split)
-    return at > 0 ? { server: bare.slice(0, at), tool: bare.slice(at + split.length) } : undefined
-}
-
-function mcpToolMeta(mcp: { server: string; tool: string }): Record<string, unknown> {
-    return { toolName: `mcp__${mcp.server}__${mcp.tool}`, mcp }
-}
-
-function posthogToolMeta(name: string, details: unknown): Record<string, unknown> | undefined {
-    if (name !== PI_MCP_PROXY_TOOL) {
-        const builtin = PI_BUILTIN_TOOL_NAMES[name]
-        const mcp = builtin ? undefined : mcpToolParts(name, '__')
-        return mcp ? mcpToolMeta(mcp) : { toolName: builtin ?? name }
-    }
-    if (!isRecord(details)) {
-        return undefined
-    }
-    if (details.kind === 'search') {
-        return { toolName: PI_MCP_SEARCH_TOOL_NAME }
-    }
-    const proxied = details.kind === 'tool' ? optionalString(details.name) : undefined
-    const mcp = proxied ? mcpToolParts(proxied, '_') : undefined
-    return mcp ? mcpToolMeta(mcp) : undefined
-}
-
-function piToolMeta(toolCall: Record<string, unknown>): Record<string, unknown> | undefined {
-    const existing = isRecord(toolCall._meta) ? toolCall._meta : undefined
-    const name = optionalString(toolCall.name)
-    if (!name || (existing && isRecord(existing.posthog))) {
-        return existing
-    }
-    const posthog = posthogToolMeta(name, toolCall.details)
-    return posthog ? { ...existing, posthog } : existing
-}
-
+/**
+ * A Pi tool call already carries the renderer contract in `_meta.posthog` (the agent-facing tool name,
+ * the MCP descriptor, the proxied MCP call), so the record maps onto the ACP update field by field. A
+ * title equal to the raw tool name says nothing a renderer does not know, so it is left out.
+ */
 function toolCallUpdate(sessionUpdate: 'tool_call' | 'tool_call_update', toolCall: unknown): Notification | null {
     if (!isRecord(toolCall) || typeof toolCall.id !== 'string' || !toolCall.id) {
         return null
     }
     const update: Record<string, unknown> = { sessionUpdate, toolCallId: toolCall.id }
-    for (const field of ['kind', 'status', 'content', 'locations', 'rawInput', 'rawOutput'] as const) {
+    for (const field of ['kind', 'status', 'content', 'locations', 'rawInput', 'rawOutput', '_meta'] as const) {
         if (toolCall[field] !== undefined && toolCall[field] !== null) {
             update[field] = toolCall[field]
         }
@@ -119,56 +107,7 @@ function toolCallUpdate(sessionUpdate: 'tool_call' | 'tool_call_update', toolCal
     if (title && title !== toolCall.name) {
         update.title = title
     }
-    const meta = piToolMeta(toolCall)
-    if (meta) {
-        update._meta = meta
-    }
     return { method: 'session/update', params: { update } }
-}
-
-const PI_ATTACHED_FILES_PATTERN = /(?:\n\n)?Attached files:\n((?:- [^\n]+\n?)+)$/
-const PI_ATTACHMENT_FILE_PATTERN = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-(.+)$/i
-
-function piAttachedFiles(text: string): { text: string; files: Record<string, unknown>[] } {
-    const match = PI_ATTACHED_FILES_PATTERN.exec(text)
-    if (!match) {
-        return { text, files: [] }
-    }
-    const files: Record<string, unknown>[] = []
-    for (const line of match[1].split('\n')) {
-        const path = line.replace(/^- /, '').trim()
-        if (!path) {
-            continue
-        }
-        const named = PI_ATTACHMENT_FILE_PATTERN.exec(path.split('/').pop() ?? path)
-        if (!named) {
-            return { text, files: [] }
-        }
-        files.push({ type: 'resource_link', uri: path, name: named[2], artifactId: named[1] })
-    }
-    return { text: text.slice(0, match.index), files }
-}
-
-function piUserContent(content: unknown): unknown {
-    if (!Array.isArray(content)) {
-        return content
-    }
-    return content.flatMap((block): unknown[] => {
-        if (!isRecord(block)) {
-            return [block]
-        }
-        if (block.type === 'text' && typeof block.text === 'string') {
-            const { text, files } = piAttachedFiles(block.text)
-            return [...(text ? [{ ...block, text }] : []), ...files]
-        }
-        if (block.type === 'image') {
-            const name = optionalString(block.fileName)
-            return [
-                { type: 'image', ...(name ? { name } : {}), ...(block.mimeType ? { mimeType: block.mimeType } : {}) },
-            ]
-        }
-        return [block]
-    })
 }
 
 function conversationEventNotification(event: unknown): Notification | null {
@@ -177,7 +116,7 @@ function conversationEventNotification(event: unknown): Notification | null {
     }
     switch (event.type) {
         case 'user_message':
-            return { method: '_posthog/user_message', params: { content: piUserContent(event.content) } }
+            return { method: '_posthog/user_message', params: { content: event.content } }
         case 'assistant_message_chunk':
             return {
                 method: 'session/update',

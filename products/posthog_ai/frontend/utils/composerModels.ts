@@ -35,6 +35,11 @@ const FALLBACK_EFFORTS: ReasoningEffortEnumApi[] = [
 
 export const DEFAULT_COMPOSER_MODEL = DEFAULT_MODEL_BY_RUNTIME_ADAPTER.claude
 export const PI_DEFAULT_MODEL = 'gpt-5.6-terra'
+
+/** The model a task runs on when neither the run nor the session names one. */
+export function getDefaultModelForTaskRuntime(taskRuntime: TaskRuntimeEnumApi = TaskRuntimeEnumApi.Acp): string {
+    return taskRuntime === TaskRuntimeEnumApi.Pi ? PI_DEFAULT_MODEL : DEFAULT_COMPOSER_MODEL
+}
 export const DEFAULT_COMPOSER_EFFORT: ReasoningEffortEnumApi = ReasoningEffortEnumApi.High
 
 const EFFORT_LABELS: Record<string, string> = REASONING_EFFORT_LABELS

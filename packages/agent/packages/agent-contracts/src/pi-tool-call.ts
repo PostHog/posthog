@@ -4,6 +4,7 @@ import type {
   AgentToolCallStatus,
   AgentToolKind,
 } from "./agent-conversation";
+import type { PosthogToolMeta } from "./tool-meta";
 
 export const PI_TOOL_KIND_BY_NAME = {
   read: "read",
@@ -16,6 +17,20 @@ export const PI_TOOL_KIND_BY_NAME = {
 } as const satisfies Record<string, AgentToolKind>;
 
 export type PiToolName = keyof typeof PI_TOOL_KIND_BY_NAME;
+
+/**
+ * The harness-neutral name of each Pi built-in, as carried on `_meta.posthog.toolName`. The Claude
+ * adapter emits the same names for the same operations, so one renderer entry serves both harnesses.
+ */
+export const PI_AGENT_TOOL_NAME_BY_NAME = {
+  read: "Read",
+  edit: "Edit",
+  write: "Write",
+  bash: "Bash",
+  grep: "Grep",
+  find: "Glob",
+  ls: "LS",
+} as const satisfies Record<PiToolName, string>;
 
 export interface PiToolCallInput {
   id: string;
@@ -206,8 +221,28 @@ export const piToolCallRecordSchema = z.object({
       }),
     )
     .optional(),
+  _meta: z
+    .object({
+      posthog: z.object({
+        toolName: z.string().min(1),
+        mcpProxy: piMcpCallDetailsSchema.optional(),
+      }),
+    })
+    .optional(),
 });
 export type PiToolCallRecord = z.infer<typeof piToolCallRecordSchema>;
+
+function piToolMeta(
+  name: string,
+  details: PiMcpCallDetails | undefined,
+): { posthog: PosthogToolMeta } {
+  return {
+    posthog: {
+      toolName: isPiToolName(name) ? PI_AGENT_TOOL_NAME_BY_NAME[name] : name,
+      ...(details ? { mcpProxy: details } : {}),
+    },
+  };
+}
 
 export function isPiToolName(name: string): name is PiToolName {
   return name in PI_TOOL_KIND_BY_NAME;
@@ -246,5 +281,6 @@ export function createPiToolCallRecord(
     rawInput: input.arguments,
     ...(details ? { details } : {}),
     ...(locations ? { locations } : {}),
+    _meta: piToolMeta(input.name, details),
   };
 }

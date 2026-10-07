@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { AgentConversationEvent } from "@posthog/agent-contracts";
 import { describe, expect, it, vi } from "vitest";
 import { PiAgentServer } from "./pi-agent-server";
@@ -507,12 +508,10 @@ describe("PiAgentServer", () => {
       messageId: "message-1",
     });
 
-    expect(sendCommand).toHaveBeenCalledWith({
-      id: "message-1",
-      type: "prompt",
-      message: "hello",
-      images: [],
-    });
+    expect(sendCommand).toHaveBeenCalledWith(
+      { id: "message-1", type: "prompt", message: "hello", images: [] },
+      { conversationContent: [{ type: "text", text: "hello" }] },
+    );
   });
 
   it("preserves the native Pi user prompt when auto-publish is enabled", async () => {
@@ -543,7 +542,10 @@ describe("PiAgentServer", () => {
   it("hydrates cloud artifacts into native Pi prompt inputs", async () => {
     const repositoryPath = await mkdtemp(join(tmpdir(), "pi-attachments-"));
     const sendCommand = vi.fn(
-      async (_command: Record<string, unknown>) => ({}),
+      async (
+        _command: Record<string, unknown>,
+        _options?: Record<string, unknown>,
+      ) => ({}),
     );
     const downloadArtifact = vi
       .fn()
@@ -587,15 +589,20 @@ describe("PiAgentServer", () => {
       ],
     });
 
-    const command = sendCommand.mock.calls[0][0];
-    const filePath = join(
+    const [command, options] = sendCommand.mock.calls[0];
+    const attachmentsDir = join(
       repositoryPath,
       ".posthog",
       "attachments",
-      "file-1-notes.txt",
+      "run-1",
     );
-    expect(command.message).toContain(filePath);
-    await expect(readFile(filePath, "utf8")).resolves.toBe("notes");
+    const notesPath = join(attachmentsDir, "file-1", "notes.txt");
+    const imagePath = join(attachmentsDir, "image-1", "image.png");
+    expect(command.message).toBe(
+      `Read these\n\nAttached files:\n- ${notesPath}`,
+    );
+    await expect(readFile(notesPath, "utf8")).resolves.toBe("notes");
+    await expect(readFile(imagePath, "utf8")).resolves.toBe("image");
     expect(command.images).toEqual([
       {
         type: "image",
@@ -604,14 +611,34 @@ describe("PiAgentServer", () => {
         fileName: "image.png",
       },
     ]);
+    expect(options).toEqual({
+      conversationContent: [
+        { type: "text", text: "Read these" },
+        {
+          type: "resource_link",
+          uri: pathToFileURL(notesPath).toString(),
+          name: "notes.txt",
+          mimeType: "text/plain",
+        },
+        {
+          type: "resource_link",
+          uri: pathToFileURL(imagePath).toString(),
+          name: "image.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
 
     await rm(repositoryPath, { recursive: true });
   });
 
   it("steers the streaming run in place instead of aborting it", async () => {
-    const sendCommand = vi.fn(async (_command: Record<string, unknown>) => ({
-      success: true,
-    }));
+    const sendCommand = vi.fn(
+      async (
+        _command: Record<string, unknown>,
+        _options?: Record<string, unknown>,
+      ) => ({ success: true }),
+    );
     const order: string[] = [];
     const abort = vi.fn(async () => {
       order.push("abort");
@@ -629,10 +656,15 @@ describe("PiAgentServer", () => {
           getState: vi.fn(async () => ({ isStreaming: true })),
           abort,
         },
-        sendCommand: vi.fn(async (command: Record<string, unknown>) => {
-          order.push("sendCommand");
-          return sendCommand(command);
-        }),
+        sendCommand: vi.fn(
+          async (
+            command: Record<string, unknown>,
+            options: Record<string, unknown>,
+          ) => {
+            order.push("sendCommand");
+            return sendCommand(command, options);
+          },
+        ),
       },
     };
 
@@ -646,12 +678,17 @@ describe("PiAgentServer", () => {
     expect(order).toEqual(["sendCommand"]);
     expect(abort).not.toHaveBeenCalled();
     expect(sendCommand).toHaveBeenCalledTimes(1);
-    expect(sendCommand).toHaveBeenCalledWith({
-      id: "message-1",
-      type: "steer",
-      message: "stop, do this instead",
-      images: [],
-    });
+    expect(sendCommand).toHaveBeenCalledWith(
+      {
+        id: "message-1",
+        type: "steer",
+        message: "stop, do this instead",
+        images: [],
+      },
+      {
+        conversationContent: [{ type: "text", text: "stop, do this instead" }],
+      },
+    );
   });
 
   it("queues a steer that pi refuses while the run is still streaming", async () => {
@@ -684,12 +721,17 @@ describe("PiAgentServer", () => {
       steer: true,
     });
 
-    expect(sendCommand).toHaveBeenLastCalledWith({
-      id: "message-3",
-      type: "follow_up",
-      message: "stop, do this instead",
-      images: [],
-    });
+    expect(sendCommand).toHaveBeenLastCalledWith(
+      {
+        id: "message-3",
+        type: "follow_up",
+        message: "stop, do this instead",
+        images: [],
+      },
+      {
+        conversationContent: [{ type: "text", text: "stop, do this instead" }],
+      },
+    );
     expect(result).toMatchObject({ success: true });
     expect(result).not.toHaveProperty("steered");
   });
@@ -732,12 +774,17 @@ describe("PiAgentServer", () => {
     });
 
     expect(sendCommand).toHaveBeenCalledTimes(1);
-    expect(sendCommand).toHaveBeenCalledWith({
-      id: "message-4",
-      type: "steer",
-      message: "stop, do this instead",
-      images: [],
-    });
+    expect(sendCommand).toHaveBeenCalledWith(
+      {
+        id: "message-4",
+        type: "steer",
+        message: "stop, do this instead",
+        images: [],
+      },
+      {
+        conversationContent: [{ type: "text", text: "stop, do this instead" }],
+      },
+    );
     expect(result).toMatchObject({
       success: false,
       steered: false,
@@ -774,12 +821,17 @@ describe("PiAgentServer", () => {
     });
 
     expect(abort).not.toHaveBeenCalled();
-    expect(sendCommand).toHaveBeenCalledWith({
-      id: "message-5",
-      type: "prompt",
-      message: "stop, do this instead",
-      images: [],
-    });
+    expect(sendCommand).toHaveBeenCalledWith(
+      {
+        id: "message-5",
+        type: "prompt",
+        message: "stop, do this instead",
+        images: [],
+      },
+      {
+        conversationContent: [{ type: "text", text: "stop, do this instead" }],
+      },
+    );
     expect(result).not.toHaveProperty("steered");
   });
 
@@ -812,12 +864,19 @@ describe("PiAgentServer", () => {
 
     expect(result).not.toHaveProperty("steered");
     expect(abort).not.toHaveBeenCalled();
-    expect(sendCommand).toHaveBeenCalledWith({
-      id: "message-2",
-      type: "follow_up",
-      message: "when you are done, also update the docs",
-      images: [],
-    });
+    expect(sendCommand).toHaveBeenCalledWith(
+      {
+        id: "message-2",
+        type: "follow_up",
+        message: "when you are done, also update the docs",
+        images: [],
+      },
+      {
+        conversationContent: [
+          { type: "text", text: "when you are done, also update the docs" },
+        ],
+      },
+    );
   });
 
   it("allows a failed user-message delivery to be retried", async () => {

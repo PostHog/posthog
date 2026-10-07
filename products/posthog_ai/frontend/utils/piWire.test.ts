@@ -8,16 +8,28 @@ describe('piWire', () => {
             expected: { method: '_posthog/user_message', params: { content: [{ type: 'text', text: 'hi' }] } },
         },
         {
-            caseName: 'user message that lists files itself',
+            caseName: 'user message with an attachment',
             event: {
                 type: 'user_message',
                 id: 'u1',
                 timestamp: 1,
-                content: [{ type: 'text', text: 'Check these\n\nAttached files:\n- README.md' }],
+                content: [
+                    { type: 'text', text: 'Check this' },
+                    { type: 'resource_link', uri: 'file:///w/.posthog/attachments/run/a/notes.md', name: 'notes.md' },
+                ],
             },
             expected: {
                 method: '_posthog/user_message',
-                params: { content: [{ type: 'text', text: 'Check these\n\nAttached files:\n- README.md' }] },
+                params: {
+                    content: [
+                        { type: 'text', text: 'Check this' },
+                        {
+                            type: 'resource_link',
+                            uri: 'file:///w/.posthog/attachments/run/a/notes.md',
+                            name: 'notes.md',
+                        },
+                    ],
+                },
             },
         },
         {
@@ -29,7 +41,7 @@ describe('piWire', () => {
             },
         },
         {
-            caseName: 'built-in tool start maps to the Claude renderer name',
+            caseName: 'tool start, keeping the tool meta the server named it with',
             event: {
                 type: 'tool_call_started',
                 timestamp: 1,
@@ -41,6 +53,7 @@ describe('piWire', () => {
                     status: 'pending',
                     rawInput: { path: 'a.ts' },
                     locations: [{ path: 'a.ts' }],
+                    _meta: { posthog: { toolName: 'Read' } },
                 },
             },
             expected: {
@@ -78,38 +91,18 @@ describe('piWire', () => {
                 },
             },
         },
-        ...[
-            {
-                caseName: 'PostHog exec tool start keeps the MCP identity',
-                toolCall: { name: 'posthog_exec', title: 'posthog_exec' },
-                posthog: { toolName: 'mcp__posthog__exec', mcp: { server: 'posthog', tool: 'exec' } },
+        {
+            caseName: 'tool start from an older server, which names no tool meta',
+            event: {
+                type: 'tool_call_started',
+                timestamp: 1,
+                toolCall: { id: 't3', name: 'mcp', title: 'mcp', details: { kind: 'search', query: 'issue' } },
             },
-            {
-                caseName: 'MCP proxy tool start names the proxied tool',
-                toolCall: { name: 'mcp', title: 'mcp', details: { kind: 'tool', name: 'linear_create_issue' } },
-                posthog: { toolName: 'mcp__linear__create_issue', mcp: { server: 'linear', tool: 'create_issue' } },
-            },
-            {
-                caseName: 'MCP proxy search start renders as a tool search',
-                toolCall: { name: 'mcp', title: 'mcp', details: { kind: 'search', query: 'issue' } },
-                posthog: { toolName: 'ToolSearch' },
-            },
-            {
-                caseName: 'MCP proxy tool completion keeps the tool descriptor the server sent',
-                toolCall: {
-                    name: 'mcp',
-                    _meta: { posthog: { mcp: { server: 'linear', tool: 'create_issue', title: 'Create an issue' } } },
-                },
-                posthog: { mcp: { server: 'linear', tool: 'create_issue', title: 'Create an issue' } },
-            },
-        ].map(({ caseName, toolCall, posthog }) => ({
-            caseName,
-            event: { type: 'tool_call_started', timestamp: 1, toolCall: { id: 't3', ...toolCall } },
             expected: {
                 method: 'session/update',
-                params: { update: { sessionUpdate: 'tool_call', toolCallId: 't3', _meta: { posthog } } },
+                params: { update: { sessionUpdate: 'tool_call', toolCallId: 't3' } },
             },
-        })),
+        },
         {
             caseName: 'tool update',
             event: { type: 'tool_call_updated', timestamp: 1, toolCall: { id: 't1', status: 'completed' } },

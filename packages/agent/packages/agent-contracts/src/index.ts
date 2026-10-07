@@ -227,6 +227,7 @@ export {
   formatMcpToolLabel,
   formatPiMcpToolName,
   isPiToolName,
+  PI_AGENT_TOOL_NAME_BY_NAME,
   PI_TOOL_KIND_BY_NAME,
   type PiMcpCallDetails,
   type PiToolCallInput,
