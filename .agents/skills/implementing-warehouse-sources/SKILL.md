@@ -428,6 +428,10 @@ while True:
 
 Save state **before** yielding the batch it covers. `save_state` only stages the cursor; the pipeline commits it to Redis once that batch is written, so a crash resumes exactly after the last written batch. Do not save after the yield. On a worker shutdown the pipeline ends the attempt before control returns to the source, so state saved after the `yield` is lost for the last batch: the next attempt reads that batch again (merge dedupes on primary key, a resumed full refresh appends it twice), and an attempt that writes one batch or fewer keeps no progress. A source with nothing yielded yet, such as one persisting an export job id before polling it, stages inside `with manager.committing():`, which commits when the block ends.
 
+A saved cursor can commit only after the pipeline confirms it. The pipeline confirms when the source hands it the next item, ends, or reaches a safe point.
+A cursor saved after the last `yield` therefore does not persist when the source raises, because the source can still hold rows that the cursor skips. The next attempt continues from the cursor of the last `yield`.
+A source that ends its own attempt on a page or time budget calls `manager.safe_point()` directly before the raise, with its local buffer empty, to keep its last cursor.
+
 Call `manager.safe_point()` wherever the source can make many requests that return no rows: an empty delta page, a fan-out parent with no children, a page with no comments.
 The pipeline checks for a worker shutdown only when an item arrives, so a run of empty responses otherwise holds the worker for the whole graceful shutdown timeout, and its cursor never commits.
 At a safe point the pipeline can hand the run to another worker, and it commits the staged cursor when nothing is waiting to be written.
@@ -785,53 +789,22 @@ From `products/warehouse_sources/backend/temporal/data_imports/sources/common/mi
 
 ## Testing expectations
 
-**Never write a test whose assertion restates a declaration.** A test that reads back `source_type`,
-the labels in `get_source_config`, the endpoint list in `settings.py`, or the kwargs a one-line
-`source_for_pipeline` forwards, passes because both halves of the diff were typed together. It cannot
-fail for any reason except someone editing both, so it catches nothing. That pattern was swept out of
-the source tests once already; don't reintroduce it.
+**Read [references/testing.md](references/testing.md) before you write a source test.**
+Source tests were about a fifth of the monorepo's test cases.
+[#113325](https://github.com/PostHog/posthog/pull/113325) deleted most of them after per-test coverage showed they caught nothing.
 
-Before each test, answer: _what could break at runtime that this catches?_ If the answer restates the
-source file, don't write it. See `/writing-tests` for the general gate.
+The gate: before each test, name the runtime failure it catches that no other test catches.
+If you cannot, do not write it. See `/writing-tests` for the general gate.
 
-The line is whether the thing under test can vary at runtime, not which method it sits on:
+Do not write:
 
-- `get_schemas` that is one `build_endpoint_schemas(...)` call needs no test — the helper's filter and
-  sync-mode behavior is covered in `common/test_source_schema.py`. A `get_schemas` that lists a remote
-  directory, resolves per-version endpoints, or builds qualified names needs tests for each of those.
-- `validate_credentials` that forwards to the transport helper needs no test at the source-class level.
-  One that maps a probe result to a message, rejects an unknown schema, or accepts a missing scope at
-  create time needs one per branch.
-- `source_for_pipeline` that forwards its config needs no test. One that raises on an unknown schema,
-  picks between transports, or resolves anything from schema metadata needs one per branch. The
-  `db_incremental_field_last_value if inputs.should_use_incremental_field else None` ternary is not a
-  branch worth its own source-level test — cover it with the transport's full-refresh test below,
-  which asserts the request actually goes out without a watermark.
-- Any `raise`, any curated error message a user reads, and any value derived rather than declared —
-  test it. A source whose `SourceResponse.name` comes from a storage key rather than the schema name
-  is a naming branch, and getting it wrong writes data where nothing reads it.
+- **Declaration read-backs:** `lists_tables_without_credentials`, `connection_host_fields`, `api_docs_url`, versions, the `get_source_config` category, release status, fields or secret flags, endpoint names, primary keys, page sizes. The shared invariants in `sources/tests/` already check the ones that matter for every source.
+- **Shared framework behavior:** `get_non_retryable_errors()` key membership, `get_schemas(names=...)` filtering, `get_documented_tables()`, a `source_for_pipeline` that only forwards, and the `rest_source` paginators, auth and retries.
+- **Duplicate coverage:** first-page or single-page tests next to a multi-page walk, extra resume-state variants, and separate tests for statuses or modes that share a code path. Parameterize instead.
 
-Two test modules:
-
-- `tests/test_<source>_source.py` — the source class's own decisions, per the branches above, plus
-  for webhook sources `create_webhook` / `delete_webhook` / `get_external_webhook_info` behavior and
-  `webhook_resource_map` correctness.
-- `tests/test_<source>.py` — the transport, where most bugs live:
-  - paginator behavior from response headers and body, including the terminal page
-  - incremental vs full-refresh request shaping, and that a full refresh omits the watermark
-  - credential validation status mapping: each status the API returns to the message users read
-  - retry classification: which statuses are retryable and which are terminal
-  - mapper and normalization helpers, fan-out row shaping, parent-field injection
-  - for resumable sources: resuming from saved state, and state saved after each batch
-  - for incremental cursor pagination: stopping once a page predates the watermark, and walking on
-    when no watermark is set
-
-When an error pattern comes from a real API response, keep the verbatim string in the test. That
-wording is field knowledge — it records what the vendor actually emits, which the pattern in
-`get_non_retryable_errors` alone does not tell a reader.
-
-Parameterize status codes and edge cases rather than copying test bodies. Cover the paths that can
-break; do not pad the count.
+Write, in `tests/test_<source>.py`: a multi-page walk to the terminal page, incremental against full-refresh request shaping, the order the source yields when it sorts or windows rows itself, error mapping driven by a real vendor response through the transport, resume from saved state, and row shaping on edge-case inputs.
+Add `tests/test_<source>_source.py` only for branches the source class takes itself.
+A typical REST source needs one transport module of 10 to 25 parameterized cases.
 
 ## Implementation checklist
 
@@ -878,6 +851,7 @@ Release status (a finished source has NO unreleasedSource flag — it hides the 
 - [ ] featureFlag="dwh-{source_name}" ONLY if you want a controlled rollout instead of releasing to all
 
 Tests & handoff:
+- [ ] Tests follow references/testing.md: no declaration read-backs, no re-tested framework code, no duplicate coverage
 - [ ] Source tests (test_<source>_source.py) — branches only, no declaration restatements
 - [ ] Transport tests (test_<source>.py) — paginators, error mapping, request shaping
 - [ ] User-facing doc written/updated per /documenting-warehouse-sources (docsUrl matches filename; `audit_source_docs` passes)

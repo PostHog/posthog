@@ -1271,7 +1271,6 @@ class TestEnrichCdcRows:
             table,
             primary_keys=["id"],
             cdc_write_mode=cdc_write_mode,
-            team_id="2",
         )
 
     def test_the_merge_lane_collapses_a_key_to_its_latest_version(self):
@@ -1320,10 +1319,9 @@ class TestEnrichCdcRows:
                     existing_delta_table=DeltaTable(path),
                     batch_index=0,
                     verify_deletes=True,
-                    team_id="2",
                 )
 
-            violations.labels.assert_not_called()
+            violations.inc.assert_not_called()
 
     def test_verification_reports_a_delete_that_would_null_target_data(self):
         with tempfile.TemporaryDirectory() as path:
@@ -1342,11 +1340,9 @@ class TestEnrichCdcRows:
                     existing_delta_table=DeltaTable(path),
                     batch_index=0,
                     verify_deletes=True,
-                    team_id="2",
                 )
 
-            violations.labels.assert_called_once_with(team_id="2")
-            violations.labels.return_value.inc.assert_called_once_with(1)
+            violations.inc.assert_called_once_with(1)
 
     def test_verification_is_skipped_when_the_flag_is_off(self):
         with tempfile.TemporaryDirectory() as path:

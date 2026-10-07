@@ -209,6 +209,7 @@ class TestBuyMeACoffee(SimpleTestCase):
         self.inputs.schema_name = "subscriptions"
         manager = self.source.get_resumable_source_manager(self.inputs)
         manager.save_state(BuyMeACoffeeResumeConfig(page=3))
+        manager.confirm()
         manager.commit()
         self.respond([{"data": [{"subscription_id": 100}], "current_page": 3, "last_page": 3}])
         response = self.source.source_for_pipeline(self.config, manager, self.inputs)
@@ -226,10 +227,13 @@ class TestBuyMeACoffee(SimpleTestCase):
         response = self.source.source_for_pipeline(self.config, manager, self.inputs)
         pages = iter(cast(Iterable[Any], response.items()))
         assert next(pages) == [{"support_id": 2}]
+        manager.confirm()
         assert not manager.has_staged_state()
         assert next(pages) == [{"support_id": 1}]
+        manager.confirm()
         assert manager.has_staged_state()
         assert not manager.can_resume()
+        manager.confirm()
         manager.commit()
         assert manager.load_state() == BuyMeACoffeeResumeConfig(page=2)
         assert list(pages) == []
