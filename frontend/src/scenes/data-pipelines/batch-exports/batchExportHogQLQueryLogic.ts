@@ -40,8 +40,7 @@ FROM events
 WHERE timestamp >= {${DATA_INTERVAL_START_PLACEHOLDER}}
     AND timestamp < {${DATA_INTERVAL_END_PLACEHOLDER}}`
 
-// The preview substitutes these strings into the query. HogQL compares such a string to a timestamp in
-// the project timezone, and ClickHouse cannot parse one with a UTC offset, so the format has no offset.
+// ClickHouse cannot parse a datetime string with a UTC offset.
 const PLACEHOLDER_VALUE_FORMAT = 'YYYY-MM-DD HH:mm:ss'
 
 export function batchExportHogQLEditorTabId({ id, service }: BatchExportConfigFormLogicProps): string {
@@ -256,6 +255,7 @@ export const batchExportHogQLQueryLogic: LogicWrapper<batchExportHogQLQueryLogic
                     })
                 },
             ],
+            // HogQL reads these strings as times in the project timezone, so convert the bounds to it first.
             previewStart: [
                 (s) => [s.previewInterval, s.projectTimezone],
                 (previewInterval: BatchExportDataInterval, projectTimezone: string): string =>
