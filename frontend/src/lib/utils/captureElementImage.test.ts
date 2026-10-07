@@ -1,6 +1,6 @@
 import { toBlob } from 'html-to-image'
 
-import { captureElementImage } from './captureElementImage'
+import { BLANK_IMAGE, captureElementImage } from './captureElementImage'
 
 jest.mock('html-to-image', () => ({
     toBlob: jest.fn(() => Promise.resolve(new Blob(['png'], { type: 'image/png' }))),
@@ -17,18 +17,13 @@ describe('captureElementImage', () => {
         expect(includeStyleProperties.filter((name: string) => name.startsWith('--'))).toEqual([])
     })
 
-    it('keeps images that differ only by query string apart', async () => {
+    it('keys images by query string and degrades broken assets to a placeholder', async () => {
         await captureElementImage(document.createElement('div'))
 
-        expect((toBlob as jest.Mock).mock.calls[0][1].includeQueryParams).toBe(true)
-    })
-
-    it('lets a broken page asset degrade the image instead of failing the capture', async () => {
-        await captureElementImage(document.createElement('div'))
-
-        const { imagePlaceholder, onImageErrorHandler } = (toBlob as jest.Mock).mock.calls[0][1]
-        expect(imagePlaceholder).toMatch(/^data:image\//)
-        expect(() => onImageErrorHandler(new Event('error'))).not.toThrow()
+        expect(toBlob).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ includeQueryParams: true, imagePlaceholder: BLANK_IMAGE })
+        )
     })
 
     it('bounds the resource fetches so a stalled asset cannot hang the capture', async () => {

@@ -5,6 +5,8 @@ import { resourceToDataURL } from 'html-to-image/lib/dataurl'
 import * as imageUtils from 'html-to-image/lib/util'
 import { dirname, join } from 'path'
 
+import { BLANK_IMAGE } from './captureElementImage'
+
 // html-to-image resolves a relative `url()` inside @font-face against the stylesheet's own href.
 // Upstream does that by building a detached document, putting a <base href> in it and reading back
 // a resolved anchor. Chromium judges that assignment against `base-uri`, so under our policy the
@@ -37,7 +39,6 @@ describe('html-to-image patch', () => {
     })
 
     const STYLESHEET = 'https://app-static-prod.posthog.com/static/index-46THL72U.css'
-    const PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
     function imageBlob(content: string): Blob {
         const iframe = document.createElement('iframe')
@@ -46,12 +47,8 @@ describe('html-to-image patch', () => {
         return new RealmBlob([content], { type: 'image/png' })
     }
 
-    function okResponse(content: string): Response {
-        return { ok: true, status: 200, headers: new Headers(), blob: async () => imageBlob(content) } as Response
-    }
-
-    function errorPage(status: number): Response {
-        return { ok: false, status, headers: new Headers(), blob: async () => imageBlob('<html>') } as Response
+    function response(status: number, content = '<html>'): Response {
+        return { ok: status < 400, status, headers: new Headers(), blob: async () => imageBlob(content) } as Response
     }
 
     function stubImageLoading(decode: () => Promise<void>): void {
@@ -95,7 +92,7 @@ describe('html-to-image patch', () => {
         element.style.cssText = 'width: 240px; height: 120px; display: block'
 
         const clone = await cloneNode(element, {
-            imagePlaceholder: PLACEHOLDER,
+            imagePlaceholder: BLANK_IMAGE,
             includeStyleProperties: ['width', 'height', 'display'],
         })
 
@@ -103,7 +100,7 @@ describe('html-to-image patch', () => {
         expect(image.style.width).toBe('240px')
         expect(image.style.height).toBe('120px')
         expect(image.style.display).toBe('block')
-        expect(createImage).toHaveBeenLastCalledWith(PLACEHOLDER)
+        expect(createImage).toHaveBeenLastCalledWith(BLANK_IMAGE)
     })
 
     it('replaces a tainted canvas with a blank image of the same size', async () => {
@@ -184,8 +181,8 @@ describe('html-to-image patch', () => {
             'rejected',
             (): Promise<Response> => Promise.reject(new DOMException('Unavailable', 'AbortError')),
         ],
-        ['a 403 error page', 'forbidden', async (): Promise<Response> => errorPage(403)],
-        ['a 500 error page', 'server-error', async (): Promise<Response> => errorPage(500)],
+        ['a 403 error page', 'forbidden', async (): Promise<Response> => response(403)],
+        ['a 500 error page', 'server-error', async (): Promise<Response> => response(500)],
     ])(
         'uses the placeholder for %s and retries the image without caching the placeholder',
         async (_label, name, failure) => {
@@ -193,16 +190,14 @@ describe('html-to-image patch', () => {
             const fetch = jest
                 .spyOn(global, 'fetch')
                 .mockImplementationOnce(failure)
-                .mockResolvedValue(okResponse('recovered'))
+                .mockResolvedValue(response(200, 'recovered'))
             jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-            expect(await resourceToDataURL(url, 'image/png', { imagePlaceholder: PLACEHOLDER })).toBe(PLACEHOLDER)
-            expect(await resourceToDataURL(url, 'image/png', { imagePlaceholder: PLACEHOLDER })).toBe(
-                'data:image/png;base64,cmVjb3ZlcmVk'
-            )
-            expect(await resourceToDataURL(url, 'image/png', { imagePlaceholder: PLACEHOLDER })).toBe(
-                'data:image/png;base64,cmVjb3ZlcmVk'
-            )
+            const load = (): Promise<string> => resourceToDataURL(url, 'image/png', { imagePlaceholder: BLANK_IMAGE })
+
+            expect(await load()).toBe(BLANK_IMAGE)
+            expect(await load()).toBe('data:image/png;base64,cmVjb3ZlcmVk')
+            expect(await load()).toBe('data:image/png;base64,cmVjb3ZlcmVk')
             expect(fetch).toHaveBeenCalledTimes(2)
         }
     )
@@ -229,7 +224,7 @@ describe('html-to-image patch', () => {
                       status: 200,
                       text: async () => '@font-face { font-family: Fancy; src: url(fancy.woff2) format("woff2") }',
                   } as Response)
-                : okResponse('font')
+                : response(200, 'font')
         )
 
         const css = await getFontEmbedCSS(node, {})

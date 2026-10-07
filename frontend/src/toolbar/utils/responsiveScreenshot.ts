@@ -114,7 +114,7 @@ function blankImages(doc: Document, urls: Set<string>): void {
 
 function collectStalledImages(doc: Document, urls: Set<string>): void {
     for (const image of Array.from(doc.images)) {
-        if (!image.complete && image.loading !== 'lazy' && image.src !== BLANK_IMAGE) {
+        if (!image.complete && image.loading !== 'lazy') {
             urls.add(image.src)
         }
     }
@@ -149,14 +149,12 @@ async function captureWidth(width: number, stalledImageUrls: Set<string>): Promi
     const iframe = buildReflowIframe(width)
     try {
         populateIframe(iframe)
-        if (iframe.contentDocument) {
-            blankImages(iframe.contentDocument, stalledImageUrls)
-        }
-        await waitForSettle(iframe)
         const doc = iframe.contentDocument
         if (!doc) {
             throw new Error('Reflow iframe document went away')
         }
+        blankImages(doc, stalledImageUrls)
+        await waitForSettle(iframe)
         collectStalledImages(doc, stalledImageUrls)
         blankImages(doc, stalledImageUrls)
         return await captureElementScreenshot(doc.documentElement, {
