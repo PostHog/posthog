@@ -254,6 +254,13 @@ export interface broadcastWizardLogicActions {
     resourceEdited: (event: ResourceEditedEvent) => {
         event: ResourceEditedEvent
     } // resourceEditedLogic
+    loadCurrentTeamSuccess: (
+        currentTeam: TeamPublicType | null,
+        payload?: any
+    ) => {
+        currentTeam: TeamPublicType | null
+        payload?: any
+    } // teamLogic
     applyExternalEdit: (
         broadcast: HogFlowApi,
         base: HogFlowApi | null
@@ -526,7 +533,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             integrationsLogic,
             ['integrations', 'integrationsLoading'],
         ],
-        actions: [resourceEditedLogic, ['resourceEdited']],
+        actions: [resourceEditedLogic, ['resourceEdited'], teamLogic, ['loadCurrentTeamSuccess']],
     })),
 
     actions({
@@ -1089,6 +1096,13 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     }),
 
     listeners(({ actions, values, props, cache }) => ({
+        loadCurrentTeamSuccess: ({ currentTeam }) => {
+            // A new broadcast that mounted before the team loaded still shows the built-in settings.
+            // Anything the user changed since replaced that object, so it is left alone.
+            if (props.id === 'new' && currentTeam && values.emailSettings === DEFAULT_BROADCAST_EMAIL_SETTINGS) {
+                seedTeamUtmDefaults(actions, currentTeam)
+            }
+        },
         expandRun: ({ runId }) => {
             actions.setExpandedRunOverride([...values.expandedRunIds.filter((id) => id !== runId), runId])
         },
@@ -1700,16 +1714,25 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         if (props.id !== 'new') {
             actions.loadBroadcast()
         } else {
-            const utm = newEmailUtmConfig(getTeamUtmDefaults(values.currentTeam?.workflows_config))
-            actions.seedTeamUtmDefaults({
-                utmTagsEnabled: utm.utm_tags_enabled,
-                utmParams: utm.utm_params,
-                utmParamsFromDefault: utm.utm_params_from_default,
-            })
+            if (values.currentTeam) {
+                seedTeamUtmDefaults(actions, values.currentTeam)
+            }
             actions.loadBlastRadius()
         }
     }),
 ])
+
+function seedTeamUtmDefaults(
+    actions: broadcastWizardLogicType['actions'],
+    currentTeam: TeamPublicType | TeamType
+): void {
+    const utm = newEmailUtmConfig(getTeamUtmDefaults(currentTeam.workflows_config))
+    actions.seedTeamUtmDefaults({
+        utmTagsEnabled: utm.utm_tags_enabled,
+        utmParams: utm.utm_params,
+        utmParamsFromDefault: utm.utm_params_from_default,
+    })
+}
 
 function captureLaunchFailed(
     broadcastId: string | null | undefined,

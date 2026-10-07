@@ -5974,7 +5974,8 @@ class HogFlowViewSet(
             result["emails_updated"] += plan.emails_updated
             result["emails_turned_on"] += plan.emails_turned_on
             result["workflows_updated"] += 1
-            if flow.status == HogFlow.State.ACTIVE:
+            # A change only to the staged draft reaches live sends when someone publishes the draft.
+            if flow.status == HogFlow.State.ACTIVE and plan.actions is not None:
                 result["active_workflows_updated"] += 1
 
         if not dry_run:
@@ -5994,6 +5995,7 @@ class HogFlowViewSet(
                 locked.draft = {**(locked.draft or {}), "actions": plan.draft_actions}
                 locked.draft_updated_at = timezone.now()
                 locked.save(update_fields=["draft", "draft_updated_at"])
+                unstage_workflow_proposals(team_id=locked.team_id, hog_flow_id=locked.pk)
             if plan.actions is not None:
                 serializer = self.get_serializer(locked, data={"actions": plan.actions}, partial=True)
                 serializer.is_valid(raise_exception=True)

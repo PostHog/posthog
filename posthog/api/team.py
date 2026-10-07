@@ -974,6 +974,9 @@ class EmailUtmParamsSerializer(serializers.Serializer):
 @extend_schema_field(EmailUtmParamsSerializer)
 class EmailUtmParamsField(serializers.JSONField):
     def to_internal_value(self, data: Any) -> dict[str, str]:
+        # The value replaces the saved defaults, so a misspelled key would otherwise clear them silently.
+        if isinstance(data, dict) and (unknown := sorted(set(data) - set(EmailUtmParamsSerializer().fields))):
+            raise serializers.ValidationError(f"Unknown UTM parameters: {', '.join(unknown)}.")
         serializer = EmailUtmParamsSerializer(data=data)
         serializer.is_valid(raise_exception=True)
         return {key: value for key, value in serializer.validated_data.items() if value.strip()}

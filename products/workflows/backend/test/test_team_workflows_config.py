@@ -89,6 +89,15 @@ class TestTeamWorkflowsConfig(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "workflows_config__email_tracking_consent_mode"
 
+    def test_patch_rejects_unknown_utm_keys_and_keeps_saved_defaults(self) -> None:
+        self.client.patch(self.url, {"workflows_config": {"email_utm_params": {"utm_source": "newsletter"}}})
+
+        response = self.client.patch(self.url, {"workflows_config": {"email_utm_params": {"utm_soucre": "typo"}}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "workflows_config__email_utm_params"
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_utm_params == {"utm_source": "newsletter"}
+
     def test_patch_rejects_non_boolean_capture_workflows_engagement_events(self) -> None:
         response = self.client.patch(
             self.url, {"workflows_config": {"capture_workflows_engagement_events": "yes please"}}

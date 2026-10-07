@@ -1,7 +1,10 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -184,6 +187,30 @@ describe('broadcastWizardLogic', () => {
         if (saved.length) {
             expect(logic.values.broadcast?.name).toEqual(name)
         }
+    })
+
+    it.each([
+        { case: 'untouched settings', edit: false, enabled: true, params: { utm_source: 'newsletter' } },
+        { case: 'settings the user changed', edit: true, enabled: false, params: {} },
+    ])('seeds team UTM defaults when the team loads after mount, for $case', ({ edit, enabled, params }) => {
+        logic.unmount()
+        teamLogic.actions.loadCurrentTeamSuccess(null)
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+        if (edit) {
+            logic.actions.setEmailSettings({ trackingEnabled: false })
+        }
+
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: {
+                capture_workflows_engagement_events: false,
+                email_utm_tags_enabled: true,
+                email_utm_params: { utm_source: 'newsletter' },
+            },
+        })
+
+        expect(logic.values.emailSettings).toMatchObject({ utmTagsEnabled: enabled, utmParams: params })
     })
 
     it('moves a new broadcast onto its draft URL once the draft is created', async () => {

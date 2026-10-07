@@ -12,6 +12,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.tests.api.test_hog_flow import _email_function_template, _valid_email_inputs
 
 TRIGGER = {
@@ -156,3 +157,39 @@ class TestHogFlowUtmDefaults(APIBaseTest):
         assert response.json()["workflows_without_access"] == 1
         assert self._email_config(editable)["utm_params"] == {"utm_source": "newsletter"}
         assert "utm_params" not in self._email_config(restricted)
+
+    def test_apply_utm_defaults_to_a_staged_draft_counts_it_as_not_live_and_requeues_its_proposal(self) -> None:
+        following = {
+            "utm_tags_enabled": True,
+            "utm_params_from_default": ["utm_source", "utm_medium", "utm_campaign", "utm_content"],
+        }
+        flow = self._flow(
+            "Active with draft", HogFlow.State.ACTIVE, utm_params={"utm_source": "newsletter"}, **following
+        )
+        proposal = WorkflowProposal.objects.for_team(self.team.id).create(
+            team=self.team,
+            hog_flow=flow,
+            title="Tag the source",
+            rationale="Attribute clicks",
+            content={"actions": [{"id": "email_1", "config": {"utm_params": {"utm_source": "proposal"}}}]},
+            step_id="email_1",
+            base_version=flow.version,
+            status=WorkflowProposal.Status.APPROVED,
+        )
+        flow.draft = {"actions": [TRIGGER, _email_action(utm_params={"utm_source": "proposal"}, **following)]}
+        flow.save(update_fields=["draft"])
+        url = f"/api/projects/{self.team.id}/hog_flows/apply_utm_defaults"
+
+        preview = self.client.post(url, {"dry_run": True}, format="json")
+
+        assert preview.status_code == 200, preview.json()
+        assert preview.json()["workflows_updated"] == 1
+        assert preview.json()["active_workflows_updated"] == 0
+
+        applied = self.client.post(url, {"dry_run": False}, format="json")
+
+        assert applied.status_code == 200, applied.json()
+        flow.refresh_from_db()
+        assert flow.draft["actions"][1]["config"]["utm_params"] == {"utm_source": "newsletter"}
+        stored = WorkflowProposal.objects.for_team(self.team.id).get(id=proposal.id)
+        assert stored.status == WorkflowProposal.Status.SUGGESTED

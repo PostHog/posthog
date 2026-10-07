@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonCheckbox, LemonModal, Spinner } from '@posthog/lemon-ui'
 
+import { pluralize } from 'lib/utils/strings'
+
 import { workflowsUtmDefaultsApplyLogic } from './workflowsUtmDefaultsApplyLogic'
 
 export function WorkflowsUtmDefaultsApplyDialog(): JSX.Element {
@@ -36,7 +38,7 @@ export function WorkflowsUtmDefaultsApplyDialog(): JSX.Element {
                         data-attr="workflows-utm-defaults-apply"
                     >
                         {preview && isPreviewCurrent && !nothingToUpdate
-                            ? `Update ${preview.emails_updated} emails`
+                            ? `Update ${pluralize(preview.emails_updated, 'email')}`
                             : 'Update emails'}
                     </LemonButton>
                 </>
@@ -51,9 +53,9 @@ export function WorkflowsUtmDefaultsApplyDialog(): JSX.Element {
                     <p className="m-0">
                         {nothingToUpdate
                             ? 'Every email already uses these values.'
-                            : `${preview.emails_updated} emails in ${preview.workflows_updated} broadcasts and workflows will use the new values.`}
+                            : `${pluralize(preview.emails_updated, 'email')} in ${pluralize(preview.workflows_updated, 'broadcast or workflow', 'broadcasts and workflows')} will use the new values.`}
                         {preview.active_workflows_updated > 0 &&
-                            ` ${preview.active_workflows_updated} of them are live, so their next send uses the new values.`}
+                            ` ${preview.active_workflows_updated} of them ${preview.active_workflows_updated === 1 ? 'is' : 'are'} live, so the next send uses the new values.`}
                     </p>
                     {preview.workflows_without_access > 0 && (
                         <p className="m-0 text-secondary">
@@ -65,7 +67,7 @@ export function WorkflowsUtmDefaultsApplyDialog(): JSX.Element {
                         <LemonCheckbox
                             checked={enableWhereOff}
                             onChange={setEnableWhereOff}
-                            label={`Also turn on UTM tags in ${preview.emails_off} emails where they're off`}
+                            label={`Also turn on UTM tags in ${pluralize(preview.emails_off, 'email')} where they're off`}
                             data-attr="workflows-utm-defaults-enable-where-off"
                         />
                     )}
