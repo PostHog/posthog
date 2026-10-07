@@ -410,6 +410,7 @@ export interface biEditorLogicActions {
     setCompareFilter: (compareFilter: CompareFilter) => {
         compareFilter: CompareFilter
     }
+    setMissingDates: (missingDates: BIConfig['missingDates']) => { missingDates: BIConfig['missingDates'] }
     setDataPaneSearch: (search: string) => {
         search: string
     }
@@ -631,6 +632,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setChartType: (chartType: ChartDisplayType) => ({ chartType }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
+        setMissingDates: (missingDates: BIConfig['missingDates']) => ({ missingDates }),
         setDateField: (field: BIField | null) => ({ field }),
         setDataSource: (source: BIDataSource) => ({ source }),
         setValueAggregation: (index: number, aggregation: BIAggregation) => ({ index, aggregation }),
@@ -786,6 +788,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
                 setChartType: (config, { chartType }) => normalizeBIConfig({ ...config, chartType }),
                 setDateRange: (config, { dateRange }) => ({ ...config, dateRange }),
                 setCompareFilter: (config, { compareFilter }) => ({ ...config, compareFilter }),
+                setMissingDates: (config, { missingDates }) => ({ ...config, missingDates }),
                 setDateField: (config, { field }) => ({ ...config, dateField: field }),
                 setDataSource: (config, { source }) => setDataSourceInConfig(config, source),
                 setValueAggregation: (config, { index, aggregation }) => ({
@@ -1018,6 +1021,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setChartType: () => actions.runAfterChange(),
         setDateRange: () => actions.runAfterChange(),
         setCompareFilter: () => actions.runAfterChange(),
+        setMissingDates: () => actions.runAfterChange(),
         setDateField: () => actions.runAfterChange(),
         setDataSource: () => {
             captureBIWorksheetAction('source_selected', values.config)

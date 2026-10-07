@@ -20,6 +20,36 @@ const config: BIConfig = {
 }
 
 describe('BI analysis queries', () => {
+    it.each(['gap', 'zero'] as const)(
+        'fills %s date buckets separately in each period before window calculations',
+        (missingDates) => {
+            const worksheet: BIConfig = {
+                ...config,
+                chartType: ChartDisplayType.ActionsLineGraph,
+                missingDates,
+                dateRange: { date_from: '-7d' },
+                compareFilter: { compare: true },
+                values: [
+                    {
+                        ...config.values[0],
+                        tableCalculation: { type: 'moving_average', window: 3, requireFullWindow: true },
+                    },
+                ],
+            }
+            const parsed = parseBIEditorState(BIEditorView.BI, worksheet)!.config
+            expect(parsed.missingDates).toBe(missingDates)
+            expect(parsed.values[0].tableCalculation?.requireFullWindow).toBe(true)
+            const query = buildBIQuery(parsed)!.query
+            expect(query).toContain('bi_current_filled AS')
+            expect(query).toContain('bi_previous_filled AS')
+            expect(query).toContain('FROM toStartOfDay({filters.dateRange.from})')
+            expect(query).toContain('ORDER BY bi_column_event ASC, bi_row_timestamp ASC WITH FILL')
+            expect(query).toContain('2 PRECEDING AND CURRENT ROW) = 3')
+            expect(query.indexOf('bi_current_filled AS')).toBeLessThan(query.indexOf('bi_calculated AS'))
+            expect(query.includes('INTERPOLATE (sum_properties_amount AS 0)')).toBe(missingDates === 'zero')
+            expect(buildBIQuery({ ...worksheet, dateRange: { date_from: 'all' } })!.query).not.toContain('WITH FILL')
+        }
+    )
     it.each([false, true])(
         'filters aggregated and calculated results before the final limit (comparison: %s)',
         (compare) => {
@@ -144,6 +174,9 @@ describe('BI analysis queries', () => {
         expect(result.query).toContain("' (category)'")
         expect(result.query).not.toMatch(/sum\((average|count_distinct)/)
         expect(result.query).toContain('grouping(bi_row_timestamp, bi_column_event)')
+        expect(buildBIQuery({ ...worksheet, topN: undefined, totals: undefined })!.query).toContain(
+            "startsWith(toString(bi_column_event), 'Total')"
+        )
         expect(parseBIEditorState(BIEditorView.BI, worksheet)?.config.topN).toEqual(worksheet.topN)
         expect(parseBIEditorState(BIEditorView.BI, worksheet)?.config.totals).toEqual(worksheet.totals)
     })
