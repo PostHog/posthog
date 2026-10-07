@@ -12,7 +12,7 @@ export function TodayMoreSidebar(): JSX.Element {
     return (
         <div className="TodayPane">
             <ItemGroup className="gap-1">
-                {TODAY_MORE_ITEMS.map(({ pane, label, icon, description }) => (
+                {TODAY_MORE_ITEMS.map(({ pane, label, Icon, description }) => (
                     <Item
                         key={pane}
                         variant="outline"
@@ -20,7 +20,9 @@ export function TodayMoreSidebar(): JSX.Element {
                         onClick={() => pickPane(pane)}
                         data-attr={`today-more-${pane}`}
                     >
-                        <ItemMedia variant="icon">{icon}</ItemMedia>
+                        <ItemMedia variant="icon">
+                            <Icon />
+                        </ItemMedia>
                         <ItemContent>
                             <ItemTitle>{label}</ItemTitle>
                             <ItemDescription>{description}</ItemDescription>

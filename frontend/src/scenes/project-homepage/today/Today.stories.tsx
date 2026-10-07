@@ -980,7 +980,7 @@ export const NarrowWindow: Story = {
 export const NarrowWindowWithSidebar: Story = {
     parameters: { testOptions: { viewport: { width: 800, height: 900 } } },
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Home'))
+        await userEvent.click(await within(canvasElement).findByLabelText('Work'))
     },
 }
 

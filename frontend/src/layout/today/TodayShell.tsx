@@ -47,7 +47,7 @@ const NewSpaceDialog = lazyWithRetry(() =>
 )
 
 const PANE_LABELS = {
-    home: 'Today',
+    home: 'Work',
     spaces: 'Spaces',
     views: 'Views',
     library: 'Library',
@@ -214,7 +214,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                     sidebarVisible && (
                         <aside
                             ref={sidebarRef}
-                            className="TodayShell__sidebar relative border-r border-[var(--border)]"
+                            className="TodayShell__sidebar TodayShell__sidebar--framed relative"
                             aria-label={PANE_LABELS[activePane]}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ width: sidebarWidth }}
