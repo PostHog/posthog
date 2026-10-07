@@ -51,6 +51,31 @@ describe('biEditorLogic', () => {
         limit: 1000,
         sort: null,
     }
+    it.each([0, 1, 2])('keeps Top N attached to its measure when removing value %s', (index) => {
+        const logic = biEditorLogic({ tabId: TAB_ID })
+        logic.mount()
+        logic.actions.setAutoUpdate(false)
+        logic.actions.restoreState({
+            editorView: BIEditorView.BI,
+            config: {
+                ...config,
+                values: [0, 1, 2].map((value) => ({
+                    field: { ...eventField, id: `measure-${value}`, expression: `properties.value_${value}` },
+                    aggregation: 'sum',
+                })),
+                topN: { fieldId: eventField.id, count: 5, measureIndex: 1, includeOther: false },
+            },
+        })
+        logic.actions.removeFieldFromShelf('values', index)
+        if (index === 1) {
+            expect(logic.values.config.topN).toBeUndefined()
+        } else {
+            const measureIndex = logic.values.config.topN!.measureIndex
+            expect(logic.values.config.values[measureIndex].field.id).toBe('measure-1')
+        }
+        logic.unmount()
+    })
+
     it('offers every sidebar table while excluding hidden PostHog tables', () => {
         const biLogic = biEditorLogic({ tabId: TAB_ID })
         biLogic.mount()

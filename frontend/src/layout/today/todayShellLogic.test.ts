@@ -166,14 +166,17 @@ describe('todayShellLogic', () => {
 
             logic.actions.pickPane('tools')
             router.actions.push('/project/1/sql')
+            expect(logic.values.phoneCanGoBack).toBe(false)
             router.actions.push('/project/1/sql?open_query=abc')
             router.actions.push('/project/1/insights/abc')
             expect(logic.values.sidebarVisible).toBe(false)
+            expect(logic.values.phoneCanGoBack).toBe(true)
 
             logic.actions.goBackOnPhone()
             expect(router.values.location.pathname).toBe('/project/1/sql')
             expect(router.values.location.search).toBe('?open_query=abc')
             expect(logic.values.sidebarVisible).toBe(false)
+            expect(logic.values.phoneCanGoBack).toBe(false)
 
             logic.actions.goBackOnPhone()
             expect(logic.values.sidebarVisible).toBe(true)

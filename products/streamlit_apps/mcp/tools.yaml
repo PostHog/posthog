@@ -1,20 +1,12 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product streamlit_apps
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product streamlit_apps
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Streamlit apps
 feature: streamlit_apps
 url_prefix: /streamlit-apps
 ui_apps: {}
 tools:
-    streamlit-apps-activate-version:
-        operation: streamlit_apps_activate_version_create
-        enabled: false
-    streamlit-apps-connect-info:
-        operation: streamlit_apps_connect_info_retrieve
-        enabled: false
     streamlit-apps-create:
         operation: streamlit_apps_create
         enabled: true
@@ -74,12 +66,6 @@ tools:
             List all Streamlit apps in the current project. Each app is a Python data app that runs in an isolated
             sandbox. Returns short_id, name, description, resource config, and current sandbox status.
         feature_flag: streamlit-apps
-    streamlit-apps-put-update:
-        operation: streamlit_apps_update
-        enabled: false
-    streamlit-apps-restart:
-        operation: streamlit_apps_restart_create
-        enabled: false
     streamlit-apps-set-source:
         operation: streamlit_apps_create_version_from_source_create
         enabled: true
@@ -178,9 +164,6 @@ tools:
             the fields you provide change. Resizing applies the next time the sandbox starts. Code changes go through
             streamlit-apps-set-source, not this tool.
         feature_flag: streamlit-apps
-    streamlit-apps-upload-version:
-        operation: streamlit_apps_upload_version_create
-        enabled: false
     streamlit-apps-versions:
         operation: streamlit_apps_versions_retrieve
         enabled: true

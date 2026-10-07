@@ -8,6 +8,8 @@ import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorL
 import { getChartTypeOptions } from 'products/business_intelligence/frontend/biEditorOptions'
 import { BIShelfCard } from 'products/business_intelligence/frontend/components/BIShelfCard'
 
+import { BIMeasureAnalysis } from '../BIMeasureAnalysis'
+
 export function BIMarksCard(): JSX.Element {
     const { config } = useValues(biEditorLogic)
     const { setChartType } = useActions(biEditorLogic)
@@ -29,6 +31,9 @@ export function BIMarksCard(): JSX.Element {
                 data-attr="bi-editor-mark-type"
                 tooltip="Change how measures on Rows are displayed"
             />
+            {config.values.map((_, index) => (
+                <BIMeasureAnalysis key={index} index={index} />
+            ))}
         </BIShelfCard>
     )
 }

@@ -1277,6 +1277,7 @@ doesn't conflict with concurrent PRs.
 - mirakl
 - miro
 - missive
+- modal
 - mode
 - moesif
 - monaco
@@ -1433,6 +1434,7 @@ doesn't conflict with concurrent PRs.
 - sprinklr
 - sprinto
 - sprout_social
+- sqlite
 - starburst
 - statsig
 - stockx

@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { useCallback, useRef, useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { PIE_DISPLAY_TYPES } from 'lib/constants'
@@ -28,6 +28,7 @@ import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { alertsToThresholdGoalLines, insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
 import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
@@ -116,7 +117,7 @@ export function DataTableVisualization({
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
-        query: query.source,
+        query: getBIVisualizationSource(query),
         key: vizKey,
         cachedResults,
         loadPriority: insightProps.loadPriority,
@@ -137,7 +138,8 @@ export function DataTableVisualization({
         sourceQuery: query,
         setQuery: setQuery,
         onUpdate: (query: VisualizationNode) => {
-            loadData(shouldQueryBeAsync(query.source) ? 'force_async' : 'force_blocking', undefined, query.source)
+            const source = getBIVisualizationSource(query)
+            loadData(shouldQueryBeAsync(source) ? 'force_async' : 'force_blocking', undefined, source)
         },
     }
 
@@ -357,6 +359,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             })}
         >
             <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
+                {query.kind === NodeKind.BIVisualizationNode &&
+                !responseLoading &&
+                response &&
+                'hasMore' in response &&
+                response.hasMore ? (
+                    <LemonBanner type="info">
+                        This worksheet reached its {query.config.limit.toLocaleString()} row limit. Increase the limit
+                        or narrow the filters to see all results.
+                    </LemonBanner>
+                ) : null}
                 {!readOnly && showResultControls && (
                     <>
                         <LemonDivider className="my-0" />

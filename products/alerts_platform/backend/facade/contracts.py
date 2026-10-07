@@ -303,6 +303,14 @@ class AlertDeliveryRequest:
     configuration while the platform runs beside a source's own stack. `event_ids_by_kind` maps
     each kind the source can announce onto the event id its destinations filter on. The platform
     imports no source, so it cannot derive either.
+
+    `incident_actions` maps a grouping key to whether its transition opened or closed a firing.
+    It is a decision rather than a fact a message states, so it travels here like
+    `event_ids_by_kind`. It is set even when cooldown or mute held the announcement back, which
+    is the case it exists for. `sends_messages` is False on a delivery that exists only for those
+    actions, so its rows reach no message destination even when their kind has an event id.
+    `event_ids_by_incident_action` maps each action onto the event id an incident manager
+    destination filters on, the way `event_ids_by_kind` does for a message.
     """
 
     source: SourceKind
@@ -311,6 +319,9 @@ class AlertDeliveryRequest:
     evaluation_key: str
     destination_alert_id: str
     event_ids_by_kind: dict[str, str]
+    incident_actions: dict[str, IncidentAction] = field(default_factory=dict)
+    sends_messages: bool = True
+    event_ids_by_incident_action: dict[str, str] = field(default_factory=dict)
 
 
 @frozen
@@ -439,6 +450,31 @@ class DestinationType(LabeledStrEnum):
     DISCORD = "discord", "Discord"
     WEBHOOK = "webhook", "Webhook"
     TEAMS = "teams", "Microsoft Teams"
+    PAGERDUTY = "pagerduty", "PagerDuty"
+
+
+class PagerDutySeverity(StrEnum):
+    CRITICAL = "critical"
+    ERROR = "error"
+    WARNING = "warning"
+    INFO = "info"
+
+
+class PagerDutyRegion(StrEnum):
+    US = "us"
+    EU = "eu"
+
+
+# What a PagerDuty destination that names neither gets, on every path that sends to one.
+DEFAULT_PAGERDUTY_SEVERITY: Final = PagerDutySeverity.CRITICAL
+DEFAULT_PAGERDUTY_REGION: Final = PagerDutyRegion.US
+
+
+class IncidentAction(StrEnum):
+    """What one event kind does to the incident an alert holds open in an incident manager."""
+
+    TRIGGER = "trigger"
+    RESOLVE = "resolve"
 
 
 class AlertDestinationData(TypedDict):
@@ -447,6 +483,9 @@ class AlertDestinationData(TypedDict):
     slack_channel_id: NotRequired[str]
     slack_channel_name: NotRequired[str]
     webhook_url: NotRequired[str]
+    pagerduty_routing_key: NotRequired[str]
+    pagerduty_severity: NotRequired[str]
+    pagerduty_region: NotRequired[str]
 
 
 class AlertDestinationValidationError(Exception):
@@ -479,6 +518,9 @@ class EventKindSpec:
     product_label: str = "alert"
     intro_lines: tuple[str, ...] = ()
     additional_actions: tuple[AlertDestinationAction, ...] = ()
+    # Set only on the kinds that open or close an incident. An incident manager destination
+    # subscribes to those kinds and no others; every other destination subscribes to the rest.
+    incident_action: IncidentAction | None = None
 
     def destination_description(self, alert_name: str) -> str:
         return f'Sends {self.display_kind} notifications for {self.product_label} "{alert_name}".'
@@ -524,7 +566,7 @@ class AlertDelivery:
     channel: str  # "email" | "hog_function"
     target: str  # email address or destination name
     target_id: str | None = None  # hog function id
-    template: str | None = None  # "slack" | "discord" | "webhook" | "teams"
+    template: str | None = None  # "slack" | "discord" | "webhook" | "teams" | "pagerduty"
     status: str = "accepted"
     at: str  # ISO-8601 timestamp
 
