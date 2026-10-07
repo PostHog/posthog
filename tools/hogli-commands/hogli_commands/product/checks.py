@@ -1086,7 +1086,7 @@ _APPROVED_INTERFACES = ", ".join(
 def _wiring_issue(finding: UnapprovedWiringClass) -> str:
     """The lint line for one class: where it crosses, why it fails, and the moves that clear it."""
     reason = (
-        "whose bases the lint cannot read statically"
+        "whose bases or members the lint cannot read statically"
         if finding.verdict is WiringVerdict.UNRESOLVED
         else f"which implements no approved interface ({_APPROVED_INTERFACES})"
     )

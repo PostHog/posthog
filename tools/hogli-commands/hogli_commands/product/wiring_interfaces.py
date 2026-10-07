@@ -59,6 +59,7 @@ class _ModuleScope:
     bindings: Mapping[str, str]  # each imported name and the qualified name it refers to
     classes: Mapping[str, ast.ClassDef]
     rebound: frozenset[str]  # names a top-level statement other than an import binds
+    mutated: frozenset[str]  # names a top-level statement changes in place
 
 
 @frozen
@@ -76,6 +77,33 @@ def _rebound_names(tree: ast.Module) -> frozenset[str]:
             names.update(target.id for target in statement.targets if isinstance(target, ast.Name))
         elif isinstance(statement, (ast.AnnAssign, ast.AugAssign)) and isinstance(statement.target, ast.Name):
             names.add(statement.target.id)
+    return frozenset(names)
+
+
+# Methods that add to a list, set or dict in place.
+_MUTATING_METHODS: frozenset[str] = frozenset({"append", "extend", "insert", "add", "update"})
+
+
+def _mutated_names(tree: ast.Module) -> frozenset[str]:
+    """Names a top-level statement changes in place, such as `FLOWS.append(Plain)` or `FLOWS += [Plain]`."""
+    names: set[str] = set()
+    for statement in tree.body:
+        if (
+            isinstance(statement, ast.Expr)
+            and isinstance(statement.value, ast.Call)
+            and isinstance(statement.value.func, ast.Attribute)
+            and isinstance(statement.value.func.value, ast.Name)
+            and statement.value.func.attr in _MUTATING_METHODS
+        ):
+            names.add(statement.value.func.value.id)
+        elif isinstance(statement, ast.AugAssign) and isinstance(statement.target, ast.Name):
+            names.add(statement.target.id)
+        elif isinstance(statement, ast.Assign):
+            names.update(
+                target.value.id
+                for target in statement.targets
+                if isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name)
+            )
     return frozenset(names)
 
 
@@ -114,8 +142,11 @@ class WiringInterfaceResolver:
         """Whether the name reaches a class definition through any chain of re-exports here."""
         return isinstance(self._locate(qualified, frozenset()), _ClassSite)
 
-    def collection_members(self, qualified: str) -> list[str]:
-        """The qualified names that a top-level list, tuple or set literal holds, such as WORKFLOWS."""
+    def collection_members(self, qualified: str) -> list[str] | None:
+        """The qualified names that a top-level list, tuple or set literal holds, such as WORKFLOWS.
+
+        None when a later top-level statement changes the collection, such as `WORKFLOWS.append(Plain)`.
+        The lint then cannot see which classes it holds."""
         return self._members(qualified, frozenset())
 
     def verdict(self, qualified: str) -> WiringVerdict:
@@ -189,6 +220,7 @@ class WiringInterfaceResolver:
             bindings=self._bindings(module, is_package, tree),
             classes={node.name: node for node in tree.body if isinstance(node, ast.ClassDef)},
             rebound=_rebound_names(tree),
+            mutated=_mutated_names(tree),
         )
 
     def _qualify(self, node: ast.expr, scope: _ModuleScope) -> str | None:
@@ -233,9 +265,13 @@ class WiringInterfaceResolver:
         # A name the module only re-exports is judged where it is defined.
         if name in scope.bindings:
             return self._locate(scope.bindings[name], seen | {qualified})
+        # An alias such as `Handed = Plain` is judged as the class it names.
+        value = _assigned_value(scope.tree, name)
+        if isinstance(value, (ast.Name, ast.Attribute)) and (target := self._qualify(value, scope)) is not None:
+            return self._locate(target, seen | {qualified})
         return WiringVerdict.UNRESOLVED
 
-    def _members(self, qualified: str, seen: frozenset[str]) -> list[str]:
+    def _members(self, qualified: str, seen: frozenset[str]) -> list[str] | None:
         if qualified in seen:
             return []
         module, _, name = qualified.rpartition(".")
@@ -244,27 +280,37 @@ class WiringInterfaceResolver:
             return []
         value = _assigned_value(scope.tree, name)
         if value is not None:
+            if name in scope.mutated:
+                return None
             return self._expression_members(value, scope, seen | {qualified})
         if name in scope.bindings:
             return self._members(scope.bindings[name], seen | {qualified})
         return []
 
-    def _element_members(self, element: ast.expr, scope: _ModuleScope, seen: frozenset[str]) -> list[str]:
+    def _element_members(self, element: ast.expr, scope: _ModuleScope, seen: frozenset[str]) -> list[str] | None:
         """One entry of a collection literal: a class name, or a `*OTHER_FLOWS` that unpacks another collection."""
         if isinstance(element, ast.Starred):
             return self._expression_members(element.value, scope, seen)
         member = self._qualify(element, scope)
         return [member] if member is not None else []
 
-    def _expression_members(self, node: ast.expr, scope: _ModuleScope, seen: frozenset[str]) -> list[str]:
+    def _expression_members(self, node: ast.expr, scope: _ModuleScope, seen: frozenset[str]) -> list[str] | None:
         """The class names a collection expression holds, such as `[A, B]` or `FLOWS + OTHER_FLOWS`."""
+        parts: list[list[str] | None]
         if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
-            return [member for element in node.elts for member in self._element_members(element, scope, seen)]
-        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-            return self._expression_members(node.left, scope, seen) + self._expression_members(node.right, scope, seen)
-        if isinstance(node, (ast.Name, ast.Attribute)) and (operand := self._qualify(node, scope)) is not None:
+            parts = [self._element_members(element, scope, seen) for element in node.elts]
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            parts = [
+                self._expression_members(node.left, scope, seen),
+                self._expression_members(node.right, scope, seen),
+            ]
+        elif isinstance(node, (ast.Name, ast.Attribute)) and (operand := self._qualify(node, scope)) is not None:
             return self._members(operand, seen)
-        return []
+        else:
+            return []
+        if any(part is None for part in parts):
+            return None
+        return [member for part in parts if part is not None for member in part]
 
     def _ancestor_verdict(self, qualified: str, seen: frozenset[str]) -> WiringVerdict:
         if qualified not in self._ancestor_verdicts:

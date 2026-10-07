@@ -500,6 +500,17 @@ _WIRING_SOURCES: dict[str, dict[str, str]] = {
         "temporal/flows.py": "from products.my_product.backend.temporal.impl import Handed\n",
         "temporal/impl.py": "class Handed:\n    pass\n",
     },
+    "class_alias": {"temporal/flows.py": "class Plain:\n    pass\n\n\nHanded = Plain\n"},
+    "approved_class_alias": {
+        "temporal/flows.py": "from temporalio.worker import Interceptor\n\n\nclass Plain(Interceptor):\n    pass\n\n\nHanded = Plain\n",
+    },
+    "mutated_collection": {
+        "temporal/flows.py": (
+            "from temporalio import workflow\n\n\n@workflow.defn\nclass Approved:\n    pass\n\n\n"
+            "class Plain:\n    pass\n\n\nclass Other:\n    pass\n\n\n"
+            "Handed = [Approved]\nHanded.append(Plain)\nHanded += [Other]\n"
+        ),
+    },
 }
 
 
@@ -520,6 +531,9 @@ class TestWiringInterfaces:
             ("starred_collection", {("Other", "unapproved")}),
             ("reassigned_collection", {("Plain", "unapproved")}),
             ("absolute_reexport", {("Handed", "unapproved")}),
+            ("class_alias", {("Handed", "unapproved")}),
+            ("approved_class_alias", set()),
+            ("mutated_collection", {("Handed", "unresolved")}),
         ],
     )
     def test_scan_reads_the_class_not_the_folder(

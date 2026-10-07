@@ -879,11 +879,14 @@ def facade_unapproved_wiring(backend_dir: Path, name: str) -> list[UnapprovedWir
             else:
                 # A collection such as WORKFLOWS hands out every class it holds, and core registers
                 # each one.
-                exported = {
-                    member.rpartition(".")[2]: member
-                    for member in resolver.collection_members(qualified)
-                    if resolver.is_class(member)
-                }
+                members = resolver.collection_members(qualified)
+                if members is None:
+                    finding = UnapprovedWiringClass(
+                        module_key, handed.bound, handed.source_path, WiringVerdict.UNRESOLVED
+                    )
+                    findings[f"{module_key}:{handed.bound}"] = finding
+                    continue
+                exported = {member.rpartition(".")[2]: member for member in members if resolver.is_class(member)}
             for class_name, class_qualified in exported.items():
                 verdict = resolver.verdict(class_qualified)
                 if verdict is not WiringVerdict.APPROVED:
