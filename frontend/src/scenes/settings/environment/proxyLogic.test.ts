@@ -36,208 +36,214 @@ const proxyRecordsResponse = (records: ProxyRecord[]): { results: ProxyRecord[];
     max_proxy_records: 2,
 })
 
-describe('proxyLogic — shouldShowCloudflareOptIn', () => {
-    let logic: ReturnType<typeof proxyLogic.build>
+describe('proxyLogic', () => {
+    describe('shouldShowCloudflareOptIn', () => {
+        let logic: ReturnType<typeof proxyLogic.build>
 
-    beforeEach(() => {
-        // cloudflareOptInAcknowledged is persisted to localStorage — wipe it so each test
-        // starts from a clean slate and isn't polluted by prior tests' acknowledgments.
-        localStorage.clear()
-        useMocks({
-            get: {
-                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records`]: proxyRecordsResponse([]),
-            },
+        beforeEach(() => {
+            // cloudflareOptInAcknowledged is persisted to localStorage — wipe it so each test
+            // starts from a clean slate and isn't polluted by prior tests' acknowledgments.
+            localStorage.clear()
+            useMocks({
+                get: {
+                    [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records`]: proxyRecordsResponse([]),
+                },
+            })
+            initKeaTests()
+            organizationLogic.mount()
+            userLogic.mount()
+            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
         })
-        initKeaTests()
-        organizationLogic.mount()
-        userLogic.mount()
-        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+
+        afterEach(() => {
+            logic?.unmount()
+        })
+
+        async function mountLogic(): Promise<void> {
+            logic = proxyLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        }
+
+        it('returns false when the user is impersonating, even with no records and no acknowledgment', async () => {
+            userLogic.actions.loadUserSuccess(MOCK_IMPERSONATED_USER)
+            await mountLogic()
+
+            await expectLogic(logic).toMatchValues({
+                cloudflareOptInAcknowledged: false,
+                proxyRecords: [],
+                shouldShowCloudflareOptIn: false,
+            })
+        })
+
+        it('returns false when the organization already has proxy records', async () => {
+            useMocks({
+                get: {
+                    [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records`]: proxyRecordsResponse([
+                        mockProxyRecord(),
+                    ]),
+                },
+            })
+            await mountLogic()
+
+            await expectLogic(logic).toMatchValues({
+                shouldShowCloudflareOptIn: false,
+            })
+            expect(logic.values.proxyRecords.length).toBeGreaterThan(0)
+        })
+
+        it('returns true for a first-time non-impersonating user with no records and no acknowledgment', async () => {
+            await mountLogic()
+
+            await expectLogic(logic).toMatchValues({
+                cloudflareOptInAcknowledged: false,
+                proxyRecords: [],
+                shouldShowCloudflareOptIn: true,
+            })
+        })
+
+        it('returns false once acknowledgeCloudflareOptIn has been dispatched', async () => {
+            await mountLogic()
+
+            await expectLogic(logic).toMatchValues({
+                shouldShowCloudflareOptIn: true,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.acknowledgeCloudflareOptIn()
+            }).toMatchValues({
+                cloudflareOptInAcknowledged: true,
+                shouldShowCloudflareOptIn: false,
+            })
+        })
+
+        it('does not show the banner before the initial records load resolves', () => {
+            // Mount synchronously without awaiting toFinishAllListeners — this mimics the
+            // first paint after mount, before the proxy_records API call has returned.
+            logic = proxyLogic()
+            logic.mount()
+
+            expect(logic.values.proxyRecordsLoaded).toBe(false)
+            expect(logic.values.shouldShowCloudflareOptIn).toBe(false)
+        })
+
+        it('auto-persists acknowledgment when loadRecordsSuccess returns existing records', async () => {
+            useMocks({
+                get: {
+                    [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records`]: proxyRecordsResponse([
+                        mockProxyRecord(),
+                    ]),
+                },
+            })
+            await mountLogic()
+
+            // Records existing on the backend is durable proof of prior consent — the reducer
+            // re-persists this via { persist: true } so the banner doesn't flash again on
+            // browsers where localStorage was cleared.
+            await expectLogic(logic).toMatchValues({
+                cloudflareOptInAcknowledged: true,
+                shouldShowCloudflareOptIn: false,
+            })
+        })
     })
 
-    afterEach(() => {
-        logic?.unmount()
-    })
+    describe('root redirect', () => {
+        it.each<[string, ProxyRecord, boolean]>([
+            ['supported valid proxy', mockProxyRecord(), true],
+            ['supported warning proxy', mockProxyRecord({ status: 'warning' }), true],
+            ['legacy proxy', mockProxyRecord({ root_redirect_supported: false }), false],
+            ['proxy that is not ready', mockProxyRecord({ status: 'waiting' }), false],
+        ])('allows configuration for a %s when expected', (_name, record, expected) => {
+            expect(canConfigureRootRedirect(record)).toBe(expected)
+        })
 
-    async function mountLogic(): Promise<void> {
-        logic = proxyLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-    }
+        it('updates the record from the PATCH response', async () => {
+            const record = mockProxyRecord()
+            const updatedRecord = mockProxyRecord({ root_redirect_url: 'https://www.example.com/' })
+            useMocks({
+                get: {
+                    [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/`]: proxyRecordsResponse([record]),
+                },
+                patch: {
+                    [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/${record.id}/`]: updatedRecord,
+                },
+            })
+            initKeaTests()
+            organizationLogic.mount()
 
-    it('returns false when the user is impersonating, even with no records and no acknowledgment', async () => {
-        userLogic.actions.loadUserSuccess(MOCK_IMPERSONATED_USER)
-        await mountLogic()
+            const logic = proxyLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
 
-        await expectLogic(logic).toMatchValues({
-            cloudflareOptInAcknowledged: false,
-            proxyRecords: [],
-            shouldShowCloudflareOptIn: false,
+            await expectLogic(logic, () => {
+                logic.actions.updateRootRedirect({ id: record.id, rootRedirectUrl: 'https://www.example.com/' })
+            })
+                .toDispatchActions(['updateRootRedirectSuccess'])
+                .toMatchValues({ proxyRecords: [updatedRecord] })
+
+            logic.unmount()
         })
     })
 
-    it('returns false when the organization already has proxy records', async () => {
-        useMocks({
-            get: {
-                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records`]: proxyRecordsResponse([mockProxyRecord()]),
-            },
-        })
-        await mountLogic()
+    describe('delete record', () => {
+        it('reloads the records when the delete request fails', async () => {
+            const record = mockProxyRecord()
+            useMocks({
+                get: {
+                    [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/`]: proxyRecordsResponse([record]),
+                },
+                delete: {
+                    [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/${record.id}/`]: () => [500, {}],
+                },
+            })
+            initKeaTests()
+            organizationLogic.mount()
 
-        await expectLogic(logic).toMatchValues({
-            shouldShowCloudflareOptIn: false,
-        })
-        expect(logic.values.proxyRecords.length).toBeGreaterThan(0)
-    })
+            const logic = proxyLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
 
-    it('returns true for a first-time non-impersonating user with no records and no acknowledgment', async () => {
-        await mountLogic()
+            await expectLogic(logic, () => {
+                logic.actions.deleteRecord(record.id)
+            }).toDispatchActions(['deleteRecordFailure', 'loadRecords'])
 
-        await expectLogic(logic).toMatchValues({
-            cloudflareOptInAcknowledged: false,
-            proxyRecords: [],
-            shouldShowCloudflareOptIn: true,
-        })
-    })
-
-    it('returns false once acknowledgeCloudflareOptIn has been dispatched', async () => {
-        await mountLogic()
-
-        await expectLogic(logic).toMatchValues({
-            shouldShowCloudflareOptIn: true,
-        })
-
-        await expectLogic(logic, () => {
-            logic.actions.acknowledgeCloudflareOptIn()
-        }).toMatchValues({
-            cloudflareOptInAcknowledged: true,
-            shouldShowCloudflareOptIn: false,
+            logic.unmount()
         })
     })
 
-    it('does not show the banner before the initial records load resolves', () => {
-        // Mount synchronously without awaiting toFinishAllListeners — this mimics the
-        // first paint after mount, before the proxy_records API call has returned.
-        logic = proxyLogic()
-        logic.mount()
+    describe('diagnose', () => {
+        it('shows an info toast, not an error, when the diagnose cooldown returns 429', async () => {
+            const record = mockProxyRecord()
+            useMocks({
+                get: {
+                    [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/`]: proxyRecordsResponse([record]),
+                },
+                post: {
+                    [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/${record.id}/diagnose/`]: () => [
+                        429,
+                        { detail: 'A diagnostic was just run for this proxy.' },
+                    ],
+                },
+            })
+            initKeaTests()
+            organizationLogic.mount()
+            const infoSpy = jest.spyOn(lemonToast, 'info')
+            const errorSpy = jest.spyOn(lemonToast, 'error')
 
-        expect(logic.values.proxyRecordsLoaded).toBe(false)
-        expect(logic.values.shouldShowCloudflareOptIn).toBe(false)
-    })
+            const logic = proxyLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
 
-    it('auto-persists acknowledgment when loadRecordsSuccess returns existing records', async () => {
-        useMocks({
-            get: {
-                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records`]: proxyRecordsResponse([mockProxyRecord()]),
-            },
+            await expectLogic(logic, () => {
+                logic.actions.diagnose(record.id)
+            })
+                .toDispatchActions(['diagnoseFailure'])
+                .toMatchValues({ diagnoseCooldownIds: [record.id] })
+
+            expect(infoSpy).toHaveBeenCalledTimes(1)
+            expect(errorSpy).not.toHaveBeenCalled()
+
+            logic.unmount()
         })
-        await mountLogic()
-
-        // Records existing on the backend is durable proof of prior consent — the reducer
-        // re-persists this via { persist: true } so the banner doesn't flash again on
-        // browsers where localStorage was cleared.
-        await expectLogic(logic).toMatchValues({
-            cloudflareOptInAcknowledged: true,
-            shouldShowCloudflareOptIn: false,
-        })
-    })
-})
-
-describe('proxyLogic — root redirect', () => {
-    it.each<[string, ProxyRecord, boolean]>([
-        ['supported valid proxy', mockProxyRecord(), true],
-        ['supported warning proxy', mockProxyRecord({ status: 'warning' }), true],
-        ['legacy proxy', mockProxyRecord({ root_redirect_supported: false }), false],
-        ['proxy that is not ready', mockProxyRecord({ status: 'waiting' }), false],
-    ])('allows configuration for a %s when expected', (_name, record, expected) => {
-        expect(canConfigureRootRedirect(record)).toBe(expected)
-    })
-
-    it('updates the record from the PATCH response', async () => {
-        const record = mockProxyRecord()
-        const updatedRecord = mockProxyRecord({ root_redirect_url: 'https://www.example.com/' })
-        useMocks({
-            get: {
-                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/`]: proxyRecordsResponse([record]),
-            },
-            patch: {
-                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/${record.id}/`]: updatedRecord,
-            },
-        })
-        initKeaTests()
-        organizationLogic.mount()
-
-        const logic = proxyLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        await expectLogic(logic, () => {
-            logic.actions.updateRootRedirect({ id: record.id, rootRedirectUrl: 'https://www.example.com/' })
-        })
-            .toDispatchActions(['updateRootRedirectSuccess'])
-            .toMatchValues({ proxyRecords: [updatedRecord] })
-
-        logic.unmount()
-    })
-})
-
-describe('proxyLogic — delete record', () => {
-    it('reloads the records when the delete request fails', async () => {
-        const record = mockProxyRecord()
-        useMocks({
-            get: {
-                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/`]: proxyRecordsResponse([record]),
-            },
-            delete: {
-                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/${record.id}/`]: () => [500, {}],
-            },
-        })
-        initKeaTests()
-        organizationLogic.mount()
-
-        const logic = proxyLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        await expectLogic(logic, () => {
-            logic.actions.deleteRecord(record.id)
-        }).toDispatchActions(['deleteRecordFailure', 'loadRecords'])
-
-        logic.unmount()
-    })
-})
-
-describe('proxyLogic — diagnose', () => {
-    it('shows an info toast, not an error, when the diagnose cooldown returns 429', async () => {
-        const record = mockProxyRecord()
-        useMocks({
-            get: {
-                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/`]: proxyRecordsResponse([record]),
-            },
-            post: {
-                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/${record.id}/diagnose/`]: () => [
-                    429,
-                    { detail: 'A diagnostic was just run for this proxy.' },
-                ],
-            },
-        })
-        initKeaTests()
-        organizationLogic.mount()
-        const infoSpy = jest.spyOn(lemonToast, 'info')
-        const errorSpy = jest.spyOn(lemonToast, 'error')
-
-        const logic = proxyLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        await expectLogic(logic, () => {
-            logic.actions.diagnose(record.id)
-        })
-            .toDispatchActions(['diagnoseFailure'])
-            .toMatchValues({ diagnoseCooldownIds: [record.id] })
-
-        expect(infoSpy).toHaveBeenCalledTimes(1)
-        expect(errorSpy).not.toHaveBeenCalled()
-
-        logic.unmount()
     })
 })
