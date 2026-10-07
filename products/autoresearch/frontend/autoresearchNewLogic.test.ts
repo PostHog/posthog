@@ -30,7 +30,10 @@ const mockResolve = autoresearchResolveTemplateCreate as jest.Mock
 const mockCreate = autoresearchCreate as jest.Mock
 const mockTrain = autoresearchTrainCreate as jest.Mock
 
-function validation(warnings: { code: string; severity: string }[]): Record<string, unknown> {
+function validation(
+    warnings: { code: string; severity: string }[],
+    overrides: Record<string, unknown> = {}
+): Record<string, unknown> {
     return {
         can_proceed: !warnings.some((w) => w.severity === 'error'),
         requires_acknowledgement: false,
@@ -41,6 +44,7 @@ function validation(warnings: { code: string; severity: string }[]): Record<stri
         inference_population_size: 2000,
         warnings: warnings.map((w) => ({ ...w, message: w.code })),
         error: null,
+        ...overrides,
     }
 }
 
@@ -264,28 +268,41 @@ describe('autoresearchNewLogic', () => {
     })
 
     it.each([
-        ['no warnings', [], 'ready', ['pass', 'pass', 'pass', 'pass'], false],
+        ['no warnings', [], {}, 'ready', ['pass', 'pass', 'pass', 'pass'], false],
         [
             'a non-blocking warning',
             [{ code: 'extreme_imbalance', severity: 'warning' }],
+            {},
             'warnings',
             ['pass', 'warning', 'pass', 'pass'],
             false,
         ],
         [
-            'a blocking warning',
-            [
-                { code: 'low_negatives', severity: 'error' },
-                { code: 'horizon_exceeds_lookback', severity: 'error' },
-            ],
+            'a blocking data warning',
+            [{ code: 'low_negatives', severity: 'error' }],
+            {},
             'blocked',
-            ['pass', 'pass', 'fail', 'fail'],
+            ['pass', 'pass', 'fail', 'pass'],
+            true,
+        ],
+        [
+            'a horizon longer than the lookback, which skips the data queries',
+            [{ code: 'horizon_exceeds_lookback', severity: 'error' }],
+            {
+                estimated_training_rows: 0,
+                positive_count: 0,
+                negative_count: 0,
+                base_rate: 0,
+                inference_population_size: null,
+            },
+            'blocked',
+            ['skipped', 'skipped', 'skipped', 'fail'],
             true,
         ],
     ])(
         'builds the readiness checklist from a response with %s',
-        async (_, warnings, readiness, statuses, startTrainingDisabled) => {
-            mockValidate.mockResolvedValue(validation(warnings))
+        async (_, warnings, overrides, readiness, statuses, startTrainingDisabled) => {
+            mockValidate.mockResolvedValue(validation(warnings, overrides))
             const logic = autoresearchNewLogic()
             logic.mount()
 

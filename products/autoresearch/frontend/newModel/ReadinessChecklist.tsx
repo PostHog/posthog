@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
+import { IconCheckCircle, IconCircleDashed, IconInfo, IconWarning, IconX } from '@posthog/icons'
 import { LemonBanner, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { Readiness, ReadinessCheck, autoresearchNewLogic, hasTarget } from '../autoresearchNewLogic'
@@ -24,6 +24,9 @@ function CheckIcon({ status }: { status: ReadinessCheck['status'] }): JSX.Elemen
     }
     if (status === 'warning') {
         return <IconWarning className="text-warning text-lg shrink-0" />
+    }
+    if (status === 'skipped') {
+        return <IconCircleDashed className="text-muted text-lg shrink-0" />
     }
     return <IconCheckCircle className="text-success text-lg shrink-0" />
 }

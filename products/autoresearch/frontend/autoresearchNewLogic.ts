@@ -94,7 +94,7 @@ export type SubmitIntent = 'train' | 'draft'
 
 export type Readiness = 'ready' | 'warnings' | 'blocked'
 
-export type ReadinessCheckStatus = 'pass' | 'warning' | 'fail'
+export type ReadinessCheckStatus = 'pass' | 'warning' | 'fail' | 'skipped'
 
 export interface ReadinessCheck {
     key: 'population' | 'positives' | 'negatives' | 'other'
@@ -201,7 +201,7 @@ function readinessChecks(validation: ValidatePipelineResponseApi): ReadinessChec
     const negatives = forCodes(CHECK_WARNING_CODES.negatives)
     const other = validation.warnings.filter((w) => !grouped.includes(w.code))
     const baseRate = validation.base_rate === null ? '' : ` (${(validation.base_rate * 100).toFixed(1)}% base rate)`
-    return [
+    const checks: ReadinessCheck[] = [
         {
             key: 'population',
             label: 'Population size',
@@ -233,6 +233,13 @@ function readinessChecks(validation: ValidatePipelineResponseApi): ReadinessChec
             warnings: other,
         },
     ]
+    // The backend refuses this definition before it runs the data queries, so its counts are placeholders.
+    if (!validation.warnings.some((w) => w.code === 'horizon_exceeds_lookback')) {
+        return checks
+    }
+    return checks.map((check) =>
+        check.key === 'other' ? check : { ...check, value: 'Not checked', status: 'skipped' }
+    )
 }
 
 /** The form values a resolve-template response sets. Fields the user edited keep their value. */
