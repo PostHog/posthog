@@ -57,7 +57,9 @@ Outside these scenes, the product also renders inside the session replay player:
 
 The experiment creation wizard offers an opt-in Replay Vision scanner when the `replay-vision` feature flag is enabled. The scanner is a **disabled** classifier — enabling it, and the credit spend that follows, stays a human decision on the scanner itself. Its population lives in `experiment_targeting`, never in its `RecordingsQuery`: the API derives the person-scoped exposure filter from that field at scan time, the same resolution the experiment's Recordings tab uses, so the scanner watches the sessions that tab lists, including an exposure event that fires server-side or in an earlier session. The `RecordingsQuery` carries only the experiment's test-account setting, and the API rejects an `experiment_exposure` set there directly. Scanners the wizard created before that field existed keep their original exposure-event filters; recreating one from the experiment's Recordings tab is the fix for a scanner watching nothing. Scanner creation runs after the experiment has been persisted and cannot roll back a successfully created experiment.
 
-The template lives in `frontend/src/scenes/experiments/replayVisionScanner.ts` and mirrors the one in the `scanning-experiments-with-replay-vision` skill: a fixed tag set (so variants stay comparable), an escape tag for sessions that never reached the changed surface, and no variant names in the prompt.
+The template lives in `frontend/src/scenes/experiments/replayVisionScanner.ts`: a fixed tag set (so variants stay comparable), an escape tag for sessions that never reached the changed surface, and no variant names in the prompt.
+
+The `experiment` scanner type is the way agents (Max, MCP, the `scanning-experiments-with-replay-vision` skill) scan an experiment: its experiment lives in `scanner_config`, each session's variant comes from the exposure data, variants are sampled evenly, and `GET scanners/{id}/variants/` reads the results per variant. The wizard's classifier predates it and moves to the experiment type with the frontend switchover.
 
 ## Layout
 

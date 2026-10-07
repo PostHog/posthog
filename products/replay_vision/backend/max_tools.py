@@ -12,6 +12,7 @@ from rest_framework.exceptions import Throttled
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.event_usage import EventSource, report_user_action
 from posthog.exceptions import QuotaLimitExceeded
+from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.scopes import APIScopeObject
@@ -21,6 +22,7 @@ from products.access_control.backend.facade.user_access_control import AccessCon
 from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
 from products.replay_vision.backend.billing import CREDITS_PER_DOLLAR, observation_credits_for_model
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
+from products.replay_vision.backend.experiment_variants import experiment_variants_readout
 from products.replay_vision.backend.impact import compute_scanner_impact, create_affected_cohort
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
@@ -106,6 +108,22 @@ Use this tool to reason across the per-session summaries produced by a Replay Vi
 # What it returns
 The scanner's most recent per-session summaries. Synthesize them to answer the user's question —
 surface recurring themes, notable outliers, and concrete takeaways rather than restating each summary.
+"""
+
+
+COMPARE_VARIANTS_TOOL_DESCRIPTION = """
+Use this tool to compare an experiment scanner's results across the experiment's variants.
+
+# When to use
+- The user asks what users do differently in each variant of an experiment a scanner watches
+- The user asks how many sessions or people each variant's observations cover
+
+# What it returns
+Per variant: observations, distinct people, median session length, and the rate the variant was
+sampled at. When the scanner has a variant analysis scout, also each variant's themes and the
+differences between variants. The live counts are the trusted numbers. The scout's counts are its own
+reading, out of the summaries it read per variant. Balanced sampling gives a small variant a higher
+rate, so even observation counts do not mean even traffic.
 """
 
 
@@ -343,6 +361,109 @@ class SummarizeReplayVisionSummariesTool(ReplayVisionGatesMixin, MaxTool):
         header = f"Recent session summaries from this scanner ({len(lines)} of the latest)."
         content = header + "\n\n" + as_untrusted_data("summaries", lines)
         return content, {"scanner_id": scanner_id, "summary_count": len(lines)}
+
+
+class CompareVariantsArgs(BaseModel):
+    scanner_id: str | None = Field(
+        default=None,
+        description="The experiment scanner to compare. Only required when not already available from context.",
+    )
+
+
+class CompareReplayVisionVariantsTool(ReplayVisionGatesMixin, MaxTool):
+    # Reads only; nothing here starts a scan.
+    needs_confirmation: ClassVar[bool] = False
+    name: str = "compare_replay_vision_variants"
+    description: str = COMPARE_VARIANTS_TOOL_DESCRIPTION
+    args_schema: type[BaseModel] = CompareVariantsArgs
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        # The readout quotes observations, which expose recording content.
+        return [("session_recording", "viewer")]
+
+    async def _arun_impl(self, scanner_id: str | None = None) -> tuple[str, dict[str, Any]]:
+        resolved_id = self.context.get("scanner_id") or scanner_id
+        if not resolved_id:
+            return "No scanner specified. Please provide a scanner_id.", {"error": "invalid_context"}
+        try:
+            return await self._compare(str(resolved_id))
+        except Exception as e:
+            capture_exception(
+                e,
+                properties={"team_id": self._team.id, "user_id": self._user.id, "scanner_id": str(resolved_id)},
+            )
+            return "Something went wrong comparing the variants. Please try again.", {"error": "fetch_failed"}
+
+    @database_sync_to_async
+    def _compare(self, scanner_id: str) -> tuple[str, dict[str, Any]]:
+        scanner = scanner_for_reading_observations(self._team.id, scanner_id)
+        if scanner is None:
+            return f"Scanner {scanner_id} not found.", {"error": "not_found"}
+        # The same gate as the variants endpoint: the scanner's RBAC and its experiment's access,
+        # with a denied scanner reading as not-found.
+        if not self.user_access_control.check_access_level_for_object(
+            scanner, "viewer"
+        ) or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner):
+            return f"Scanner {scanner_id} not found.", {"error": "forbidden"}
+        if scanner.scanner_type != ScannerType.EXPERIMENT:
+            return (
+                f"That scanner is a {scanner.scanner_type} scanner. Only experiment scanners have variants.",
+                {"error": "wrong_scanner_type"},
+            )
+
+        # A tool runs outside a request, so the team scope the fail-closed observation reads need is set here.
+        with team_scope(self._team.id):
+            readout = experiment_variants_readout(scanner, access=self.user_access_control, viewer_id=self._user.id)
+        # Variant keys and every theme are user-authored or derived from recordings, so all of it
+        # stays inside the data fences.
+        counts = [
+            f"- {variant.key}: {variant.observations} observations, {variant.distinct_people} people"
+            + (
+                f", median session {variant.median_session_duration_s:.0f}s"
+                if variant.median_session_duration_s is not None
+                else ""
+            )
+            + (f", sampled at {variant.sampling_rate:.0%}" if variant.sampling_rate is not None else "")
+            for variant in readout.variants
+        ]
+        sections = [
+            f"Per-variant counts for this experiment scanner. {readout.unattributed_count} observations have no "
+            "attributed variant.",
+            as_untrusted_data("variant counts", counts),
+        ]
+        analysis = readout.analysis
+        if analysis is None:
+            sections.append(
+                "This scanner has no variant analysis scout, so there is no comparison of what users do. "
+                "The user can set one up from the scanner's Scouts tab."
+            )
+        elif not analysis.current:
+            sections.append(
+                "Its variant analysis scout has no analysis of the scanner's current version yet. It runs on "
+                "its schedule."
+            )
+        else:
+            themes = [
+                f"- {variant.key} ({variant.analysis_observations} summaries read): {line.theme}: "
+                f"{line.statement} ({line.count})"
+                for variant in readout.variants
+                for line in variant.digest or ()
+            ]
+            differences = [
+                f"- {difference.theme}: {difference.statement} "
+                f"({', '.join(f'{key} {count}' for key, count in difference.counts.items())})"
+                for difference in readout.differences or ()
+            ]
+            sections.append(
+                "The variant analysis scout's latest reading. Its counts are out of the summaries it read per variant."
+            )
+            sections.append(as_untrusted_data("variant themes", themes or ["(no themes recorded)"]))
+            sections.append(as_untrusted_data("differences", differences or ["(no differences recorded)"]))
+        return "\n\n".join(sections), {
+            "scanner_id": scanner_id,
+            "variant_count": len(readout.variants),
+            "has_analysis": analysis is not None and analysis.current,
+        }
 
 
 class SearchObservationsArgs(BaseModel):
@@ -915,6 +1036,8 @@ def _scanner_config_for(
     scale_min: float | None,
     scale_max: float | None,
     length: str | None,
+    experiment_id: int | None = None,
+    variants: list[str] | None = None,
 ) -> dict[str, Any]:
     """Assemble the per-type config from flat args.
 
@@ -929,6 +1052,11 @@ def _scanner_config_for(
         config["scale"] = {"min": scale_min, "max": scale_max}
     if scanner_type in (ScannerType.SUMMARIZER, ScannerType.EXPERIMENT) and length is not None:
         config["length"] = length
+    if scanner_type == ScannerType.EXPERIMENT:
+        # Sent even when missing, so the validator answers with its own "Experiment is required."
+        config["experiment_id"] = experiment_id
+        if variants:
+            config["variants"] = variants
     return config
 
 
@@ -951,6 +1079,12 @@ spend. Create it disabled (`enabled: false`) to set it up without spending anyth
 
 Call get_replay_vision_quota first when proposing anything broad, and prefer a `sampling_rate` below 1.0
 over an unfiltered scanner.
+
+# Experiments
+To watch an A/B test, create an `experiment` scanner with the experiment's `experiment_id`. It scans only
+the experiment's exposed sessions, tells the model which variant each session is in, and samples the
+variants evenly. Use compare_replay_vision_variants to read its results per variant. Don't scope another
+scanner type to an experiment.
 """
 
 
@@ -968,7 +1102,8 @@ class CreateScannerArgs(BaseModel):
         description=(
             "What each observation produces: 'monitor' for a yes/no answer with a reason, 'classifier' "
             "to assign tags from a fixed vocabulary, 'scorer' for a number on a scale, 'summarizer' for "
-            "a free-text summary."
+            "a free-text summary, 'experiment' for a summary of one A/B test's exposed sessions, with "
+            "each session's variant."
         ),
     )
     tags: list[str] | None = Field(
@@ -989,7 +1124,18 @@ class CreateScannerArgs(BaseModel):
     )
     length: str | None = Field(
         default=None,
-        description="Summarizers only, optional: 'short', 'medium' (the default) or 'long'.",
+        description="Summarizers and experiment scanners only, optional: 'short', 'medium' (the default) or 'long'.",
+    )
+    experiment_id: int | None = Field(
+        default=None,
+        description="Experiment scanners only, and required for them: the id of the experiment to watch.",
+    )
+    variants: list[str] | None = Field(
+        default=None,
+        description=(
+            "Experiment scanners only, optional: the variant keys to watch. Leave it empty to watch every "
+            "variant, which is what a comparison needs."
+        ),
     )
     sampling_rate: float = Field(
         default=1.0,
@@ -1041,13 +1187,25 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         scale_min: float | None = None,
         scale_max: float | None = None,
         length: str | None = None,
+        experiment_id: int | None = None,
+        variants: list[str] | None = None,
     ) -> tuple[str, dict[str, Any]]:
         # Not gated on `enabled`: the serializer refuses to create either kind without consent, so
         # checking only for enabled ones turned the disabled path into an unhandled exception.
         if not await self._consent_given():
             return self._no_ai_consent()
         return await self._create(
-            name, prompt, scanner_type, sampling_rate, enabled, tags, scale_min, scale_max, length
+            name,
+            prompt,
+            scanner_type,
+            sampling_rate,
+            enabled,
+            tags,
+            scale_min,
+            scale_max,
+            length,
+            experiment_id,
+            variants,
         )
 
     @database_sync_to_async
@@ -1062,6 +1220,8 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         scale_min: float | None,
         scale_max: float | None,
         length: str | None,
+        experiment_id: int | None,
+        variants: list[str] | None,
     ) -> tuple[str, dict[str, Any]]:
         resolved_type = scanner_type if scanner_type in VALID_SCANNER_TYPES else ScannerType.MONITOR
         # Through the serializer, not ReplayScanner.objects.create: it owns the sampling-rate floor below
@@ -1078,6 +1238,8 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
                     scale_min=scale_min,
                     scale_max=scale_max,
                     length=length,
+                    experiment_id=experiment_id,
+                    variants=variants,
                 ),
                 "model": DEFAULT_SCAN_MODEL,
                 "sampling_rate": sampling_rate,
