@@ -336,7 +336,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/bugherd/bugherd.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/bugherd/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/bugsnag/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/buildbetter/buildbetter.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/buildbetter/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/buildkite/buildkite.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/buildkite/settings.py

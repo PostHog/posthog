@@ -113,14 +113,13 @@ _FLAG_EVALUATIONS_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default
 #
 # DEFAULT rather than MATERIALIZED, the kind materialize() mints on sharded_events:
 # both compute the expression when an insert omits the column, but only a DEFAULT
-# column accepts ALTER UPDATE, which the events property-removal path relies on to
-# reset extracted values whose source property was erased (see
-# docs/internal/clickhouse-deletion-coverage.md). An UPDATE of properties does not
-# recompute these columns, so a rewrite must reset each affected column in the
-# same mutation. The cost is a footgun MATERIALIZED did not have: an insert that
-# names one of these columns stores the given value even when it contradicts
-# properties. Producers must omit them, which the Kafka path enforces by
-# writable_flag_evaluations not declaring them.
+# column accepts ALTER UPDATE or an explicit value on insert. An UPDATE of
+# properties does not recompute these columns, so any rewrite of properties must
+# reset each affected column itself. Property removal does that as it copies a row
+# out (see docs/internal/clickhouse-deletion-coverage.md). The cost is a footgun
+# MATERIALIZED did not have: an insert that names one of these columns stores the
+# given value even when it contradicts properties. Producers must omit them, which
+# the Kafka path enforces by writable_flag_evaluations not declaring them.
 _FLAG_EVALUATIONS_TYPED_COLUMNS = f"""
     , $group_0 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_0')")} COMMENT 'column_materializer::$group_0'
     , $group_1 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_1')")} COMMENT 'column_materializer::$group_1'
