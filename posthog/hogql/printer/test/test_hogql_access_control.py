@@ -947,6 +947,47 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
             )
         assert cm.exception.table_name == "denied_warehouse_table"
 
+    def test_schema_serialization_omits_a_join_to_a_denied_warehouse_table(self):
+        from products.access_control.backend.models.access_control import AccessControl
+        from products.data_tools.backend.models.join import DataWarehouseJoin
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name="denied_warehouse_table",
+            joining_table_key="id",
+            field_name="denied_join",
+        )
+
+        def serialized_fields() -> tuple[set[str], set[str]]:
+            database = Database.create_for(team=self.team, user=self.user)
+            context = HogQLContext(team_id=self.team.pk, team=self.team, database=database, user=self.user)
+            serialized = database.serialize(
+                context, include_only={"persons", "events"}, include_hidden_posthog_tables=True
+            )
+            persons_fields = set(serialized["persons"].fields.keys())
+            # events.person is itself a lazy join, so its nested field list names the persons joins.
+            person_join_fields = set(serialized["events"].fields["person"].fields or [])
+            return persons_fields, person_join_fields
+
+        persons_fields, person_join_fields = serialized_fields()
+        assert "denied_join" in persons_fields
+        assert "denied_join" in person_join_fields
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(self.denied_table.id),
+            access_level="none",
+            organization_member=self.membership,
+        )
+
+        persons_fields, person_join_fields = serialized_fields()
+        assert "denied_join" not in persons_fields
+        assert "id" in persons_fields
+        assert "denied_join" not in person_join_fields
+
     def test_execute_hogql_query_bypass_warehouse_access_control_skips_denial(self):
         """bypass_warehouse_access_control opt-in should let the query past the access control gate
         (downstream may still fail because there's no real S3 data, but the
