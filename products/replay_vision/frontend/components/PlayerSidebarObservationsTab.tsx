@@ -14,6 +14,7 @@ import type { ReplayObservationApi, ReplayScannerApi } from '../generated/api.sc
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { SCANNER_TYPE_TAG_TYPE, scannerTypeLabel } from '../replay_scanners/types'
+import { observationFromRecordingUrl } from '../utils/breadcrumbs'
 import { isSummaryObservation, readModelOutput, readReasoning, scannerLabel } from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
 import { currentRowIndex, nextTimelineStopMs, timelineRows as buildTimelineRows } from '../utils/recordingTimeline'
@@ -306,7 +307,7 @@ function FocusPane({
                     )}
                     <Link
                         data-attr="vision-observation-open-from-sidebar"
-                        to={urls.replayVisionObservation(observation.id)}
+                        to={observationFromRecordingUrl(observation.id)}
                         className="text-xs self-end"
                     >
                         View details

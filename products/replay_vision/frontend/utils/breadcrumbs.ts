@@ -19,6 +19,40 @@ export const VISION_ROOT_BREADCRUMB: Breadcrumb = {
  */
 export const OBSERVATION_ORIGIN_PARAM = 'from'
 export const WATCH_FEED_ORIGIN = 'watch'
+export const RECORDING_ORIGIN = 'recording'
+export const POSTHOG_AI_ORIGIN = 'ai'
+/** The in-app path a PostHog AI thread was open on, which can be any scene when it is in the side panel. */
+export const OBSERVATION_RETURN_PATH_PARAM = 'return_to'
+
+const OBSERVATION_ORIGINS: readonly string[] = [WATCH_FEED_ORIGIN, RECORDING_ORIGIN, POSTHOG_AI_ORIGIN]
+
+export function isObservationOrigin(value: unknown): value is string {
+    return typeof value === 'string' && OBSERVATION_ORIGINS.includes(value)
+}
+
+/** Accepts only a same-origin path, so a crafted link can't point the back button at another site. */
+export function safeReturnPath(value: unknown): string | null {
+    return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : null
+}
+
+export function observationFromRecordingUrl(observationId: string): string {
+    return combineUrl(urls.replayVisionObservation(observationId), { [OBSERVATION_ORIGIN_PARAM]: RECORDING_ORIGIN }).url
+}
+
+export function observationFromPosthogAiUrl(observationId: string, returnPath: string): string {
+    return combineUrl(urls.replayVisionObservation(observationId), {
+        [OBSERVATION_ORIGIN_PARAM]: POSTHOG_AI_ORIGIN,
+        [OBSERVATION_RETURN_PATH_PARAM]: returnPath,
+    }).url
+}
+
+export function posthogAiBreadcrumb(returnPath: string | null): Breadcrumb {
+    return {
+        key: 'replay-vision-posthog-ai',
+        name: 'PostHog AI',
+        path: returnPath ?? urls.ai(),
+    }
+}
 
 /** The crumb the back button returns to for an observation opened from the "What to watch" feed. */
 export function watchFeedBreadcrumb(): Breadcrumb {

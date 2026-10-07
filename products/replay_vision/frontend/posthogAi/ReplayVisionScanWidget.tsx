@@ -1,10 +1,12 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
+import { observationFromPosthogAiUrl } from '../utils/breadcrumbs'
 import { flattenMarkdownToLine } from '../utils/markdown'
 import { readErrorMessage, readReasoning, readSummary, readTitle } from '../utils/observation'
 import { replayVisionScanWidgetLogic } from './replayVisionScanWidgetLogic'
@@ -75,6 +77,7 @@ export function ReplayVisionScanWidget({ scanId, sessionIds, skipped }: ReplayVi
 }
 
 function ObservationRow({ observation }: { observation: ReplayObservationApi }): JSX.Element {
+    const { location } = useValues(router)
     if (observation.status === 'pending' || observation.status === 'running') {
         return (
             <div className="flex items-center gap-2 px-3 py-2 text-sm text-secondary">
@@ -104,7 +107,10 @@ function ObservationRow({ observation }: { observation: ReplayObservationApi }):
             {body && <p className="m-0 mt-0.5 text-secondary">{body}</p>}
             <Link
                 data-attr="vision-scan-widget-open-observation"
-                to={urls.replayVisionObservation(observation.id)}
+                to={observationFromPosthogAiUrl(
+                    observation.id,
+                    removeProjectIdIfPresent(location.pathname) + location.search
+                )}
                 className="text-xs"
             >
                 View details

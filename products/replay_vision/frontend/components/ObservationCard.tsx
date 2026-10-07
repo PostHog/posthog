@@ -2,7 +2,6 @@ import { IconCopy, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import {
@@ -16,6 +15,7 @@ import {
     parseIneligibleReason,
 } from '../replay_scanners/types'
 import { markSimilarSearchIntent, similarSearchUrl } from '../search/observationQueries'
+import { observationFromRecordingUrl } from '../utils/breadcrumbs'
 import { citedTextToPlainText, parseCitedSegments } from '../utils/citations'
 import { VERDICT_LABEL, confidenceLevel, isSummaryScannerType, readReasoning, scannerLabel } from '../utils/observation'
 import { CitedMarkdown } from './CitedMarkdown'
@@ -430,7 +430,7 @@ export function ObservationDockCard({
                     {observation.status === 'succeeded' && result && <ObservationConfidence result={result} />}
                     <Link
                         data-attr="vision-observation-open"
-                        to={urls.replayVisionObservation(observation.id)}
+                        to={observationFromRecordingUrl(observation.id)}
                         className="text-xs whitespace-nowrap"
                     >
                         View details
