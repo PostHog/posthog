@@ -569,6 +569,16 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Realized online AUC of the current champion model, computed from mature predictions against actual outcomes.",
     )
+    champion_lift_at_10 = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Lift in the top 10% of scores for the current champion model, from its latest validated prediction date. 2.0 means the top 10% converts at twice the average rate.",
+    )
+    champion_is_preliminary = serializers.BooleanField(
+        read_only=True,
+        allow_null=True,
+        help_text="True while the current champion model has no realized AUC yet. Null when the pipeline has no champion.",
+    )
 
     class Meta:
         dataclass = Pipeline
@@ -595,6 +605,8 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "last_scored_at",
             "champion_holdout_auc",
             "champion_realized_auc",
+            "champion_lift_at_10",
+            "champion_is_preliminary",
         ]
 
 
