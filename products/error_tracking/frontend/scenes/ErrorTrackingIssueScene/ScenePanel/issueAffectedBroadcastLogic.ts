@@ -20,6 +20,8 @@ import {
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
 
 export const AFFECTED_LOOKBACK_DAYS = 30
+// pinned: sent as the broadcast's entry_source and the click event's source, so renaming it splits the history
+const SOURCE = 'error_tracking_affected'
 const MAX_NAME_LENGTH = 200
 
 export interface IssueAffectedBroadcastLogicProps {
@@ -179,12 +181,12 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
                 return
             }
             actions.closeModal()
-            captureMessageAudienceClicked('error_tracking_affected', 'broadcast')
+            captureMessageAudienceClicked(SOURCE, 'broadcast')
             router.actions.push(
                 messageAudienceUrl(
                     {
                         properties: cohortAudienceProperties(audienceCohort),
-                        source: 'error_tracking_affected',
+                        source: SOURCE,
                         broadcastName: truncate(`We fixed ${props.issueName || 'an error'}`, MAX_NAME_LENGTH),
                     },
                     'broadcast'

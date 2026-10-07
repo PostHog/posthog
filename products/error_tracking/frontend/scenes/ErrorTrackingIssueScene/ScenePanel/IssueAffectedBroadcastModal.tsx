@@ -23,7 +23,9 @@ export function IssueAffectedBroadcastModal(props: IssueAffectedBroadcastLogicPr
           ? "Couldn't count the people affected"
           : !affectedCount?.people
             ? `Nobody hit this issue in ${lookback}`
-            : undefined
+            : !affectedCount.withEmail
+              ? 'Nobody affected has an email address'
+              : undefined
 
     return (
         <LemonModal
@@ -58,6 +60,11 @@ export function IssueAffectedBroadcastModal(props: IssueAffectedBroadcastLogicPr
                     <p className="m-0">Couldn't count the people affected. Close this and try again.</p>
                 ) : !affectedCount?.people ? (
                     <p className="m-0">Nobody hit this issue in {lookback}, so there is no one to email.</p>
+                ) : !affectedCount.withEmail ? (
+                    <p className="m-0">
+                        <strong>{pluralize(affectedCount.people, 'person', 'people')}</strong> hit this issue in{' '}
+                        {lookback}, but nobody affected has an email address, so there is no one to email.
+                    </p>
                 ) : (
                     <>
                         <p className="m-0">
