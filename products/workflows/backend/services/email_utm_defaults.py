@@ -65,14 +65,49 @@ def seed_new_email_actions(
         config[UTM_FROM_DEFAULT_KEY] = [key for key in UTM_KEYS if key not in supplied]
 
 
+def _keys_following_default(config: dict[str, Any]) -> list[str]:
+    marker = config.get(UTM_FROM_DEFAULT_KEY)
+    # Steps saved before the team defaults existed carry no marker. None of them had custom values when
+    # the defaults shipped, so every key counts as following the default.
+    return [key for key in marker if key in UTM_KEYS] if isinstance(marker, list) else list(UTM_KEYS)
+
+
+def release_edited_keys(
+    actions: list[dict[str, Any]],
+    stored_actions: list[Any],
+    stored_draft: dict[str, Any] | None,
+    defaults: TeamUtmDefaults,
+) -> None:
+    """Stops a key from following the team default when an edit changes its value, like the email editor does."""
+    draft_actions = stored_draft.get("actions") if isinstance(stored_draft, dict) else None
+    stored: dict[str, list[dict[str, str]]] = {}
+    for action in [*stored_actions, *(draft_actions if isinstance(draft_actions, list) else [])]:
+        if is_email_action(action) and action.get("id"):
+            stored.setdefault(str(action["id"]), []).append(clean_utm_params(action["config"].get("utm_params")))
+
+    for action in actions:
+        previous = stored.get(str(action.get("id"))) if is_email_action(action) else None
+        if not previous:
+            continue
+        config = action["config"]
+        following = _keys_following_default(config)
+        current = clean_utm_params(config.get("utm_params"))
+        # A value equal to the team default still follows it, so "Save as team default" and the bulk apply keep the key.
+        kept = [
+            key
+            for key in following
+            if current.get(key) == defaults.params.get(key)
+            or all(params.get(key) == current.get(key) for params in previous)
+        ]
+        if kept != following:
+            config[UTM_FROM_DEFAULT_KEY] = kept
+
+
 def apply_defaults_to_email_config(
     config: dict[str, Any], defaults: TeamUtmDefaults, enable_where_off: bool
 ) -> dict[str, Any] | None:
     """The email step config with the team defaults applied, or None when nothing changes."""
-    marker = config.get(UTM_FROM_DEFAULT_KEY)
-    # Steps saved before the team defaults existed carry no marker. None of them had custom values when
-    # the defaults shipped, so every key counts as following the default.
-    following = [key for key in marker if key in UTM_KEYS] if isinstance(marker, list) else list(UTM_KEYS)
+    following = _keys_following_default(config)
 
     current = clean_utm_params(config.get("utm_params"))
     updated = {key: value for key, value in current.items() if key not in following}

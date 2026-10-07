@@ -119,6 +119,7 @@ from products.workflows.backend.facade.api import (
     flow_ids_with_active_schedule,
     load_team_utm_defaults,
     plan_flow_utm_update,
+    release_edited_email_utm_keys,
     seed_new_email_steps_with_utm_defaults,
 )
 from products.workflows.backend.facade.batch_jobs import (
@@ -3010,7 +3011,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                 if instance
                 else []
             )
-            seed_new_email_steps_with_utm_defaults(actions, existing_ids, load_team_utm_defaults(get_team().id))
+            utm_defaults = load_team_utm_defaults(get_team().id)
+            seed_new_email_steps_with_utm_defaults(actions, existing_ids, utm_defaults)
+            if instance:
+                release_edited_email_utm_keys(actions, instance.actions or [], instance.draft, utm_defaults)
 
         # When activating a draft, re-validate actions from the instance with full (non-draft) checks
         status = data.get("status", instance.status if instance else "draft")

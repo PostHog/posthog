@@ -134,6 +134,34 @@ class TestHogFlowUtmDefaults(APIBaseTest):
         assert self._email_config(scheduled_broadcast)["utm_params"] == {"utm_source": "newsletter"}
         assert "utm_params" not in self._email_config(archived)
 
+    def test_a_utm_value_changed_through_the_api_survives_a_later_apply(self) -> None:
+        flow = self._flow(
+            "Seeded",
+            HogFlow.State.DRAFT,
+            utm_tags_enabled=True,
+            utm_params={"utm_source": "newsletter"},
+            utm_params_from_default=["utm_source", "utm_medium", "utm_campaign", "utm_content"],
+        )
+        edited_email = _email_action(
+            utm_tags_enabled=True,
+            utm_params={"utm_source": "partner"},
+            utm_params_from_default=["utm_source", "utm_medium", "utm_campaign", "utm_content"],
+        )
+        edited = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow.id}", {"actions": [TRIGGER, edited_email]}, format="json"
+        )
+        assert edited.status_code == 200, edited.json()
+        TeamWorkflowsConfig.objects.filter(team=self.team).update(
+            email_utm_params={"utm_source": "newsletter", "utm_medium": "mail"}
+        )
+
+        applied = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/apply_utm_defaults", {"dry_run": False}, format="json"
+        )
+
+        assert applied.status_code == 200, applied.json()
+        assert self._email_config(flow)["utm_params"] == {"utm_source": "partner", "utm_medium": "mail"}
+
     def test_apply_utm_defaults_skips_workflows_the_user_cannot_edit(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},

@@ -337,6 +337,15 @@ def seed_new_email_steps_with_utm_defaults(
     email_utm_defaults.seed_new_email_actions(actions, existing_action_ids, defaults)
 
 
+def release_edited_email_utm_keys(
+    actions: list[dict[str, Any]],
+    stored_actions: list[Any],
+    stored_draft: dict[str, Any] | None,
+    defaults: TeamUtmDefaults,
+) -> None:
+    email_utm_defaults.release_edited_keys(actions, stored_actions, stored_draft, defaults)
+
+
 def plan_flow_utm_update(
     actions: list[Any], draft: dict[str, Any] | None, defaults: TeamUtmDefaults, enable_where_off: bool
 ) -> FlowUtmUpdate | None:

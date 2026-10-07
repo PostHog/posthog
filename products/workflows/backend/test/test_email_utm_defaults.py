@@ -9,6 +9,7 @@ from products.workflows.backend.services.email_utm_defaults import (
     UTM_FROM_DEFAULT_KEY,
     UTM_KEYS,
     apply_defaults_to_email_config,
+    release_edited_keys,
     seed_new_email_actions,
 )
 
@@ -98,3 +99,51 @@ class TestEmailUtmDefaults(SimpleTestCase):
             "utm_campaign": "{{ person.properties.plan }}",
         }
         assert configs["new_with_values"][UTM_FROM_DEFAULT_KEY] == ["utm_medium", "utm_campaign", "utm_content"]
+
+    @parameterized.expand(
+        [
+            (
+                "an edited value stops following the default",
+                {"utm_source": "newsletter"},
+                None,
+                {"utm_params": {"utm_source": "partner"}, UTM_FROM_DEFAULT_KEY: list(UTM_KEYS)},
+                ["utm_medium", "utm_campaign", "utm_content"],
+            ),
+            (
+                "a step only the staged draft has is compared with the draft",
+                None,
+                {"utm_source": "newsletter"},
+                {"utm_params": {"utm_source": "partner"}, UTM_FROM_DEFAULT_KEY: list(UTM_KEYS)},
+                ["utm_medium", "utm_campaign", "utm_content"],
+            ),
+            (
+                "a value changed to the team default keeps following it",
+                {"utm_source": "partner"},
+                None,
+                {"utm_params": {"utm_source": "newsletter"}, UTM_FROM_DEFAULT_KEY: list(UTM_KEYS)},
+                list(UTM_KEYS),
+            ),
+            (
+                "an unchanged step from before team defaults gets no marker",
+                {"utm_source": "old"},
+                None,
+                {"utm_params": {"utm_source": "old"}},
+                None,
+            ),
+        ]
+    )
+    def test_release_edited_keys(
+        self,
+        _name: str,
+        live_params: dict[str, str] | None,
+        draft_params: dict[str, str] | None,
+        submitted_config: dict[str, Any],
+        expected_marker: list[str] | None,
+    ) -> None:
+        stored_actions = [_email("email_1", utm_params=live_params)] if live_params is not None else []
+        stored_draft = {"actions": [_email("email_1", utm_params=draft_params)]} if draft_params is not None else None
+        actions = [_email("email_1", **submitted_config)]
+
+        release_edited_keys(actions, stored_actions, stored_draft, DEFAULTS)
+
+        assert actions[0]["config"].get(UTM_FROM_DEFAULT_KEY) == expected_marker
