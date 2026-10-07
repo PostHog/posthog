@@ -12,8 +12,11 @@ import {
     urlForNewWorkflowWithTrigger,
 } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
 
+// pinned: reported as the click event's source, so renaming it splits the entry point's history
+const SOURCE = 'survey'
+
 // Keep in sync with the survey trigger in the workflow editor, which only recognizes this exact shape.
-export function surveyFollowUpTrigger(surveyId: string): WorkflowTriggerConfig {
+function surveyFollowUpTrigger(surveyId: string): WorkflowTriggerConfig {
     return {
         type: 'event',
         filters: {
@@ -30,7 +33,7 @@ export function SurveyFollowUpWorkflowButton({ surveyId }: { surveyId: string })
             menuItem
             tooltip="Open a new workflow that runs each time someone responds to this survey"
             onClick={() => {
-                captureMessageAudienceClicked('survey', 'workflow')
+                captureMessageAudienceClicked(SOURCE, 'workflow')
                 router.actions.push(urlForNewWorkflowWithTrigger(surveyFollowUpTrigger(surveyId)))
             }}
             data-attr="survey-start-follow-up-workflow"
