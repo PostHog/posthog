@@ -79,6 +79,7 @@ import {
 } from '../Nodes/notebookNodeContent'
 import type { NotebookDependencyGraph, NotebookFrameNodeSummary, SqlV2NodeSummary } from '../Nodes/notebookNodeContent'
 import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
+import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
 import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '../types'
 import type { NotebookListItemType, NotebookVariableApi } from '../types'
 import { updateContentHeading } from '../utils'
@@ -568,6 +569,9 @@ export interface notebookLogicActions {
     selectComment: (itemContextId: string) => {
         itemContextId: string
     }
+    selectScratchpadInPanelIfSelected: () => {
+        value: true
+    }
     setAccessDeniedToNotebook: () => {
         value: true
     }
@@ -834,6 +838,7 @@ export const notebookLogic = kea<notebookLogicType>([
         openShareModal: true,
         closeShareModal: true,
         setAccessDeniedToNotebook: true,
+        selectScratchpadInPanelIfSelected: true,
     }),
     reducers(({ props }) => ({
         isShareModalOpen: [
@@ -2088,6 +2093,9 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.processPendingMarkdownStreamEvents()
         },
         loadNotebookSuccess: ({ notebook }) => {
+            if (!notebook) {
+                actions.selectScratchpadInPanelIfSelected()
+            }
             if (
                 notebook &&
                 isMarkdownNotebookContent(notebook.content) &&
@@ -2115,7 +2123,21 @@ export const notebookLogic = kea<notebookLogicType>([
             }
         },
         loadNotebookFailure: () => {
+            if (values.accessDeniedToNotebook) {
+                actions.selectScratchpadInPanelIfSelected()
+            }
             actions.processPendingMarkdownStreamEvents()
+        },
+        selectScratchpadInPanelIfSelected: () => {
+            // The panel persists its selection, so a deleted or other-project notebook would dead-end on "not found"
+            const panelLogic = notebookPanelLogic.findMounted()
+            if (
+                values.mode === 'notebook' &&
+                props.shortId !== SCRATCHPAD_NOTEBOOK.short_id &&
+                panelLogic?.values.selectedNotebook === props.shortId
+            ) {
+                panelLogic.actions.selectNotebook(SCRATCHPAD_NOTEBOOK.short_id, { silent: true })
+            }
         },
 
         // Only a successful run carries the executed document; failed and interrupted runs pass
