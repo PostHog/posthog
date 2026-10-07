@@ -103,6 +103,33 @@ class TestSelectChanged:
         assert changed == [("a", {"plan_tier": "new"})]
         assert new_hashes["a"] == pps.bundle_hash({"plan_tier": "new"})
 
+    def test_repeated_distinct_ids_do_not_rescan_the_changed_set(self):
+        comparisons = 0
+
+        class CountingId(str):
+            __hash__ = str.__hash__
+
+            def __eq__(self, other: object) -> bool:
+                nonlocal comparisons
+                comparisons += 1
+                return str.__eq__(self, other)
+
+            def __ne__(self, other: object) -> bool:
+                nonlocal comparisons
+                comparisons += 1
+                return str.__ne__(self, other)
+
+        distinct = 500
+        first_pass = [(CountingId(f"id-{i}"), {"plan_tier": "old"}) for i in range(distinct)]
+        second_pass = [(CountingId(f"id-{i}"), {"plan_tier": "new"}) for i in range(distinct)]
+
+        changed, new_hashes = pps.select_changed(first_pass + second_pass, {})
+
+        assert dict(changed) == {f"id-{i}": {"plan_tier": "new"} for i in range(distinct)}
+        assert len(changed) == distinct
+        assert new_hashes["id-0"] == pps.bundle_hash({"plan_tier": "new"})
+        assert comparisons < 20 * distinct
+
 
 class TestRunOrchestration:
     """Orchestration control flow with all I/O boundaries (S3, personhog, Kafka, DB) mocked."""
