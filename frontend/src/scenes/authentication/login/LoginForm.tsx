@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconCheckCircle } from '@posthog/icons'
@@ -32,6 +32,7 @@ import { urls } from 'scenes/urls'
 import { LoginMethod, Region, SSOProvider } from '~/types'
 
 import { loginLogic } from './loginLogic'
+import { RecentLogins } from './RecentLogins'
 import { SessionRiskBanner } from './SessionRiskBanner'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
@@ -131,6 +132,7 @@ export function LoginForm(): JSX.Element {
     const isCodeSent = codeVerificationRequired
     const lastLoginMethod = useLastLoginMethod()
     const greeting = loginGreeting(lastLoginMethod !== null)
+    const passwordInputRef = useRef<HTMLInputElement>(null)
     const prevEmail = usePrevious(login.email)
 
     useEffect(() => {
@@ -365,6 +367,7 @@ export function LoginForm(): JSX.Element {
                                         className="ph-ignore-input"
                                         data-attr="password"
                                         type="password"
+                                        inputRef={passwordInputRef}
                                         placeholder="••••••••••"
                                         autoComplete="current-password"
                                         value={value ?? ''}
@@ -410,25 +413,13 @@ export function LoginForm(): JSX.Element {
                             </LemonButton>
                         )}
                         {precheckResponse.sso_enforcement && (
-                            <SSOEnforcedLoginButton
-                                provider={precheckResponse.sso_enforcement}
-                                email={login.email}
-                                isLastUsed={lastLoginMethod === precheckResponse.sso_enforcement}
-                            />
+                            <SSOEnforcedLoginButton provider={precheckResponse.sso_enforcement} email={login.email} />
                         )}
                         {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
-                            <SSOEnforcedLoginButton
-                                provider="saml"
-                                email={login.email}
-                                isLastUsed={lastLoginMethod === 'saml'}
-                            />
+                            <SSOEnforcedLoginButton provider="saml" email={login.email} />
                         )}
                         {precheckResponse.oidc_available && !precheckResponse.sso_enforcement && (
-                            <SSOEnforcedLoginButton
-                                provider="oidc"
-                                email={login.email}
-                                isLastUsed={lastLoginMethod === 'oidc'}
-                            />
+                            <SSOEnforcedLoginButton provider="oidc" email={login.email} />
                         )}
                     </Form>
                 )}
@@ -441,13 +432,21 @@ export function LoginForm(): JSX.Element {
                             topDivider
                             caption={isPasswordLoginUnavailable ? 'Log in with' : 'Or log in with'}
                             captionLocation="top"
-                            lastUsedProvider={lastLoginMethod}
                             restrictToProviders={restrictToProviders}
                             // Once we know the account's methods, only offer a passkey if it actually has
                             // one — otherwise this is the same dead button we're removing.
                             showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
                         />
                     )}
+                {!isCodeSent && (
+                    <RecentLogins
+                        onSelect={({ method }) => {
+                            if (!method || method === 'password') {
+                                passwordInputRef.current?.focus()
+                            }
+                        }}
+                    />
+                )}
             </AuthSceneCard>
         </AuthScene>
     )

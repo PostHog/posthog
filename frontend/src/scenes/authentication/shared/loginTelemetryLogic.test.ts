@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import { login2FALogic } from 'scenes/authentication/login-2fa/login2FALogic'
 import { loginLogic } from 'scenes/authentication/login/loginLogic'
+import { recentLoginsLogic } from 'scenes/authentication/login/recentLoginsLogic'
 import { passwordResetLogic } from 'scenes/authentication/password-reset/passwordResetLogic'
 import { LISTENED_ACTIONS, loginTelemetryLogic } from 'scenes/authentication/shared/loginTelemetryLogic'
 
@@ -33,6 +34,8 @@ const LISTENED_ACTION_SOURCES: Record<keyof typeof LISTENED_ACTIONS, () => strin
     codeVerificationFailure: () => loginLogic.actionTypes.submitCodeVerificationFailure,
     twoFactorError: () => login2FALogic.actionTypes.setGeneralError,
     resetRequested: () => passwordResetLogic.actionTypes.submitRequestPasswordResetSuccess,
+    recentLoginSelected: () => recentLoginsLogic.actionTypes.selectRecentLogin,
+    recentLoginRemoved: () => recentLoginsLogic.actionTypes.removeRecentLogin,
 }
 
 describe('loginTelemetryLogic', () => {
@@ -168,13 +171,16 @@ describe('loginTelemetryLogic', () => {
         (key) => {
             const twoFA = login2FALogic()
             const reset = passwordResetLogic()
+            const recentLogins = recentLoginsLogic()
             twoFA.mount()
             reset.mount()
+            recentLogins.mount()
 
             expect(LISTENED_ACTIONS[key]).toBe(LISTENED_ACTION_SOURCES[key]())
 
             twoFA.unmount()
             reset.unmount()
+            recentLogins.unmount()
         }
     )
 
@@ -189,6 +195,7 @@ describe('loginTelemetryLogic', () => {
         expect(loginLogic.findMounted()).toBeNull()
         expect(login2FALogic.findMounted()).toBeNull()
         expect(passwordResetLogic.findMounted()).toBeNull()
+        expect(recentLoginsLogic.findMounted()).toBeNull()
 
         // afterEach unmounts both logics, so restore the one the test took down
         login = loginLogic()

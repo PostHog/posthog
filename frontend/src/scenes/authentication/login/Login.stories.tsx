@@ -8,6 +8,9 @@ import {
 import type { Meta, StoryFn } from '@storybook/react'
 import { useEffect } from 'react'
 
+import { dayjs } from 'lib/dayjs'
+import { RECENT_LOGINS_STORAGE_KEY, RecentLogin } from 'scenes/authentication/shared/recentLogins'
+
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
@@ -27,7 +30,18 @@ type StoryArgs = {
     pendingOAuthConnection: boolean
     arrivedFromWebsite: boolean
     hasLoggedInBefore: boolean
+    hasRecentLogins: boolean
 }
+
+const RECENT_LOGINS_FIXTURE: RecentLogin[] = [
+    { email: 'ada@example.com', method: 'saml', lastUsedAt: dayjs().subtract(2, 'hour').toISOString() },
+    {
+        email: 'ada.lovelace@example.org',
+        method: 'google-oauth2',
+        lastUsedAt: dayjs().subtract(3, 'day').toISOString(),
+    },
+    { email: 'ada+test@example.com', method: 'password', lastUsedAt: dayjs().subtract(2, 'month').toISOString() },
+]
 
 const meta: Meta<StoryArgs> = {
     title: 'Scenes-Other/Login',
@@ -56,6 +70,7 @@ const meta: Meta<StoryArgs> = {
         pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
         arrivedFromWebsite: { control: 'boolean', name: 'Arrived from posthog.com' },
         hasLoggedInBefore: { control: 'boolean', name: 'Has logged in before' },
+        hasRecentLogins: { control: 'boolean', name: 'Has recent logins' },
     },
     args: {
         cloud: true,
@@ -69,6 +84,7 @@ const meta: Meta<StoryArgs> = {
         pendingOAuthConnection: false,
         arrivedFromWebsite: false,
         hasLoggedInBefore: true,
+        hasRecentLogins: false,
     },
 }
 export default meta
@@ -85,12 +101,14 @@ const Template: StoryFn<StoryArgs> = ({
     pendingOAuthConnection,
     arrivedFromWebsite,
     hasLoggedInBefore,
+    hasRecentLogins,
 }) => {
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
     // Set synchronously: the scene reads the cookie while it mounts during this same render.
     setPendingOAuthConnectionCookie(pendingOAuthConnection ? PENDING_OAUTH_CONNECTION_FIXTURE : null)
     setDocumentReferrer(arrivedFromWebsite ? WEBSITE_REFERRER : '')
     setLastLoginMethodCookie(hasLoggedInBefore ? 'password' : null)
+    window.localStorage.setItem(RECENT_LOGINS_STORAGE_KEY, JSON.stringify(hasRecentLogins ? RECENT_LOGINS_FIXTURE : []))
 
     useStorybookMocks({
         get: {
@@ -137,7 +155,7 @@ const Template: StoryFn<StoryArgs> = ({
         }
     }, [generalError])
 
-    return <Login key={String(hasLoggedInBefore)} />
+    return <Login key={`${hasLoggedInBefore}-${hasRecentLogins}`} />
 }
 
 export const Default: StoryFn<StoryArgs> = Template.bind({})
@@ -171,3 +189,6 @@ ArrivedFromWebsite.args = { arrivedFromWebsite: true }
 export const FirstLoginOnThisBrowser: StoryFn<StoryArgs> = Template.bind({})
 FirstLoginOnThisBrowser.storyName = 'First login on this browser'
 FirstLoginOnThisBrowser.args = { hasLoggedInBefore: false }
+
+export const RecentLogins: StoryFn<StoryArgs> = Template.bind({})
+RecentLogins.args = { hasRecentLogins: true }

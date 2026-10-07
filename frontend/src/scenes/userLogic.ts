@@ -11,6 +11,7 @@ import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/s
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { clearSession, isOAuthMode, setOAuthContextIds } from 'lib/oauth/oauthClient'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { recordRecentLogin } from 'scenes/authentication/shared/recentLogins'
 import { clearPendingVerificationEmail } from 'scenes/authentication/shared/verificationCode'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -691,6 +692,8 @@ export const userLogic = kea<userLogicType>([
         },
         loadUserSuccess: ({ user }) => {
             if (user && user.uuid) {
+                recordRecentLogin(user)
+
                 // OAuth mode has no server-rendered app context, so seed the current ids from the
                 // freshly loaded remote user. This makes them available synchronously before the first
                 // project-scoped URL is built, avoiding "Project ID is not known." (and the sibling
