@@ -12,6 +12,7 @@ import {
 } from '~/common/persons/metrics'
 import { canTrimProperty } from '~/common/persons/person-property-utils'
 import { PersonUpdate, toInternalPerson } from '~/common/persons/person-update-batch'
+import { COOKIELESS_SENTINEL_VALUE } from '~/common/persons/person-utils'
 import { CreatePersonResult, MoveDistinctIdsResult, PersonPropertiesSize } from '~/common/utils/db/db'
 import {
     moveDistinctIdsCountHistogram,
@@ -2445,37 +2446,12 @@ export class PostgresPersonRepository
         targetPersonID: InternalPerson['id'],
         tx?: TransactionClient
     ): Promise<void> {
-        // When personIDs change, update places depending on a person_id foreign key
-
-        await this.postgres.query(
-            tx ?? PostgresUse.PERSONS_WRITE,
-            // Do two high level things in a single round-trip to the DB.
-            //
-            // 1. Update cohorts.
-            // 2. Update (delete+insert) feature flags.
-            //
-            // NOTE: Every override is unique for a team-personID-featureFlag combo. In case we run
-            // into a conflict we would ideally use the override from most recent personId used, so
-            // the user experience is consistent, however that's tricky to figure out this also
-            // happens rarely, so we're just going to do the performance optimal thing i.e. do
-            // nothing on conflicts, so we keep using the value that the person merged into had
-            `WITH cohort_update AS (
-                UPDATE posthog_cohortpeople
-                SET person_id = $1
-                WHERE person_id = $2
-                RETURNING person_id
-            ),
-            deletions AS (
-                DELETE FROM posthog_featureflaghashkeyoverride
-                WHERE team_id = $3 AND person_id = $2
-                RETURNING team_id, person_id, feature_flag_key, hash_key
-            )
-            INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-                SELECT team_id, $1, feature_flag_key, hash_key
-                FROM deletions
-                ON CONFLICT DO NOTHING`,
-            [targetPersonID, sourcePersonID, teamID],
-            'updateCohortAndFeatureFlagsPeople'
+        await this.moveCohortsAndFeatureFlags(
+            teamID,
+            [sourcePersonID],
+            targetPersonID,
+            'updateCohortAndFeatureFlagsPeople',
+            tx
         )
     }
 
@@ -2489,10 +2465,28 @@ export class PostgresPersonRepository
             return
         }
 
-        // Multi-source variant of updateCohortsAndFeatureFlagsForMerge — same
-        // two operations, one round-trip for all folded source persons.
+        await this.moveCohortsAndFeatureFlags(
+            teamID,
+            sourcePersonIDs,
+            targetPersonID,
+            'updateCohortAndFeatureFlagsPeopleBatch',
+            tx
+        )
+    }
+
+    private async moveCohortsAndFeatureFlags(
+        teamID: Team['id'],
+        sourcePersonIDs: InternalPerson['id'][],
+        targetPersonID: InternalPerson['id'],
+        queryTag: string,
+        tx?: TransactionClient
+    ): Promise<void> {
         await this.postgres.query(
             tx ?? PostgresUse.PERSONS_WRITE,
+            // On a conflict the target's override wins, because the most recent person's override is hard
+            // to determine. The cookieless sentinel is not a real key and never wins. Postgres rejects an
+            // ON CONFLICT DO UPDATE statement that changes the same row twice, so DISTINCT ON keeps one
+            // row per flag.
             `WITH cohort_update AS (
                 UPDATE posthog_cohortpeople
                 SET person_id = $1
@@ -2505,11 +2499,14 @@ export class PostgresPersonRepository
                 RETURNING team_id, person_id, feature_flag_key, hash_key
             )
             INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-                SELECT team_id, $1, feature_flag_key, hash_key
+                SELECT DISTINCT ON (feature_flag_key) team_id, $1, feature_flag_key, hash_key
                 FROM deletions
-                ON CONFLICT DO NOTHING`,
-            [targetPersonID, sourcePersonIDs, teamID],
-            'updateCohortAndFeatureFlagsPeopleBatch'
+                WHERE hash_key <> $4
+                ON CONFLICT (team_id, person_id, feature_flag_key) DO UPDATE
+                    SET hash_key = EXCLUDED.hash_key
+                    WHERE posthog_featureflaghashkeyoverride.hash_key = $4`,
+            [targetPersonID, sourcePersonIDs, teamID, COOKIELESS_SENTINEL_VALUE],
+            queryTag
         )
     }
 

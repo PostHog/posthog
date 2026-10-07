@@ -37,7 +37,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use common_sqlx_macros::{mirrored_query, mirrored_query_as, mirrored_query_scalar};
 use futures::stream::{self, StreamExt};
-use personhog_common::persons::person_uuid;
+use personhog_common::persons::{person_uuid, COOKIELESS_SENTINEL_VALUE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tonic::{Code, Status};
@@ -1760,7 +1760,8 @@ async fn move_cohort_membership(
 }
 
 /// Hash-key overrides move target-wins: the target's existing override
-/// for a flag beats any source's.
+/// for a flag beats any source's. The cookieless sentinel is not a real
+/// key and never wins.
 async fn move_hash_key_overrides(
     tx: &mut Tx<'_>,
     tables: &IdentityTables,
@@ -1768,6 +1769,8 @@ async fn move_hash_key_overrides(
     sources: &[i64],
     target: i64,
 ) -> Result<(), SagaError> {
+    // Postgres rejects an ON CONFLICT DO UPDATE statement that changes the
+    // same row twice, so DISTINCT ON keeps one row per flag.
     let move_sql = format!(
         r#"
         WITH removed AS (
@@ -1776,8 +1779,12 @@ async fn move_hash_key_overrides(
             RETURNING feature_flag_key, hash_key
         )
         INSERT INTO {override_table} (team_id, person_id, feature_flag_key, hash_key)
-        SELECT $1, $3, feature_flag_key, hash_key FROM removed
-        ON CONFLICT (team_id, person_id, feature_flag_key) DO NOTHING
+        SELECT DISTINCT ON (feature_flag_key) $1, $3, feature_flag_key, hash_key
+        FROM removed
+        WHERE hash_key <> $4
+        ON CONFLICT (team_id, person_id, feature_flag_key) DO UPDATE
+            SET hash_key = EXCLUDED.hash_key
+            WHERE {override_table}.hash_key = $4
         "#,
         override_table = tables.ff_hash_key_override,
     );
@@ -1785,6 +1792,7 @@ async fn move_hash_key_overrides(
         .bind(team_id)
         .bind(sources)
         .bind(target)
+        .bind(COOKIELESS_SENTINEL_VALUE)
         .execute(&mut **tx)
         .await?;
     Ok(())
