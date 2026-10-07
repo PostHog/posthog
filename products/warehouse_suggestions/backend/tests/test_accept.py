@@ -21,7 +21,8 @@ from products.warehouse_suggestions.backend.facade.contracts import (
 from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion
 
-from .test_suggestions import ingest_one, make_draft
+from .test_api import ingest_surfaced
+from .test_suggestions import make_draft
 
 FLAG = "products.warehouse_suggestions.backend.presentation.views.is_warehouse_suggestions_enabled"
 DAY_SECONDS = 24 * 60 * 60
@@ -66,7 +67,7 @@ class TestAcceptSuggestion(APIBaseTest):
 
     def _suggest(self, kind: WarehouseSuggestionKind) -> WarehouseSuggestion:
         draft = make_draft(fingerprint=f"{kind}:orders", subject_id=self.view.id)
-        return ingest_one(self.team.id, replace(draft, kind=kind, payload=PAYLOADS[kind]))
+        return ingest_surfaced(self.team.id, replace(draft, kind=kind, payload=PAYLOADS[kind]))
 
     def _accept(self, suggestion_id: UUID, body: dict | None = None) -> dict:
         response = self.client.post(f"{self.url}/{suggestion_id}/accept/", body or {})
