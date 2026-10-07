@@ -69,6 +69,7 @@ Failures are handled at chunk granularity: the store splits each batch into chun
 - **Data** (constraint violation, invalid input): fall back to per-row inserts for the failed chunks' rows, isolating the bad records. Per-row upserts run with bounded concurrency (`ROW_FALLBACK_CONCURRENCY`). Successful chunks are not re-executed.
 - **Non-transient row failure** (constraint violation, unbindable field): an invariant violation — the leader admitted a record Postgres cannot apply, so admission has a gap. The flush halts via `signal_failure` without committing; Kafka redelivers after restart, and the alarm stands until the gap is fixed. Skipping is never an option: it would permanently diverge PG from the cache and changelog.
 - **Chunk task panic**: a spawned chunk task that panics cannot hand its persons back — the task's stack is unwound. The writer treats this as a fatal error, signals failure, and exits. Because Kafka offsets are committed only on full batch success, redelivery after restart recovers the records; the panic payload is captured in the error message for diagnosis.
+- **Slow flush**: the lane keeps its liveness heartbeat ticking while a flush runs, for about five minutes, so a slow database does not restart the pod. A longer flush reports the lane unhealthy, and the pod restarts unless the flush completes before the next health check.
 
 User-facing size warnings are emitted by the leader at admission time, where the client also gets synchronous feedback; the writer emits none.
 
