@@ -7,6 +7,7 @@ contract check watches this file to decide whether they must retest.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import field
 from datetime import datetime
@@ -25,6 +26,10 @@ if TYPE_CHECKING:
 class SourceKind(StrEnum):
     LOGS = "logs"
     INSIGHT = "insight"
+
+
+# Source state crosses Temporal on every check input and outcome, inside the payload bound.
+MAX_SOURCE_STATE_BYTES: Final[int] = 4096
 
 
 @frozen
@@ -125,6 +130,7 @@ class PlatformAlertCheckInput:
     last_notified_at: datetime | None
     snooze_until: datetime | None
     firing_started_at: datetime | None = None
+    source_state: dict[str, Any] = field(default_factory=dict)
 
     @property
     def filters(self) -> dict[str, Any]:
@@ -242,6 +248,20 @@ class PlatformAlertOutcome:
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
     # evaluation that cannot succeed.
     disable: bool = False
+    # When set, the configuration is next due at this time instead of after the platform's own
+    # advance. A time at or before the batch cutoff is ignored, because a recorded check must
+    # leave its configuration due later.
+    next_check_at: datetime | None = None
+    # Replaces the configuration's stored source state, which the next check reads back. None
+    # leaves it unchanged. The platform stores it and never reads its contents. Editing the
+    # configuration does not clear it, so a source keys what it stores, such as by date.
+    source_state: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if self.next_check_at is not None and self.next_check_at.tzinfo is None:
+            raise ValueError("next_check_at must be timezone-aware")
+        if self.source_state is not None and len(json.dumps(self.source_state)) > MAX_SOURCE_STATE_BYTES:
+            raise ValueError(f"source_state exceeds {MAX_SOURCE_STATE_BYTES} bytes")
 
 
 @frozen

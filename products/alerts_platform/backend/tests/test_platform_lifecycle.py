@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -100,6 +101,38 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         with team_scope(self.team.id):
             self.configuration.refresh_from_db()
         assert self.configuration.next_check_at == after_first
+
+    @parameterized.expand(
+        [
+            ("after_the_cutoff", timedelta(minutes=15), True),
+            ("at_the_cutoff", timedelta(0), False),
+            ("before_the_cutoff", timedelta(minutes=-5), False),
+        ]
+    )
+    def test_a_source_named_due_time_is_used_only_when_after_the_cutoff(
+        self, _name: str, offset: timedelta, used: bool
+    ) -> None:
+        named = self.cutoff + offset
+        self._record(next_check_at=named)
+
+        with team_scope(self.team.id):
+            self.configuration.refresh_from_db()
+        assert self.configuration.next_check_at is not None
+        assert (self.configuration.next_check_at == named) is used
+        assert self.configuration.next_check_at > self.cutoff
+
+    def test_source_state_is_handed_back_and_kept_until_an_outcome_replaces_it(self) -> None:
+        retry_at = self.cutoff + timedelta(minutes=15)
+        self._record(next_check_at=retry_at, source_state={"evaluation_date": "2026-09-15", "attempt": 1})
+
+        (check,) = due_checks(self.team.id, SourceKind.LOGS.value, retry_at.isoformat(), retry_at)
+        assert check.source_state == {"evaluation_date": "2026-09-15", "attempt": 1}
+
+        self._record(at=retry_at)
+
+        with team_scope(self.team.id):
+            self.configuration.refresh_from_db()
+        assert self.configuration.source_state == {"evaluation_date": "2026-09-15", "attempt": 1}
 
     def test_a_recorded_check_lands_in_history_with_what_it_measured(self) -> None:
         self._record(
@@ -225,9 +258,38 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         with team_scope(self.team.id):
             PlatformAlert.objects.filter(configuration__legacy_configuration_id=legacy_id).update(state="firing")
+            PlatformAlertConfiguration.objects.filter(legacy_configuration_id=legacy_id).update(
+                source_state={"attempt": 3}
+            )
         with time_machine.travel(self.cutoff, tick=False):
             copy(snoozed_until)
         assert snooze_seen_by_check() == ("firing", snoozed_until)
+        (recopied,) = [
+            c
+            for c in due_checks(self.team.id, SourceKind.LOGS.value, self.slot, self.cutoff)
+            if c.legacy_configuration_id == legacy_id
+        ]
+        assert recopied.source_state == {"attempt": 3}
 
         copy(None)
         assert snooze_seen_by_check() == ("firing", None)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"next_check_at": datetime(2026, 9, 16, 10, 15)},
+        {"source_state": {"blob": "x" * 5000}},
+    ],
+)
+def test_an_outcome_rejects_a_naive_due_time_or_oversized_source_state(overrides: dict[str, Any]) -> None:
+    with pytest.raises(ValueError):
+        PlatformAlertOutcome(
+            configuration_id=uuid4(),
+            evaluation_key="slot:2026-09-16T10:00:00+00:00",
+            kind=AlertEventKind.CHECK,
+            new_state="not_firing",
+            notified=False,
+            consecutive_failures=0,
+            **overrides,
+        )

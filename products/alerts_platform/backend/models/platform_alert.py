@@ -73,6 +73,9 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
 
     next_check_at = models.DateTimeField(null=True, blank=True)
     consecutive_failures = models.PositiveIntegerField(default=0, db_default=0)
+    # Runtime state a source keeps between checks, such as an attempt count. Only an outcome
+    # writes it, so neither the backfill nor any API may set it.
+    source_state = models.JSONField(default=dict, db_default={})
 
     # The row this was copied from, so a backfill can run twice and so a comparison can line
     # an evaluation up against the one the source's own stack produced.

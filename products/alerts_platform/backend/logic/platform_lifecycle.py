@@ -19,7 +19,11 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertUpsert,
     source_condition,
 )
-from products.alerts_platform.backend.facade.platform_metrics import increment_history_rows_dropped, safe_record
+from products.alerts_platform.backend.facade.platform_metrics import (
+    increment_history_rows_dropped,
+    increment_next_check_at_ignored,
+    safe_record,
+)
 from products.alerts_platform.backend.facade.scheduling import (
     advance_schedule,
     compute_shard_offset_seconds,
@@ -134,6 +138,7 @@ def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> Platfo
         last_notified_at=alert.last_notified_at if alert else None,
         snooze_until=alert.snooze_until if alert else None,
         firing_started_at=alert.firing_started_at if alert else None,
+        source_state=c.source_state,
     )
 
 
@@ -208,6 +213,28 @@ def _record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None
         safe_record(increment_history_rows_dropped, len(rows) - recorded)
 
 
+def _next_due(
+    configuration: PlatformAlertConfiguration, outcome: PlatformAlertOutcome, now: datetime, team_timezone: str
+) -> datetime:
+    # A named time at or before the cutoff would leave the check due, so a replay of this batch
+    # would record it again. Only a source bug produces one, so it gets the platform's advance.
+    named = outcome.next_check_at
+    if named is not None:
+        if named > now:
+            return named
+        safe_record(increment_next_check_at_ignored, configuration.source_kind)
+    return advance_schedule(
+        current_next_check_at=configuration.next_check_at,
+        check_interval_minutes=configuration.check_interval_minutes,
+        recurrence_unit=configuration.recurrence_unit,
+        anchor_time=configuration.anchor_time,
+        tz_name=team_timezone,
+        now=now,
+        configuration_id=configuration.id,
+        shard_offset_seconds=compute_shard_offset_seconds(configuration.id, configuration.check_interval_minutes),
+    )
+
+
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
     """Persists a batch's decisions and advances each configuration's schedule.
 
@@ -259,24 +286,15 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
             configuration.consecutive_failures = outcome.consecutive_failures
             if outcome.disable:
                 configuration.enabled = False
-            configuration.next_check_at = advance_schedule(
-                current_next_check_at=configuration.next_check_at,
-                check_interval_minutes=configuration.check_interval_minutes,
-                recurrence_unit=configuration.recurrence_unit,
-                anchor_time=configuration.anchor_time,
-                tz_name=team_timezone,
-                now=now,
-                configuration_id=configuration.id,
-                shard_offset_seconds=compute_shard_offset_seconds(
-                    configuration.id, configuration.check_interval_minutes
-                ),
-            )
+            if outcome.source_state is not None:
+                configuration.source_state = outcome.source_state
+            configuration.next_check_at = _next_due(configuration, outcome, now, team_timezone)
 
         PlatformAlert.objects.for_team(team_id).bulk_update(
             list(alerts.values()), ["state", "last_notified_at", "firing_started_at"]
         )
         PlatformAlertConfiguration.objects.for_team(team_id).bulk_update(
-            configurations, ["consecutive_failures", "enabled", "next_check_at"]
+            configurations, ["consecutive_failures", "enabled", "next_check_at", "source_state"]
         )
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.

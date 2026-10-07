@@ -93,6 +93,13 @@ def increment_state_transition(source: str, from_state: str, to_state: str) -> N
     ).add(1)
 
 
+def increment_next_check_at_ignored(source: str) -> None:
+    get_metric_meter({"source": source}).create_counter(
+        "alerts_platform_next_check_at_ignored_total",
+        "Source-named due times ignored because they were not after the batch cutoff",
+    ).add(1)
+
+
 def increment_deliveries_deferred(source: str, count: int) -> None:
     """Deliveries a batch decided on but could not carry inside its activity payload bound.
 
