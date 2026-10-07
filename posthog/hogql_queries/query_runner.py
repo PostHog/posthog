@@ -151,11 +151,10 @@ from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, las
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
+    app_org_concurrency_slot,
     get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
-    get_app_org_rate_limiter,
     get_materialized_endpoints_rate_limiter,
-    get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
 from posthog.constants import AvailableFeature
@@ -2294,15 +2293,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         limit=concurrency_limit,
                     )
                 )
-                limiter_stack.enter_context(
-                    get_app_org_rate_limiter().run(
-                        org_id=self.team.organization_id,
-                        task_id=self.query_id,
-                        team_id=self.team.id,
-                        is_api=is_api_key_access,
-                        limit=get_org_app_concurrency_limit(self.team.organization_id),
-                    )
-                )
+                limiter_stack.enter_context(app_org_concurrency_slot(self.team, task_id=self.query_id))
                 limiter_stack.enter_context(
                     get_app_dashboard_queries_rate_limiter().run(
                         org_id=self.team.organization_id,
