@@ -179,7 +179,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         legacy_id = uuid4()
         quiet_hours = {"blocked_windows": [{"start": "15:00", "end": "15:34"}]}
 
-        self._copy(legacy_id, schedule_restriction=quiet_hours)
+        self._copy(legacy_id, schedule_restriction=quiet_hours, next_check_at=self.cutoff - timedelta(minutes=1))
         if disabled_between:
             disable_configurations(SourceKind.LOGS, team_id=self.team.id)
         self._copy(
