@@ -25,6 +25,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
+from products.warehouse_sources.backend.facade.contracts import UnsupportedSyncTypeError
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
     MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION,
@@ -61,10 +62,6 @@ UNSUPPORTED_SYNC_TYPE_DISABLED_MESSAGE = (
     "This table has a sync type that PostHog does not support. Choose a sync type in the table's "
     "sync settings, then re-enable the sync."
 )
-
-
-class UnsupportedSyncTypeError(ValueError):
-    """The stored `sync_type` is not a mode PostHog can run. A retry reads the same value."""
 
 
 def resolve_sync_type(value: str | None) -> ExternalDataSchemaSyncType | None:

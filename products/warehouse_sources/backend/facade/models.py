@@ -12,6 +12,7 @@ at ``django.setup()``.
 Consumers that only read fields should use ``facade.api`` (contracts) instead.
 """
 
+from products.warehouse_sources.backend.facade.contracts import UnsupportedSyncTypeError
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 from products.warehouse_sources.backend.models.credential import (
@@ -36,7 +37,6 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     SCHEDULED_FULL_REFRESH_SYNC_TYPES,
     SCHEMA_RESOURCE_ID_METADATA_KEY,
     ExternalDataSchema,
-    UnsupportedSyncTypeError,
     auto_enable_new_schemas,
     get_all_schemas_for_source_id,
     get_schemas_for_direct_reconciliation,
