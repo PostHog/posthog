@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 class SourceKind(StrEnum):
     LOGS = "logs"
     INSIGHT = "insight"
+    BILLING = "billing"
 
 
 # Source state crosses Temporal on every check input and outcome, inside the payload bound.

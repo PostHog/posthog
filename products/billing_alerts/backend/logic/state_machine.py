@@ -73,6 +73,7 @@ __all__ = [
     "commit_billing_alert_check",
     "evaluate_alert_check",
     "evaluate_alert_failure",
+    "evaluation_retry_delay",
     "next_billing_alert_check_at",
     "prepare_billing_alert_check",
     "prepare_billing_alert_failure",
@@ -438,10 +439,14 @@ def prepare_billing_alert_check(
     return _prepare_billing_alert_evaluation(alert, claim, evaluation, source=source, now=now)
 
 
+def evaluation_retry_delay(attempt_count: int) -> timedelta:
+    """How long an evaluation date waits after this many attempts before its next one."""
+    multiplier = 2 ** max(attempt_count - 1, 0)
+    return min(EVALUATION_RETRY_BASE * multiplier, EVALUATION_RETRY_MAX)
+
+
 def _retry_at(claim: BillingAlertEvaluationClaim, now: datetime) -> datetime:
-    multiplier = 2 ** max(claim.attempt_count - 1, 0)
-    delay = min(EVALUATION_RETRY_BASE * multiplier, EVALUATION_RETRY_MAX)
-    return now + delay
+    return now + evaluation_retry_delay(claim.attempt_count)
 
 
 def _validate_claim(

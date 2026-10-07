@@ -76,7 +76,11 @@ def _parse_period_boundary(value: Any) -> datetime | None:
 def expected_evaluation_date(alert: BillingAlertConfiguration, now: datetime | None = None) -> date:
     if alert.pending_evaluation_date is not None:
         return alert.pending_evaluation_date
-    now = now or timezone.now()
+    return delayed_evaluation_date(alert, now or timezone.now())
+
+
+def delayed_evaluation_date(alert: BillingAlertConfiguration, now: datetime) -> date:
+    """The last full day the delay lets an alert evaluate, ignoring any pending date."""
     delayed_now = now.astimezone(UTC) - timedelta(hours=alert.evaluation_delay_hours)
     return delayed_now.date() - timedelta(days=1)
 
@@ -108,10 +112,11 @@ def evaluate_billing_alert(
     now: datetime | None = None,
     billing_response: dict[str, Any] | None = None,
     query_duration_ms: int | None = None,
+    evaluation_date: date | None = None,
 ) -> BillingAlertEvaluation:
     _validate_supported_metric(alert)
     now = now or timezone.now()
-    expected_date = expected_evaluation_date(alert, now)
+    expected_date = evaluation_date or expected_evaluation_date(alert, now)
 
     if billing_response is None:
         organization = Organization.objects.get(id=alert.organization_id)
