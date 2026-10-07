@@ -89,6 +89,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # RoleMembership has a direct user FK but org is indirect (via role), so the
         # script sees it as user_scoped while semgrep correctly has it in org_scoped.
         "RoleMembership",
+        # IdJagIdentity has a direct user FK but org is indirect (via its IdentityProviderConfig),
+        # and it is only read from a verified ID-JAG, never by a user-supplied ID.
+        "IdJagIdentity",
         # --- Ingestion/event tables (not queried by user-supplied ID) ---
         "CoreEvent",
         "ElementGroup",

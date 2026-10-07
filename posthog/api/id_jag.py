@@ -26,7 +26,7 @@ from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.jwt import ASYMMETRIC_SIGNING_ALGORITHMS
-from posthog.models.id_jag_identity import IdJagIdentity
+from posthog.models.id_jag_identity import IDENTITY_FIELD_MAX_LENGTH, IdJagIdentity
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.user import User
 from posthog.scopes import get_oauth_scopes_supported
@@ -438,21 +438,24 @@ def _resolve_user(verified_id_jag: _VerifiedIdJag) -> User:
     claims = verified_id_jag.claims
     tenant = str(claims.get("tenant") or "")
     subject = str(claims["sub"])
+    if len(tenant) > IDENTITY_FIELD_MAX_LENGTH or len(subject) > IDENTITY_FIELD_MAX_LENGTH:
+        raise InvalidGrantError(f"ID-JAG sub and tenant must be at most {IDENTITY_FIELD_MAX_LENGTH} characters")
     # Membership must match the configuration's organization because the access token is scoped to it.
     members = User.objects.filter(is_active=True, organization_membership__organization_id=idp_config.organization_id)
     not_a_member = InvalidGrantError(
         "ID-JAG sub is not an active member of the organization that owns this IdP configuration"
     )
 
-    identity = (
+    linked_user_id = (
         IdJagIdentity.objects.filter(identity_provider_config=idp_config, tenant=tenant, subject=subject)
-        .select_related("user")
+        .values_list("user_id", flat=True)
         .first()
     )
-    if identity is not None:
-        if not members.filter(pk=identity.user_id).exists():
+    if linked_user_id is not None:
+        linked_user = members.filter(pk=linked_user_id).first()
+        if linked_user is None:
             raise not_a_member
-        return identity.user
+        return linked_user
 
     verified_email = claims.get("email") or subject
     user = EmailLookupHandler.users_matching_email(verified_email, members).first()
@@ -484,7 +487,6 @@ def _construct_access_token_payload(
     provider_name: str,
     granted_scopes: list[str],
     organization_id: Any,
-    verified_email: str,
     user: User,
 ) -> dict[str, Any]:
     """
@@ -499,7 +501,7 @@ def _construct_access_token_payload(
     payload: dict[str, Any] = {
         "iss": _get_site_url(),
         "sub": _get_sub(provider_name, cast(str, claims.get("sub"))),
-        "email": verified_email,
+        "email": user.email,
         "user_uuid": str(user.uuid),
         "aud": claims.get("resource"),
         "client_id": claims.get("client_id"),
@@ -577,13 +579,11 @@ def issue_access_token(
 
     granted = _get_scopes(sanitized_id_jag_scopes, parsed_requested)
     user = _resolve_user(verified_id_jag)
-    verified_email = verified_id_jag.claims.get("email") or verified_id_jag.claims.get("sub") or ""
     payload = _construct_access_token_payload(
         verified_id_jag.claims,
         verified_id_jag.provider_name,
         granted,
         organization.pk,
-        cast(str, verified_email),
         user,
     )
     token = _construct_access_token(payload)

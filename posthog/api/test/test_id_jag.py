@@ -121,7 +121,7 @@ def _make_id_jag(
         "client_id": client_id,
         "resource": resource,
         "scope": scope,
-        "jti": f"id-jag-{now}",
+        "jti": f"id-jag-{uuid.uuid4()}",
         "iat": iat if iat is not None else now,
         "nbf": nbf if nbf is not None else now,
         "exp": now + exp_seconds,
@@ -197,6 +197,15 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         if content_type.startswith("application/x-www-form-urlencoded"):
             return self.client.post("/oauth/token", data=urlencode(data), content_type=content_type)
         return self.client.post("/oauth/token", data=data, content_type=content_type)
+
+    def _exchange(self, *, sub: str, email: str = "user@example.com", tenant: str = "") -> Any:
+        extra_claims: dict[str, Any] = {"email": email, **({"tenant": tenant} if tenant else {})}
+        assertion = _make_id_jag(sub=sub, extra_claims=extra_claims)
+        return self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+
+    def _link_subject(self, sub: str) -> None:
+        resp = self._exchange(sub=sub)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
 
     @parameterized.expand(
         [
@@ -542,16 +551,12 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(resp.json()["error"], "invalid_grant")
         self.assertIn("active member", resp.json()["error_description"])
 
-    def _exchange(self, **id_jag_kwargs: Any) -> Any:
-        return self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": _make_id_jag(**id_jag_kwargs)})
-
     def test_linked_subject_keeps_resolving_after_the_email_changes(self) -> None:
-        first = self._exchange(sub="idp-user-1", extra_claims={"email": "user@example.com", "jti": "first"})
-        self.assertEqual(first.status_code, status.HTTP_200_OK, first.json())
+        self._link_subject("idp-user-1")
 
         self.user.email = "renamed@example.com"
         self.user.save()
-        second = self._exchange(sub="idp-user-1", extra_claims={"email": "new-name@example.com", "jti": "second"})
+        second = self._exchange(sub="idp-user-1", email="new-name@example.com")
 
         self.assertEqual(second.status_code, status.HTTP_200_OK, second.json())
         claims = jwt.decode(
@@ -564,33 +569,32 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(claims["user_uuid"], str(self.user.uuid))
 
     @parameterized.expand(
-        [
-            ("different_subject", {"sub": "idp-user-2"}),
-            ("same_subject_other_tenant", {"sub": "idp-user-1", "extra_claims": {"tenant": "other"}}),
-        ]
+        [("different_subject", "idp-user-2", ""), ("same_subject_other_tenant", "idp-user-1", "other")]
     )
-    def test_rejects_email_match_for_member_linked_to_another_identity(
-        self, _name: str, second_identity: dict[str, Any]
-    ) -> None:
-        first = self._exchange(sub="idp-user-1", extra_claims={"email": "user@example.com", "jti": "first"})
-        self.assertEqual(first.status_code, status.HTTP_200_OK, first.json())
+    def test_rejects_email_match_for_member_linked_to_another_identity(self, _name: str, sub: str, tenant: str) -> None:
+        self._link_subject("idp-user-1")
 
-        extra_claims = {"email": "user@example.com", "jti": "second", **second_identity.pop("extra_claims", {})}
-        second = self._exchange(**second_identity, extra_claims=extra_claims)
+        second = self._exchange(sub=sub, tenant=tenant)
 
         self.assertEqual(second.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(second.json()["error"], "invalid_grant")
         self.assertEqual(IdJagIdentity.objects.filter(user=self.user).count(), 1)
 
     def test_rejects_linked_subject_whose_user_left_the_organization(self) -> None:
-        first = self._exchange(sub="idp-user-1", extra_claims={"email": "user@example.com", "jti": "first"})
-        self.assertEqual(first.status_code, status.HTTP_200_OK, first.json())
+        self._link_subject("idp-user-1")
 
         OrganizationMembership.objects.filter(user=self.user, organization=self.organization).delete()
-        second = self._exchange(sub="idp-user-1", extra_claims={"email": "user@example.com", "jti": "second"})
+        second = self._exchange(sub="idp-user-1")
 
         self.assertEqual(second.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("active member", second.json()["error_description"])
+
+    @parameterized.expand([("sub", "s" * 256, ""), ("tenant", "idp-user-1", "t" * 256)])
+    def test_rejects_identity_claims_longer_than_stored(self, _name: str, sub: str, tenant: str) -> None:
+        resp = self._exchange(sub=sub, tenant=tenant)
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_grant")
 
     def test_rejects_signature_from_unrecognized_key(self) -> None:
         other_pem = generate_rsa_private_key_pem()
@@ -1164,11 +1168,6 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
             "exp": now + 300,
         }
         token = jwt.encode(payload, _AS_PRIVATE_KEY_PEM, algorithm="RS256", headers={"typ": ACCESS_TOKEN_TYPE})
-        resp = self._call_authenticated(token)
-        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_malformed_sub_claim_rejected(self) -> None:
-        token = self._mint_access_token(sub="no_provider_prefix", scope="user:read")
         resp = self._call_authenticated(token)
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 

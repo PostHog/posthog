@@ -637,20 +637,6 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
         return token
 
     @classmethod
-    def _parse_sub(cls, sub: str) -> Optional[tuple[str, str]]:
-        """`{providerName}:{userSub}` per spec — split into (provider, user_sub).
-
-        Returns None if the format is malformed (no colon, empty provider, empty
-        user_sub) so the caller can fail with `invalid_token`.
-        """
-        if not sub or ":" not in sub:
-            return None
-        provider, user_sub = sub.split(":", 1)
-        if not provider or not user_sub:
-            return None
-        return provider, user_sub
-
-    @classmethod
     def _is_id_jag_token(cls, token: str) -> bool:
         # Personal/OAuth API key prefixes are reserved for those auth backends.
         if token.startswith((PERSONAL_API_KEY_PREFIX, OAUTH_ACCESS_TOKEN_PREFIX, SECRET_API_TOKEN_PREFIX)):
@@ -726,12 +712,6 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
 
             if claims is None:
                 raise AuthenticationFailed(detail="ID-JAG access token is invalid.")
-
-            sub_parts = self._parse_sub(str(claims.get("sub", "")))
-            if sub_parts is None:
-                raise AuthenticationFailed(
-                    detail="ID-JAG access token sub claim is not in the expected '{provider}:{userSub}' format."
-                )
 
             organization_id = str(claims.get("org_id") or "")
             if not organization_id:
