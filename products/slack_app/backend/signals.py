@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import Any
 
 from django.db import transaction
@@ -19,6 +20,45 @@ def invalidate_repo_list_on_user_github_change(sender: Any, instance: UserIntegr
     from products.slack_app.backend.api import _invalidate_user_repo_list_cache  # noqa: PLC0415
 
     _invalidate_user_repo_list_cache(instance.user_id)
+
+
+@receiver(post_save, sender=UserIntegration)
+def record_onboarding_github_step_on_personal_connect(
+    sender: Any, instance: UserIntegration, created: bool, **kwargs
+) -> None:
+    """A user's first personal GitHub can finish the GitHub step of the Slack installs they made."""
+    if not created or instance.kind != UserIntegration.IntegrationKind.GITHUB:
+        return
+    if (
+        UserIntegration.objects.filter(user_id=instance.user_id, kind=UserIntegration.IntegrationKind.GITHUB).count()
+        > 1
+    ):
+        return
+    _dispatch_onboarding_github_step(
+        Integration.objects.filter(kind="slack", created_by_id=instance.user_id).values_list("id", flat=True)
+    )
+
+
+@receiver(post_save, sender=Integration)
+def record_onboarding_github_step_on_team_connect(sender: Any, instance: Integration, created: bool, **kwargs) -> None:
+    """A team's first GitHub installation can finish the GitHub step of the team's Slack installs."""
+    if not created or instance.kind != "github":
+        return
+    if Integration.objects.filter(team_id=instance.team_id, kind="github").count() > 1:
+        return
+    _dispatch_onboarding_github_step(
+        Integration.objects.filter(kind="slack", team_id=instance.team_id).values_list("id", flat=True)
+    )
+
+
+def _dispatch_onboarding_github_step(slack_integration_ids: Iterable[int]) -> None:
+    integration_ids = list(slack_integration_ids)
+    if not integration_ids:
+        return
+    # Deferred: tasks.py imports api.py, which a module-level import would load from AppConfig.ready().
+    from products.slack_app.backend.tasks import record_onboarding_github_step  # noqa: PLC0415
+
+    transaction.on_commit(lambda: record_onboarding_github_step.delay(integration_ids=integration_ids))
 
 
 @receiver(post_save, sender=Integration)

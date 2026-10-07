@@ -98,13 +98,14 @@ class TestOnboarding:
         assert onboarding.send_onboarding_dm(self.integration, "U1") is True
         assert client.chat_postMessage.call_count == 2
 
+    @patch("products.slack_app.backend.onboarding.capture_slack_event")
     @patch("products.slack_app.backend.onboarding._has_enabled_source", return_value=True)
     @patch("products.slack_app.backend.onboarding._has_team_github", return_value=True)
     @patch("products.slack_app.backend.onboarding._has_personal_github", return_value=True)
     @patch("products.slack_app.backend.onboarding._resolve_onboarding_user", return_value=7)
     @patch("posthog.models.integration.slack.WebClient")
     def test_send_onboarding_dm_posts_even_when_all_steps_satisfied(
-        self, mock_webclient_class, _resolve, _personal, _team, _responder
+        self, mock_webclient_class, _resolve, _personal, _team, _responder, mock_capture
     ):
         # Install-only delivery: always post, even if every step is already done (shown as '✅').
         client = self._client(mock_webclient_class)
@@ -114,6 +115,13 @@ class TestOnboarding:
 
         assert onboarding.send_onboarding_dm(self.integration, "U1") is True
         client.chat_postMessage.assert_called_once()
+        steps_done_before_dm = {
+            c.kwargs["step"]
+            for c in mock_capture.call_args_list
+            if c.args[1] == onboarding.EVENT_STEP_COMPLETED and c.kwargs["completed_before_dm"]
+        }
+        assert steps_done_before_dm == {str(step) for step in onboarding.OnboardingStep}
+        assert onboarding.EVENT_COMPLETED in [c.args[1] for c in mock_capture.call_args_list]
 
     @patch("products.slack_app.backend.onboarding._resolve_onboarding_user", return_value=123)
     @patch("products.slack_app.backend.onboarding._has_personal_github", return_value=False)
@@ -258,8 +266,40 @@ class TestOnboarding:
         _resolve.return_value = self.user.id
 
         onboarding.apply_sources_selection(self.integration, "U1", ["error_tracking"])
+        onboarding.apply_sources_selection(self.integration, "U1", ["error_tracking"])
 
-        assert onboarding.EVENT_SOURCE_ENABLED in [c.args[1] for c in mock_capture.call_args_list]
+        events = [(c.args[1], c.kwargs.get("step")) for c in mock_capture.call_args_list]
+        assert events.count((onboarding.EVENT_SOURCE_ENABLED, None)) == 2
+        assert events.count((onboarding.EVENT_STEP_COMPLETED, "sources")) == 1
+
+    @pytest.mark.parametrize("github_done,expected_events", [(True, 2), (False, 0)])
+    @patch("products.slack_app.backend.onboarding.capture_slack_event")
+    @patch("products.slack_app.backend.onboarding._onboarding_status")
+    def test_record_github_step_completes_onboarding_when_github_was_last(
+        self, mock_status, mock_capture, github_done, expected_events
+    ):
+        self.integration.config = {"scope": "channels:manage,chat:write", "authed_user": {"id": "U_INSTALL"}}
+        status = dict.fromkeys(onboarding.OnboardingStep, True)
+        status[onboarding.OnboardingStep.GITHUB] = github_done
+        mock_status.return_value = (7, status)
+
+        onboarding.record_github_step(self.integration)
+
+        assert [(c.args[1], c.kwargs.get("step")) for c in mock_capture.call_args_list] == [
+            (onboarding.EVENT_STEP_COMPLETED, "github"),
+            (onboarding.EVENT_COMPLETED, None),
+        ][:expected_events]
+        assert all(c.kwargs["slack_user_id"] == "U_INSTALL" for c in mock_capture.call_args_list)
+
+    @patch("products.slack_app.backend.tasks.record_onboarding_github_step.delay")
+    def test_only_a_teams_first_github_connection_records_the_step(
+        self, mock_delay, django_capture_on_commit_callbacks
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            Integration.objects.create(team=self.team, kind="github", integration_id="install-1", config={})
+            Integration.objects.create(team=self.team, kind="github", integration_id="install-2", config={})
+
+        mock_delay.assert_called_once_with(integration_ids=[self.integration.id])
 
     @patch("products.slack_app.backend.onboarding.capture_slack_event")
     @patch("products.slack_app.backend.onboarding._onboarding_status")
