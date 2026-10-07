@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
-import { PostHogApiError } from '@/lib/errors'
+import { PostHogApiError, PostHogTransportError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
@@ -987,6 +987,51 @@ describe('StateManager', () => {
 
             const second = await stateManager.getOrFetchGroupTypes(projectId)
             expect(second).toEqual(mockGroupTypes)
+        })
+
+        const socketError = (code: string): Error => Object.assign(new Error(`connect ${code}`), { code })
+        const fetchFailed = (cause: unknown): TypeError => Object.assign(new TypeError('fetch failed'), { cause })
+
+        it.each([
+            ['a fetch failed TypeError with a timeout cause', fetchFailed(socketError('ETIMEDOUT')), false],
+            [
+                'a fetch failed TypeError after every address timed out',
+                fetchFailed(Object.assign(new AggregateError([socketError('ETIMEDOUT')]), { code: 'ETIMEDOUT' })),
+                false,
+            ],
+            ['a DNS failure', fetchFailed(socketError('ENOTFOUND')), false],
+            [
+                'a transport error that wraps a refused connection',
+                new PostHogTransportError({
+                    url: 'https://us.posthog.com/api/projects/42/groups_types/',
+                    method: 'GET',
+                    attempts: 3,
+                    retryable: true,
+                    cause: fetchFailed(socketError('ECONNREFUSED')),
+                }),
+                false,
+            ],
+            [
+                'an HTTP 500',
+                new PostHogApiError({
+                    status: 500,
+                    statusText: 'Internal Server Error',
+                    body: '',
+                    url: 'https://us.posthog.com/api/projects/42/groups_types/',
+                    method: 'GET',
+                }),
+                true,
+            ],
+        ])('returns the cached value on %s (reported: %s)', async (_name, error, reported) => {
+            const mockGroupTypes = [{ group_type: 'company', group_type_index: 0 }]
+            await cache.set(`groupTypes:${projectId}` as any, mockGroupTypes as any)
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+            ;(stateManager as any)._api = { getGroupTypes: vi.fn().mockRejectedValue(error) }
+
+            const result = await stateManager.getOrFetchGroupTypes(projectId)
+
+            expect(result).toEqual(mockGroupTypes)
+            expect(reportSpy).toHaveBeenCalledTimes(reported ? 1 : 0)
         })
     })
 

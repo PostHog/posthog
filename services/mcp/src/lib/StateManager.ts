@@ -20,6 +20,16 @@ const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 // its scopes are read again after this delay. Reconnecting the client does not help: same token.
 export const API_KEY_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 const GATEWAY_TOOLS_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
+const CONNECTION_FAILURE_CODES = new Set([
+    'ETIMEDOUT',
+    'ENETUNREACH',
+    'EHOSTUNREACH',
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'ENOTFOUND',
+    'EAI_AGAIN',
+    'UND_ERR_CONNECT_TIMEOUT',
+])
 
 // Entitlement-related fields shared by both org shapes we read from — the
 // standalone org endpoint and the org embedded in `/api/users/@me/`.
@@ -243,6 +253,26 @@ export class StateManager {
         return error instanceof PostHogApiError && error.status === 404
     }
 
+    /**
+     * A fetch that cannot reach PostHog (timeout, unreachable network, DNS
+     * failure) comes from the client's own network, not from a service bug.
+     * Node puts the socket error code on the `cause` of the `fetch failed`
+     * TypeError, and `PostHogTransportError` wraps that TypeError again.
+     */
+    private _isConnectionFailure(error: unknown, depth: number = 0): boolean {
+        if (depth > 3 || !(error instanceof Error)) {
+            return false
+        }
+        const code = (error as Error & { code?: unknown }).code
+        if (typeof code === 'string' && CONNECTION_FAILURE_CODES.has(code)) {
+            return true
+        }
+        if (error instanceof AggregateError && error.errors.some((e) => this._isConnectionFailure(e, depth + 1))) {
+            return true
+        }
+        return this._isConnectionFailure((error as Error & { cause?: unknown }).cause, depth + 1)
+    }
+
     private async _reportException(
         error: unknown,
         context: string,
@@ -366,7 +396,9 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            this._reportException(error, `get_or_fetch_${opts.name}`)
+            if (!this._isConnectionFailure(error)) {
+                this._reportException(error, `get_or_fetch_${opts.name}`)
+            }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }
