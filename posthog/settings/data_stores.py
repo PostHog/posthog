@@ -1,8 +1,11 @@
 import os
+import re
 import json
+import zlib
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -27,6 +30,23 @@ SQLCOMMENTER_WITH_FRAMEWORK: bool = False
 # For partitioned table: set PERSON_TABLE_NAME=posthog_person_new
 # Note: posthog_person_new must exist (created by Rust sqlx migrations)
 PERSON_TABLE_NAME: str = os.getenv("PERSON_TABLE_NAME", "posthog_person")
+
+# Isolated test runs
+# POSTHOG_TEST_ISOLATION=<name> gives a test run its own Postgres, persons, ClickHouse and Redis databases, so test
+# runs in several worktrees can share one dev stack. posthog/test/isolated_databases.py clones the Postgres databases
+# from the shared test databases on the first run. `hogli test --isolated` sets the variable, and
+# `hogli test:isolated:clean` drops the databases. The name has no separators, so "_persons" or "_gw0" after it can
+# never complete another name.
+TEST_ISOLATION_NAME: str | None = (
+    (os.getenv("POSTHOG_TEST_ISOLATION") or None) if TEST and not IN_EVAL_TESTING else None
+)
+TEST_ISOLATION_SUFFIX = ""
+if TEST_ISOLATION_NAME is not None:
+    if not re.fullmatch(r"[a-z0-9]{1,16}", TEST_ISOLATION_NAME):
+        raise ImproperlyConfigured(
+            f"POSTHOG_TEST_ISOLATION must be 1 to 16 lowercase letters or digits, not {TEST_ISOLATION_NAME!r}"
+        )
+    TEST_ISOLATION_SUFFIX = f"_iso_{TEST_ISOLATION_NAME}"
 
 
 # Database
@@ -117,6 +137,9 @@ else:
     raise ImproperlyConfigured(
         f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
     )
+
+if TEST_ISOLATION_SUFFIX:
+    DATABASES["default"].setdefault("TEST", {})["NAME"] = f"test_{DATABASES['default']['NAME']}{TEST_ISOLATION_SUFFIX}"
 
 DATABASE_ROUTERS: list[str] = []
 
@@ -243,6 +266,9 @@ for route in product_routes:
         # transaction see uncommitted data.
         DATABASES[writer_alias]["TEST"] = {"MIGRATE": False, "DEPENDENCIES": []}
         DATABASES[reader_alias]["TEST"] = {"MIRROR": writer_alias}
+        if TEST_ISOLATION_SUFFIX:
+            # posthog/conftest.py repoints the alias at "<default test database>_<db>" after setup, so create that name.
+            DATABASES[writer_alias]["TEST"]["NAME"] = f"test_{DATABASES['default']['NAME']}{TEST_ISOLATION_SUFFIX}_{db}"
 
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES[writer_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
@@ -295,7 +321,7 @@ if IN_EVAL_TESTING:
     # AI evals get their own database, as they fully reuse the DB between runs and only reset once per day, for perf
     SUFFIX = "_ai_eval" + XDIST_SUFFIX
 elif TEST:
-    SUFFIX = "_test" + XDIST_SUFFIX
+    SUFFIX = "_test" + TEST_ISOLATION_SUFFIX + XDIST_SUFFIX
 
 # Clickhouse Settings
 CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
@@ -489,6 +515,17 @@ if TEST or DEBUG or IS_COLLECT_STATIC:
         REDIS_URL = os.getenv("REDIS_URL", "redis://redis7/")
 else:
     REDIS_URL = os.getenv("REDIS_URL", "")
+
+TEST_ISOLATION_REDIS_DB: int | None = None
+if TEST_ISOLATION_NAME is not None:
+    # The dev stack and shared test runs use database 0, so isolated runs spread over 1-15. Two names can share a
+    # database, which matters little: posthog.redis hands tests an in-process fakeredis and the test caches are
+    # LocMem, so only a test that opens its own Redis connection reaches this database.
+    TEST_ISOLATION_REDIS_DB = 1 + (zlib.crc32(TEST_ISOLATION_NAME.encode()) + (PYTEST_XDIST_WORKER_NUM or 0)) % 15
+    _redis_url = urlsplit(REDIS_URL)
+    REDIS_URL = f"{_redis_url.scheme}://{_redis_url.netloc}/{TEST_ISOLATION_REDIS_DB}" + (
+        f"?{_redis_url.query}" if _redis_url.query else ""
+    )
 
 if not REDIS_URL and get_from_env("POSTHOG_REDIS_HOST", ""):
     REDIS_URL = "redis://:{}@{}:{}/".format(

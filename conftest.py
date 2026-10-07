@@ -11,7 +11,10 @@ from pathlib import Path
 import pytest
 import time_machine
 
+from django.conf import settings
+
 from posthog.test.events_schema_prune import EventsSchemaPruner
+from posthog.test.isolated_databases import IsolatedRunConflict, isolated_run
 from posthog.test.junit import set_junit_report_location
 
 # The default MIXED mode reads naive strings as local time, so a non-UTC machine would
@@ -296,6 +299,33 @@ def pytest_cmdline_main(config: pytest.Config) -> Generator[None, int | pytest.E
             sys.stderr.flush()
         os._exit(0)
     return exit_code
+
+
+@pytest.fixture(scope="session")
+def django_db_modify_db_settings(
+    request: pytest.FixtureRequest,
+    django_db_modify_db_settings_parallel_suffix: None,
+    django_db_keepdb: bool,
+    django_db_createdb: bool,
+) -> Generator[None]:
+    # Overrides pytest-django's fixture, which runs after the xdist suffix is applied and before any test
+    # database is created. It lives here rather than in posthog/conftest.py because ee/ and products/
+    # star-import that file, and a second copy of a session fixture would run a second time.
+    if settings.TEST_ISOLATION_NAME is None:
+        yield
+        return
+
+    capture = request.config.pluginmanager.getplugin("capturemanager")
+
+    def announce(message: str) -> None:
+        with capture.global_and_fixture_disabled() if capture else contextlib.nullcontext():
+            sys.stderr.write(f"[isolated test run] {message}\n")
+
+    try:
+        with isolated_run(announce, clone=django_db_keepdb and not django_db_createdb):
+            yield
+    except IsolatedRunConflict as error:
+        pytest.exit(reason=str(error), returncode=pytest.ExitCode.USAGE_ERROR)
 
 
 @pytest.fixture(autouse=True)

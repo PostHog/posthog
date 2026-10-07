@@ -256,6 +256,8 @@ def _get_calling_frame_locals() -> dict[str, Any]:
 
 
 def clean_varying_query_parts(query, replace_all_numbers):
+    # Isolated and xdist runs suffix the ClickHouse database name, and the snapshots hold the plain one.
+    query = query.replace(settings.CLICKHOUSE_TEST_DB, "posthog_test")
     # :TRICKY: team_id changes every test, avoid it messing with snapshots.
     if replace_all_numbers:
         query = re.sub(r"(\"?) = \d+", r"\1 = 99999", query)
@@ -1871,6 +1873,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
     @staticmethod
     def generalize_sql(value: str):
         """Makes sure we can snapshot our SQL - swaps concrete team_id for placeholder."""
+        value = value.replace(settings.CLICKHOUSE_TEST_DB, "posthog_test")
         if "team_id," in value:
             return re.sub(r"team_id, \d+", "team_id, <TEAM_ID>", value)
         return value

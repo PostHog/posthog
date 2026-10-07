@@ -20,6 +20,7 @@ from hogli.command_types import _run
 from hogli.manifest import REPO_ROOT
 
 from hogli_commands.change_detection import changed_files
+from hogli_commands.isolated_test_runs import ISOLATION_ENV_VAR, isolation_name
 
 _PYTHON_ROOTS = ("posthog/", "ee/", "products/", "common/", "dags/", "tools/", "services/")
 
@@ -831,16 +832,42 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
         "  hogli test cli/src/utils/throttler.rs                             # single Rust module\n"
         "  hogli test cli/src/utils/throttler.rs::test_create                # single Rust test\n"
         "  hogli test --changed                                              # tests for branch changes\n"
-        "  hogli test products/alerts/                                       # all tests in a product"
+        "  hogli test products/alerts/                                       # all tests in a product\n"
+        "  hogli test posthog/api/test/test_user.py --isolated               # own databases, safe beside other runs"
     ),
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
 @click.argument("file_path", required=False, type=click.Path())
 @click.option("--changed", is_flag=True, help="Run tests changed on this branch, plus tests for changed source files")
 @click.option("--watch", is_flag=True, help="Re-run tests on file changes (Python and Jest)")
+@click.option(
+    "--isolated",
+    "isolation",
+    is_flag=False,
+    flag_value="",
+    default=None,
+    metavar="[NAME]",
+    help=(
+        "Run Python tests against their own Postgres, ClickHouse and Redis databases, so they can run "
+        "beside test runs in other worktrees. The first run clones the shared test databases; later runs "
+        "reuse the clone. NAME defaults to this worktree's directory name. Two runs with the same name at "
+        "once are not safe, so the second one stops. `hogli test:isolated:clean` drops the databases."
+    ),
+)
 @click.pass_context
-def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch: bool) -> None:
+def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch: bool, isolation: str | None) -> None:
     """Auto-detect test type and run the correct test runner."""
+    if isolation is not None:
+        if isolation and file_path is None and not changed:
+            raise click.UsageError(
+                f"--isolated took {isolation!r} as its name, so no test path is left. "
+                "Put the path first (hogli test <path> --isolated) or write --isolated=<name>."
+            )
+        name = isolation_name(isolation or REPO_ROOT.name)
+        click.secho(f"Isolated test run: {name}", fg="cyan")
+        # Every runner below inherits the environment, so one variable reaches pytest on every path.
+        os.environ[ISOLATION_ENV_VAR] = name
+
     if changed:
         if file_path:
             raise click.UsageError("Cannot combine --changed with a file path.")

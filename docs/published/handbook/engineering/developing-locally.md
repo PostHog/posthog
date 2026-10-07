@@ -356,6 +356,30 @@ You can also run tests for all files changed on the current branch:
 hogli test --changed
 ```
 
+#### Running backend tests from several worktrees at once
+
+By default every backend test run uses the same Postgres test database (`test_posthog`) and ClickHouse test database (`posthog_test`), so two runs at the same time delete each other's data.
+Add `--isolated` to give a run its own databases:
+
+```bash
+hogli test posthog/api/test/test_user.py --isolated
+```
+
+The name of the isolated set defaults to the worktree directory name, keeping only letters and digits, up to 16 characters.
+To choose the name, write `hogli test <path> --isolated <name>`. Plain `pytest` does the same with `POSTHOG_TEST_ISOLATION=<name>`.
+
+The first run copies `test_posthog` and `test_posthog_persons` with `CREATE DATABASE ... TEMPLATE`, which takes seconds, and then applies only the migrations the copy is missing.
+It also creates the ClickHouse database `posthog_test_iso_<name>`. Later runs reuse all of them.
+Postgres copies a database only while nothing is connected to it, so the first run waits up to five minutes for test runs on the shared database to finish.
+If the shared database is still in use after that, the run builds its database by running every migration, and prints a message saying so.
+
+Two runs with the same name at the same time are not safe, so the second one stops with an error.
+The isolated set also gets its own Redis database number, Kafka topic names and Temporal task queue.
+Object storage and the `test_dagster` database stay shared, so two runs can overwrite each other's files when a test writes to a path that only contains a team ID.
+
+The databases stay after the run, which is what makes the next run fast.
+List them with `hogli test:isolated:clean`, and drop them with `hogli test:isolated:clean <name>` or `hogli test:isolated:clean --all`.
+
 ### End-to-end
 
 For Playwright end-to-end tests, run `hogli test:e2e` (which wraps `bin/e2e-test-runner`). This will spin up a test instance of PostHog and show you the Playwright interface, from which you'll manually choose tests to run. You'll need `uv` installed (the Python package manager), which you can do so with `brew install uv`. Once you're done, terminate the command with Cmd + C.

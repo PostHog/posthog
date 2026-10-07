@@ -20,6 +20,7 @@
   - Single test: `hogli test path/to/test.py::TestClass::test_method`
   - Watch mode: `hogli test path/to/test.py --watch`
   - Changed files only: `hogli test --changed`
+  - Beside test runs in other worktrees: `hogli test <path> --isolated` (own test databases, cloned from the shared ones)
 - Lint:
   - Python:
     - `ruff check . --fix` and `ruff format .`

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import os
 import contextlib
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import click
 from click.testing import CliRunner
 from hogli.cli import cli
+from hogli_commands.isolated_test_runs import ISOLATION_ENV_VAR, isolation_name
 from hogli_commands.test_runner import (
     _batch_find_rs_cfg_test,
     _detect_all,
@@ -578,6 +580,43 @@ class TestCliPassthrough:
             "-k",
             "cache",
         ]
+
+    @pytest.mark.parametrize(
+        "args, expected_name",
+        [
+            (["tools/hogli-commands/hogli_commands/tests/test_commands.py", "--isolated", "Feature-X"], "featurex"),
+            (["tools/hogli-commands/hogli_commands/tests/test_commands.py", "--isolated"], None),
+        ],
+    )
+    @patch("hogli_commands.test_runner._run")
+    def test_isolated_hands_the_name_to_pytest(
+        self, mock_run: MagicMock, monkeypatch, args: list[str], expected_name: str | None
+    ) -> None:
+        monkeypatch.delenv(ISOLATION_ENV_VAR, raising=False)
+        names_seen_by_pytest: list[str | None] = []
+        mock_run.side_effect = lambda *_args, **_kwargs: names_seen_by_pytest.append(os.environ.get(ISOLATION_ENV_VAR))
+
+        result = runner.invoke(cli, ["test", *args])
+
+        assert result.exit_code == 0, result.output
+        assert names_seen_by_pytest == [expected_name or isolation_name(_get_repo_root().name)]
+        assert mock_run.call_args[0][0] == [
+            "pytest",
+            "-s",
+            "tools/hogli-commands/hogli_commands/tests/test_commands.py",
+        ]
+
+    @patch("hogli_commands.test_runner._run")
+    def test_isolated_before_the_path_does_not_swallow_it(self, mock_run: MagicMock, monkeypatch) -> None:
+        monkeypatch.delenv(ISOLATION_ENV_VAR, raising=False)
+
+        result = runner.invoke(
+            cli, ["test", "--isolated", "tools/hogli-commands/hogli_commands/tests/test_commands.py"]
+        )
+
+        assert result.exit_code == 2
+        assert "Put the path first" in result.output
+        mock_run.assert_not_called()
 
 
 def _get_repo_root():

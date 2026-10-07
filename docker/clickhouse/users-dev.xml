@@ -232,7 +232,8 @@
             <grants>
                 <query>GRANT SELECT ON default.*</query>
                 <query>GRANT SELECT ON posthog.*</query>
-                <query>GRANT SELECT ON posthog_test.*</query>
+                <!-- The wildcard also covers the suffixed test databases of xdist workers and isolated test runs. -->
+                <query>GRANT SELECT ON posthog_test*.*</query>
             </grants>
         </dict_reader>
 

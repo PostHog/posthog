@@ -815,6 +815,9 @@ tests:
     test:quarantine:
         click: hogli_commands.quarantine.cli:quarantine
         description: Manage .test_quarantine.json — quarantine flaky tests so they stop blocking CI
+    test:isolated:clean:
+        click: hogli_commands.isolated_test_runs:isolated_clean
+        description: List or drop the test databases that `hogli test --isolated` keeps between runs
     evals:
         cmd: python -m products.posthog_ai.eval_harness.harness
         description: Run evals — sandboxed agent and one-shot suites (extra args pass through, e.g. `sql` or `cli_mcp --provider modal`)
