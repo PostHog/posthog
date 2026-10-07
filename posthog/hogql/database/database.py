@@ -19,6 +19,7 @@ from django.conf import settings
 from django.db.models import Q, prefetch_related_objects
 
 import structlog
+import posthoganalytics
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
 
@@ -1146,8 +1147,35 @@ class Database(BaseModel):
         for name in sorted(node.resolve_all_table_names()):
             self._warehouse_self_managed_table_names.append(name)
 
+    def _count_views_shadowed_by_tables(self, node: TableNode) -> None:
+        warehouse_names = set(self._warehouse_table_names)
+        self_managed_names = set(self._warehouse_self_managed_table_names)
+        if not warehouse_names and not self_managed_names:
+            return
+
+        shadowed: dict[str, int] = {}
+        for name in node.resolve_all_table_names():
+            if name in warehouse_names:
+                shadowed_by = "warehouse_table"
+            elif name in self_managed_names:
+                shadowed_by = "self_managed_table"
+            else:
+                continue
+            shadowed[shadowed_by] = shadowed.get(shadowed_by, 0) + 1
+
+        client = posthoganalytics.default_client
+        if not shadowed or client is None:
+            return
+        try:
+            for shadowed_by, count in shadowed.items():
+                client.metrics.count("hogql.database.views_shadowed", count, attributes={"shadowed_by": shadowed_by})
+        except Exception:
+            logger.warning("hogql_views_shadowed_metric_failed", exc_info=True)
+
     def _add_views(self, node: TableNode):
-        self.tables.merge_with(node)
+        self._count_views_shadowed_by_tables(node)
+        # On a name clash the table added earlier keeps the slot and the view is dropped.
+        self.tables.merge_with(node, table_conflict_mode="ignore")
         for name in sorted(node.resolve_all_table_names()):
             self._view_table_names.append(name)
 

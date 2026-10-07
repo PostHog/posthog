@@ -1,8 +1,11 @@
 from typing import Literal
 
 from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
+
+from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -59,6 +62,35 @@ class TestView(BaseTest):
             enable_select_queries=True,
             database=self.database,
             modifiers=create_default_modifiers_for_team(self.team),
+        )
+
+    @parameterized.expand([("warehouse_table",), ("self_managed_table",)])
+    def test_a_view_shadowed_by_a_table_keeps_the_table_and_is_counted(self, shadowed_by: str):
+        database = Database.create_for(team=self.team)
+        tables = TableNode(
+            children={"aapl_stock_view": TableNode(name="aapl_stock_view", table=create_aapl_stock_s3_table())}
+        )
+        if shadowed_by == "warehouse_table":
+            database._add_warehouse_tables(tables)
+        else:
+            database._add_warehouse_self_managed_tables(tables)
+
+        client = MagicMock()
+        with patch("posthoganalytics.default_client", client):
+            database._add_views(
+                TableNode(
+                    children={
+                        "aapl_stock_view": TableNode(name="aapl_stock_view", table=create_aapl_stock_table_view()),
+                        "aapl_stock_nested_view": TableNode(
+                            name="aapl_stock_nested_view", table=create_nested_aapl_stock_view()
+                        ),
+                    }
+                )
+            )
+
+        assert database.get_table(["aapl_stock_view"]).name == "aapl_stock"
+        client.metrics.count.assert_called_once_with(
+            "hogql.database.views_shadowed", 1, attributes={"shadowed_by": shadowed_by}
         )
 
     def _select(self, query: str, dialect: Literal["clickhouse", "hogql"] = "clickhouse") -> str:
