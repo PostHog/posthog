@@ -29,9 +29,11 @@ import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { alertsToThresholdGoalLines, insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { BIComparisonSummary } from 'products/business_intelligence/frontend/BIComparisonSummary'
 import { getBIChartRecord } from 'products/business_intelligence/frontend/biDrilldown'
 import { biDrilldownLogic } from 'products/business_intelligence/frontend/biDrilldownLogic'
 import { BIDrilldownModal } from 'products/business_intelligence/frontend/BIDrilldownModal'
+import { BIPivotTable } from 'products/business_intelligence/frontend/BIPivotTable'
 import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
 import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
@@ -274,6 +276,30 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
             </div>
         )
+    } else if (
+        query.kind === NodeKind.BIVisualizationNode &&
+        (query.config.chartType === ChartDisplayType.TwoDimensionalHeatmap ||
+            (query.config.compareFilter?.compare &&
+                [ChartDisplayType.ActionsTable, ChartDisplayType.BoldNumber, ChartDisplayType.Metric].includes(
+                    effectiveVisualizationType
+                )))
+    ) {
+        const resultProps = {
+            config: query.config,
+            columns: columns.map((column) => column.name),
+            results: 'results' in response && Array.isArray(response.results) ? response.results : [],
+            chartSettings,
+            onInspect: canDrill ? inspect : undefined,
+        }
+        component =
+            query.config.chartType === ChartDisplayType.TwoDimensionalHeatmap ? (
+                <BIPivotTable {...resultProps} />
+            ) : (
+                <BIComparisonSummary
+                    {...resultProps}
+                    card={effectiveVisualizationType !== ChartDisplayType.ActionsTable}
+                />
+            )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsTable) {
         component = (
             <Table
