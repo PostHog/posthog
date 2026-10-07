@@ -62,7 +62,7 @@ describe('terminal Doom netplay', () => {
             for (const byte of bytes) {
                 const frame = decoder.push(byte)
                 if (frame) {
-                    const payload = [...frame.slice(1)]
+                    const payload = Array.from(frame.subarray(1))
                     guest.push({ peer: frame[0], text: new TextDecoder().decode(frame.slice(1)), bytes: payload })
                 }
             }

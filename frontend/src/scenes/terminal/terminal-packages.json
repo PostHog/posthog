@@ -30,7 +30,7 @@
             "name": "Doom (Freedoom)",
             "version": "0.13.0-3",
             "file": "archives/doom-0.13.0-3-linux-i386.tar.gz",
-            "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/25109d909bf22779c4b16ec01c688048bc152c27",
+            "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/99f6e0a5569d5706f143f96c478a6193d761c454",
             "sha256": "82ae59103d9aec578381541414edbe4998b62a47c7fa39e75acbffe69a3cc003",
             "size": 10553575,
             "archiveSize": 29757440,
