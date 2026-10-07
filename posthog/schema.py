@@ -53,6 +53,7 @@ from posthog.schema_enums import (
     AssistantStickinessDisplayType as AssistantStickinessDisplayType,
     AssistantStringOrBooleanValuePropertyFilterOperator as AssistantStringOrBooleanValuePropertyFilterOperator,
     AssistantTool as AssistantTool,
+    AssistantTrendsDisplayType as AssistantTrendsDisplayType,
     AttributionMode as AttributionMode,
     AutocompleteCompletionItemKind as AutocompleteCompletionItemKind,
     BaseMathType as BaseMathType,
@@ -98,7 +99,6 @@ from posthog.schema_enums import (
     DetailedResultsAggregationType as DetailedResultsAggregationType,
     DetectorType as DetectorType,
     Display as Display,
-    Display1 as Display1,
     DisplayType as DisplayType,
     DistanceFunc as DistanceFunc,
     DomainConnectProviderName as DomainConnectProviderName,
@@ -932,10 +932,6 @@ class AssistantToolCallMessage(BaseModel):
             " through to the frontend."
         ),
     )
-
-
-class AssistantTrendsDisplayType(RootModel[str | Any]):
-    root: str | Any
 
 
 class AssistantUpdateEvent(BaseModel):
@@ -4805,8 +4801,8 @@ class AssistantTrendsFilter(BaseModel):
             " values will have a decimal point."
         ),
     )
-    display: Display | None = Field(
-        default=Display.ACTIONS_LINE_GRAPH,
+    display: AssistantTrendsDisplayType | None = Field(
+        default=AssistantTrendsDisplayType.ACTIONS_LINE_GRAPH,
         description=(
             "Visualization type. Available values: `ActionsLineGraph` - time-series"
             " line chart; most common option, as it shows change over time. Also called"
@@ -8169,7 +8165,7 @@ class SurveyQuestionSchema(BaseModel):
     choices: list[str] | None = None
     description: str | None = None
     descriptionContentType: SurveyQuestionDescriptionContentType | None = None
-    display: Display1 | None = None
+    display: Display | None = None
     hasOpenChoice: bool | None = None
     id: str | None = None
     isNpsQuestion: bool | None = None

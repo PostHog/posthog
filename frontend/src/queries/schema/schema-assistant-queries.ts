@@ -463,10 +463,22 @@ export interface AssistantTrendsBreakdownFilter extends AssistantBreakdownFilter
 }
 
 // Remove deprecated display types.
-export type AssistantTrendsDisplayType = Exclude<
-    TrendsFilterLegacy['display'],
-    'ActionsStackedBar' | 'Auto' | 'TwoDimensionalHeatmap' | 'ScatterPlot'
->
+export type AssistantTrendsDisplayType =
+    | ChartDisplayType.ActionsLineGraph
+    | ChartDisplayType.ActionsBar
+    | ChartDisplayType.ActionsUnstackedBar
+    | ChartDisplayType.ActionsAreaGraph
+    | ChartDisplayType.ActionsLineGraphCumulative
+    | ChartDisplayType.BoldNumber
+    | ChartDisplayType.Metric
+    | ChartDisplayType.ActionsPie
+    | ChartDisplayType.ActionsDonut
+    | ChartDisplayType.ActionsBarValue
+    | ChartDisplayType.ActionsTable
+    | ChartDisplayType.WorldMap
+    | ChartDisplayType.CalendarHeatmap
+    | ChartDisplayType.BoxPlot
+    | ChartDisplayType.SlopeGraph
 
 export interface AssistantTrendsFilter {
     /**
