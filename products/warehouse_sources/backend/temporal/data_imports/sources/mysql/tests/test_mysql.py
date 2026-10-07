@@ -2090,52 +2090,32 @@ class TestRetryOnTransientTabletUnavailable:
         assert operation.call_count == fail_count + 1
         assert [c.args[0] for c in sleep.call_args_list] == expected_sleeps
 
-    def test_retries_vitess_reparent_then_succeeds(self, mocker):
+    @pytest.mark.parametrize(
+        "error",
+        [
+            pymysql.err.OperationalError(
+                1105,
+                "unknown: target: keyspace.-.primary: primary is not serving, "
+                "there may be a reparent operation in progress",
+            ),
+            pymysql.err.OperationalError(
+                2013, "Lost connection to MySQL server during query ([Errno 104] Connection reset by peer)"
+            ),
+            # A vtgate dial timeout to a backend tablet (error 1815) can land on a metadata query
+            # against an already-open connection, not just at connect time — `connect()` succeeding
+            # doesn't retry it, so this wrapper must.
+            pymysql.err.OperationalError(
+                1815,
+                "internal connection error: dial tcp 10.0.0.1:8083: connect: connection timed out, "
+                "after 1 attempts, reqid=csYTzBMNB2hB8111yzcg4A",
+            ),
+            pymysql.err.OperationalError(9001, "Max connect timeout reached while reaching hostgroup 0 after 10000ms"),
+        ],
+        ids=["vitess_reparent", "metadata_query_connection_reset", "vitess_dial_timeout", "proxysql_hostgroup"],
+    )
+    def test_retries_transient_error_then_succeeds(self, mocker, error):
         mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
-        reparent = pymysql.err.OperationalError(
-            1105,
-            "unknown: target: keyspace.-.primary: primary is not serving, "
-            "there may be a reparent operation in progress",
-        )
-        operation = MagicMock(side_effect=[reparent, "ok"])
-
-        assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
-
-        assert operation.call_count == 2
-
-    def test_retries_metadata_query_connection_reset_then_succeeds(self, mocker):
-        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
-        reset = pymysql.err.OperationalError(
-            2013, "Lost connection to MySQL server during query ([Errno 104] Connection reset by peer)"
-        )
-        operation = MagicMock(side_effect=[reset, "ok"])
-
-        assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
-
-        assert operation.call_count == 2
-
-    def test_retries_vitess_dial_timeout_then_succeeds(self, mocker):
-        # A vtgate dial timeout to a backend tablet (error 1815) can land on a metadata query
-        # against an already-open connection, not just at connect time — `connect()` succeeding
-        # doesn't retry it, so this wrapper must.
-        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
-        dial_timeout = pymysql.err.OperationalError(
-            1815,
-            "internal connection error: dial tcp 10.0.0.1:8083: connect: connection timed out, "
-            "after 1 attempts, reqid=csYTzBMNB2hB8111yzcg4A",
-        )
-        operation = MagicMock(side_effect=[dial_timeout, "ok"])
-
-        assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
-
-        assert operation.call_count == 2
-
-    def test_retries_proxysql_hostgroup_unreachable_then_succeeds(self, mocker):
-        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
-        unreachable = pymysql.err.OperationalError(
-            9001, "Max connect timeout reached while reaching hostgroup 0 after 10000ms"
-        )
-        operation = MagicMock(side_effect=[unreachable, "ok"])
+        operation = MagicMock(side_effect=[error, "ok"])
 
         assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
 
