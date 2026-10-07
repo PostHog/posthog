@@ -5907,6 +5907,14 @@ Diffed against: <https://developers.northpass.com/reference/get_v2-courses>
 
 Note: Enumerated every /reference/get_v2-\* route from the ReadMe-hosted reference page (no public OpenAPI file is served). PostHog covers the 6 core objects plus 2 enrollment fan-outs; the learner-activity and assessment halves of the API are entirely absent.
 
+## Notion — gaps
+
+Today (6): `blocks`, `comments`, `databases`, `pages`, `permission_groups`, `users`
+
+Diffed against: <https://developers.notion.com/openapi-adminApi.json>
+
+- [x] `GET /admin/v1/spaces/{space_id}/groups` — workspace permission groups from the Admin API, admin-managed and SCIM-managed (medium). Added as `permission_groups`. It needs an optional organization bot token with the `permission-group:read` scope, which only eligible Enterprise organizations get. The workspace id comes from the integration token's bot user.
+
 ## NpmRegistry — gaps
 
 Today (2): `Downloads`, `Versions`
