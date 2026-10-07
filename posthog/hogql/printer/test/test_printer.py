@@ -6795,6 +6795,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             not_ilike_matches = {d for (d,) in not_ilike_result.results}
             assert not_ilike_matches == not_ilike_expected, "not_ilike " + str(pattern)
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and mat_col:
+                assert not_ilike_result.clickhouse
                 assert mat_col.name not in not_ilike_result.clickhouse
 
     @parameterized.expand(
@@ -6890,6 +6891,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             not_in_matches = {d for (d,) in not_in_result.results}
             assert not_in_matches == not_in_expected, f"NOT IN {in_values}"
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and mat_col:
+                assert not_in_result.clickhouse
                 assert mat_col.name not in not_in_result.clickhouse
 
     @parameterized.expand([("nullable", True), ("non_nullable", False)])
