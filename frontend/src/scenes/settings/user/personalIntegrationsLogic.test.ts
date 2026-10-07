@@ -42,4 +42,33 @@ describe('personalIntegrationsLogic', () => {
         logic.actions.stopPolling()
         expect(logic.cache.disposables.registry.has('poll')).toBe(false)
     })
+
+    it('keeps a connection that needs reconnecting in the list but out of the healthy count', async () => {
+        useMocks({
+            get: {
+                '/api/users/@me/integrations/': () => [
+                    200,
+                    {
+                        results: [
+                            { kind: 'github', installation_id: '1', needs_reauthorization: false },
+                            {
+                                kind: 'github',
+                                installation_id: '2',
+                                needs_reauthorization: true,
+                                needs_reauthorization_at: '2024-01-01T12:00:00Z',
+                            },
+                        ],
+                    },
+                ],
+            },
+        })
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadIntegrationsSuccess'])
+            .toMatchValues({
+                integrations: expect.arrayContaining([expect.objectContaining({ installation_id: '2' })]),
+                healthyIntegrations: [expect.objectContaining({ installation_id: '1' })],
+            })
+    })
 })

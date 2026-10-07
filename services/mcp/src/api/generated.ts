@@ -73859,6 +73859,13 @@ export namespace Schemas {
        * * `connected` - connected
        * * `unavailable` - unavailable */
       installation_status: InstallationStatusEnum;
+      /** True when GitHub rejected the stored credentials and PostHog dropped them. The installation is still on GitHub, but PostHog cannot act as the user until they authorize it again. */
+      needs_reauthorization: boolean;
+      /**
+         * When the stored credentials stopped working, or null while they still work.
+         * @nullable
+         */
+      needs_reauthorization_at: string | null;
       /** When this integration row was created. */
       created_at: string;
     }

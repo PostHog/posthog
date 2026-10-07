@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconGithub, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconGithub, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDialog, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -27,7 +27,8 @@ function reportPersonalIntegrationConnectClicked(kind: string): void {
 }
 
 function GitHubInstallationRow({ integration }: { integration: PersonalGitHubIntegration }): JSX.Element {
-    const { disconnectGitHub } = useActions(personalIntegrationsLogic)
+    const { disconnectGitHub, connectGitHub } = useActions(personalIntegrationsLogic)
+    const { githubConnecting } = useValues(personalIntegrationsLogic)
 
     const installationId = integration.installation_id
     const accountType = integration.account?.type
@@ -39,6 +40,7 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
         logic ?? userGithubIntegrationLogic({ installationId: '' })
     )
     const installationUnavailable = integration.installation_status === 'unavailable'
+    const needsReauthorization = !!integration.needs_reauthorization
 
     const handleDisconnect = (): void => {
         LemonDialog.open({
@@ -75,13 +77,18 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
                 </div>
             </div>
             <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold">{accountName || 'GitHub'}</span>
                     {accountType === 'Organization' ? (
                         <span className="text-xs text-muted bg-surface-secondary px-1.5 py-0.5 rounded">Org</span>
                     ) : (
                         <span className="text-xs text-muted bg-surface-secondary px-1.5 py-0.5 rounded">Personal</span>
                     )}
+                    {needsReauthorization ? (
+                        <LemonTag type="warning" size="small">
+                            Needs reconnecting
+                        </LemonTag>
+                    ) : null}
                 </div>
                 <div className="mt-0.5 text-xs text-secondary">
                     {integration.created_at ? (
@@ -108,6 +115,33 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
                     <LemonBanner type="error" className="mt-2">
                         The PostHog app was removed from GitHub. Disconnect this installation, then connect again if you
                         still need it.
+                    </LemonBanner>
+                ) : null}
+                {needsReauthorization ? (
+                    <LemonBanner
+                        type="warning"
+                        className="mt-2"
+                        alignItems="start"
+                        action={{
+                            children: 'Reconnect',
+                            icon: <IconRefresh />,
+                            onClick: () => {
+                                reportPersonalIntegrationConnectClicked('github')
+                                connectGitHub()
+                            },
+                            loading: githubConnecting,
+                            disabledReason: githubConnecting ? 'Starting GitHub authorization…' : undefined,
+                        }}
+                    >
+                        GitHub stopped accepting this connection
+                        {integration.needs_reauthorization_at ? (
+                            <>
+                                {' '}
+                                <TZLabel time={integration.needs_reauthorization_at} className="align-baseline" />
+                            </>
+                        ) : null}
+                        . Reconnect to let PostHog read your repos and open pull requests as you again. The installation
+                        stays on GitHub, so you keep the same repository access.
                     </LemonBanner>
                 ) : null}
             </div>
@@ -186,7 +220,8 @@ function SlackLinkRow({ integration }: { integration: PersonalSlackIntegration }
 }
 
 export function PersonalGitHubIntegrations(): JSX.Element {
-    const { integrations, integrationsLoading, githubConnecting } = useValues(personalIntegrationsLogic)
+    const { integrations, healthyIntegrations, integrationsLoading, githubConnecting } =
+        useValues(personalIntegrationsLogic)
     const { connectGitHub, startPolling, stopPolling } = useActions(personalIntegrationsLogic)
 
     // Refresh the personal rows while this section stays mounted, so an App removed on GitHub shows
@@ -239,7 +274,7 @@ export function PersonalGitHubIntegrations(): JSX.Element {
                         loading={githubConnecting}
                         disabledReason={githubConnecting ? 'Starting GitHub installation…' : undefined}
                     >
-                        {integrations.length === 0 ? 'Connect GitHub' : 'Add account/organization'}
+                        {healthyIntegrations.length === 0 ? 'Connect GitHub' : 'Add account/organization'}
                     </LemonButton>
                     <span className="text-xs text-secondary text-balance">
                         Heads up: if GitHub's <strong>Save</strong> button is disabled at the end of the flow, flip
