@@ -155,12 +155,18 @@ def _related_pipelines(pipeline: AutoresearchPipeline) -> list[RelatedPipeline]:
     ]
 
 
-def _target_key(pipeline: AutoresearchPipeline) -> tuple[str, str]:
+@frozen
+class _TargetKey:
+    kind: str
+    ref: str
+
+
+def _target_key(pipeline: AutoresearchPipeline) -> _TargetKey:
     """An action and an event can share a name, so an action target is keyed on its id."""
     definition = pipeline.target_definition or {}
     if definition.get("type") == "action":
-        return ("action", str(definition.get("action_id")))
-    return ("event", pipeline.target_event)
+        return _TargetKey(kind="action", ref=str(definition.get("action_id")))
+    return _TargetKey(kind="event", ref=pipeline.target_event)
 
 
 def _shares_population(other: AutoresearchPipeline, pipeline: AutoresearchPipeline) -> bool:
