@@ -3,7 +3,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(CAST(events.properties.test_prop, 'Nullable(String)'), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -11,7 +11,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '0'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(CAST(events.properties.test_prop, 'Nullable(String)'), '0'), 0))
   LIMIT 50000
   '''
 # ---
@@ -19,7 +19,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(notEquals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '0'), 1))
+  WHERE and(equals(events.team_id, 99999), ifNull(notEquals(CAST(events.properties.test_prop, 'Nullable(String)'), '0'), 1))
   LIMIT 50000
   '''
 # ---
@@ -27,7 +27,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -35,7 +35,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(greater(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(greater(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -43,7 +43,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '%0%'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '%0%'), 0))
   LIMIT 50000
   '''
 # ---
@@ -51,7 +51,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), isNotNull(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))))
+  WHERE and(equals(events.team_id, 99999), isNotNull(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))))
   LIMIT 50000
   '''
 # ---
@@ -59,7 +59,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), isNull(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))))
+  WHERE and(equals(events.team_id, 99999), isNull(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))))
   LIMIT 50000
   '''
 # ---
@@ -67,7 +67,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), tuple('0', '1')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('0', '1')))
   LIMIT 50000
   '''
 # ---
@@ -75,7 +75,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(parseDateTime64BestEffortOrNull(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^lt_datetime_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^lt_datetime_prop)), if(isNull(nullIf(toString(events.properties.lt_datetime_prop), '')), NULL, if(and(in(ascii(toString(events.properties.lt_datetime_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.lt_datetime_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.lt_datetime_prop), '[]'), '{}'), toString(events.properties.lt_datetime_prop)))), 6, 'UTC'), toDateTime64('2024-01-15 10:30:00.000000', 6, 'UTC')), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(parseDateTime64BestEffortOrNull(if(notEquals(toJSONString(events.properties.^lt_datetime_prop), '{}'), toJSONString(events.properties.^lt_datetime_prop), if(isNull(nullIf(toString(events.properties.lt_datetime_prop), '')), NULL, if(and(in(ascii(toString(events.properties.lt_datetime_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.lt_datetime_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.lt_datetime_prop), '[]'), '{}'), toString(events.properties.lt_datetime_prop)))), 6, 'UTC'), toDateTime64('2024-01-15 10:30:00.000000', 6, 'UTC')), 0))
   LIMIT 50000
   '''
 # ---
@@ -91,7 +91,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(CAST(events.properties.test_prop, 'Nullable(String)'), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -99,7 +99,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), tuple('2', '5')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('2', '5')))
   LIMIT 50000
   '''
 # ---
@@ -107,7 +107,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), tuple('5', '')))
+  WHERE and(equals(events.team_id, 99999), in(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), tuple('5', '')))
   LIMIT 50000
   '''
 # ---
@@ -115,7 +115,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -123,7 +123,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(CAST(events.properties.test_prop, 'Nullable(String)'), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -131,7 +131,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -139,7 +139,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(greater(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(greater(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -147,7 +147,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), tuple('2', '5')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('2', '5')))
   LIMIT 50000
   '''
 # ---
@@ -155,7 +155,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '%5%'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '%5%'), 0))
   LIMIT 50000
   '''
 # ---
@@ -163,7 +163,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(match(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '[0-9]'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(match(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '[0-9]'), 0))
   LIMIT 50000
   '''
 # ---
@@ -171,7 +171,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '%value_that_is_long_enough%'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '%value_that_is_long_enough%'), 0))
   LIMIT 50000
   '''
 # ---
@@ -179,7 +179,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '%null%'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '%null%'), 0))
   LIMIT 50000
   '''
 # ---
@@ -187,7 +187,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(CAST(events.properties.test_prop, 'Nullable(String)'), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -195,7 +195,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), tuple('2', '5')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('2', '5')))
   LIMIT 50000
   '''
 # ---
@@ -203,7 +203,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(notEquals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 1))
+  WHERE and(equals(events.team_id, 99999), ifNull(notEquals(CAST(events.properties.test_prop, 'Nullable(String)'), '5'), 1))
   LIMIT 50000
   '''
 # ---
@@ -211,7 +211,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(notIn(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), tuple('2', '5')), 1))
+  WHERE and(equals(events.team_id, 99999), ifNull(notIn(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('2', '5')), 1))
   LIMIT 50000
   '''
 # ---
@@ -219,7 +219,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -227,7 +227,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(greater(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(greater(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -235,7 +235,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '%5%'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '%5%'), 0))
   LIMIT 50000
   '''
 # ---
@@ -243,7 +243,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), isNotNull(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))))
+  WHERE and(equals(events.team_id, 99999), isNotNull(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))))
   LIMIT 50000
   '''
 # ---
@@ -251,7 +251,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(CAST(events.properties.test_prop, 'Nullable(String)'), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -259,7 +259,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(notEquals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 1))
+  WHERE and(equals(events.team_id, 99999), ifNull(notEquals(CAST(events.properties.test_prop, 'Nullable(String)'), '5'), 1))
   LIMIT 50000
   '''
 # ---
@@ -267,7 +267,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -275,7 +275,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(greater(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(greater(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -283,7 +283,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(lessOrEquals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(lessOrEquals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -291,7 +291,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(greaterOrEquals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(greaterOrEquals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -299,7 +299,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), tuple('2', '5')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('2', '5')))
   LIMIT 50000
   '''
 # ---
@@ -307,7 +307,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '%5%'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '%5%'), 0))
   LIMIT 50000
   '''
 # ---
@@ -315,7 +315,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(match(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '[0-9]'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(match(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '[0-9]'), 0))
   LIMIT 50000
   '''
 # ---
@@ -323,7 +323,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), 5), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), 5), 0))
   LIMIT 50000
   '''
 # ---
@@ -331,7 +331,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), 5.5), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), 5.5), 0))
   LIMIT 50000
   '''
 # ---
@@ -339,7 +339,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), toDateTime64('2024-01-15 10:30:00.000000', 6, 'UTC')), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), toDateTime64('2024-01-15 10:30:00.000000', 6, 'UTC')), 0))
   LIMIT 50000
   '''
 # ---
@@ -347,7 +347,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '500'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '500'), 0))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -361,14 +361,15 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_string_constant_flavors_0_string_pure_alpha[new_events_schema]
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), 'apple'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), 'apple'), 0))
   LIMIT 50000
   '''
 # ---
@@ -376,7 +377,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -384,7 +385,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '2024-01-15'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '2024-01-15'), 0))
   LIMIT 50000
   '''
 # ---
@@ -392,7 +393,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '2024-01-15T10:30:00Z'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '2024-01-15T10:30:00Z'), 0))
   LIMIT 50000
   '''
 # ---
@@ -400,7 +401,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '%value_that_is_long_enough%'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '%value_that_is_long_enough%'), 0))
   LIMIT 50000
   '''
 # ---
@@ -408,7 +409,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '%abc%'), 1))
+  WHERE and(equals(events.team_id, 99999), ifNull(notILike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '%abc%'), 1))
   LIMIT 50000
   '''
 # ---
@@ -416,7 +417,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(CAST(events.properties.test_prop, 'Nullable(String)'), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -424,7 +425,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -432,7 +433,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(match(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), 'value_that_is_long_enough'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(match(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), 'value_that_is_long_enough'), 0))
   LIMIT 50000
   '''
 # ---
@@ -440,7 +441,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(CAST(events.properties.test_prop, 'Nullable(String)'), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -448,7 +449,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), isNotNull(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))))
+  WHERE and(equals(events.team_id, 99999), isNotNull(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))))
   LIMIT 50000
   '''
 # ---
@@ -456,7 +457,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), isNull(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))))
+  WHERE and(equals(events.team_id, 99999), isNull(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))))
   LIMIT 50000
   '''
 # ---
@@ -464,7 +465,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), tuple('2', '5')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('2', '5')))
   LIMIT 50000
   '''
 # ---
@@ -472,7 +473,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -480,7 +481,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '%5%'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop))))), '%5%'), 0))
   LIMIT 50000
   '''
 # ---
@@ -488,7 +489,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(parseDateTime64BestEffortOrNull(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^typed_datetime_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^typed_datetime_prop)), if(isNull(nullIf(toString(events.properties.typed_datetime_prop), '')), NULL, if(and(in(ascii(toString(events.properties.typed_datetime_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.typed_datetime_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.typed_datetime_prop), '[]'), '{}'), toString(events.properties.typed_datetime_prop)))), 6, 'UTC'), '2024-01-05 00:00:00'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(parseDateTime64BestEffortOrNull(if(notEquals(toJSONString(events.properties.^typed_datetime_prop), '{}'), toJSONString(events.properties.^typed_datetime_prop), if(isNull(nullIf(toString(events.properties.typed_datetime_prop), '')), NULL, if(and(in(ascii(toString(events.properties.typed_datetime_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.typed_datetime_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.typed_datetime_prop), '[]'), '{}'), toString(events.properties.typed_datetime_prop)))), 6, 'UTC'), '2024-01-05 00:00:00'), 0))
   LIMIT 50000
   '''
 # ---
@@ -504,7 +505,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(CAST(events.person_properties.test_prop, 'Nullable(String)'), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -512,7 +513,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop)))), tuple('2', '5')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.person_properties.test_prop, 'Nullable(String)'), tuple('2', '5')))
   LIMIT 50000
   '''
 # ---
@@ -520,7 +521,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(notIn(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop)))), tuple('2', '5')), 1))
+  WHERE and(equals(events.team_id, 99999), ifNull(notIn(CAST(events.person_properties.test_prop, 'Nullable(String)'), tuple('2', '5')), 1))
   LIMIT 50000
   '''
 # ---
@@ -528,7 +529,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -536,7 +537,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(CAST(events.person_properties.test_prop, 'Nullable(String)'), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -544,7 +545,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -552,7 +553,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(greater(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(greater(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -560,7 +561,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop)))), tuple('2', '5')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.person_properties.test_prop, 'Nullable(String)'), tuple('2', '5')))
   LIMIT 50000
   '''
 # ---
@@ -568,7 +569,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop))))), '%5%'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop))))), '%5%'), 0))
   LIMIT 50000
   '''
 # ---
@@ -576,7 +577,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop))))), '%value_that_is_long_enough%'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop))))), '%value_that_is_long_enough%'), 0))
   LIMIT 50000
   '''
 # ---
@@ -584,7 +585,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(CAST(events.person_properties.test_prop, 'Nullable(String)'), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -592,7 +593,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(CAST(events.person_properties.test_prop, 'Nullable(String)'), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -600,7 +601,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), isNotNull(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop))))))
+  WHERE and(equals(events.team_id, 99999), isNotNull(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop))))))
   LIMIT 50000
   '''
 # ---
@@ -608,7 +609,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop)))), tuple('2', '5')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.person_properties.test_prop, 'Nullable(String)'), tuple('2', '5')))
   LIMIT 50000
   '''
 # ---
@@ -616,7 +617,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^test_prop)), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(nullIf(toString(events.person_properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.test_prop), '[]'), '{}'), toString(events.person_properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---

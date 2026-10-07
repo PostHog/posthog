@@ -25,7 +25,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestEventsQueryRunner.test_cursor_not_returned_for_aggregation_query[new_events_schema]
@@ -49,7 +50,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestEventsQueryRunner.test_cursor_not_returned_for_non_timestamp_order[new_events_schema]
@@ -77,12 +79,13 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc[new_events_schema.1]
   '''
-  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(and(in(ascii(toString(events.properties.idx)), tuple(91, 123)), in(ascii(toJSONString(events.properties.idx)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx)))) AS idx,
+  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(and(in(ascii(toString(events.properties.idx)), tuple(91, 123)), in(ascii(toJSONString(events.properties.idx)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx)))) AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
@@ -105,12 +108,13 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc[new_events_schema.2]
   '''
-  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(and(in(ascii(toString(events.properties.idx)), tuple(91, 123)), in(ascii(toJSONString(events.properties.idx)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx)))) AS idx,
+  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(and(in(ascii(toString(events.properties.idx)), tuple(91, 123)), in(ascii(toJSONString(events.properties.idx)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx)))) AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
@@ -133,12 +137,13 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc[new_events_schema]
   '''
-  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(and(in(ascii(toString(events.properties.idx)), tuple(91, 123)), in(ascii(toJSONString(events.properties.idx)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx)))) AS idx,
+  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(and(in(ascii(toString(events.properties.idx)), tuple(91, 123)), in(ascii(toJSONString(events.properties.idx)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx)))) AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
@@ -161,12 +166,13 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc[new_events_schema.1]
   '''
-  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(and(in(ascii(toString(events.properties.idx)), tuple(91, 123)), in(ascii(toJSONString(events.properties.idx)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx)))) AS idx,
+  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(and(in(ascii(toString(events.properties.idx)), tuple(91, 123)), in(ascii(toJSONString(events.properties.idx)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx)))) AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
@@ -189,12 +195,13 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc[new_events_schema.2]
   '''
-  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(and(in(ascii(toString(events.properties.idx)), tuple(91, 123)), in(ascii(toJSONString(events.properties.idx)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx)))) AS idx,
+  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(and(in(ascii(toString(events.properties.idx)), tuple(91, 123)), in(ascii(toJSONString(events.properties.idx)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx)))) AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
@@ -217,12 +224,13 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc[new_events_schema]
   '''
-  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(and(in(ascii(toString(events.properties.idx)), tuple(91, 123)), in(ascii(toJSONString(events.properties.idx)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx)))) AS idx,
+  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(and(in(ascii(toString(events.properties.idx)), tuple(91, 123)), in(ascii(toJSONString(events.properties.idx)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx)))) AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
@@ -245,7 +253,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestEventsQueryRunner.test_cursor_with_star_select[new_events_schema]
@@ -274,7 +283,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestEventsQueryRunner.test_element_chain_property_filter[new_events_schema]
@@ -303,7 +313,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestEventsQueryRunner.test_presorted_events_table[new_events_schema]
@@ -315,9 +326,9 @@
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
                                                       (SELECT events.uuid AS uuid
                                                        FROM events_json AS events
-                                                       WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^some_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^some_prop)), if(isNull(nullIf(toString(events.properties.some_prop), '')), NULL, if(and(in(ascii(toString(events.properties.some_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.some_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.some_prop), '[]'), '{}'), toString(events.properties.some_prop)))), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
+                                                       WHERE and(equals(events.team_id, 99999), ifNull(equals(CAST(events.properties.some_prop, 'Nullable(String)'), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
                                                        ORDER BY toTimeZone(events.timestamp, 'UTC') ASC, events.uuid ASC
-                                                       LIMIT 101)), and(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^some_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^some_prop)), if(isNull(nullIf(toString(events.properties.some_prop), '')), NULL, if(and(in(ascii(toString(events.properties.some_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.some_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.some_prop), '[]'), '{}'), toString(events.properties.some_prop)))), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
+                                                       LIMIT 101)), and(ifNull(equals(CAST(events.properties.some_prop, 'Nullable(String)'), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC, events.uuid ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -332,7 +343,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestEventsQueryRunner.test_presorted_events_table_multiple_order_by[new_events_schema]
@@ -362,7 +374,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestEventsQueryRunner.test_presorted_events_table_order_by_event[new_events_schema]
@@ -391,7 +404,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestEventsQueryRunner.test_presorted_events_table_order_by_property[new_events_schema]
@@ -404,9 +418,9 @@
                                                       (SELECT events.uuid AS uuid
                                                        FROM events_json AS events
                                                        WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
-                                                       ORDER BY if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^priority)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^priority)), if(isNull(nullIf(toString(events.properties.priority), '')), NULL, if(and(in(ascii(toString(events.properties.priority)), tuple(91, 123)), in(ascii(toJSONString(events.properties.priority)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.priority), '[]'), '{}'), toString(events.properties.priority)))) ASC
+                                                       ORDER BY if(notEquals(toJSONString(events.properties.^priority), '{}'), toJSONString(events.properties.^priority), if(isNull(nullIf(toString(events.properties.priority), '')), NULL, if(and(in(ascii(toString(events.properties.priority)), tuple(91, 123)), in(ascii(toJSONString(events.properties.priority)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.priority), '[]'), '{}'), toString(events.properties.priority)))) ASC
                                                        LIMIT 101)), and(equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
-  ORDER BY if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^priority)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^priority)), if(isNull(nullIf(toString(events.properties.priority), '')), NULL, if(and(in(ascii(toString(events.properties.priority)), tuple(91, 123)), in(ascii(toJSONString(events.properties.priority)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.priority), '[]'), '{}'), toString(events.properties.priority)))) ASC
+  ORDER BY if(notEquals(toJSONString(events.properties.^priority), '{}'), toJSONString(events.properties.^priority), if(isNull(nullIf(toString(events.properties.priority), '')), NULL, if(and(in(ascii(toString(events.properties.priority)), tuple(91, 123)), in(ascii(toJSONString(events.properties.priority)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.priority), '[]'), '{}'), toString(events.properties.priority)))) ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -420,6 +434,7 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---

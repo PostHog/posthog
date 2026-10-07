@@ -49,7 +49,7 @@
 # name: TestPropertyTypes.test_resolve_property_types_event[new_events_schema]
   '''
   
-  SELECT multiply(accurateCastOrNull(events.properties.`$screen_width`, 'Float64'), accurateCastOrNull(events.properties.`$screen_height`, 'Float64')), accurateCastOrNull(transform(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^bool)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^bool)), if(isNull(nullIf(toString(events.properties.bool), '')), NULL, if(and(in(ascii(toString(events.properties.bool)), tuple(91, 123)), in(ascii(toJSONString(events.properties.bool)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.bool), '[]'), '{}'), toString(events.properties.bool))))), %(hogql_val_0)s, %(hogql_val_1)s, NULL), %(hogql_val_2)s) AS bool
+  SELECT multiply(accurateCastOrNull(events.properties.`$screen_width`, 'Float64'), accurateCastOrNull(events.properties.`$screen_height`, 'Float64')), accurateCastOrNull(transform(toString(if(notEquals(toJSONString(events.properties.^bool), '{}'), toJSONString(events.properties.^bool), if(isNull(nullIf(toString(events.properties.bool), '')), NULL, if(and(in(ascii(toString(events.properties.bool)), tuple(91, 123)), in(ascii(toJSONString(events.properties.bool)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.bool), '[]'), '{}'), toString(events.properties.bool))))), %(hogql_val_0)s, %(hogql_val_1)s, NULL), %(hogql_val_2)s) AS bool
   FROM events_json AS events
   WHERE equals(events.team_id, 420)
   LIMIT 50000
@@ -79,7 +79,7 @@
 # name: TestPropertyTypes.test_resolve_property_types_event_person_poe_on[new_events_schema]
   '''
   
-  SELECT parseDateTime64BestEffortOrNull(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^provided_timestamp)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^provided_timestamp)), if(isNull(nullIf(toString(events.person_properties.provided_timestamp), '')), NULL, if(and(in(ascii(toString(events.person_properties.provided_timestamp)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.provided_timestamp)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.provided_timestamp), '[]'), '{}'), toString(events.person_properties.provided_timestamp)))), 6, %(hogql_val_0)s) AS provided_timestamp
+  SELECT parseDateTime64BestEffortOrNull(if(notEquals(toJSONString(events.person_properties.^provided_timestamp), '{}'), toJSONString(events.person_properties.^provided_timestamp), if(isNull(nullIf(toString(events.person_properties.provided_timestamp), '')), NULL, if(and(in(ascii(toString(events.person_properties.provided_timestamp)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.provided_timestamp)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.provided_timestamp), '[]'), '{}'), toString(events.person_properties.provided_timestamp)))), 6, %(hogql_val_0)s) AS provided_timestamp
   FROM events_json AS events
   WHERE equals(events.team_id, 420)
   LIMIT 50000
