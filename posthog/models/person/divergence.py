@@ -18,7 +18,7 @@ from uuid import UUID
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
 from posthog.kafka_client.routing import flush_all_producers
 from posthog.kafka_client.topics import KAFKA_PERSON
@@ -158,19 +158,20 @@ def _scan_team_ranges(
     on_rows: Callable[[list[Any]], None],
     log: Callable[[str], None],
 ) -> list[int]:
-    """Return each team that runs out of memory even when scanned alone, so the caller can rerun it with more memory."""
+    """Return each team that runs out of memory or time even when scanned alone, so the caller can rerun it with higher limits."""
     skipped: list[int] = []
 
     def scan(lo: int, hi: int) -> None:
         try:
             rows = query(lo, hi)
-        except ClickHouseQueryMemoryLimitExceeded:
+        except (ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut) as exc:
+            reason = "out of memory" if isinstance(exc, ClickHouseQueryMemoryLimitExceeded) else "timed out"
             if hi - lo == 1:
-                log(f"team {lo}: out of memory, skipped")
+                log(f"team {lo}: {reason}, skipped")
                 skipped.append(lo)
                 return
             mid = (lo + hi) // 2
-            log(f"teams [{lo}, {hi}): out of memory, bisecting")
+            log(f"teams [{lo}, {hi}): {reason}, bisecting")
             scan(lo, mid)
             scan(mid, hi)
             return

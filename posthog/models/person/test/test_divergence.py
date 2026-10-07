@@ -14,7 +14,7 @@ from parameterized import parameterized
 from personhog.types.v1 import person_pb2
 
 from posthog.clickhouse.client import sync_execute
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
 from posthog.kafka_client.topics import KAFKA_PERSON
 from posthog.models.person import Person
@@ -464,13 +464,16 @@ class TestWritePacer(SimpleTestCase):
 
 
 class TestScanTeamRanges(SimpleTestCase):
-    def test_a_team_that_runs_out_of_memory_alone_is_skipped_and_every_other_team_is_scanned(self) -> None:
+    @parameterized.expand([("out_of_memory", ClickHouseQueryMemoryLimitExceeded), ("timeout", ClickHouseQueryTimeOut)])
+    def test_a_team_that_fails_alone_is_skipped_and_every_other_team_is_scanned(
+        self, _name: str, error: type[Exception]
+    ) -> None:
         scanned: list[int] = []
 
         def query(_sql: str, args: dict[str, Any], **_kwargs: Any) -> list[Any]:
             teams = range(args["min_team_id"], args["max_team_id"])
             if 7 in teams:
-                raise ClickHouseQueryMemoryLimitExceeded()
+                raise error()
             scanned.extend(teams)
             return []
 
