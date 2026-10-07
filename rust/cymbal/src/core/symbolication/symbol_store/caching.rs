@@ -15,7 +15,7 @@ use super::{chunk_id::SymbolSetCacheKey, Fetcher, Parser, Provider};
 // Parsing can transiently need many times the fetched size (e.g. ProguardCache::write), and
 // none of that is held against the cache budget. We log large parses before they start, so
 // the last log line of an OOM-killed pod names the symbol set that was being parsed.
-const LARGE_FETCHED_BYTES: usize = 5_000_000;
+const LARGE_FETCHED_BYTES: usize = 10_000_000;
 const LARGE_PARSED_BYTES: usize = 50_000_000;
 
 // This is a type-specific symbol provider layer, designed to
