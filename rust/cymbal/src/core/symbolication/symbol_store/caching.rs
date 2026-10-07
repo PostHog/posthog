@@ -260,8 +260,7 @@ impl Countable for Bytes {
     fn requires_parse_permit(&self, threshold: usize) -> bool {
         match posthog_symbol_data::symbol_data_known_decompressed_size(self) {
             Ok(Some(size)) => size.max(self.len()) >= threshold,
-            Ok(None) => true,
-            Err(_) => self.len() >= threshold,
+            Ok(None) | Err(_) => true,
         }
     }
 }
@@ -275,6 +274,7 @@ fn set_type_name<T>() -> &'static str {
 mod tests {
     use std::{
         convert::Infallible,
+        io::{Cursor, Write},
         sync::atomic::{AtomicUsize, Ordering},
         sync::{Arc, Condvar, Mutex as StdMutex},
     };
@@ -471,6 +471,18 @@ mod tests {
         );
         assert!(compressed.len() < 100);
         assert!(compressed.requires_parse_permit(100));
+
+        let mut raw_zip = Cursor::new(Vec::new());
+        {
+            let mut writer = zip::ZipWriter::new(&mut raw_zip);
+            writer
+                .start_file("symbols", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(b"symbols").unwrap();
+            writer.finish().unwrap();
+        }
+        let raw_zip = Bytes::from(raw_zip.into_inner());
+        assert!(raw_zip.requires_parse_permit(raw_zip.len() + 1));
     }
 
     #[tokio::test]

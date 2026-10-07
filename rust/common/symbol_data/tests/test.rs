@@ -44,6 +44,27 @@ fn test_v2_compressed_header() {
 }
 
 #[test]
+fn test_v2_compressed_size_includes_concatenated_frames() {
+    let first = zstd::bulk::compress(b"first", 3).unwrap();
+    let second_payload = vec![b'x'; 100_000];
+    let second = zstd::bulk::compress(&second_payload, 3).unwrap();
+
+    let mut bytes = write_symbol_data(SourceAndMap {
+        minified_source: "source".to_string(),
+        sourcemap: "map".to_string(),
+    })
+    .unwrap();
+    bytes.truncate(COMPRESSION_OFFSET + 1);
+    bytes.extend(first);
+    bytes.extend(second);
+
+    assert_eq!(
+        symbol_data_known_decompressed_size(&bytes).unwrap(),
+        Some(5 + second_payload.len())
+    );
+}
+
+#[test]
 fn test_v2_compressed_without_content_size() {
     let mut encoder = zstd::Encoder::new(Vec::new(), 3).unwrap();
     encoder.write_all(b"legacy payload").unwrap();
