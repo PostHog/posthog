@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+import pyarrow as pa
 from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -14,7 +15,8 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async_pool
-from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.asyncpa import AsyncRecordBatchReader
+from posthog.temporal.common.clickhouse import ChunkBytesAsyncStreamIterator, get_client
 
 from ..facade.enums import CheckRunStatus, SubjectType
 from .contracts import SubjectRef
@@ -38,6 +40,8 @@ MAX_INPUT_BYTES = 8192
 # Freezing writes to the shared object store before any inference budget applies, so a subject with
 # more distinct inputs than a run can evaluate must fail closed rather than stream without a bound.
 MAX_FROZEN_INPUTS = 100_000
+# Arrow IPC end-of-stream marker: continuation bytes followed by a zero metadata length.
+ARROW_END_OF_STREAM_BYTES = 8
 
 
 class ManifestInput(BaseModel):
@@ -222,6 +226,40 @@ def prepare_warehouse_question_inputs(
     return sql, context
 
 
+class _ResponseBytes:
+    def __init__(self, chunks: AsyncIterator[bytes]) -> None:
+        self.chunks = chunks
+        self.received = 0
+        self.ended = False
+
+    def __aiter__(self) -> "_ResponseBytes":
+        return self
+
+    async def __anext__(self) -> bytes:
+        try:
+            chunk = await anext(self.chunks)
+        except StopAsyncIteration:
+            self.ended = True
+            raise
+        self.received += len(chunk)
+        return chunk
+
+
+async def strict_arrow_batches(chunks: AsyncIterator[bytes]) -> AsyncIterator[pa.RecordBatch]:
+    """Arrow batches from a response that must reach the end-of-stream marker and carry nothing after it."""
+    body = _ResponseBytes(chunks)
+    reader = AsyncRecordBatchReader(body)
+    async for batch in reader:
+        yield batch
+    # The shared reader also stops quietly when the response ends between or inside messages.
+    if body.ended:
+        raise ValueError("The question input stream ended before its end marker.")
+    async for _ in body:
+        pass
+    if body.received != reader.bytes_consumed + ARROW_END_OF_STREAM_BYTES:
+        raise ValueError("The question input stream has data after its end marker.")
+
+
 async def warehouse_question_inputs(
     *, team: "Team", user: "User", subject: SubjectRef, config: QuestionConfig, column_name: str
 ) -> AsyncIterator[WeightedInput]:
@@ -238,11 +276,15 @@ async def warehouse_question_inputs(
         # toJSONString writes NaN and infinities as null by default, which merges them with SQL NULL in row inputs.
         output_format_json_quote_denormals=1,
     ) as client:
-        async for batch in client.astream_query_as_arrow(
-            sql, query_parameters=context.values, external_tables=list(context.external_tables.values())
-        ):
-            for item in batch.to_pylist():
-                yield WeightedInput(text=item["input"], row_count=item["row_count"])
+        async with client.apost_query(
+            sql,
+            query_parameters=context.values,
+            query_id=None,
+            external_tables=list(context.external_tables.values()),
+        ) as response:
+            async for batch in strict_arrow_batches(ChunkBytesAsyncStreamIterator(response.content)):
+                for item in batch.to_pylist():
+                    yield WeightedInput(text=item["input"], row_count=item["row_count"])
 
 
 def evaluate_question_manifest(

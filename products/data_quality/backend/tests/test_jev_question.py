@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 from django.test import override_settings
 
 import httpx
+import pyarrow as pa
 import fakeredis
 from asgiref.sync import async_to_sync
 from pydantic import ValidationError
@@ -42,6 +43,7 @@ from products.data_quality.backend.logic.jev_manifest import (
     QuestionResult,
     evaluate_question_manifest,
     freeze_question_inputs,
+    strict_arrow_batches,
     warehouse_question_inputs,
 )
 from products.data_quality.backend.logic.jev_question import (
@@ -276,6 +278,44 @@ def test_exhaustive_question_projection_has_typed_fields_and_no_limit() -> None:
     assert "LIMIT" not in sql
     assert sql.count("toJSONString(tuple(") == 2
     assert "arrayStringConcat" in sql
+
+
+def _arrow_stream(*texts: str) -> bytes:
+    fields: list[pa.Field] = [pa.field("input", pa.string()), pa.field("row_count", pa.uint64())]
+    schema = pa.schema(fields)
+    sink = pa.BufferOutputStream()
+    with pa.ipc.new_stream(sink, schema) as writer:
+        for text in texts:
+            writer.write_batch(pa.record_batch([[text], [1]], schema=schema))
+    return sink.getvalue().to_pybytes()
+
+
+ONE_BATCH_WITHOUT_END = _arrow_stream("first")[:-8]
+
+
+@pytest.mark.parametrize(
+    "body,error",
+    [
+        (_arrow_stream("first", "second"), None),
+        (ONE_BATCH_WITHOUT_END, "before its end marker"),
+        (_arrow_stream("first", "second")[: len(ONE_BATCH_WITHOUT_END) + 24], "before its end marker"),
+        (_arrow_stream("first", "second") + b"Code: 241. DB::Exception: example", "after its end marker"),
+    ],
+    ids=["complete", "cut_at_batch_boundary", "cut_inside_batch", "trailing_error"],
+)
+def test_arrow_input_stream_must_end_at_its_end_marker(body: bytes, error: str | None) -> None:
+    async def chunks() -> AsyncIterator[bytes]:
+        for start in range(0, len(body), 7):
+            yield body[start : start + 7]
+
+    async def collect() -> list[str]:
+        return [row["input"] async for batch in strict_arrow_batches(chunks()) for row in batch.to_pylist()]
+
+    if error is None:
+        assert async_to_sync(collect)() == ["first", "second"]
+    else:
+        with pytest.raises(ValueError, match=error):
+            async_to_sync(collect)()
 
 
 @pytest.mark.usefixtures("clickhouse_database")

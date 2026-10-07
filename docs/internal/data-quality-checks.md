@@ -50,6 +50,7 @@ Warehouse fields must appear in the subject's column catalog, and the projection
 The source query groups exact evaluator inputs and preserves their row multiplicities without a row limit.
 It streams bounded chunks into the configured object store and publishes a manifest only after the source stream completes.
 ClickHouse overflow settings throw instead of returning partial results.
+A response that ends before the Arrow end-of-stream marker, or has data after it, fails before any manifest is published.
 A subject that exceeds the limit on frozen inputs fails before any manifest is published.
 A manifest freezes the definition, the explicitly supplied model revision, and the evaluator contract version.
 A deployment with a different evaluator version rejects the manifest and its checkpoints.
