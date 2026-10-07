@@ -947,7 +947,15 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
             )
         assert cm.exception.table_name == "denied_warehouse_table"
 
-    def test_schema_serialization_omits_a_join_to_a_denied_warehouse_table(self):
+    @parameterized.expand(
+        [
+            ("joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, "person"),
+            ("properties_on_events", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS, "poe"),
+        ]
+    )
+    def test_schema_serialization_omits_a_join_to_a_denied_warehouse_table(
+        self, _name: str, mode: PersonsOnEventsMode, events_person_field: str
+    ) -> None:
         from products.access_control.backend.models.access_control import AccessControl
         from products.data_tools.backend.models.join import DataWarehouseJoin
 
@@ -960,9 +968,8 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
             field_name="denied_join",
         )
 
-        # events.person is a lazy join only in this mode. Every other mode serializes it as a
-        # field traverser, which has no nested field list.
-        modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
+        # The events field that lists the persons joins depends on the persons-on-events mode.
+        modifiers = HogQLQueryModifiers(personsOnEventsMode=mode)
 
         def serialized_fields() -> tuple[set[str], set[str]]:
             database = Database.create_for(team=self.team, user=self.user, modifiers=modifiers)
@@ -973,7 +980,7 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
                 context, include_only={"persons", "events"}, include_hidden_posthog_tables=True
             )
             persons_fields = set(serialized["persons"].fields.keys())
-            person_join_fields = set(serialized["events"].fields["person"].fields or [])
+            person_join_fields = set(serialized["events"].fields[events_person_field].fields or [])
             return persons_fields, person_join_fields
 
         persons_fields, person_join_fields = serialized_fields()

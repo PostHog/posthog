@@ -3404,6 +3404,19 @@ def _resolve_readable_join(join: LazyJoin, context: HogQLContext) -> Table | Non
         return None
 
 
+def _is_readable_field(field: FieldOrTable, context: HogQLContext) -> bool:
+    return not isinstance(field, LazyJoin) or _resolve_readable_join(field, context) is not None
+
+
+def _is_readable_virtual_table_field(
+    nested: FieldOrTable, parent_fields: dict[str, FieldOrTable], context: HogQLContext
+) -> bool:
+    """False when a virtual table field points at a parent join to a table the user cannot read."""
+    if isinstance(nested, FieldTraverser) and len(nested.chain) == 2 and nested.chain[0] == "..":
+        nested = parent_fields.get(str(nested.chain[1]), nested)
+    return _is_readable_field(nested, context)
+
+
 def serialize_fields(
     field_input,
     context: HogQLContext,
@@ -3593,9 +3606,7 @@ def serialize_fields(
                     schema_valid=schema_valid,
                     table=resolved_table.to_printed_hogql(),
                     fields=[
-                        name
-                        for name, nested in resolved_table.fields.items()
-                        if not isinstance(nested, LazyJoin) or _resolve_readable_join(nested, context) is not None
+                        name for name, nested in resolved_table.fields.items() if _is_readable_field(nested, context)
                     ],
                     id=id or field_key,
                 )
@@ -3608,7 +3619,11 @@ def serialize_fields(
                     type=DatabaseSerializedFieldType.VIRTUAL_TABLE,
                     schema_valid=schema_valid,
                     table=field.to_printed_hogql(),
-                    fields=list(field.fields.keys()),
+                    fields=[
+                        name
+                        for name, nested in field.fields.items()
+                        if _is_readable_virtual_table_field(nested, field_input, context)
+                    ],
                 )
             )
         elif isinstance(field, FieldTraverser):
