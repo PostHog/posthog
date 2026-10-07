@@ -21,6 +21,7 @@ import { useTurns } from "../hooks/useTurns";
 import { useWorkList } from "../hooks/useWorkList";
 import {
   activeWorkspace,
+  adoptSharedLayout,
   allPanes,
   findPane,
   type LayoutState,
@@ -74,9 +75,10 @@ export function App({
   const notice = useNotice();
   const { flashNotice } = notice;
   const layoutFile = layoutPath(session?.account);
-  const [layout, setLayout] = useState<LayoutState>(() =>
-    loadLayout(layoutFile),
-  );
+  const [layout, setLayout] = useState<LayoutState>(() => {
+    adoptSharedLayout(layoutFile);
+    return loadLayout(layoutFile);
+  });
   const layoutFrom = useRef(layoutFile);
   // Tasks this app just started or resumed; they win until the list shows the same run.
   const [fresh, setFresh] = useState<Map<string, Task>>(new Map());
@@ -148,6 +150,7 @@ export function App({
   useEffect(() => {
     if (layoutFrom.current !== layoutFile) {
       layoutFrom.current = layoutFile;
+      adoptSharedLayout(layoutFile);
       setLayout(loadLayout(layoutFile));
     } else saveLayout(layout, layoutFile);
   }, [layout, layoutFile]);

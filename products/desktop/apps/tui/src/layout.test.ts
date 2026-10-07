@@ -1,9 +1,10 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   activeWorkspace,
+  adoptSharedLayout,
   allPanes,
   assignTask,
   closeFocused,
@@ -254,6 +255,23 @@ describe("layout", () => {
 
     writeFileSync(path, "{not json");
     expect(loadLayout(path).workspaces).toHaveLength(1);
+  });
+
+  it("gives the shared layout to the first account without its own, once", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tui-layout-"));
+    const shared = join(dir, "layout.json");
+    const [first, second] = ["a", "b"].map((id) =>
+      join(dir, `layout.${id}.json`),
+    );
+    const state = splitFocused(openTask(initialLayout(), "a"), "column");
+    saveLayout(state, shared);
+
+    adoptSharedLayout(first, shared);
+    adoptSharedLayout(second, shared);
+
+    expect(loadLayout(first)).toEqual(state);
+    expect(existsSync(shared)).toBe(false);
+    expect(existsSync(second)).toBe(false);
   });
 
   it.each([
