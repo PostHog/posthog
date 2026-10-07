@@ -236,7 +236,9 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
         testEmailSent: [
             false,
             {
-                sendTestEmailSuccess: (state, { testSendResult }) => testSendResult?.status === 'success' || state,
+                sendTestEmailSuccess: (state, { testSendResult }) =>
+                    (testSendResult?.status === 'success' && testSendResult.emailSendResult?.status === 'accepted') ||
+                    state,
             },
         ],
     }),
@@ -290,10 +292,14 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
             lemonToast.success('Sender name saved')
         },
         sendTestEmailSuccess: ({ testSendResult }) => {
-            if (testSendResult?.status === 'success') {
-                lemonToast.success(`Test email sent to ${values.user?.email}. Check your inbox.`)
+            if (testSendResult?.status === 'success' && testSendResult.emailSendResult?.status === 'accepted') {
+                lemonToast.success(`The email provider accepted your test email to ${values.user?.email}.`)
+            } else if (testSendResult?.emailSendResult?.status === 'skipped') {
+                lemonToast.warning(
+                    testSendResult.emailSendResult.reason ?? 'Nothing was sent. Check the recipient settings.'
+                )
             } else if (testSendResult) {
-                lemonToast.error('Could not send the test email. Try again in a moment.')
+                lemonToast.error('Could not confirm the test email was sent. Check the recipient and try again.')
             }
         },
     })),

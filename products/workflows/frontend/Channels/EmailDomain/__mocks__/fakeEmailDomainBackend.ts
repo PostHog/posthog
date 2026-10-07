@@ -369,7 +369,12 @@ export class FakeEmailDomainBackend {
                 '/api/environments/:team_id/query/': this.serve('event_hosts', () => ({ results: this.eventHosts })),
                 '/api/environments/:team_id/hog_flows/:id/invocations/': this.serve(
                     'test_email',
-                    (): HogflowTestResult => ({ status: 'success', nextActionId: null, logs: [] })
+                    (): HogflowTestResult => ({
+                        status: 'success',
+                        nextActionId: null,
+                        logs: [],
+                        emailSendResult: { status: 'accepted' },
+                    })
                 ),
             },
             patch: {
