@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -32,6 +33,7 @@ import {
 } from './generated/api'
 import {
     type AutoresearchModelApi,
+    AutoresearchModelRoleEnumApi,
     type AutoresearchPipelineApi,
     type AutoresearchRunApi,
     type AutoresearchSuggestionApi,
@@ -39,23 +41,33 @@ import {
     CreateSuggestionPriorityEnumApi,
 } from './generated/api.schemas'
 import type { PredictionsPeopleView } from './predictionsPeopleQuery'
+import { LifecycleStep, pipelineLifecycle } from './pipelineLifecycle'
 
 export interface AutoresearchPipelineLogicProps {
     id: string
 }
 
-export type AutoresearchPipelineTab = 'overview' | 'training' | 'predictions' | 'online_performance' | 'suggestions'
+export type AutoresearchPipelineTab = 'predictions' | 'accuracy' | 'agent_research' | 'setup'
 
-const AUTORESEARCH_PIPELINE_TABS: AutoresearchPipelineTab[] = [
-    'overview',
-    'training',
-    'predictions',
-    'online_performance',
-    'suggestions',
-]
+const AUTORESEARCH_PIPELINE_TABS: AutoresearchPipelineTab[] = ['predictions', 'accuracy', 'agent_research', 'setup']
 
-function isPipelineTab(value: string | undefined): value is AutoresearchPipelineTab {
-    return value !== undefined && (AUTORESEARCH_PIPELINE_TABS as string[]).includes(value)
+/** Tab keys from the old five-tab layout, so links saved before the change still open the right tab. */
+const LEGACY_PIPELINE_TABS: Record<string, AutoresearchPipelineTab | null> = {
+    overview: null,
+    training: 'agent_research',
+    online_performance: 'accuracy',
+    suggestions: 'agent_research',
+}
+
+/** The tab a `?tab=` value opens. Null means the default tab. */
+export function pipelineTabFromUrl(value: unknown): AutoresearchPipelineTab | null {
+    if (typeof value !== 'string') {
+        return null
+    }
+    if ((AUTORESEARCH_PIPELINE_TABS as string[]).includes(value)) {
+        return value as AutoresearchPipelineTab
+    }
+    return LEGACY_PIPELINE_TABS[value] ?? null
 }
 
 /** How often the Score now button checks a running scoring run. */
@@ -231,6 +243,10 @@ export interface autoresearchPipelineLogicValues {
     currentTeamId: number | null // teamLogic
     activeScoreRun: AutoresearchRunApi | null
     activeTab: AutoresearchPipelineTab
+    champion: AutoresearchModelApi | null
+    defaultTab: AutoresearchPipelineTab
+    lifecycleSteps: LifecycleStep[] | null
+    selectedTab: AutoresearchPipelineTab | null
     artifactsByRun: Record<string, string[]>
     artifactsByRunLoading: boolean
     breadcrumbs: Breadcrumb[]
@@ -533,6 +549,9 @@ export interface autoresearchPipelineLogicActions {
     setPredictionsPeopleView: (view: PredictionsPeopleView) => {
         view: PredictionsPeopleView
     }
+    setTabFromUrl: (tab: AutoresearchPipelineTab | null) => {
+        tab: AutoresearchPipelineTab | null
+    }
     setSuggestionDraft: (draft: string) => {
         draft: string
     }
@@ -623,6 +642,18 @@ export interface autoresearchPipelineLogicMeta {
         ) => ScoringCoverage | null
         onlinePerformanceRows: (validationRuns: AutoresearchRunApi[]) => OnlinePerformanceRow[]
         probabilityHistogram: (probabilityDistribution: ProbabilityBucket[] | null) => ProbabilityBucket[] | null
+        champion: (models: AutoresearchModelApi[]) => AutoresearchModelApi | null
+        defaultTab: (pipeline: AutoresearchPipelineApi | null) => AutoresearchPipelineTab
+        activeTab: (
+            selectedTab: AutoresearchPipelineTab | null,
+            defaultTab: AutoresearchPipelineTab
+        ) => AutoresearchPipelineTab
+        lifecycleSteps: (
+            pipeline: AutoresearchPipelineApi | null,
+            champion: AutoresearchModelApi | null,
+            runs: AutoresearchRunApi[],
+            onlinePerformanceRows: OnlinePerformanceRow[]
+        ) => LifecycleStep[] | null
     }
 }
 
@@ -644,6 +675,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
     actions({
         setActiveTab: (tab: AutoresearchPipelineTab) => ({ tab }),
         setPredictionsPeopleView: (view: PredictionsPeopleView) => ({ view }),
+        setTabFromUrl: (tab: AutoresearchPipelineTab | null) => ({ tab }),
         loadDetail: true,
         toggleRunArtifacts: (runId: string) => ({ runId }),
         reportNotebookOpened: (runId: string) => ({ runId }),
@@ -661,10 +693,11 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 loadDetail: () => true,
             },
         ],
-        activeTab: [
-            'overview' as AutoresearchPipelineTab,
+        selectedTab: [
+            null as AutoresearchPipelineTab | null,
             {
                 setActiveTab: (_, { tab }) => tab,
+                setTabFromUrl: (_, { tab }) => tab,
             },
         ],
         predictionsPeopleView: [
@@ -1061,6 +1094,41 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 }))
             },
         ],
+        champion: [
+            (s) => [s.models],
+            (models: AutoresearchModelApi[]): AutoresearchModelApi | null =>
+                models.find((m) => m.role === AutoresearchModelRoleEnumApi.Champion) ?? null,
+        ],
+        defaultTab: [
+            (s) => [s.pipeline],
+            (pipeline: AutoresearchPipelineApi | null): AutoresearchPipelineTab =>
+                pipeline?.last_scored_at ? 'predictions' : 'agent_research',
+        ],
+        activeTab: [
+            (s) => [s.selectedTab, s.defaultTab],
+            (
+                selectedTab: AutoresearchPipelineTab | null,
+                defaultTab: AutoresearchPipelineTab
+            ): AutoresearchPipelineTab => selectedTab ?? defaultTab,
+        ],
+        lifecycleSteps: [
+            (s) => [s.pipeline, s.champion, s.runs, s.onlinePerformanceRows],
+            (
+                pipeline: AutoresearchPipelineApi | null,
+                champion: AutoresearchModelApi | null,
+                runs: AutoresearchRunApi[],
+                onlinePerformanceRows: OnlinePerformanceRow[]
+            ): LifecycleStep[] | null =>
+                pipeline
+                    ? pipelineLifecycle({
+                          pipeline,
+                          champion,
+                          runs,
+                          validatedDates: onlinePerformanceRows.map((row) => row.prediction_date),
+                          now: dayjs(),
+                      })
+                    : null,
+        ],
     }),
     listeners(({ actions, values, props, cache }) => ({
         loadDetail: () => {
@@ -1217,6 +1285,10 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 }
             }
         },
+        setActiveTab: ({ tab }) => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch model tab changed', { pipeline_id: props.id, tab })
+        },
         reportNotebookOpened: ({ runId }) => {
             posthog.capture('autoresearch model report notebook opened', { pipeline_id: props.id, run_id: runId })
         },
@@ -1224,26 +1296,30 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             posthog.capture('autoresearch model predictions view changed', { pipeline_id: props.id, view })
         },
     })),
-    actionToUrl(({ values }) => ({
+    actionToUrl(() => ({
         // Reflect the active tab in the URL (?tab=…) so each tab is deep-linkable.
         setActiveTab: ({ tab }) => {
-            const searchParams = { ...router.values.searchParams }
-            if (tab === 'overview') {
-                delete searchParams.tab
-            } else {
-                searchParams.tab = tab
-            }
-            if ((router.values.searchParams.tab ?? 'overview') === (values.activeTab as string)) {
+            if (router.values.searchParams.tab === tab) {
                 return // no-op when the URL already matches (avoids a redundant history entry)
             }
-            return [router.values.location.pathname, searchParams, router.values.hashParams]
+            return [router.values.location.pathname, { ...router.values.searchParams, tab }, router.values.hashParams]
         },
     })),
     urlToAction(({ actions, values }) => ({
         '/autoresearch/:id': (_, searchParams) => {
-            const tab = isPipelineTab(searchParams.tab) ? searchParams.tab : 'overview'
-            if (tab !== values.activeTab) {
-                actions.setActiveTab(tab)
+            const tab = pipelineTabFromUrl(searchParams.tab)
+            if (searchParams.tab !== undefined && searchParams.tab !== tab) {
+                // A legacy or unknown key: rewrite the URL in place so it shows the tab that opens.
+                const { tab: _legacyTab, ...rest } = searchParams
+                router.actions.replace(
+                    router.values.location.pathname,
+                    tab ? { ...rest, tab } : rest,
+                    router.values.hashParams
+                )
+                return
+            }
+            if (tab !== values.selectedTab) {
+                actions.setTabFromUrl(tab)
             }
         },
     })),

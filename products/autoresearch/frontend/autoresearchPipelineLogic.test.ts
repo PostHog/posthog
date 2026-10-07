@@ -1,4 +1,6 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -187,6 +189,71 @@ describe('autoresearchPipelineLogic', () => {
         expect(logic.values.activeScoreRun?.id ?? null).toEqual(expectedRunId)
         expect(logic.cache.disposables.registry.has('scorePoll')).toBe(expectedRunId !== null)
         logic.unmount()
+    })
+
+    describe('tabs', () => {
+        async function mountWithPipeline(
+            lastScoredAt: string | null,
+            url: string
+        ): Promise<ReturnType<typeof autoresearchPipelineLogic.build>> {
+            jest.clearAllMocks()
+            initKeaTests()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AUTORESEARCH], {
+                [FEATURE_FLAGS.AUTORESEARCH]: true,
+            })
+            mockRetrieve.mockResolvedValue({ id: 'pipeline-1', name: 'Model', last_scored_at: lastScoredAt })
+            mockModelsList.mockResolvedValue({ results: [], next: null })
+            mockRunsList.mockResolvedValue({ results: [], next: null })
+            router.actions.push(url)
+            const logic = autoresearchPipelineLogic({ id: 'pipeline-1' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadPipelineSuccess'])
+            return logic
+        }
+
+        it.each([
+            ['a scored model', '2026-01-02T00:00:00Z', 'predictions'],
+            ['a model that never scored', null, 'agent_research'],
+        ])('opens %s on its default tab', async (_name, lastScoredAt, expectedTab) => {
+            const logic = await mountWithPipeline(lastScoredAt, '/autoresearch/pipeline-1')
+            expect(logic.values.activeTab).toEqual(expectedTab)
+            logic.unmount()
+        })
+
+        it.each([
+            ['training', 'agent_research'],
+            ['suggestions', 'agent_research'],
+            ['online_performance', 'accuracy'],
+            ['predictions', 'predictions'],
+            ['overview', undefined],
+            ['not_a_tab', undefined],
+        ])('rewrites the old ?tab=%s link to the tab it now opens', async (oldTab, expectedUrlTab) => {
+            const logic = await mountWithPipeline('2026-01-02T00:00:00Z', `/autoresearch/pipeline-1?tab=${oldTab}`)
+            expect(router.values.searchParams.tab).toEqual(expectedUrlTab)
+            expect(logic.values.activeTab).toEqual(expectedUrlTab ?? 'predictions')
+            logic.unmount()
+        })
+
+        it('records a tab change from the user and keeps it in the URL, but not a change from the URL', async () => {
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+            const logic = await mountWithPipeline(null, '/autoresearch/pipeline-1')
+            capture.mockClear()
+
+            logic.actions.setActiveTab('setup')
+            expect(router.values.searchParams.tab).toEqual('setup')
+            expect(capture).toHaveBeenCalledWith('autoresearch model tab changed', {
+                pipeline_id: 'pipeline-1',
+                tab: 'setup',
+            })
+
+            capture.mockClear()
+            router.actions.push('/autoresearch/pipeline-1?tab=accuracy')
+            expect(logic.values.activeTab).toEqual('accuracy')
+            expect(capture).not.toHaveBeenCalledWith('autoresearch model tab changed', expect.anything())
+            logic.unmount()
+            capture.mockRestore()
+        })
     })
 
     describe('scoringCoverage', () => {
