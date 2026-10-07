@@ -152,6 +152,7 @@ class TestWarehouseDependencyNames(BaseTest):
         )
 
         query["source"]["query"] = "SELECT * FROM refunds_view"
+        insight.save(update_fields=[])
         insight.save(update_fields=["query"])
         self.assertEqual(
             list(Edge.objects.filter(target__insight_id=insight.id).values_list("source__name", flat=True)),

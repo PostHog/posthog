@@ -167,7 +167,10 @@ class Insight(Taggable, RootTeamMixin, FileSystemSyncMixin, models.Model):
 
     def save(self, *args, **kwargs) -> None:
         was_adding = self._state.adding
-        written_lineage_fields = _LINEAGE_FIELDS.intersection(kwargs.get("update_fields") or _LINEAGE_FIELDS)
+        update_fields = kwargs.get("update_fields")
+        written_lineage_fields = (
+            _LINEAGE_FIELDS if update_fields is None else _LINEAGE_FIELDS.intersection(update_fields)
+        )
         lineage_changed = was_adding or any(
             self.__dict__.get(field) != self._original_lineage[field] for field in written_lineage_fields
         )
