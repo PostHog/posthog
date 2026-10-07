@@ -1228,6 +1228,22 @@ snapshots:
         hash: v1.k794b7964.9fb9de3ef6ea3c41afefb2ef1f48bd8ea996498fd3178094becab4a8a99e6b53.7StTlix5q6M4Ywy06Z6zUB14yt-gXrgyo2qGEqyejBg
     components-hogcharts-piechart--with-legend--light:
         hash: v1.k794b7964.8bb46927c74f00a5579e78a238a28ae3b1c47017dd4d058c0ed3d46d66e95218.oR1c60kYOX2Uvf1l-aT1TcDUTpqAbQNFuJtRRPTQljI
+    components-hogcharts-proportionbar--default--dark:
+        hash: v1.k794b7964.c7486be534f90f4d590b14f0150689f4d3752a6473a2929f6e4c58ff49adccf2.3Ca4csVlKfjdDzpA--mrdYaDzag1lUmksLCxy8rvKU8
+    components-hogcharts-proportionbar--default--light:
+        hash: v1.k794b7964.4005134e4f87877daf8a15d89d66c40ddf9ad40e7d2361f949df67d6b1968e90.wE0d-G06zrxdV4pD6FIYHe3G9eXYfKe58jqEAf8TbcQ
+    components-hogcharts-proportionbar--narrow--dark:
+        hash: v1.k794b7964.52d79c18a21bf3ced34e255e97c2038a864bd3aa884bc57576a85530c40f67e1.Jm1ctA9bdKuM_HLvBy7Y5dinq0abvC80wmhj02s_eCk
+    components-hogcharts-proportionbar--narrow--light:
+        hash: v1.k794b7964.c3155449e80acdaedf56a4adcdd2bb67696120db785456daa5da3e1f7eec5c06.W-XVGjc-H-vR906fAYvYfrw07ir-USuUCbcsjuQsOeQ
+    components-hogcharts-proportionbar--thin-with-currency--dark:
+        hash: v1.k794b7964.d08e6bbea9c82e6f0048c53dae699ce4f137449218e2adb012c70922e2d943ba.V97cm3tTqDauU196D-UsRqcyY31SgG3IyLsYOa7Px1Q
+    components-hogcharts-proportionbar--thin-with-currency--light:
+        hash: v1.k794b7964.9a98af30e608492246071eb8a8aa32c84f33132557fa7380c2edc6d764a59b3d.qkUHw6OYpYyzBFjFXZPLU4W8pXnxVHI9qAh7ydYkT5w
+    components-hogcharts-proportionbar--two-parts--dark:
+        hash: v1.k794b7964.9cf706da788d59039a7164f3258a028d4c64b2c00307b2a19a2bc2efcf58a252.9myoHWU04Yr48OJtosq5KCU_NsYa9KhAhJ-KOU4B8I8
+    components-hogcharts-proportionbar--two-parts--light:
+        hash: v1.k794b7964.a6b9696f53f3006e285d41ec84516640ebe05d5cbf0cfaf0df77868e93c3172e.MpvCPxDn1N6s0dTO0eLAuJzAyIMHnxcVJ_mJkPdhjlw
     components-hogcharts-referenceline--fill-sides--dark:
         hash: v1.k794b7964.b41b2cebf82f249680d02283fefc807d117ae54b38745e5fb46c7d14390f2353.bs-zM7MFAJsKbP_eQF4IWfMhJEqDNrQbqDfExi_wgwY
     components-hogcharts-referenceline--fill-sides--light:
