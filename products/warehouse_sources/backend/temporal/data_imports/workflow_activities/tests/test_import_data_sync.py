@@ -1263,6 +1263,7 @@ def _probe_model() -> mock.MagicMock:
 def _probe_schema() -> mock.MagicMock:
     schema = mock.MagicMock()
     schema.id = uuid.uuid4()
+    schema.sync_type = ExternalDataSchema.SyncType.FULL_REFRESH
     schema.should_use_incremental_field = False
     schema.is_incremental = False
     schema.sync_type_config = {}

@@ -48,6 +48,8 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     AUTO_DISABLED_JOB_ERROR,
     DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE,
     MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
+    UNSUPPORTED_SYNC_TYPE_DISABLED_MESSAGE,
+    UNSUPPORTED_SYNC_TYPE_ERROR,
     ExternalDataSchema,
     update_should_sync,
 )
@@ -189,6 +191,7 @@ Any_Source_Errors: dict[str, str | None] = {
         "configuration, then re-enable the sync."
     ),
     MISSING_PRIMARY_KEYS_ERROR: MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
+    UNSUPPORTED_SYNC_TYPE_ERROR: UNSUPPORTED_SYNC_TYPE_DISABLED_MESSAGE,
     DUPLICATE_PRIMARY_KEYS_ERROR: DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE,
     "Integration matching query does not exist": MISSING_INTEGRATION_MESSAGE,
     # `OAuthMixin.get_oauth_integration` catches `Integration.DoesNotExist` and re-raises these
