@@ -8,10 +8,16 @@
                   margin: 0">{{ code }}</p>
     </div>
     <p>This code expires in {{ expiration_minutes }} minutes.</p>
+    <div class="mt mb">
+        <div><b>Time:</b> {{ login_time }}</div>
+        <div><b>Location:</b> {{ location|default:"Unknown" }}</div>
+        <div><b>Browser:</b> {{ browser|default:"Unknown" }}</div>
+        <div><b>IP:</b> {{ ip_address|default:"Unknown" }}</div>
+    </div>
     <hr />
     <p class="muted">
         <strong>Didn't try to log in?</strong>
         <br>
-        If you didn't attempt this login, someone may be trying to access your account. Please secure your account immediately by changing your password.
+        We only send this code after someone enters the correct password for your account. If this wasn't you, change your password now to secure your account.
     </p>
 {% endblock %} {% block preheader %}{{ preheader }}{% endblock %}{% block heading %}Your login code{% endblock %}

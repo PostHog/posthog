@@ -31,6 +31,7 @@ from posthog.tasks.email import (
     send_async_migration_errored_email,
     send_batch_export_run_failure,
     send_canary_email,
+    send_code_based_verification,
     send_discussions_mentioned,
     send_email_change_emails,
     send_email_verification_code,
@@ -2002,6 +2003,29 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert html_body
         assert "Canada" in html_body
         assert "Email/password" in html_body
+
+    @time_machine.travel("2026-03-04T05:06:00Z", tick=False)
+    def test_send_code_based_verification_includes_request_origin(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        send_code_based_verification(
+            self.user.id,
+            "123456",
+            ip_address="24.114.32.12",  # random ip in Canada
+            short_user_agent="Chrome 135.0.0 on Mac OS 15.3",
+        )
+
+        assert len(mocked_email_messages) == 1
+        html_body = mocked_email_messages[0].html_body
+        assert html_body
+        for expected in (
+            "123456",
+            "Canada",
+            "Chrome 135.0.0 on Mac OS 15.3",
+            "24.114.32.12",
+            "March 4, 2026 at 05:06 UTC",
+        ):
+            assert expected in html_body
 
     def test_send_new_ticket_notification(self, MockEmailMessage: MagicMock) -> None:
         from products.conversations.backend.models import Ticket
