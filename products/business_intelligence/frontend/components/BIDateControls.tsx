@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCalendar } from '@posthog/icons'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -58,6 +58,13 @@ export function BIDateControls(): JSX.Element {
                         <span>{label}</span>
                     </>
                 )}
+            />
+            <LemonSwitch
+                label="Compare previous period"
+                checked={!!config.compareFilter?.compare && !config.compareFilter.compare_to}
+                onChange={(compare) => setCompareFilter({ compare })}
+                disabledReason={getBIComparisonDisabledReason(config)}
+                size="small"
             />
             <CompareFilter
                 compareFilter={config.compareFilter}
