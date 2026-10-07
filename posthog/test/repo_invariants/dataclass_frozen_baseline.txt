@@ -629,8 +629,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gorgias/gorgias.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gorgias/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/grafana/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/granola/granola.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/granola/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/greenhouse/greenhouse.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gridly/gridly.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gridly/settings.py
@@ -791,8 +789,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/loop_returns/loop_returns.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/loops/loops.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/loops/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/luma/luma.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/luma/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailchimp/mailchimp.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailerlite/mailerlite.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailerlite/settings.py
