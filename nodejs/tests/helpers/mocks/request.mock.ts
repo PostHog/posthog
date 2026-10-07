@@ -8,6 +8,7 @@ jest.mock('~/common/utils/request', () => {
                 headers: {},
                 json: () => Promise.resolve({ success: true }),
                 text: () => Promise.resolve(JSON.stringify({ success: true })),
+                dump: () => Promise.resolve(),
             } as FetchResponse)
         ),
         internalFetch: jest.fn(() =>
@@ -16,6 +17,7 @@ jest.mock('~/common/utils/request', () => {
                 headers: {},
                 json: () => Promise.resolve({}),
                 text: () => Promise.resolve(''),
+                dump: () => Promise.resolve(),
             } as FetchResponse)
         ),
         closeSharedAgents: jest.fn(() => Promise.resolve()),
