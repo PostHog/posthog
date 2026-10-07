@@ -28,7 +28,10 @@ export function toolMatchesSearch(tool: FileSystemImport, search: string): boole
 // Saved object types live in Library, except the ones that are working pages.
 export function isToolItem(item: FileSystemImport): boolean {
     const type = item.type?.split('/')[0] || item.iconType || ''
-    return !!item.href && !(type in fileSystemTypes && !TOOL_FILE_SYSTEM_TYPES.has(type))
+    return (
+        !!item.href &&
+        (type === 'session_recording_playlist' || !(type in fileSystemTypes && !TOOL_FILE_SYSTEM_TYPES.has(type)))
+    )
 }
 
 export function toolHrefForPath(
