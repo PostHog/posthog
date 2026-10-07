@@ -3805,11 +3805,11 @@ Note: The published openapi3.json / api-merged.json cover 207 paths but only the
 
 ## Granola — adequate
 
-Today (2): `folders`, `notes`
+Today (3): `folders`, `notes`, `transcripts`
 
 Diffed against: <https://docs.granola.ai/api-reference/openapi.json>
 
-No material gaps found.
+- [x] `transcripts (GET /v1/notes/{note_id}/transcript)` — cursor-paginated transcript items per note, added in API v1.4.0 for transcripts too large to return inline. Shipped as `transcripts`, fanned out over the notes listing (full refresh).
 
 Note: The public OpenAPI declares only 5 paths: /v1/folders, /v1/notes, /v1/notes/{note_id}, and two webhook-endpoint management paths. PostHog's folders + notes tables cover every non-config resource in the API.
 

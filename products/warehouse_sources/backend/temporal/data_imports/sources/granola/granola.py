@@ -1,7 +1,7 @@
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlencode
 
 from requests import Response
@@ -11,28 +11,35 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BaseNextUrlPaginator,
+    JSONResponseCursorPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.granola.settings import (
     GRANOLA_ENDPOINTS,
+    PAGE_SIZE,
     GranolaEndpointConfig,
 )
 
 GRANOLA_BASE_URL = "https://public-api.granola.ai"
 
-# Granola caps page_size at 30; use the max to keep request volume low against the
-# 5 req/s sustained / 25-per-5s burst rate limit.
-PAGE_SIZE = 30
-
 
 @dataclasses.dataclass
 class GranolaResumeConfig:
     # Full, self-contained next-page URL (base + filters + cursor) so a resume can GET it directly.
-    next_url: str
+    next_url: str | None = None
+    # Fan-out endpoints resume by parent: the parent paths already fully synced, the parent in
+    # progress, and that parent's paginator state.
+    completed: list[str] | None = None
+    current: str | None = None
+    child_state: dict[str, Any] | None = None
 
 
 class GranolaCursorPaginator(BaseNextUrlPaginator):
@@ -58,6 +65,22 @@ class GranolaCursorPaginator(BaseNextUrlPaginator):
             self._next_url = self._next_url_builder(body["cursor"])
             self._has_next_page = True
         else:
+            self._has_next_page = False
+
+
+class GranolaTranscriptPaginator(JSONResponseCursorPaginator):
+    """Body-cursor pagination for a single note's transcript, with the same ``hasMore`` gate."""
+
+    def __init__(self) -> None:
+        super().__init__(cursor_path="cursor", cursor_param="cursor")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        try:
+            body = response.json()
+        except Exception:
+            body = {}
+        if not (isinstance(body, dict) and body.get("hasMore")):
             self._has_next_page = False
 
 
@@ -109,6 +132,9 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     scope-limited key (e.g. folders-only) isn't rejected by an unrelated stream's probe.
     """
     endpoint = GRANOLA_ENDPOINTS.get(schema_name) if schema_name else None
+    if endpoint is not None and endpoint.fanout is not None:
+        # A fan-out child's path needs a parent id, and its rows come from the parent's notes.
+        endpoint = GRANOLA_ENDPOINTS[endpoint.fanout.parent_name]
     path = endpoint.path if endpoint else GRANOLA_ENDPOINTS["notes"].path
     url = _build_url(path, {"page_size": 1})
 
@@ -132,6 +158,87 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     return False, f"Granola API returned an unexpected status code: {status}"
 
 
+def _source_response(config: GranolaEndpointConfig, items: Callable[[], Iterable[Any]]) -> SourceResponse:
+    return SourceResponse(
+        name=config.name,
+        items=items,
+        primary_keys=config.primary_keys,
+        # Granola's list endpoints have no sort parameter, so within-page ordering is
+        # undefined. "desc" here is the pipeline's "commit the incremental watermark only
+        # after every page has been processed" mode - with undefined ordering we must not
+        # advance the watermark per-batch (that could persist a high value early and skip
+        # older, not-yet-fetched rows on the next run's server-side `*_after` filter).
+        # Pagination is driven entirely by the opaque cursor, so we don't rely on ordering
+        # or on `db_incremental_field_earliest_value` to scroll; merge dedupes on `id`.
+        sort_mode="desc",
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+    )
+
+
+def _fanout_source(
+    config: GranolaEndpointConfig,
+    api_key: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[GranolaResumeConfig],
+) -> SourceResponse:
+    assert config.fanout is not None
+    parent_config = GRANOLA_ENDPOINTS[config.fanout.parent_name]
+    parent_params: dict[str, Any] = {"page_size": parent_config.page_size}
+
+    client_config: ClientConfig = {
+        "base_url": GRANOLA_BASE_URL,
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "bearer", "token": api_key},
+        "paginator": GranolaCursorPaginator(
+            lambda cursor: _build_url(parent_config.path, {**parent_params, "cursor": cursor})
+        ),
+    }
+
+    initial_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and (resume.completed or resume.current):
+            initial_state = {
+                "completed": resume.completed or [],
+                "current": resume.current,
+                "child_state": resume.child_state,
+            }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(
+                GranolaResumeConfig(
+                    completed=state.get("completed"),
+                    current=state.get("current"),
+                    child_state=state.get("child_state"),
+                )
+            )
+
+    resource = cast(
+        Iterable[Any],
+        build_dependent_resource(
+            endpoint_configs=GRANOLA_ENDPOINTS,
+            child_endpoint=config.name,
+            fanout=config.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra={"data_selector": parent_config.data_key},
+            child_endpoint_extra={"data_selector": config.data_key, "paginator": GranolaTranscriptPaginator()},
+            page_size_param="page_size",
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_state,
+        ),
+    )
+
+    return _source_response(config, lambda: resource)
+
+
 def granola_source(
     api_key: str,
     endpoint: str,
@@ -143,6 +250,9 @@ def granola_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     config = GRANOLA_ENDPOINTS[endpoint]
+
+    if config.fanout is not None:
+        return _fanout_source(config, api_key, team_id, job_id, resumable_source_manager)
 
     params = _build_initial_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
@@ -178,7 +288,7 @@ def granola_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
+        if resume is not None and resume.next_url:
             initial_paginator_state = {"next_url": resume.next_url}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
@@ -198,19 +308,4 @@ def granola_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=["id"],
-        # Granola's list endpoints have no sort parameter, so within-page ordering is
-        # undefined. "desc" here is the pipeline's "commit the incremental watermark only
-        # after every page has been processed" mode - with undefined ordering we must not
-        # advance the watermark per-batch (that could persist a high value early and skip
-        # older, not-yet-fetched rows on the next run's server-side `*_after` filter).
-        # Pagination is driven entirely by the opaque cursor, so we don't rely on ordering
-        # or on `db_incremental_field_earliest_value` to scroll; merge dedupes on `id`.
-        sort_mode="desc",
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="week" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-    )
+    return _source_response(config, lambda: resource)

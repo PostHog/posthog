@@ -172,6 +172,7 @@ class TestValidateCredentials:
             (None, "/v1/notes"),
             ("notes", "/v1/notes"),
             ("folders", "/v1/folders"),
+            ("transcripts", "/v1/notes"),  # fan-out child probes its parent listing
             ("unknown", "/v1/notes"),
         ],
     )
@@ -222,6 +223,7 @@ class TestPagination:
         manager.save_state.assert_called_once()
         saved = manager.save_state.call_args.args[0]
         assert isinstance(saved, GranolaResumeConfig)
+        assert saved.next_url is not None
         assert "cursor=c1" in saved.next_url
 
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -306,6 +308,64 @@ class TestPagination:
 
         with pytest.raises(HTTPError):
             _rows(granola_source("grn_test", "notes", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
+
+
+class TestTranscriptsFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_each_note_transcript_and_skips_deleted_notes(self, MockSession) -> None:
+        session = MockSession.return_value
+        seen = _wire(
+            session,
+            [
+                _response({"notes": [{"id": "not_1"}, {"id": "not_2"}], "hasMore": False, "cursor": None}),
+                _response({"transcript": [{"text": "a"}], "hasMore": True, "cursor": "t1"}),
+                # A cursor alongside hasMore=false still ends the transcript.
+                _response({"transcript": [{"text": "b"}], "hasMore": False, "cursor": "t2"}),
+                _response({"message": "Not found"}, status=404),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(granola_source("grn_test", "transcripts", team_id=1, job_id="j", resumable_source_manager=manager))
+
+        assert [(row["note_id"], row["text"]) for row in rows] == [("not_1", "a"), ("not_1", "b")]
+        assert all("_notes_id" not in row for row in rows)
+        child_requests = seen[1:]
+        assert [r["url"].removeprefix(GRANOLA_BASE_URL) for r in child_requests] == [
+            "/v1/notes/not_1/transcript",
+            "/v1/notes/not_1/transcript",
+            "/v1/notes/not_2/transcript",
+        ]
+        assert child_requests[0]["params"] == {"page_size": 100}
+        assert child_requests[1]["params"] == {"page_size": 100, "cursor": "t1"}
+        assert manager.save_state.call_args.args[0].completed == [
+            "/v1/notes/not_1/transcript",
+            "/v1/notes/not_2/transcript",
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_completed_notes_and_continues_current_cursor(self, MockSession) -> None:
+        session = MockSession.return_value
+        seen = _wire(
+            session,
+            [
+                _response({"notes": [{"id": "not_1"}, {"id": "not_2"}], "hasMore": False, "cursor": None}),
+                _response({"transcript": [{"text": "c"}], "hasMore": False, "cursor": None}),
+            ],
+        )
+
+        manager = _make_manager(
+            GranolaResumeConfig(
+                completed=["/v1/notes/not_1/transcript"],
+                current="/v1/notes/not_2/transcript",
+                child_state={"cursor": "t5"},
+            )
+        )
+        rows = _rows(granola_source("grn_test", "transcripts", team_id=1, job_id="j", resumable_source_manager=manager))
+
+        assert rows == [{"text": "c", "note_id": "not_2"}]
+        assert seen[1]["url"] == f"{GRANOLA_BASE_URL}/v1/notes/not_2/transcript"
+        assert seen[1]["params"]["cursor"] == "t5"
 
 
 class TestGranolaSource:
