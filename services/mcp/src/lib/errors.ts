@@ -27,7 +27,8 @@ export class MCPToolError extends Error {
 export class MCPToolResultError extends Error {
     constructor(
         message: string,
-        public readonly errorType: NonNullable<Schemas.MCPToolResponse['error_type']>
+        public readonly errorType: NonNullable<Schemas.MCPToolResponse['error_type']>,
+        public readonly errorCode?: string
     ) {
         super(message)
         this.name = 'MCPToolResultError'

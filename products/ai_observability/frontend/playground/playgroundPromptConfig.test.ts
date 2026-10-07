@@ -15,7 +15,12 @@ describe('playgroundPromptConfig', () => {
         tools: [{ type: 'function', function: { name: 'lookup' } }],
         messages: [
             { role: 'user', content: 'Hi {{name}}' },
-            { role: 'assistant', content: 'Hello!' },
+            {
+                role: 'assistant',
+                content: 'Hello!',
+                toolCalls: [{ id: 'call_1', name: 'lookup', arguments: '{"q": "x"}' }],
+            },
+            { role: 'tool', content: '{"rows": 2}', toolCallId: 'call_1', toolName: 'lookup' },
         ],
     })
 
@@ -33,7 +38,12 @@ describe('playgroundPromptConfig', () => {
             tools: [{ type: 'function', function: { name: 'lookup' } }],
             messages: [
                 { role: 'user', content: 'Hi {{name}}' },
-                { role: 'assistant', content: 'Hello!' },
+                {
+                    role: 'assistant',
+                    content: 'Hello!',
+                    toolCalls: [{ id: 'call_1', name: 'lookup', arguments: '{"q": "x"}' }],
+                },
+                { role: 'tool', content: '{"rows": 2}', toolCallId: 'call_1', toolName: 'lookup' },
             ],
         })
     })

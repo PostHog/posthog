@@ -84,7 +84,6 @@ export function TodaySessionRow({
                 ) : null
             }
             badgeCount={badgeCount >= 3 ? 3 : badgeCount === 2 ? 2 : 1}
-            weight="regular"
             ticker
             selected={selected}
             onClickCapture={onSelectClick}

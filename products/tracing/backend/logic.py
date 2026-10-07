@@ -153,7 +153,7 @@ def _normalise_status_code_values(values: list) -> list[str]:
 def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
     """Translate UI/API filter values into ClickHouse column representations, in place.
 
-    The filter UI stores human-readable forms — hex ids, seconds for duration, label
+    The filter UI stores human-readable forms — hex ids, milliseconds for duration, label
     strings for `kind`/`status_code` — but the ClickHouse columns are base64 bytes,
     nanoseconds, and integers. Every code path that turns a `SpanPropertyFilter` into
     a WHERE clause must apply this translation before calling `property_to_expr`,
@@ -582,8 +582,9 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         # order, so keyset would pay its cost for none of its benefit).
         sort_key_sql = "max(duration_nano)" if by_duration else "min(timestamp)"
 
-        # rootSpans is opt-in and gated on `is True` (not truthiness): the frontend never sends it
-        # (None), so its prefetch-driven waterfall is untouched. An explicit True narrows the
+        # rootSpans is gated on `is True` (not truthiness), so None leaves the prefetch-driven
+        # waterfall untouched. The list endpoint defaults it to True, and the span list sends False
+        # so that traces whose root never arrived still show. An explicit True narrows the
         # trace-selection subquery to `is_root_span = 1`, so we only pick traces whose root matches
         # the filter. The outer fetch is deliberately left unfiltered — it still prefetches every
         # span of the selected traces so the waterfall gets its children.

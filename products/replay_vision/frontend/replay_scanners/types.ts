@@ -66,6 +66,7 @@ export const OBSERVATION_LIST_URL_PARAM_KEYS = [
     'date_from',
     'date_to',
     'backfill_id',
+    'variant',
 ] as const
 
 export type ObservationsUrlParams = Partial<Record<(typeof OBSERVATION_LIST_URL_PARAM_KEYS)[number], string>>
@@ -410,7 +411,18 @@ export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; descript
         label: 'Scorer',
         description: 'Scores the session on a configurable numeric scale.',
     },
+    {
+        value: 'experiment',
+        label: 'Experiment',
+        description: 'Summarizes sessions for each variant of an A/B test.',
+    },
 ]
+
+/** The type options to offer. The experiment type is behind a flag until it ships, but a scanner that already
+ * has it, or a team that already has one, still sees it. */
+export function scannerTypeOptions(includeExperiment: boolean): typeof SCANNER_TYPE_OPTIONS {
+    return includeExperiment ? SCANNER_TYPE_OPTIONS : SCANNER_TYPE_OPTIONS.filter(({ value }) => value !== 'experiment')
+}
 
 export interface MonitorScannerConfig {
     prompt: string
@@ -437,10 +449,13 @@ export interface ScorerScannerConfig {
 export interface ExperimentScannerConfig {
     prompt: string
     length?: 'short' | 'medium' | 'long'
-    experiment_id: number
+    /** Null only on an unsaved form, before an experiment is picked. */
+    experiment_id: number | null
     /** Variant keys to watch; null or absent means every variant. */
     variants?: string[] | null
     balance_variants?: boolean
+    /** Saved off on a draft experiment; the backend turns the scanner on at launch. */
+    start_on_launch?: boolean
 }
 
 export type ScannerConfig =

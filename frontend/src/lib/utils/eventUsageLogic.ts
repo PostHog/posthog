@@ -45,6 +45,7 @@ import {
     isFunnelsQuery,
     isInsightQueryNode,
     isInsightVizNode,
+    isMetricsQuery,
     isNodeWithSource,
     isStickinessQuery,
     isTrendsQuery,
@@ -98,7 +99,14 @@ export enum DashboardEventSource {
     DashboardVariableOverride = 'dashboard_variable_override',
 }
 
-export type DashboardFilterChangeType = 'date' | 'properties' | 'breakdown' | 'variable' | 'interval' | 'test_accounts'
+export type DashboardFilterChangeType =
+    | 'date'
+    | 'properties'
+    | 'breakdown'
+    | 'variable'
+    | 'interval'
+    | 'test_accounts'
+    | 'metric_labels'
 
 export enum InsightEventSource {
     LongPress = 'long_press',
@@ -773,6 +781,16 @@ export function sanitizeQuery(query: Node | null): SanitizedQuery {
         // Whether this insight/query reads from a connector-synced data warehouse source (series-level
         // detection). Raw SQL/HogQL warehouse usage is flagged from the query response in performQuery.
         uses_data_warehouse_source: queryUsesDataWarehouse(query),
+    }
+
+    if (isMetricsQuery(query)) {
+        Object.assign(payload, {
+            metrics_query_mode: 'builder',
+            metrics_clause_count: query.clauses.length,
+            metrics_has_formula: !!query.formula,
+            metrics_interval: query.interval ?? 'auto',
+            metrics_display_type: query.display?.type ?? 'line',
+        })
     }
 
     const querySource = insightQuerySource(query)
