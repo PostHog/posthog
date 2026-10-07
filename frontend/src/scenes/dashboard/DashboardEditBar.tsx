@@ -2,8 +2,8 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { IconCalendar } from '@posthog/icons'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { IconCalendar, IconLive } from '@posthog/icons'
+import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -36,7 +36,7 @@ interface DashboardEditBarProps {
     className?: string
 }
 
-/** Wraps one filter control: hides it when it changes no insight, and says how many insights it changes. */
+/** Wraps one filter control: hides it when it changes no insight, and says in a tooltip how many insights it changes. */
 function DashboardControlSlot({
     control,
     hasValue,
@@ -60,18 +60,9 @@ function DashboardControlSlot({
     }
     const scopeText = dashboardControlScopeText(scope)
     return (
-        <div className={className}>
-            {scopeText ? (
-                <div className="flex flex-col gap-0.5">
-                    <span className="text-xs text-secondary whitespace-nowrap" data-attr="dashboard-control-scope">
-                        {scopeText}
-                    </span>
-                    {children}
-                </div>
-            ) : (
-                children
-            )}
-        </div>
+        <Tooltip title={scopeText} placement="top" delayMs={300}>
+            <div className={className}>{children}</div>
+        </Tooltip>
     )
 }
 
@@ -250,31 +241,37 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                     />
                 </BindLogic>
             </DashboardControlSlot>
+
+            <VariablesForDashboard />
+            <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                <DashboardEditBarAdvancedFilters />
+            </div>
             {controlsEnabled && (
                 <DashboardControlSlot
                     control="metricLabels"
                     hasValue={(effectiveEditBarFilters.metricFilters?.length ?? 0) > 0}
                     className={clsx('content-end', { 'h-[61px]': hasVariables })}
                 >
-                    <DashboardMetricLabelFilter
-                        metricFilters={effectiveEditBarFilters.metricFilters}
-                        onChange={(metricFilters) => {
-                            if (!dashboardEditing?.filters) {
-                                setDashboardEditing(
-                                    { filters: true, layout: false },
-                                    DashboardEventSource.DashboardFilters
-                                )
-                            }
-                            setMetricFilters(metricFilters)
-                        }}
-                    />
+                    <div className="flex min-h-[30px] flex-wrap items-center gap-1 border-l border-primary pl-2">
+                        <span className="flex items-center gap-1 text-xs font-semibold text-secondary">
+                            <IconLive className="text-sm" />
+                            Metrics
+                        </span>
+                        <DashboardMetricLabelFilter
+                            metricFilters={effectiveEditBarFilters.metricFilters}
+                            onChange={(metricFilters) => {
+                                if (!dashboardEditing?.filters) {
+                                    setDashboardEditing(
+                                        { filters: true, layout: false },
+                                        DashboardEventSource.DashboardFilters
+                                    )
+                                }
+                                setMetricFilters(metricFilters)
+                            }}
+                        />
+                    </div>
                 </DashboardControlSlot>
             )}
-
-            <VariablesForDashboard />
-            <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
-                <DashboardEditBarAdvancedFilters />
-            </div>
         </div>
     )
 }

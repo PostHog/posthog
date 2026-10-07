@@ -17,9 +17,11 @@ import { METRIC_FILTER_OPERATOR_ALLOWLIST } from './metricsViewerLogic'
 export function MetricsClauseFilterBar({
     disabledReason,
     addFilterTitle = 'Filter',
+    addFilterType = 'secondary',
 }: {
     disabledReason: string | null
     addFilterTitle?: string
+    addFilterType?: 'secondary' | 'tertiary'
 }): JSX.Element {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
@@ -54,7 +56,7 @@ export function MetricsClauseFilterBar({
             )}
             <UniversalFilters.AddFilterButton
                 size="small"
-                type="secondary"
+                type={addFilterType}
                 title={addFilterTitle}
                 disabledReason={disabledReason}
             />

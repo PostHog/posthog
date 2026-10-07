@@ -50,7 +50,7 @@ export function DashboardMetricLabelFilter({
                 }
             }}
         >
-            <MetricsClauseFilterBar disabledReason={disabledReason} addFilterTitle="Metric labels" />
+            <MetricsClauseFilterBar disabledReason={disabledReason} addFilterTitle="Label" addFilterType="tertiary" />
         </UniversalFilters>
     )
 }
