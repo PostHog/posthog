@@ -245,6 +245,45 @@ function toMetricSummary(
 }
 
 /**
+ * The effective definition of a shared metric for a PostHog server that does not serve
+ * `effective_query`, such as an older self-hosted instance: the saved query with the per-experiment
+ * overrides from the link metadata applied. It copies the rules of `resolve_saved_metric_definition`
+ * in products/experiments/backend/metric_resolution.py as those servers run them. A server that
+ * serves `effective_query` never reaches this function, so a later change to the backend rules does
+ * not need a change here.
+ */
+function resolveSharedMetricForOlderServer({ query, metadata }: SavedMetricAttachment): unknown {
+    if (query === null || typeof query !== 'object' || Array.isArray(query)) {
+        return query
+    }
+    const saved = query as Record<string, unknown>
+    const overrides: Record<string, unknown> = metadata ?? {}
+    const breakdowns = Array.isArray(overrides.breakdowns) ? overrides.breakdowns : []
+    const hasBreakdowns = breakdowns.length > 0
+    const savedBreakdownFilter =
+        saved.breakdownFilter !== null && typeof saved.breakdownFilter === 'object' ? saved.breakdownFilter : {}
+
+    const resolved: Record<string, unknown> = {
+        ...saved,
+        breakdownFilter: {
+            ...savedBreakdownFilter,
+            breakdowns,
+            ...(hasBreakdowns && overrides.breakdown_limit != null
+                ? { breakdown_limit: overrides.breakdown_limit }
+                : {}),
+        },
+    }
+    if (hasBreakdowns && saved.metric_type === 'funnel' && overrides.breakdownAttributionType != null) {
+        resolved.breakdownAttributionType = overrides.breakdownAttributionType
+        delete resolved.breakdownAttributionValue
+        if (overrides.breakdownAttributionValue != null) {
+            resolved.breakdownAttributionValue = overrides.breakdownAttributionValue
+        }
+    }
+    return resolved
+}
+
+/**
  * Build the per-position metric entries for a primary/secondary slot, merging the
  * inline metrics on the experiment with the shared metrics (saved_metrics), and
  * ordering them by `*_metrics_ordered_uuids` so the result rows match what users
@@ -258,9 +297,12 @@ export function buildMetricEntries(experiment: Experiment, slot: 'primary' | 'se
         ...inline.map((metric) => ({ metric: metric as unknown, summary: toMetricSummary(metric, 'inline') })),
         ...shared.map((sm) => ({
             // The API applies the link overrides and serves the result as `effective_query`, so the tool
-            // queries the metric the experiment page shows. A legacy shared metric has none, and neither
-            // does a response from a PostHog server that predates the field. The saved query then applies.
-            metric: sm.effective_query ?? sm.query,
+            // queries the metric the experiment page shows. It is null for a legacy shared metric, which
+            // takes no overrides, and absent on a PostHog server that predates the field.
+            metric:
+                sm.effective_query === undefined
+                    ? resolveSharedMetricForOlderServer(sm)
+                    : (sm.effective_query ?? sm.query),
             summary: toMetricSummary(sm.query, 'shared', {
                 id: typeof sm.saved_metric === 'number' ? sm.saved_metric : null,
                 name: typeof sm.name === 'string' ? sm.name : null,
@@ -379,7 +421,10 @@ export function transformExperimentResults(input: {
         feature_flag_key: experiment.feature_flag_key,
         metrics: experiment.metrics,
         metrics_secondary: experiment.metrics_secondary,
-        saved_metrics: experiment.saved_metrics,
+        // `effective_query` repeats `query` with the `metadata` overrides applied, so it only spends context.
+        saved_metrics:
+            experiment.saved_metrics &&
+            experiment.saved_metrics.map(({ effective_query: _effective, ...link }) => link),
         start_date: experiment.start_date,
         end_date: experiment.end_date,
         status: (experiment.start_date ? (experiment.end_date ? 'completed' : 'running') : 'draft') as

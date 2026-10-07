@@ -121,6 +121,12 @@ describe('transformExperimentResults', () => {
                     name: 'Shared secondary',
                     metadata: { type: 'secondary' },
                     query: { uuid: 'shared-1', name: 'Shared query', metric_type: 'funnel', goal: 'increase' },
+                    effective_query: {
+                        uuid: 'shared-1',
+                        name: 'Shared query',
+                        metric_type: 'funnel',
+                        goal: 'increase',
+                    },
                 },
             ],
             secondary_metrics_ordered_uuids: ['inline-1', 'shared-1'],
@@ -154,6 +160,15 @@ describe('transformExperimentResults', () => {
                 saved_metric_name: 'Shared secondary',
             })
         )
+        // The link keeps its query and metadata, without the effective_query that repeats them.
+        expect(result.experiment.saved_metrics).toEqual([
+            {
+                saved_metric: 42,
+                name: 'Shared secondary',
+                metadata: { type: 'secondary' },
+                query: { uuid: 'shared-1', name: 'Shared query', metric_type: 'funnel', goal: 'increase' },
+            },
+        ])
     })
 
     it("uses the saved metric's UI label as `name` on shared rows (not the inner query.name)", () => {
@@ -176,28 +191,50 @@ describe('transformExperimentResults', () => {
         expect(entry?.summary.saved_metric_name).toBe('Activation funnel (revenue impact)')
     })
 
-    const savedFunnel = { uuid: 'shared-funnel', metric_type: 'funnel', breakdownFilter: { breakdowns: [] } }
+    const savedFunnel = {
+        uuid: 'shared-funnel',
+        metric_type: 'funnel',
+        breakdownAttributionType: 'step',
+        breakdownAttributionValue: 2,
+        breakdownFilter: { breakdown_limit: 5, breakdowns: [{ property: '$os', type: 'event' }] },
+    }
+    const linkWithBreakdowns = {
+        type: 'primary',
+        breakdowns: [{ property: '$browser', type: 'event' }],
+        breakdown_limit: 20,
+        breakdownAttributionType: 'last_touch',
+    }
     const effectiveFunnel = {
-        ...savedFunnel,
+        uuid: 'shared-funnel',
+        metric_type: 'funnel',
         breakdownAttributionType: 'last_touch',
         breakdownFilter: { breakdown_limit: 20, breakdowns: [{ property: '$browser', type: 'event' }] },
     }
 
     it.each([
-        ['the effective query the API resolved', { effective_query: effectiveFunnel }, effectiveFunnel],
-        ['the saved query of a legacy shared metric', { effective_query: null }, savedFunnel],
-        ['the saved query when the API predates effective_query', {}, savedFunnel],
-    ])('queries a shared metric with %s', (_name, effectiveQuery, expectedMetric) => {
+        [
+            'the effective query the API resolved',
+            { metadata: linkWithBreakdowns, effective_query: { ...effectiveFunnel, fingerprint: 'served' } },
+            { ...effectiveFunnel, fingerprint: 'served' },
+        ],
+        [
+            'the saved query of a legacy shared metric',
+            { metadata: linkWithBreakdowns, effective_query: null },
+            savedFunnel,
+        ],
+        [
+            'the link breakdowns, limit and attribution when the API predates effective_query',
+            { metadata: linkWithBreakdowns },
+            effectiveFunnel,
+        ],
+        [
+            'no link limit or attribution without link breakdowns when the API predates effective_query',
+            { metadata: { type: 'primary', breakdown_limit: 20, breakdownAttributionType: 'last_touch' } },
+            { ...savedFunnel, breakdownFilter: { breakdown_limit: 5, breakdowns: [] } },
+        ],
+    ])('queries a shared metric with %s', (_name, link, expectedMetric) => {
         const experiment = makeExperiment({
-            saved_metrics: [
-                {
-                    saved_metric: 1,
-                    name: 'Shared funnel',
-                    metadata: { type: 'primary', breakdowns: [{ property: '$browser', type: 'event' }] },
-                    query: savedFunnel,
-                    ...effectiveQuery,
-                },
-            ],
+            saved_metrics: [{ saved_metric: 1, name: 'Shared funnel', query: savedFunnel, ...link }],
         })
 
         const [entry] = buildMetricEntries(experiment, 'primary')
