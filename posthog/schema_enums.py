@@ -551,7 +551,6 @@ class AssistantTool(StrEnum):
 
 
 class Display(StrEnum):
-    AUTO = "Auto"
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
     ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
@@ -565,10 +564,8 @@ class Display(StrEnum):
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
-    TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
-    SCATTER_PLOT = "ScatterPlot"
 
 
 class MetricSummary(StrEnum):

@@ -38,7 +38,36 @@ const insightQueries = [
     ['query-lifecycle', { series: [{ kind: 'EventsNode', event: '$pageview' }] }],
 ] as const
 
+type JSONSchemaNode = z.core.JSONSchema.JSONSchema
+
+const trendsFilterSchema = z.toJSONSchema(GENERATED_TOOLS['query-trends']!().schema, { io: 'input', reused: 'inline' })
+    .properties?.trendsFilter as JSONSchemaNode
+const trendsDisplaySchema = trendsFilterSchema.properties?.display as JSONSchemaNode
+const trendsDisplayTypes = trendsDisplaySchema.enum as string[]
+
+function trendsDisplayEntry(display: string): string | undefined {
+    return trendsDisplaySchema.description?.split(/(?=`\w+` - )/).find((entry) => entry.startsWith(`\`${display}\``))
+}
+
 describe('generated query wrappers', () => {
+    it.each(trendsDisplayTypes)('describes the trends display type %s', (display) => {
+        expect(trendsDisplayEntry(display)).toBeDefined()
+    })
+
+    it.each([
+        ['slope chart', 'SlopeGraph'],
+        ['slopegraph', 'SlopeGraph'],
+        ['before-and-after chart', 'SlopeGraph'],
+        ['box-and-whisker', 'BoxPlot'],
+        ['doughnut', 'ActionsDonut'],
+        ['punch card', 'CalendarHeatmap'],
+        ['grouped bar', 'ActionsUnstackedBar'],
+        ['choropleth', 'WorldMap'],
+        ['KPI', 'BoldNumber'],
+    ])('names the trends display synonym "%s" next to %s', (synonym, display) => {
+        expect(trendsDisplayEntry(display)?.toLowerCase()).toContain(synonym.toLowerCase())
+    })
+
     it.each(insightQueries)('accepts behavioral filters for %s', (toolName, query) => {
         const tool = GENERATED_TOOLS[toolName]!()
 
