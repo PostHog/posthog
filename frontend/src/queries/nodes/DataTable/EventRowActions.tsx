@@ -103,7 +103,7 @@ function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
 
 export const EventCopyLinkButton = React.forwardRef<
     HTMLButtonElement,
-    { event: Pick<EventType, 'uuid' | 'timestamp'> }
+    { event: Pick<EventType, 'uuid' | 'timestamp' | 'event'> }
 >(function EventCopyLinkButton({ event }, ref) {
     return (
         <LemonButton
@@ -113,7 +113,7 @@ export const EventCopyLinkButton = React.forwardRef<
             data-attr="events-table-event-link"
             onClick={() =>
                 void copyToClipboard(
-                    urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp))),
+                    urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp, event.event))),
                     'link to event'
                 )
             }

@@ -1,6 +1,8 @@
 import './Dashboard.scss'
 
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { Suspense } from 'react'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { dashboardTileScreenshotKey } from 'lib/components/Cards/InsightCard/insightCardImageCapture'
@@ -10,6 +12,7 @@ import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { DashboardLoadAction, DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -26,15 +29,22 @@ import { DashboardPlacement, DashboardType, DataColorThemeModel } from '~/types'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { teamLogic } from '../teamLogic'
-import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardEmbeddedShareButton } from './DashboardHeaderActions'
+import { DashboardModalLoading } from './DashboardModalLoading'
 import { DashboardQueryScanBanner } from './DashboardQueryScanBanner'
 import { DashboardRetentionBanner } from './DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
 import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
+
+// The modal renders the saved insights list, which no dashboard needs until someone adds an insight.
+const AddInsightToDashboardModal = lazyWithRetry(() =>
+    import('./addInsightToDashboardModal/AddInsightToDashboardModal').then((m) => ({
+        default: m.AddInsightToDashboardModal,
+    }))
+)
 
 // Mount-only: runs the subscribe-nudge eligibility machinery for this dashboard; renders nothing.
 function DashboardSubscribeNudgeTrigger({ dashboardId }: { dashboardId: number }): null {
@@ -115,6 +125,13 @@ function DashboardScene({
     const { currentTeamId } = useValues(teamLogic)
     const { reportDashboardViewed, abortAnyRunningQuery, loadDashboard, setLayoutZoom } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
+    const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
+    const closeAddInsightToDashboardModal = (): void => {
+        // Mirror AddInsightToDashboardModal.handleClose, so a close during the chunk load still
+        // emits this event. 'insight dashboard modal - closed' is a frozen event name; keep both in sync.
+        posthog.capture('insight dashboard modal - closed')
+        hideAddInsightToDashboardModal()
+    }
 
     useAttachedContext(
         dashboard ? [{ type: 'dashboard', key: dashboard.id, label: dashboard.name ?? undefined }] : null
@@ -162,7 +179,19 @@ function DashboardScene({
             {placement == DashboardPlacement.Dashboard && !!dashboard?.id && (
                 <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />
             )}
-            {canEditDashboard && addInsightToDashboardModalVisible && <AddInsightToDashboardModal />}
+            {canEditDashboard && addInsightToDashboardModalVisible && (
+                <Suspense
+                    fallback={
+                        <DashboardModalLoading
+                            isOpen={addInsightToDashboardModalVisible}
+                            onClose={closeAddInsightToDashboardModal}
+                            label="Loading insights"
+                        />
+                    }
+                >
+                    <AddInsightToDashboardModal />
+                </Suspense>
+            )}
             {/* Lets a tile copied as a PNG be annotated before it is shared. Export placement renders headlessly. */}
             {placement !== DashboardPlacement.Export && (
                 <ScreenShotEditor screenshotKey={dashboardTileScreenshotKey(dashboard?.id)} />

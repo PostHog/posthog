@@ -13,6 +13,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
+import type { HogErrorClass } from './utils/hog-error-classification'
 
 export type HogBytecode = any[]
 
@@ -241,6 +242,7 @@ export type MinimalAppMetric = {
         | 'masked'
         | 'filtering_failed'
         | 'inputs_failed'
+        | 'missing_credential'
         | 'missing_addon'
         | 'fetch'
         | 'billable_invocation'
@@ -287,6 +289,25 @@ export type MinimalAppMetric = {
 export type AppMetricType = MinimalAppMetric & {
     timestamp: ClickHouseTimestamp
     app_source: MetricLogSource
+}
+
+/**
+ * Where an event stopped, for a record on a dead-letter topic.
+ *
+ * `filter` and `inputs` are the two failures the pipeline expects and handles per function.
+ * `parse` and `process` are the ones it does not: a message it cannot read, and anything else
+ * that throws while an event is being turned into invocations. Those two exist so an unanticipated
+ * bug parks the event rather than stalling the partition it arrived on.
+ */
+export type DeadLetterStep = 'parse' | 'filter' | 'inputs' | 'process'
+
+export type InvocationBuildFailure = {
+    sourceId: string
+    sourceKind: 'hog_function' | 'hog_flow'
+    step: DeadLetterStep
+    error: string
+    /** Who has to act on it. Only our own classes are worth parking, see HogErrorClass. */
+    errorClass?: HogErrorClass
 }
 
 export interface HogFunctionTiming {
@@ -477,6 +498,11 @@ export type HogFlowInvocationContext = {
         // Set when a distinct_id's first mapping fills a parked wait's missing person anchor and wakes
         // it. A matcher wake carrying no eventMatched, so the handler consumes it like rekeyWake.
         anchorWake?: boolean
+        // The max_wait_duration this wait parked against. The timing sweep moves `scheduled` with a
+        // bulk UPDATE and cannot stamp a marker the way the matcher does, so a wake that follows a
+        // shortened ceiling is otherwise indistinguishable from the deadline arriving. Comparing the
+        // parked ceiling with the action's current one tells the two apart.
+        parkedMaxWaitDuration?: string
         // Set by hog-function action handler when it returns `finished: false` without an
         // explicit `queueScheduledAt` — i.e. the reschedule is purely to move the job onto a
         // dedicated queue (e.g. 'email' for SES rate-limit gating) and the next dequeue will
@@ -492,11 +518,6 @@ export type HogFlowInvocationContext = {
         //     debug line *and clears the flag* so any subsequent actions on the same dequeue
         //     (the email handler's `nextAction: exit`, etc.) log normally.
         routingOnlyReschedule?: boolean
-        // Set when a wait_until_condition re-parks on its polling interval. Lets the handler
-        // attribute a later condition match to the periodic poll (vs evaluate-on-entry) and emit
-        // the cdp_hogflow_wait_poll_only_advance metric — the signal that proves whether the poll
-        // ever catches a wake the subscription streams missed, gating its eventual removal.
-        pollReparked?: boolean
         // A step parked on an external run: cleared when the matcher writes a matching `resumeResult`.
         awaitingResume?: {
             key: string

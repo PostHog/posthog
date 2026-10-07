@@ -16,6 +16,7 @@ from celery import shared_task
 from clickhouse_driver.errors import UnknownPacketFromServerError
 from prometheus_client import Counter, Gauge
 from redis import Redis
+from redis.exceptions import RedisError
 from rest_framework.exceptions import APIException
 from structlog import get_logger
 
@@ -34,6 +35,7 @@ from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
+from posthog.utils import safe_cache_delete
 
 logger = get_logger(__name__)
 
@@ -845,8 +847,7 @@ def capture_task_run_state_metrics() -> None:
                 labelnames=["status", "origin_product", "run_environment"],
             )
 
-            # Terminal runs are approximated by updated_at since completed_at can be null for
-            # FAILED/CANCELLED paths that didn't take the happy-path write.
+            # Terminal runs count by completed_at, falling back to updated_at where FAILED/CANCELLED paths leave it null.
             metrics = tasks_facade.collect_task_run_state_metrics(
                 open_statuses=_TASKS_RUN_OPEN_STATUSES,
                 age_statuses=_TASKS_RUN_AGE_STATUSES,
@@ -1256,7 +1257,10 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     # sync_execute wraps TOO_MANY_SIMULTANEOUS_QUERIES/CANNOT_SCHEDULE_TASK into
     # ClickHouseAtCapacity, which CH_TRANSIENT_ERRORS includes.
-    autoretry_for=FEATURE_FLAG_SYNC_TRANSIENT_ERRORS,
+    # The lock and the checkpoint live in Redis. A retry resumes from the unmoved checkpoint within
+    # minutes instead of at the next scheduled run. django-redis re-raises the redis-py error that
+    # ConnectionInterrupted wraps. RedisError therefore also covers the cache calls on the lock.
+    autoretry_for=(*FEATURE_FLAG_SYNC_TRANSIENT_ERRORS, RedisError),
     retry_backoff=30,
     retry_backoff_max=120,
     max_retries=3,
@@ -1280,6 +1284,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
     - No time limits - task runs until complete
 
     Configuration (via settings.feature_flags):
+    - FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE: "events" or "flag_evaluations" (default: "events")
     - FEATURE_FLAG_LAST_CALLED_AT_SYNC_BATCH_SIZE: Bulk update batch size (default: 1000)
     - FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT: Max ClickHouse results per chunk (default: 100000)
     - FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS: Fallback lookback period (default: 1)
@@ -1291,9 +1296,12 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
     from django.core.cache import cache
 
     from posthog.clickhouse.client import sync_execute
+    from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_TABLE
 
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+    # Both sources share this checkpoint, so a source switch resumes where the old source stopped.
+    # last_called_at only moves forward, so a call that both sources read at the switch changes nothing.
     FEATURE_FLAG_LAST_CALLED_SYNC_KEY = "posthog:feature_flag_last_called_sync:last_timestamp"
     LOCK_KEY = "posthog:feature_flag_last_called_sync:lock"
     LOCK_TIMEOUT = 1800  # 30 minutes = schedule interval (prevents concurrent execution)
@@ -1305,6 +1313,11 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         return
 
     start_time = timezone.now()
+
+    source = settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE
+    if source not in ("events", "flag_evaluations"):
+        logger.warning("Unknown feature flag sync source, reading events instead", source=source)
+        source = "events"
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.ENRICHMENT, name="sync_feature_flag_last_called")
 
@@ -1335,24 +1348,20 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
     try:
         redis_client = get_client()
 
-        # Get last sync timestamp from Redis or use lookback
-        try:
-            last_sync_str = redis_client.get(FEATURE_FLAG_LAST_CALLED_SYNC_KEY)
-            if last_sync_str:
+        # Get last sync timestamp from Redis or use lookback. A Redis error on this read propagates so
+        # that Celery retries the run. The lookback fallback would rescan up to
+        # FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS of chunks that the checkpoint already covers.
+        last_sync_str = redis_client.get(FEATURE_FLAG_LAST_CALLED_SYNC_KEY)
+        last_sync_timestamp = timezone.now() - timedelta(days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS)
+        if last_sync_str:
+            try:
                 parsed_timestamp = datetime.fromisoformat(last_sync_str.decode())
                 # Ensure timezone-aware to avoid comparison issues with timezone.now()
                 last_sync_timestamp = (
                     parsed_timestamp if parsed_timestamp.tzinfo else timezone.make_aware(parsed_timestamp)
                 )
-            else:
-                last_sync_timestamp = timezone.now() - timedelta(
-                    days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS
-                )
-        except Exception as e:
-            logger.warning("Failed to get or parse last sync timestamp", error=str(e))
-            last_sync_timestamp = timezone.now() - timedelta(
-                days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS
-            )
+            except ValueError as e:
+                logger.warning("Failed to parse last sync timestamp", error=str(e))
 
         # Cap lookback to prevent excessive scanning when checkpoint is stale/missing.
         # Capture now once to avoid drift between max_lookback and current_sync_timestamp.
@@ -1366,15 +1375,19 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             )
             last_sync_timestamp = max_lookback
 
-        # Stop short of now so rows that have not reached the replica answering this query yet
-        # fall into the next run's window rather than being skipped for good.
-        current_sync_timestamp = now - timedelta(
-            seconds=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS
+        # Stop short of now so rows that have not reached ClickHouse or the replica answering this
+        # query yet fall into the next run's window rather than being skipped for good.
+        buffer_seconds = (
+            settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_FLAG_EVALUATIONS_BUFFER_SECONDS
+            if source == "flag_evaluations"
+            else settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS
         )
+        current_sync_timestamp = now - timedelta(seconds=buffer_seconds)
         window_seconds = (current_sync_timestamp - last_sync_timestamp).total_seconds()
 
         logger.info(
             "Starting feature flag sync",
+            source=source,
             last_sync_timestamp=last_sync_timestamp.isoformat(),
             current_sync_timestamp=current_sync_timestamp.isoformat(),
             window_seconds=window_seconds,
@@ -1405,7 +1418,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         # `posthog/models/event/sql.py` defines the two identically, so dev and CI cannot
         # tell them apart and no test covers the difference. Check the live offline host
         # rather than this repo before changing the table.
-        chunk_query = """
+        events_query = """
             SELECT
                 team_id,
                 JSONExtractString(properties, '$feature_flag') as flag_key,
@@ -1421,6 +1434,22 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             ORDER BY last_called_at DESC
             LIMIT %(limit)s
         """
+        flag_evaluations_query = f"""
+            SELECT
+                team_id,
+                flag_key,
+                max(timestamp) as last_called_at,
+                count() as call_count
+            FROM {FLAG_EVALUATIONS_TABLE}
+            PREWHERE inserted_at > %(last_sync_timestamp)s
+              AND inserted_at <= %(current_sync_timestamp)s
+            WHERE flag_key != ''
+              AND timestamp <= %(current_sync_timestamp)s
+            GROUP BY team_id, flag_key
+            ORDER BY last_called_at DESC
+            LIMIT %(limit)s
+        """
+        chunk_query = flag_evaluations_query if source == "flag_evaluations" else events_query
 
         limit_hit = False
         chunk_failures = 0
@@ -1638,8 +1667,9 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         if not run_failed and (self.request.retries or 0) > 0:
             FEATURE_FLAG_LAST_CALLED_AT_SYNC_RETRY_RECOVERY_COUNTER.inc()
 
-        # Always release the lock
-        cache.delete(LOCK_KEY)
+        # Always release the lock. A failed delete must not replace the exception that the try block
+        # raised. The lock expires on its own after LOCK_TIMEOUT.
+        safe_cache_delete(LOCK_KEY)
 
 
 @shared_task(ignore_result=True, time_limit=7200)

@@ -9,7 +9,7 @@ respected and the sandbox fan-out stays by-reference.
 
 Sandbox-turn activities (chunk / review / dedup) call `run_sandbox_review`, which spins a single-turn
 agent (minutes); `validate_chunk_activity` instead drives one warm multi-turn session per chunk. Both
-take minutes, so they declare a `heartbeat_timeout` on dispatch and heartbeat via `Heartbeater()`. ORM
+take minutes, so they declare a `heartbeat_timeout` on dispatch and heartbeat via `ReviewActivityHeartbeater`. ORM
 access goes through `database_sync_to_async(..., thread_sensitive=False)`; `@scoped_temporal()` +
 `@close_db_connections` mirror the Signals report activities.
 """
@@ -29,7 +29,6 @@ from posthog.event_usage import groups
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
@@ -50,6 +49,7 @@ from products.review_hog.backend.reviewer.constants import (
     review_arm_for_mode,
     validation_arm_for_mode,
 )
+from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
 from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
     sync_canonical_blind_spots,
@@ -138,6 +138,7 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     plan_deterministic_chunks,
     reconcile_chunks,
 )
+from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
 from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_LABEL, TRIGGER_MANUAL
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCounts
@@ -248,6 +249,9 @@ class ResolveActingUserResult:
     # — the SKIP value — so pre-field histories replay deterministically (the chained dispatch is a
     # new workflow command; old runs must never reach it on replay). The model default is True.
     resolve_comments: bool = False
+    # Cosmetic only: whether the clean-review media appears in the status comment. Defaults True,
+    # the model default, so pre-field histories keep the media and a resolve failure falls back to it.
+    celebrate_clean_reviews: bool = True
     review_authored_prs: bool = False
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
 
@@ -442,6 +446,20 @@ class TrackReviewCompletedInput:
     # What THIS turn ran on; the event names the flash arm in both seats for a flash turn.
     review_mode: str = REVIEW_MODE_FULL
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+    marker: ReviewHogMarker | None = None
+
+
+@frozen
+class RecordTurnMarkerInput:
+    """The turn whose version marker to compute and persist."""
+
+    team_id: int
+    report_id: str
+    head_sha: str
+    run_index: int
+    acting_user_id: int
+    review_mode: str
+    flash_reasoning_effort: str
 
 
 @frozen
@@ -690,11 +708,14 @@ def _login_to_user_id(team_id: int, login: str | None) -> int | None:
 
 
 def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResult:
+    # Resolved even on override runs: the clean-review media switch keys off the mapped author's own
+    # preference, not the requester's, so an override run still needs this identity to load it.
+    author_user_id = _login_to_user_id(input.team_id, input.author_login)
     acting_user_id: int | None
     if input.override_user_id is not None:
         acting_user_id, resolved_from = input.override_user_id, "override"
     else:
-        acting_user_id, resolved_from = _login_to_user_id(input.team_id, input.author_login), "author"
+        acting_user_id, resolved_from = author_user_id, "author"
         # Label-trigger fallback — someone explicitly asked for this review, so borrow the run user
         # the trigger already resolved. Other triggers keep the author-only contract and skip.
         if acting_user_id is None and input.trigger_source == TRIGGER_LABEL:
@@ -715,7 +736,11 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
         )
     if input.report_id is not None:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(acting_user_id=acting_user_id)
-    settings = ReviewUserSettings.load(input.team_id, acting_user_id)
+    # celebrate_clean_reviews follows the author, who can differ from the acting user on an
+    # override run, so load both rows in one query instead of a second round trip below.
+    extra_settings_ids = [author_user_id] if author_user_id is not None and author_user_id != acting_user_id else []
+    settings_by_user = ReviewUserSettings.load_many(input.team_id, [acting_user_id, *extra_settings_ids])
+    settings = settings_by_user[acting_user_id]
     return ResolveActingUserResult(
         acting_user_id=acting_user_id,
         # The labeled-PR opt-out protects authors ("don't review my PRs") — the borrowed default
@@ -735,6 +760,18 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
         # Same author-protection shape as `review_labeled_prs`: the borrowed default user's personal
         # switch never governs someone else's PR — an unmapped author gets the default posture (on).
         resolve_comments=settings.resolve_comments if resolved_from in ("author", "override") else True,
+        # Unlike the switches above, this one follows the AUTHOR, not the requester: its copy scopes
+        # it to "your pull requests". A teammate-triggered override still honors the mapped author's
+        # own preference. Only an unmapped author falls back to the default.
+        celebrate_clean_reviews=(
+            settings.celebrate_clean_reviews
+            if resolved_from == "author" or (resolved_from == "override" and acting_user_id == author_user_id)
+            else (
+                settings_by_user[author_user_id].celebrate_clean_reviews
+                if resolved_from == "override" and author_user_id is not None
+                else True
+            )
+        ),
         review_authored_prs=settings.review_authored_prs if resolved_from in ("author", "override") else False,
         flash_reasoning_effort=(
             str(settings.flash_reasoning_effort)
@@ -799,6 +836,34 @@ async def generate_schemas_activity(input: GenerateSchemasInput) -> None:
         logger.exception("Schema generation failed; using the committed schemas")
 
 
+def _record_turn_marker_safe(input: RecordTurnMarkerInput) -> ReviewHogMarker | None:
+    try:
+        return record_turn_marker(
+            team_id=input.team_id,
+            report_id=input.report_id,
+            head_sha=input.head_sha,
+            run_index=input.run_index,
+            acting_user_id=input.acting_user_id,
+            review_mode=input.review_mode,
+            flash_reasoning_effort=input.flash_reasoning_effort,
+        )
+    except Exception:
+        logger.exception("Failed to record the turn marker for report %s; continuing", input.report_id)
+        return None
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def record_turn_marker_activity(input: RecordTurnMarkerInput) -> ReviewHogMarker | None:
+    """Record the turn's ReviewHog version and input fingerprint as a `turn_marker` artefact.
+
+    Runs after the skill sync, so the fingerprint hashes the skill versions the stages then pin.
+    Returns the marker for the completed event and the status comment footer. Best-effort.
+    """
+    return await database_sync_to_async(_record_turn_marker_safe, thread_sensitive=False)(input)
+
+
 # --- Chunking --------------------------------------------------------------------------------------
 
 
@@ -838,7 +903,7 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
     # shot keeps the agentic sandbox, which can navigate the repo instead of holding it all at once.
     additions = count_reviewable_additions(snapshot.pr_files)
     use_oneshot = bool(CHUNKING_ONESHOT_MAX_ADDITIONS) and additions <= CHUNKING_ONESHOT_MAX_ADDITIONS
-    async with Heartbeater():
+    async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         if use_oneshot:
             chunks = await run_oneshot_review(
                 team_id=input.team_id,
@@ -922,7 +987,7 @@ async def select_perspectives_activity(input: SelectPerspectivesInput) -> Perspe
     if not chunks.chunks:
         return None
     prompt = generate_selection_prompt(snapshot.pr_metadata, chunks.chunks, snapshot.pr_files, input.perspectives)
-    async with Heartbeater():
+    async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         raw = await run_oneshot_review(
             team_id=input.team_id,
             user_id=input.user_id,
@@ -1040,7 +1105,7 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         if input.blind_spot_check
         else f"issues-review-p{input.pass_number}-c{input.chunk_id}"
     )
-    async with Heartbeater():
+    async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         review = await run_sandbox_review(
             team_id=input.team_id,
             user_id=input.user_id,
@@ -1116,7 +1181,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
     prior_findings = await database_sync_to_async(load_prior_findings_with_verdicts, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index
     )
-    async with Heartbeater():
+    async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         survivors = await deduplicate_issues(
             team_id=input.team_id,
             user_id=input.user_id,
@@ -1210,7 +1275,7 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
     session: MultiTurnSession | None = None
     chunk_ok = False
     try:
-        async with Heartbeater():
+        async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
             for issue in pending:
                 issue_files = [f for f in pr_files if f.filename == issue.file]
                 try:
@@ -1512,6 +1577,9 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             ),
             **_pr_size_properties(snapshot),
             "duration_seconds": duration_seconds,
+            # No marker means a turn started before the marker shipped, or a failed marker: the version is unknown.
+            "reviewhog_version": input.marker.version if input.marker is not None else None,
+            "reviewhog_fingerprint": input.marker.fingerprint if input.marker is not None else None,
         },
         groups=groups(team=report.team),
         send_feature_flags=True,

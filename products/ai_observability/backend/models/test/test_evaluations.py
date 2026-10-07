@@ -39,36 +39,52 @@ class TestEvaluationModel(BaseTest):
         self.assertIsNotNone(evaluation.conditions[0]["bytecode"])
         self.assertIsInstance(evaluation.conditions[0]["bytecode"], list)
 
-    def test_sets_bytecode_error_when_compilation_fails(self):
-        """
-        If bytecode compilation fails, the bytecode_error field should be set
-        """
+    @parameterized.expand(
+        [
+            ("set_status", None, "status", EvaluationStatus.ERROR),
+            ("pause", {"enabled": False}, "enabled", False),
+            ("delete", {"deleted": True}, "deleted", True),
+        ]
+    )
+    def test_save_without_filter_change_succeeds_when_condition_no_longer_compiles(
+        self, _name, updates, field, expected
+    ):
+        evaluation = self._create_hog_evaluation()
+
         with patch("posthog.cdp.filters.compile_filters_bytecode") as mock_compile:
             mock_compile.return_value = {"bytecode": None, "bytecode_error": "Invalid property filter"}
+            if updates is None:
+                evaluation.set_status(EvaluationStatus.ERROR, EvaluationStatusReason.HOG_ERROR)
+            else:
+                for key, value in updates.items():
+                    setattr(evaluation, key, value)
+                evaluation.save()
+            mock_compile.assert_called_once()
 
-            evaluation = Evaluation.objects.create(
-                team=self.team,
-                name="Test Evaluation",
-                evaluation_type="llm_judge",
-                evaluation_config={"prompt": "Test prompt"},
-                output_type="boolean",
-                output_config={},
-                enabled=True,
-                created_by=self.user,
-                conditions=[
-                    {
-                        "id": "cond-1",
-                        "rollout_percentage": 100,
-                        "properties": [{"key": "invalid"}],
-                    }
-                ],
-            )
+        evaluation.refresh_from_db()
+        self.assertEqual(getattr(evaluation, field), expected)
 
-            evaluation.refresh_from_db()
+    def test_full_save_rejects_filter_edited_in_place_after_status_only_save(self):
+        evaluation = self._create_hog_evaluation()
 
-            self.assertEqual(len(evaluation.conditions), 1)
-            self.assertIn("bytecode_error", evaluation.conditions[0])
-            self.assertEqual(evaluation.conditions[0]["bytecode_error"], "Invalid property filter")
+        evaluation.conditions[0]["properties"].append({"type": "hogql", "key": "(select 1)"})
+        evaluation.set_status(EvaluationStatus.ERROR, EvaluationStatusReason.HOG_ERROR)
+
+        with self.assertRaises(ValidationError):
+            evaluation.save()
+        evaluation.refresh_from_db()
+        self.assertEqual(evaluation.conditions[0]["properties"], [])
+
+    def _create_hog_evaluation(self) -> Evaluation:
+        return Evaluation.objects.create(
+            team=self.team,
+            name="Test Evaluation",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            enabled=True,
+            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+        )
 
     def test_handles_empty_properties_list(self):
         """

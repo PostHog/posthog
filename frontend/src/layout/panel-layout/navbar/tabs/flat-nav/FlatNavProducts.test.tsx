@@ -1,6 +1,10 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { render, waitFor } from '@testing-library/react'
+import { fireEvent, render, waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
+
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { UserProductListItem } from '~/queries/schema/schema-general'
@@ -76,5 +80,19 @@ describe('FlatNavProducts', () => {
             const menuButton = row.parentElement?.querySelector('[data-attr^="flat-nav-tool-menu-"]')
             expect(menuButton?.getAttribute('data-attr') ?? null).toBe(menuAttr)
         })
+    })
+
+    // The dashboards list scene mounts only after the navigation, so the modal opens from the URL alone
+    it('opens the new dashboard modal from another page', async () => {
+        router.actions.push(urls.currentProject(urls.insights()))
+        const { container, findByText } = render(<FlatNavProducts />)
+
+        await waitFor(() => renderedProductRow(container, 'dashboards'))
+        fireEvent.click(container.querySelector('[data-attr="flat-nav-tool-menu-dashboards"]')!)
+        fireEvent.click(await findByText('New dashboard'))
+
+        expect(router.values.location.pathname).toBe(urls.currentProject(urls.dashboards()))
+        newDashboardLogic.mount()
+        expect(newDashboardLogic.values.newDashboardModalVisible).toBe(true)
     })
 })

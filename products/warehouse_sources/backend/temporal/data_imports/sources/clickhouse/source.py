@@ -180,9 +180,11 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
         return SourceConfig(
             name=ExternalDataSourceType.CLICKHOUSE,
             category=DataWarehouseSourceCategory.DATABASES,
-            keywords=["sql"],
+            # "clickhouse cloud" also names the account-metadata source, and someone searching it
+            # almost always wants to sync their service's tables, which is this source.
+            keywords=["sql", "clickhouse cloud", "self-hosted"],
             releaseStatus=ReleaseStatus.GA,
-            caption="Enter your ClickHouse connection details to pull data into the PostHog Data warehouse. ClickHouse databases can be very large — we stream the data in Arrow batches to keep memory bounded.",
+            caption="Enter your ClickHouse connection details to pull data into the PostHog Data warehouse. Works with ClickHouse Cloud and with self-hosted ClickHouse. ClickHouse databases can be very large — we stream the data in Arrow batches to keep memory bounded.",
             iconPath="/static/services/clickhouse.png",
             docsUrl="https://posthog.com/docs/cdp/sources/clickhouse",
             fields=cast(
@@ -634,6 +636,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             chunk_size_override=schema.chunk_size_override,
             row_filters=inputs.row_filters,
             enabled_columns=inputs.enabled_columns,
+            stored_primary_keys=inputs.primary_keys,
             bypass_env_proxy=self._bypass_env_proxy(config, inputs.team_id),
             server_hostname=config.host,
         )

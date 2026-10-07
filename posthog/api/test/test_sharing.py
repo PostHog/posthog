@@ -28,10 +28,10 @@ from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import ActivityLog, OrganizationMembership
 from posthog.models.data_color_theme import DataColorTheme
-from posthog.models.filters.filter import Filter
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+from posthog.test.insight_queries import browser_filtered_pageview_query
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -123,18 +123,13 @@ class TestSharing(APIBaseTest):
     dashboard: Dashboard = None  # type: ignore
     insight: Insight = None  # type: ignore
 
-    insight_filter_dict = {
-        "events": [{"id": "$pageview"}],
-        "properties": [{"key": "$browser", "value": "Mac OS X"}],
-    }
-
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
 
         cls.dashboard = Dashboard.objects.create(team=cls.team, name="example dashboard", created_by=cls.user)
         cls.insight = Insight.objects.create(
-            filters=Filter(data=cls.insight_filter_dict).to_dict(),
+            query=browser_filtered_pageview_query(),
             team=cls.team,
             created_by=cls.user,
         )
@@ -1924,7 +1919,13 @@ class TestSharedCohortInlining(APIBaseTest):
             team=self.team, insight=insight, name="High event count", enabled=True, created_by=self.user
         )
         DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, insight=insight)
-        text = Text.objects.create(team=self.team, body="Read me", created_by=self.user, last_modified_by=self.user)
+        text = Text.objects.create(
+            team=self.team,
+            body="Read me",
+            agent_context="Private agent context",
+            created_by=self.user,
+            last_modified_by=self.user,
+        )
         DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, text=text)
         button = ButtonTile.objects.create(
             team=self.team,
@@ -1942,6 +1943,7 @@ class TestSharedCohortInlining(APIBaseTest):
 
         body = response.content.decode()
         assert self.user.email not in body
+        assert "Private agent context" not in body
 
         exported = self._parse_exported_data(body)
         exported_dashboard = exported["dashboard"]
@@ -1951,6 +1953,8 @@ class TestSharedCohortInlining(APIBaseTest):
                 if tile_content is not None:
                     assert "created_by" not in tile_content
                     assert "last_modified_by" not in tile_content
+            if tile.get("text") is not None:
+                assert "agent_context" not in tile["text"]
             if tile.get("insight") is not None:
                 assert tile["insight"]["alerts"] == []
         for theme in exported["themes"]:

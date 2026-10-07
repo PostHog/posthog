@@ -114,11 +114,12 @@ export function useCommentsQuery(
 ) {
   const service = useService<SessionService>(SESSION_SERVICE);
   const authIdentity = useAuthStateValue(getAuthIdentity);
+  const listTaskId = target?.scope === "canvas" ? "" : taskId;
   return useQuery({
-    queryKey: commentsQueryKey(authIdentity, target, taskId),
+    queryKey: commentsQueryKey(authIdentity, target, listTaskId),
     queryFn: () =>
       target
-        ? service.getResourceComments(target, taskId)
+        ? service.getResourceComments(target, listTaskId)
         : Promise.resolve([]),
     enabled: options.enabled !== false && authIdentity !== null && !!target,
     staleTime: 3_000,

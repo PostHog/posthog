@@ -3,6 +3,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/utils'
@@ -327,6 +328,13 @@ describe('dashboardLogic', () => {
     })
 
     describe('malformed dashboard id', () => {
+        it('mounts and reports not found when id props are omitted during a scene transition', async () => {
+            const invalidLogic = dashboardLogic.build()
+            invalidLogic.mount()
+
+            await expectLogic(invalidLogic).toMatchValues({ error404: true, hasInvalidDashboardId: true })
+        })
+
         it.each([
             ['NaN', NaN],
             ['undefined', undefined as unknown as number],
@@ -1067,6 +1075,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setInterval('week')
                 logic.actions.setFilterTestAccounts(true)
+                logic.actions.setMetricFilters([{ key: 'service.name', op: 'eq', value: 'checkout' }])
             }).toFinishAllListeners()
 
             expect(logic.values.dashboardSettingsDraft?.filters).toEqual(
@@ -1076,6 +1085,7 @@ describe('dashboardLogic', () => {
                     breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
                     interval: 'week',
                     filterTestAccounts: true,
+                    metricFilters: [{ key: 'service.name', op: 'eq', value: 'checkout' }],
                 })
             )
             expect(logic.values.urlFilters).toEqual(
@@ -1085,6 +1095,7 @@ describe('dashboardLogic', () => {
                     breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
                     interval: 'week',
                     filterTestAccounts: true,
+                    metricFilters: [{ key: 'service.name', op: 'eq', value: 'checkout' }],
                 })
             )
 
@@ -2165,6 +2176,28 @@ describe('dashboardLogic', () => {
         })
     })
 
+    it('captures a dashboard view after the logic unmounts during the debounce', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        jest.useFakeTimers()
+        try {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            logic.actions.reportDashboardViewedEvent(dashboards[5], null)
+            expect(capture.mock.calls.filter(([event]) => event === 'viewed dashboard')).toHaveLength(0)
+            logic.unmount()
+            expect(logic.isMounted()).toBe(false)
+            await jest.advanceTimersByTimeAsync(499)
+            expect(capture.mock.calls.filter(([event]) => event === 'viewed dashboard')).toHaveLength(0)
+            await jest.advanceTimersByTimeAsync(1)
+            expect(capture.mock.calls.filter(([event]) => event === 'viewed dashboard')).toEqual([
+                ['viewed dashboard', expect.objectContaining({ dashboard_id: 5, source: 'web' })],
+            ])
+        } finally {
+            jest.useRealTimers()
+            capture.mockRestore()
+        }
+    })
+
     describe('moving between dashboards', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: 9 })
@@ -2793,8 +2826,8 @@ describe('dashboardLogic', () => {
                             query_async: true,
                             complete: false,
                             error: true,
-                            error_code: null,
-                            error_message: 'concurrency_limit_exceeded',
+                            error_code: 'rate_limited',
+                            error_message: 'Queries are a little too busy right now.',
                         },
                     }))
 

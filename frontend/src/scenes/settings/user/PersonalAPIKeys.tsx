@@ -18,7 +18,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
@@ -28,6 +27,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { PersonalAPIKeyType } from '~/types'
 
 import { APIKeyTable } from '../shared/APIKeyTable'
+import { PersonalAPIKeyScopeGroup } from './PersonalAPIKeyScopeGroup'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 import ScopeAccessSelector from './scopes/ScopeAccessSelector'
 
@@ -40,19 +40,19 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
         editingKeyId,
         isEditingKeySubmitting,
         editingKeyChanged,
-        formScopeRadioValues,
         allAccessSelected,
         isEditingKeyLegacy,
         editingKey,
         allTeams,
         allOrganizations,
-        filteredScopes,
+        filteredScopeGroups,
         searchTerm,
         isDescriptionFieldVisible,
     } = useValues(personalAPIKeysLogic)
     const {
         setEditingKeyId,
         setScopeRadioValue,
+        setScopeGroupAccess,
         submitEditingKey,
         resetScopes,
         setSearchTerm,
@@ -219,63 +219,22 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                             className="mb-2"
                                             size="small"
                                         />
-                                        <div className="max-h-[50vh] overflow-y-auto">
-                                            {filteredScopes.length === 0 ? (
-                                                <div className="text-muted text-sm py-2">
-                                                    No scopes match "{searchTerm}"
-                                                </div>
-                                            ) : (
-                                                filteredScopes.map(
-                                                    ({
-                                                        key,
-                                                        objectName,
-                                                        disabledActions,
-                                                        warnings,
-                                                        disabledWhenProjectScoped,
-                                                        info,
-                                                    }) => {
-                                                        const disabledDueToProjectScope =
-                                                            disabledWhenProjectScoped &&
-                                                            editingKey.access_type === 'teams'
-                                                        const selectedScopeAction = formScopeRadioValues[key]
-                                                        const warningScopeAction =
-                                                            selectedScopeAction === 'read' ||
-                                                            selectedScopeAction === 'write'
-                                                                ? selectedScopeAction
-                                                                : null
-                                                        return (
-                                                            <ScopeAccessRow
-                                                                key={key}
-                                                                label={objectName}
-                                                                info={info}
-                                                                muted={disabledDueToProjectScope}
-                                                                value={formScopeRadioValues[key] ?? 'none'}
-                                                                onChange={(value) => setScopeRadioValue(key, value)}
-                                                                readDisabledReason={
-                                                                    disabledActions?.includes('read')
-                                                                        ? 'Does not apply to this resource'
-                                                                        : disabledDueToProjectScope
-                                                                          ? 'Not available for project scoped keys'
-                                                                          : undefined
-                                                                }
-                                                                writeDisabledReason={
-                                                                    disabledActions?.includes('write')
-                                                                        ? 'Does not apply to this resource'
-                                                                        : disabledDueToProjectScope
-                                                                          ? 'Not available for project scoped keys'
-                                                                          : undefined
-                                                                }
-                                                                warning={
-                                                                    warningScopeAction
-                                                                        ? warnings?.[warningScopeAction]
-                                                                        : undefined
-                                                                }
-                                                            />
-                                                        )
-                                                    }
-                                                )
-                                            )}
-                                        </div>
+                                        {filteredScopeGroups.length === 0 ? (
+                                            <div className="text-muted text-sm py-2">
+                                                No scopes match "{searchTerm}"
+                                            </div>
+                                        ) : (
+                                            filteredScopeGroups.map((group) => (
+                                                <PersonalAPIKeyScopeGroup
+                                                    // A search opens every group, and clearing it closes them again.
+                                                    key={`${group.label}-${searchTerm !== ''}`}
+                                                    group={group}
+                                                    defaultOpen={searchTerm !== ''}
+                                                    onChangeRow={setScopeRadioValue}
+                                                    onChangeGroup={setScopeGroupAccess}
+                                                />
+                                            ))
+                                        )}
                                     </div>
                                 )}
                             </>

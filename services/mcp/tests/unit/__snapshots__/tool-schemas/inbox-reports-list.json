@@ -19,8 +19,15 @@
             "type": "string"
         },
         "count_only": {
+            "default": false,
             "description": "Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.",
             "type": "boolean"
+        },
+        "created_after": {
+            "description": "ISO 8601 datetime. Keeps reports created at or after this time.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
         },
         "has_implementation_pr": {
             "description": "Filter reports by whether an implementation pull request is attached. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.",
@@ -28,6 +35,11 @@
         },
         "include_all_statuses": {
             "description": "When true, the list includes reports in every status with no default exclusions applied — currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to see the full inbox state (e.g. deduplicating before creating a report) and read each row's status (plus dismissal_reason/dismissal_note on dismissed rows) before acting. Deleted reports are terminal and never returned. Defaults to false, which keeps the existing default exclusions. Ignored when an explicit 'status' filter is set — that filter alone decides which statuses are returned.",
+            "type": "boolean"
+        },
+        "include_source_metadata": {
+            "default": true,
+            "description": "Fill `source_products` and `scout_name` on each row. These come from ClickHouse, so pass false to skip that lookup and get the page from Postgres only: rows then carry an empty `source_products` and a null `scout_name`. Load them after with `source_metadata`. Defaults to true.",
             "type": "boolean"
         },
         "limit": {
@@ -39,7 +51,7 @@
             "type": "number"
         },
         "ordering": {
-            "description": "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'.",
+            "description": "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They are staff only: other users get a 400.",
             "type": "string"
         },
         "priority": {
@@ -92,6 +104,10 @@
         },
         "unclaimed": {
             "description": "Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.",
+            "type": "boolean"
+        },
+        "unread": {
+            "description": "Filter by the current user's report read state.",
             "type": "boolean"
         },
         "use_priority_preference": {

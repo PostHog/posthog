@@ -195,6 +195,12 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 },
                 "name_length": 8,
                 "deleted": False,
+                "is_static": False,
+                # The legacy `groups` payload leaves `filters` empty, so neither classification
+                # is computed for it.
+                "cohort_type": None,
+                "condition_type": None,
+                "realtime_enabled": False,
             },
             team=ANY,
             request=ANY,
@@ -238,11 +244,61 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 },
                 "name_length": 9,
                 "deleted": False,
+                "is_static": False,
+                "cohort_type": None,
+                "condition_type": None,
+                "realtime_enabled": False,
                 "updated_by_creator": True,
             },
             team=ANY,
             request=ANY,
         )
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cohort_created_reports_realtime_classification(
+        self, patch_calculate_cohort, patch_capture, patch_on_commit
+    ):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "performed an action",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$pageview",
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "events",
+                                        "time_value": 30,
+                                        "time_interval": "day",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        cohort = Cohort.objects.get(id=response.json()["id"])
+        reported = patch_capture.call_args[0][2]
+        self.assertEqual(reported["cohort_type"], cohort.cohort_type)
+        self.assertEqual(reported["cohort_type"], CohortType.REALTIME)
+        self.assertFalse(reported["is_static"])
+        self.assertEqual(
+            reported["condition_type"],
+            {"person_properties": False, "behavioral": True, "lifecycle": False, "cohorts": False},
+        )
+        # Realtime-eligible filters on a team the realtime pipeline does not cover.
+        self.assertFalse(reported["realtime_enabled"])
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
@@ -5267,6 +5323,77 @@ email@example.org,
             response_c.json()["id"],
         }
         self.assertEqual(set(chain_cohort_ids), expected_cohort_ids)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_config_version_2_flags_use_the_cohorts_their_rules_target(self, patch_calculate_cohort, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+        cohort_property = {"key": "id", "value": cohort_id, "type": "cohort"}
+        # Written past the validator, which does not admit cohort targeting yet.
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "version": 2,
+                "return_type": "boolean",
+                "default_value": False,
+                "rules": [
+                    {
+                        "id": "11111111-1111-4111-8111-111111111111",
+                        "rule_type": "targeted_release",
+                        "targeting": {"properties": [cohort_property]},
+                        "value": True,
+                    }
+                ],
+            },
+            name="Rules flag using cohort",
+            key="rules-flag",
+            created_by=self.user,
+            active=True,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"version": 3, "groups": [{"properties": [cohort_property]}]},
+            name="Unreadable flag",
+            key="unreadable-flag",
+            created_by=self.user,
+            active=True,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([flag["key"] for flag in response.json()["feature_flags"]["results"]], ["rules-flag"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "time_value": 1,
+                                "time_interval": "day",
+                                "value": "performed_event",
+                                "type": "behavioral",
+                            }
+                        ],
+                    }
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "behavioral_cohort_found")
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}", data={"deleted": True})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("used in 1 active feature flag(s): Rules flag using cohort", response.json()["detail"])
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")

@@ -15,6 +15,7 @@ from products.engineering_analytics.backend.logic.sources import (
     resolve_trunk_merge_queue_table,
 )
 from products.engineering_analytics.backend.logic.views import (
+    ci_job_history,
     depot_ci,
     job_costs,
     pull_requests,
@@ -42,6 +43,11 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     pr_association_entry,
     repo_id,
 )
+from products.engineering_analytics.backend.tests._logic_helpers import _job_row
+
+
+def _github_runs(runs_table: str) -> str:
+    return depot_ci.with_depot_runs(runs_table, None, None, None)
 
 
 class TestListGithubSourcesAccessControl(BaseTest):
@@ -227,7 +233,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         rows = self._select(
             "SELECT workflow_name, status, conclusion, duration_seconds, repo_owner, repo_name, "
             "pr_number, is_merge_queue "
-            f"FROM ({workflow_runs.build_query(table_name)}) AS r ORDER BY id"
+            f"FROM ({workflow_runs.build_query(_github_runs(table_name))}) AS r ORDER BY id"
         )
 
         # completed runs carry a duration; in-progress run has null duration and null conclusion
@@ -239,8 +245,67 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         assert rows[4][6:] == (9002, 0)
 
     def test_depot_ci_attempts_read_as_runs_jobs_and_cost(self) -> None:
-        runs_table = self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
-        jobs_table = self._create_table("github_workflow_jobs", WORKFLOW_JOBS_COLUMNS, [])
+        # Run 901 handed its commit to Depot, which ran it, so only Depot's run of that commit counts.
+        # Run 902 handed off a commit Depot never ran, so its relayed verdict is the only record of it.
+        runs_table = self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(
+                    run_id,
+                    "Backend CI",
+                    sha,
+                    "completed",
+                    conclusion,
+                    "2026-09-24 14:50:00",
+                    "2026-09-24 15:05:00",
+                    pr_number=pr_number,
+                    run_attempt=run_attempt,
+                )
+                for run_id, sha, pr_number, conclusion, run_attempt in (
+                    (901, "abc123", 101991, "success", 1),
+                    (902, "def456", 101991, "success", 1),
+                    (903, "fed789", 101991, "success", 1),
+                    (904, "abc123", 101992, "success", 1),
+                    (905, "abc123", 101991, "failure", 1),
+                    (906, "abc123", 101991, "failure", 2),
+                    (907, "abc123", 101991, "success", 1),
+                    (908, "abc123", 101991, "success", 2),
+                )
+            ],
+        )
+        jobs_table = self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(9011, 901, "Hand off backend tests to Depot CI", "success", head_sha="abc123"),
+                _job_row(9012, 901, "Django Tests Pass", "success", head_sha="abc123"),
+                _job_row(9021, 902, "Hand off backend tests to Depot CI", "success", head_sha="def456"),
+                _job_row(9031, 903, "Hand off backend tests to Depot CI", "skipped", head_sha="fed789"),
+                _job_row(9041, 904, "Hand off backend tests to Depot CI", "success", head_sha="abc123"),
+                _job_row(9042, 904, "Django Tests Pass", "success", head_sha="abc123"),
+                _job_row(9051, 905, "Hand off backend tests to Depot CI", "success", head_sha="abc123"),
+                _job_row(9052, 905, "Django Tests Pass", "failure", head_sha="abc123"),
+                _job_row(9061, 906, "Hand off backend tests to Depot CI", "success", head_sha="abc123"),
+                _job_row(9062, 906, "Django Tests Pass", "success", head_sha="abc123"),
+                _job_row(9063, 906, "Django Tests Pass", "failure", head_sha="abc123", run_attempt=2),
+                _job_row(9071, 907, "Hand off backend tests to Depot CI", "success", head_sha="abc123"),
+                _job_row(9072, 907, "Django Tests Pass", "success", head_sha="abc123"),
+                _job_row(9073, 907, "Django Tests Pass", "", head_sha="abc123", run_attempt=2)
+                | {"status": "in_progress", "conclusion": None},
+                _job_row(9081, 908, "Hand off backend tests to Depot CI", "success", head_sha="abc123"),
+                _job_row(
+                    9082,
+                    908,
+                    "Django Tests Pass",
+                    "failure",
+                    head_sha="abc123",
+                    started="2026-09-01 14:00:00",
+                    completed="2026-09-01 14:02:00",
+                ),
+                _job_row(9083, 908, "Django Tests Pass", "success", head_sha="abc123", run_attempt=2),
+            ],
+        )
 
         prs_table = self._create_table(
             "github_pull_requests",
@@ -255,28 +320,34 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             started: str,
             finished: str,
             *,
+            job_id: str = "p4kd9tq2xs",
             run_id: str = "427q556wmn",
             run_workflow_count: int = 1,
             workflow_id: str = "6n4tghls33",
             workflow_name: str = "Backend CI on Depot",
-            workflow_status: str = "failed",
+            workflow_status: str = "finished",
             ref: str = "refs/pull/101991/merge",
             display_name: str = "Product tests (experiments)",
             repo: str = "PostHog/posthog",
+            job_key: str = "ci-backend.yml:turbo-tests:matrix-38",
+            head_sha: str = "abc123",
+            sha: str = "",
         ) -> dict[str, str | int]:
             return {
                 "run_id": run_id,
                 "run_workflow_count": run_workflow_count,
                 "repo": repo,
                 "ref": ref,
-                "head_sha": "abc123",
+                "head_sha": head_sha,
+                "sha": sha,
                 "workflow_id": workflow_id,
                 "workflow_name": workflow_name,
                 "workflow_status": workflow_status,
                 "workflow_created_at": "2026-09-24T14:51:17.948Z",
                 "workflow_started_at": "2026-09-24T14:51:18.000Z",
                 "workflow_finished_at": "2026-09-24T15:01:18.000Z",
-                "job_key": "ci-backend.yml:turbo-tests:matrix-38",
+                "job_id": job_id,
+                "job_key": job_key,
                 "job_display_name": display_name,
                 "attempt_id": attempt_id,
                 "attempt": attempt,
@@ -286,16 +357,39 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 "sandbox_id": "sandbox",
             }
 
-        schedule: dict[str, Any] = {"run_id": "bbbbbbbbbb", "run_workflow_count": 2, "ref": "refs/heads/master"}
+        # A workflow that is not the handed-off one shares shell 902's commit, which must not pair them.
+        schedule: dict[str, Any] = {
+            "run_id": "bbbbbbbbbb",
+            "run_workflow_count": 2,
+            "ref": "refs/heads/master",
+            "head_sha": "",
+            "sha": "def456",
+        }
         depot_table = self._create_table(
             "depot_job_attempts",
             DEPOT_JOB_ATTEMPTS_COLUMNS,
             [
+                attempt(
+                    "c2d3f4g5h6",
+                    1,
+                    "finished",
+                    "2026-09-24T14:51:20.000Z",
+                    "2026-09-24T14:51:30.000Z",
+                    job_id="j2k3l4m5n6",
+                    display_name="Wait for GitHub Actions to hand off backend tests",
+                    job_key="ci-backend.yml:wait-for-handoff",
+                ),
                 attempt("zf6sbbn2wh", 1, "failed", "2026-09-24T14:53:00.000Z", "2026-09-24T14:55:00.000Z"),
                 attempt("3v4pbsqvfc", 2, "finished", "2026-09-24T14:56:00.000Z", "2026-09-24T14:59:00.000Z"),
                 # A job with no display name falls back to its key.
                 attempt(
-                    "b82nsv77wl", 1, "finished", "2026-09-24T14:52:00.000Z", "2026-09-24T14:52:30.000Z", display_name=""
+                    "b82nsv77wl",
+                    1,
+                    "finished",
+                    "2026-09-24T14:52:00.000Z",
+                    "2026-09-24T14:52:30.000Z",
+                    job_id="t7m3xc4pzb",
+                    display_name="",
                 ),
                 # A run with two workflows keys each one by its own id, so no join on the id fans out.
                 attempt(
@@ -304,6 +398,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     "finished",
                     "2026-09-24T14:52:00.000Z",
                     "2026-09-24T14:53:00.000Z",
+                    job_id="w2hq8vn5cd",
                     workflow_id="cccccccccc",
                     workflow_name="Monitor",
                     workflow_status="finished",
@@ -315,10 +410,36 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     "failed",
                     "2026-09-24T14:52:00.000Z",
                     "2026-09-24T14:53:00.000Z",
+                    job_id="x9fz3kr7bm",
                     workflow_id="dddddddddd",
                     workflow_name="Timing",
                     workflow_status="failed",
                     **schedule,
+                ),
+                # Depot waited for a hand-off GitHub never made. It lists no attempt for the jobs it skipped.
+                attempt(
+                    "m4n5p6q7r8",
+                    1,
+                    "finished",
+                    "2026-09-24T14:52:00.000Z",
+                    "2026-09-24T14:52:02.000Z",
+                    job_id="s4t5v6w7x8",
+                    run_id="5555555555",
+                    workflow_id="6666666666",
+                    workflow_status="finished",
+                    job_key="ci-backend.yml:wait-for-handoff",
+                ),
+                attempt(
+                    "m4n5p6q7r9",
+                    1,
+                    "failed",
+                    "2026-09-24T14:52:00.000Z",
+                    "2026-09-24T14:52:02.000Z",
+                    job_id="s4t5v6w7x9",
+                    run_id="5555555556",
+                    workflow_id="6666666667",
+                    workflow_status="failed",
+                    job_key="ci-backend.yml:wait-for-handoff",
                 ),
                 # Synced before the source moved to another repository, so no read of this one keeps it.
                 attempt(
@@ -327,36 +448,89 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     "finished",
                     "2026-09-24T14:52:00.000Z",
                     "2026-09-24T14:53:00.000Z",
+                    job_id="y6tc2pw4hn",
                     run_id="zzzzzzzzzz",
                     repo="PostHog/other",
                 ),
             ],
         )
         depot = depot_ci.DepotJobAttempts(table=depot_table, repository="PostHog/posthog")
-        runs = depot_ci.with_depot_runs(runs_table, depot, prs_table)
-        jobs = depot_ci.with_depot_jobs(jobs_table, depot)
+        runs = depot_ci.with_depot_runs(runs_table, depot, prs_table, jobs_table)
+        jobs = depot_ci.with_depot_jobs(jobs_table, depot, runs_table)
 
         # 80213453736890 is the GITHUB_RUN_ID Depot CI gave run 427q556wmn, as its per-test traces report it.
         assert self._select(
             "SELECT id, workflow_name, conclusion, pr_number, head_branch, duration_seconds, repo_owner, run_attempt "
             f"FROM ({workflow_runs.build_query(runs)}) AS r ORDER BY id"
         ) == [
-            (80213453736890, "Backend CI on Depot", "failure", 101991, "feature/depot", 600, "PostHog", 2),
-            (223978965517241, "Monitor", "success", 0, None, 600, "PostHog", 1),
-            (244340689655172, "Timing", "failure", 0, None, 600, "PostHog", 1),
+            (902, "Backend CI", "success", 101991, "main", 900, "PostHog", 1),
+            (903, "Backend CI", "success", 101991, "main", 900, "PostHog", 1),
+            (904, "Backend CI", "success", 101992, "main", 900, "PostHog", 1),
+            (905, "Backend CI", "failure", 101991, "main", 900, "PostHog", 1),
+            (906, "Backend CI", "failure", 101991, "main", 900, "PostHog", 2),
+            (907, "Backend CI", "success", 101991, "main", 900, "PostHog", 1),
+            (908, "Backend CI", "success", 101991, "main", 900, "PostHog", 2),
+            (80213453736890, "Backend CI on Depot", "success", 101991, "feature/depot", 600, "PostHog", 2),
+            (101808620689656, "Backend CI on Depot", "failure", 101991, "feature/depot", 600, "PostHog", 1),
+            (223978965517241, "Monitor", "success", 0, "master", 600, "PostHog", 1),
+            (244340689655172, "Timing", "failure", 0, "master", 600, "PostHog", 1),
         ]
         assert self._select(
-            "SELECT run_id, run_attempt, name, conclusion, duration_seconds, is_rerun_copy "
-            f"FROM ({workflow_jobs.build_query(jobs)}) AS j WHERE run_id = 80213453736890 ORDER BY started_at"
+            f"SELECT DISTINCT run_id FROM ({workflow_jobs.build_query(jobs)}) AS j ORDER BY run_id"
         ) == [
+            (902,),
+            (903,),
+            (904,),
+            (905,),
+            (906,),
+            (907,),
+            (908,),
+            (80213453736890,),
+            (101808620689656,),
+            (223978965517241,),
+            (244340689655172,),
+        ]
+        job_rows = "SELECT ci_engine, id, run_id, run_attempt, is_rerun_copy FROM ({}) AS j ORDER BY ci_engine, id, run_attempt"
+        assert self._select(job_rows.format(workflow_jobs.build_query(jobs))) == self._select(
+            job_rows.format(workflow_jobs.build_query(workflow_jobs.JobsTable.of(jobs.rows)))
+        )
+        assert self._select(
+            "SELECT run_id, run_attempt, name, conclusion, duration_seconds, is_rerun_copy "
+            f"FROM ({workflow_jobs.build_query(jobs)}) AS j WHERE run_id = 80213453736890 ORDER BY started_at, run_attempt"
+        ) == [
+            (80213453736890, 1, "Wait for GitHub Actions to hand off backend tests", "success", 10, 0),
+            (80213453736890, 2, "Wait for GitHub Actions to hand off backend tests", "success", 10, 1),
             (80213453736890, 1, "ci-backend.yml:turbo-tests:matrix-38", "success", 30, 0),
+            # Listed again under the run's second attempt, like a job GitHub did not re-run.
+            (80213453736890, 2, "ci-backend.yml:turbo-tests:matrix-38", "success", 30, 1),
             (80213453736890, 1, "Product tests (experiments)", "failure", 120, 0),
             (80213453736890, 2, "Product tests (experiments)", "success", 180, 0),
         ]
         assert self._select(
-            "SELECT DISTINCT provider, vcpu, estimated_cost_usd > 0 "
-            f"FROM ({job_costs.build_query(jobs_table=jobs, runs_table=runs)}) AS c"
-        ) == [("depot", 2, 1)]
+            "SELECT DISTINCT provider, vcpu, estimated_cost_usd > 0, head_branch, is_rerun_copy "
+            f"FROM ({job_costs.build_query(jobs_table=jobs, runs_table=runs)}) AS c WHERE run_id = 80213453736890 "
+            "ORDER BY is_rerun_copy"
+        ) == [("depot", 2, 1, "feature/depot", 0), ("depot", 2, 0, "feature/depot", 1)]
+        assert self._select(
+            "SELECT DISTINCT head_branch "
+            f"FROM ({ci_job_history.build_query(jobs_table=jobs, runs_table=runs)}) AS h WHERE run_id = 80213453736890"
+        ) == [("feature/depot",)]
+
+        assert self._select(
+            "SELECT DISTINCT ci_engine, native_run_id, native_workflow_run_id "
+            f"FROM ({workflow_runs.build_query(runs)}) AS r "
+            "WHERE id IN (902, 80213453736890, 223978965517241) ORDER BY id"
+        ) == [
+            ("github_actions", "902", "902"),
+            ("depot_ci", "427q556wmn", "6n4tghls33"),
+            ("depot_ci", "bbbbbbbbbb", "cccccccccc"),
+        ]
+        for view in (job_costs, ci_job_history):
+            assert self._select(
+                "SELECT DISTINCT ci_engine, native_run_id, native_workflow_run_id, native_attempt_id "
+                f"FROM ({view.build_query(jobs_table=jobs, runs_table=runs)}) AS j "
+                "WHERE native_attempt_id = '3v4pbsqvfc'"
+            ) == [("depot_ci", "427q556wmn", "6n4tghls33", "3v4pbsqvfc")]
 
     def test_pull_requests_view_handles_null_user(self) -> None:
         # The real source lands user as Nullable(String), NULL for a PR by a deleted GitHub account.
@@ -395,7 +569,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             "'2026-01-20 10:00:00' AS created_at)"
         )
         rows = self._select(
-            f"SELECT pr_number, repo_owner, repo_name, is_merge_queue FROM ({workflow_runs.build_query(raw)}) AS r"
+            f"SELECT pr_number, repo_owner, repo_name, is_merge_queue FROM ({workflow_runs.build_query(_github_runs(raw))}) AS r"
         )
         assert rows[0] == (0, "PostHog", "posthog", 0)
 
@@ -442,7 +616,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         table_name = self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, rows)
 
         results = self._select(
-            f"SELECT id, pr_number, commit_pr_number FROM ({workflow_runs.build_query(table_name)}) AS r ORDER BY id"
+            f"SELECT id, pr_number, commit_pr_number FROM ({workflow_runs.build_query(_github_runs(table_name))}) AS r ORDER BY id"
         )
         assert results == [(5000 + index, pr, commit_pr) for index, (_, _, _, pr, commit_pr) in enumerate(cases)]
 
@@ -514,7 +688,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         prs_table = self._create_table("github_pull_requests", PULL_REQUESTS_COLUMNS, prs)
         runs_table = self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, runs)
 
-        query = workflow_runs.build_query(runs_table, pull_requests_table=prs_table)
+        query = workflow_runs.build_query(_github_runs(runs_table), pull_requests_table=prs_table)
         results = self._select(f"SELECT id, commit_pr_number FROM ({query}) AS r ORDER BY id")
         assert results == [(6000 + index, expected) for index, (_, _, expected) in enumerate(cases)]
 
@@ -540,7 +714,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         table_name = self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [sparse_run])
         rows = self._select(
             "SELECT status, conclusion, duration_seconds, repo_owner, repo_name, pr_number, run_attempt "
-            f"FROM ({workflow_runs.build_query(table_name)}) AS r"
+            f"FROM ({workflow_runs.build_query(_github_runs(table_name))}) AS r"
         )
         assert rows[0] == ("completed", None, None, "", "", 0, None)
 

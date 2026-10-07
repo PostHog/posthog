@@ -94,7 +94,6 @@ class TestSetupResourcesPreflight:
             "cdc_management_mode": "posthog",
             "cdc_slot_name": "posthog_019ef4e83bfd",
             "cdc_publication_name": "posthog_pub_019ef4e83bfd",
-            "cdc_ingest_mode": "buffered",
         }
         mock_create_slot.assert_not_called()
         mock_create_publication.assert_not_called()
@@ -224,7 +223,7 @@ class TestRecreateSlot:
 
         fields = PostgresCDCAdapter().recreate_slot(source, tables=["users", "orders"])
 
-        assert fields == {"cdc_consistent_point": "0/AA", "cdc_ingest_mode": "buffered"}
+        assert fields == {"cdc_consistent_point": "0/AA"}
         mock_drop.assert_called_once()
         assert mock_drop.call_args.args[1] == "posthog_slot"
         mock_create.assert_called_once()
@@ -259,7 +258,7 @@ class TestRecreateSlot:
 
         fields = PostgresCDCAdapter().recreate_slot(source, tables=tables)
 
-        assert fields == {"cdc_consistent_point": "0/BB", "cdc_ingest_mode": "buffered"}
+        assert fields == {"cdc_consistent_point": "0/BB"}
         mock_create_slot_and_pub.assert_called_once()
         assert mock_create_slot_and_pub.call_args.args[1:3] == ("posthog_slot", "posthog_pub")
         assert mock_create_slot_and_pub.call_args.kwargs["tables"] == expected_pairs
@@ -314,7 +313,7 @@ class TestRecreateSlot:
 
         fields = PostgresCDCAdapter().recreate_slot(source, tables=["users"])
 
-        assert fields == {"cdc_consistent_point": "0/CC", "cdc_ingest_mode": "buffered"}
+        assert fields == {"cdc_consistent_point": "0/CC"}
         assert mock_create_slot.call_count == 2
         assert mock_drop.call_count == 2
 
@@ -344,7 +343,7 @@ class TestRecreateSlot:
 
         fields = PostgresCDCAdapter().recreate_slot(source, tables=["users"])
 
-        assert fields == {"cdc_consistent_point": "0/DD", "cdc_ingest_mode": "buffered"}
+        assert fields == {"cdc_consistent_point": "0/DD"}
         assert mock_create_slot.call_count == 2
         assert mock_drop.call_count == 2
 
@@ -379,6 +378,20 @@ class TestAlterPublicationMembership:
         source = _source(cdc_enabled=True, cdc_management_mode="posthog")
         PostgresCDCAdapter().add_table(source, "public", "orders")
         mock_add.assert_not_called()
+
+    @patch(f"{_ADAPTER}.add_table_to_publication", side_effect=psycopg.errors.InsufficientPrivilege("must be owner"))
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_add_table_raises_when_the_publication_rejects_the_table(self, _conn, _mock_add) -> None:
+        source = _source(cdc_enabled=True, cdc_management_mode="posthog", cdc_publication_name="pub")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            PostgresCDCAdapter().add_table(source, "public", "orders")
+
+    @patch(f"{_ADAPTER}.remove_table_from_publication", side_effect=psycopg.OperationalError("connection refused"))
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_remove_table_stays_best_effort(self, _conn, mock_remove) -> None:
+        source = _source(cdc_enabled=True, cdc_management_mode="posthog", cdc_publication_name="pub")
+        PostgresCDCAdapter().remove_table(source, "public", "orders")
+        mock_remove.assert_called_once()
 
 
 class TestGetStatus:

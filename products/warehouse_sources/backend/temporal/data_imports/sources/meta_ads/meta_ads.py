@@ -470,6 +470,14 @@ META_INVALID_CURSOR_ERROR_MESSAGE = "Meta's pagination cursor for this sync beca
 # with the key there.
 SHRINK_EXHAUSTED_ERROR_MESSAGE = "Meta could not return this data even at the smallest request size"
 
+# Entity endpoints (campaigns, ads, ad creatives, ...) have no date range to narrow, so the page
+# limit is the only lever. When Meta still refuses the smallest page, the cause is load on Meta's
+# side, and the same request later succeeds. So the entity path retries the smallest page with
+# backoff, then raises this retryable marker. Temporal then resumes from the saved cursor, and the
+# schema stays enabled for the next scheduled sync.
+ENTITY_PAGE_REFUSED_ERROR_MESSAGE = "Meta could not return this page even at the smallest page size (retryable)"
+SMALLEST_PAGE_LIMIT_MAX_RETRIES = 3
+
 
 def _parse_json_leniently(response: Response) -> dict | None:
     """Parse a Meta API response body as JSON, tolerating trailing garbage after it.
@@ -585,6 +593,20 @@ def _raise_shrink_exhausted_error(response: Response) -> typing.NoReturn:
     raise Exception(f"{SHRINK_EXHAUSTED_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
 
 
+def _raise_entity_page_refused_error(response: Response) -> typing.NoReturn:
+    """Raise once the entity path has retried its smallest page and Meta still refuses it.
+
+    The message leaves out ``response.text`` on purpose. Meta's body carries "Please reduce the
+    amount of data you're asking for", which ``MetaAdsSource.get_non_retryable_errors`` matches
+    before the retryable patterns, so including it would disable the schema again.
+    """
+    error = _meta_error_body(response)
+    raise Exception(
+        f"{ENTITY_PAGE_REFUSED_ERROR_MESSAGE} (Meta API response: {response.status_code}, "
+        f"code {error.get('code')}, subcode {error.get('error_subcode')}, fbtrace_id {error.get('fbtrace_id')})"
+    )
+
+
 class MetaAdsAuthError(Exception):
     """Meta rejected the credentials or the permissions they carry (see `_is_permanent_auth_error`)."""
 
@@ -677,6 +699,8 @@ def _iter_simple_pagination(
     fails on those accounts. Retrying the same URL at a smaller limit never
     re-emits already-yielded rows — the initial request has yielded nothing
     yet, and a cursor points at the start of the next (not-yet-yielded) page.
+    If the smallest limit still fails, the page is retried with backoff and
+    then raised as retryable (see ``ENTITY_PAGE_REFUSED_ERROR_MESSAGE``).
     """
     access_token = params["access_token"]
     current_limit = PAGE_LIMIT_FALLBACK_SIZES[0]
@@ -704,6 +728,7 @@ def _iter_simple_pagination(
 
     response = _issue()
     malformed_json_attempts = 0
+    smallest_limit_retries = 0
 
     while True:
         if response.status_code != 200:
@@ -716,7 +741,12 @@ def _iter_simple_pagination(
                     current_limit = smaller
                     response = _issue()
                     continue
-                _raise_shrink_exhausted_error(response)
+                if smallest_limit_retries < SMALLEST_PAGE_LIMIT_MAX_RETRIES:
+                    smallest_limit_retries += 1
+                    _backoff_sleep(smallest_limit_retries)
+                    response = _issue()
+                    continue
+                _raise_entity_page_refused_error(response)
             _raise_meta_api_error(response)
 
         try:
@@ -734,6 +764,7 @@ def _iter_simple_pagination(
             response = _issue()
             continue
         malformed_json_attempts = 0
+        smallest_limit_retries = 0
 
         yield response_payload.get("data", [])
 

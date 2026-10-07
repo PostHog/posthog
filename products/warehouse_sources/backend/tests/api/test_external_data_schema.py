@@ -1,6 +1,6 @@
 import uuid
 import contextlib
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
 
 import pytest
@@ -25,10 +25,15 @@ from posthog.api.test.test_user import create_user
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.temporal.common.schedule import describe_schedule
+from posthog.redis import get_client
+from posthog.temporal.common.schedule import create_schedule, describe_schedule
 
 from products.data_modeling.backend.facade.models import Edge, Node
-from products.data_warehouse.backend.facade.api import DIRECT_POSTGRES_URL_PATTERN, DIRECT_SNOWFLAKE_URL_PATTERN
+from products.data_warehouse.backend.facade.api import (
+    DIRECT_POSTGRES_URL_PATTERN,
+    DIRECT_SNOWFLAKE_URL_PATTERN,
+    sync_external_data_job_workflow,
+)
 from products.data_warehouse.backend.facade.contracts import WebhookHogFunctionCreateResult
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
@@ -38,6 +43,7 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.views.external_data_schema import schema_display_status
+from products.warehouse_sources.backend.temporal.data_imports.cdc.repair import _repair_lock_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     VersionDeprecation,
     WebhookCreationResult,
@@ -151,7 +157,7 @@ class TestExternalDataSchema(APIBaseTest):
             "cdc_available": None,
             "xmin_available": None,
             "full_refresh_available": True,
-            "supports_webhooks": True,
+            "supports_webhooks": False,
             "webhook_only": False,
             "available_columns": [],
             "detected_primary_keys": None,
@@ -1732,6 +1738,44 @@ class TestExternalDataSchema(APIBaseTest):
                 400,
                 (3, datetime(2026, 9, 26, tzinfo=UTC)),
             ),
+            (
+                "setting_a_time_moves_the_next_refresh_to_it",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                7,
+                {"full_refresh_interval_days": 7, "full_refresh_time_of_day": "03:00:00"},
+                200,
+                (7, datetime(2026, 10, 1, 3, tzinfo=UTC)),
+                None,
+                time(3, 0),
+            ),
+            (
+                "resaving_the_same_time_keeps_the_clock",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                7,
+                {"full_refresh_interval_days": 7, "full_refresh_time_of_day": "03:00:00"},
+                200,
+                (7, datetime(2026, 9, 26, tzinfo=UTC)),
+                time(3, 0),
+                time(3, 0),
+            ),
+            (
+                "a_time_without_an_interval_is_not_stored",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                None,
+                {"full_refresh_time_of_day": "03:00:00"},
+                200,
+                (None, None),
+            ),
+            (
+                "clearing_the_interval_clears_the_time",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                7,
+                {"full_refresh_interval_days": None, "full_refresh_time_of_day": "03:00:00"},
+                200,
+                (None, None),
+                time(3, 0),
+                None,
+            ),
         ]
     )
     def test_full_refresh_interval_schedules_the_next_full_refresh(
@@ -1742,6 +1786,8 @@ class TestExternalDataSchema(APIBaseTest):
         payload: dict[str, Any],
         expected_status: int,
         expected: tuple[int | None, datetime | None],
+        initial_time: time | None = None,
+        expected_time: time | None = None,
     ) -> None:
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1756,6 +1802,7 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=sync_type,
             sync_type_config={"incremental_field": "updated_at", "incremental_field_type": "timestamp"},
             full_refresh_interval_days=initial_days,
+            full_refresh_time_of_day=initial_time,
             next_full_refresh_at=datetime(2026, 9, 26, tzinfo=UTC) if initial_days else None,
         )
 
@@ -1773,6 +1820,7 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == expected_status, response.content
         schema.refresh_from_db()
         assert (schema.full_refresh_interval_days, schema.next_full_refresh_at) == expected
+        assert schema.full_refresh_time_of_day == expected_time
 
     def test_update_schema_enable_should_sync_rejects_cdc_without_primary_key(self):
         # Schemas already in CDC mode with an empty primary_key_columns (created before the
@@ -2927,6 +2975,156 @@ class TestUpdateExternalDataSchema:
         mock_add_table.assert_called_once()
         assert mock_add_table.call_args.args == (source, "analytics", "events")
 
+    @staticmethod
+    def _managed_cdc_source_and_full_refresh_schema(team, **schema_fields: Any):
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status=ExternalDataSource.Status.RUNNING,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={
+                "schema": "",
+                "cdc_enabled": True,
+                "cdc_management_mode": "posthog",
+                "cdc_slot_name": "test_slot",
+                "cdc_publication_name": "test_pub",
+            },
+        )
+        sync_type_config = {
+            "primary_key_columns": ["id"],
+            "schema_metadata": {
+                "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
+                "foreign_keys": [],
+                "source_schema": "analytics",
+                "source_table_name": "events",
+            },
+            **schema_fields.pop("sync_type_config", {}),
+        }
+        schema = ExternalDataSchema.objects.create(
+            team=team,
+            source=source,
+            name="analytics.events",
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config=sync_type_config,
+            **{"should_sync": False, **schema_fields},
+        )
+        return source, schema
+
+    @staticmethod
+    def _patch_cdc_switch(add_table_side_effect: BaseException | None = None) -> contextlib.ExitStack:
+        stack = contextlib.ExitStack()
+        views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
+        stack.enter_context(mock.patch(f"{views}.is_cdc_enabled_for_team", return_value=True))
+        stack.enter_context(mock.patch(f"{views}.external_data_workflow_exists", return_value=False))
+        stack.enter_context(mock.patch(f"{views}.sync_external_data_job_workflow"))
+        stack.enter_context(mock.patch(f"{views}.sync_cdc_extraction_schedule"))
+        stack.enter_context(
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table",
+                side_effect=add_table_side_effect,
+            )
+        )
+        return stack
+
+    @pytest.mark.parametrize(
+        "initial_sync_complete, prior_config, management_mode",
+        [
+            pytest.param(False, {}, "posthog", id="never_synced"),
+            pytest.param(True, {}, "posthog", id="loaded_by_full_refresh"),
+            pytest.param(
+                True,
+                {
+                    "cdc_mode": "streaming",
+                    "cdc_last_log_position": "0/16B3748",
+                    "cdc_snapshot_lane": "buffer",
+                },
+                "posthog",
+                id="left_over_from_earlier_cdc_period",
+            ),
+            pytest.param(
+                True,
+                {"cdc_mode": "streaming", "cdc_snapshot_lane": "buffer"},
+                "self_managed",
+                id="left_over_on_a_self_managed_source",
+            ),
+        ],
+    )
+    def test_switch_to_cdc_starts_a_fresh_snapshot(
+        self, team, user, client: HttpClient, temporal, initial_sync_complete, prior_config, management_mode
+    ):
+        client.force_login(user)
+        source, schema = self._managed_cdc_source_and_full_refresh_schema(
+            team, initial_sync_complete=initial_sync_complete, sync_type_config=prior_config
+        )
+        source.job_inputs = {**source.job_inputs, "cdc_management_mode": management_mode}
+        source.save()
+
+        with self._patch_cdc_switch():
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "cdc", "should_sync": True},
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200, response.content
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.CDC
+        assert schema.sync_type_config["cdc_mode"] == "snapshot"
+        assert "cdc_last_log_position" not in schema.sync_type_config
+        assert "cdc_snapshot_lane" not in schema.sync_type_config
+        assert schema.initial_sync_complete is False
+
+    @pytest.mark.parametrize(
+        "add_table_error, expected_message, captured",
+        [
+            pytest.param(
+                psycopg.errors.InsufficientPrivilege("must be owner of table events"),
+                "PostgreSQL only lets a table's owner publish it",
+                False,
+                id="table_not_owned",
+            ),
+            pytest.param(
+                psycopg.OperationalError("connection refused"),
+                "Couldn't connect to your database to add analytics.events to change data capture",
+                False,
+                id="database_unreachable",
+            ),
+            pytest.param(
+                RuntimeError("unexpected"),
+                "Couldn't add analytics.events to change data capture",
+                True,
+                id="unexpected_error",
+            ),
+        ],
+    )
+    def test_switch_to_cdc_refused_when_table_cannot_join_publication(
+        self, team, user, client: HttpClient, temporal, add_table_error, expected_message, captured
+    ):
+        client.force_login(user)
+        _, schema = self._managed_cdc_source_and_full_refresh_schema(team, initial_sync_complete=True)
+
+        with (
+            self._patch_cdc_switch(add_table_side_effect=add_table_error),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.adapters.capture_exception"
+            ) as mock_capture,
+        ):
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "cdc", "should_sync": True},
+                content_type="application/json",
+            )
+
+        assert response.status_code == 400, response.content
+        assert expected_message in response.json()["detail"]
+        assert mock_capture.called is captured
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+        assert schema.should_sync is False
+        assert schema.initial_sync_complete is True
+
     def test_delete_data_hides_direct_postgres_table(self, team, user, client: HttpClient, temporal):
         client.force_login(user)
         source = ExternalDataSource.objects.create(
@@ -3025,6 +3223,233 @@ class TestUpdateExternalDataSchema:
 
         schedule_desc = describe_schedule(temporal, str(schema.id))
         assert schedule_desc.schedule.spec.intervals[0].every == timedelta(days=7)
+
+    @pytest.mark.parametrize(
+        "marker, marked_table_sync_type, synced_before, payload, runs",
+        [
+            pytest.param(
+                {"reason": "auto_dropped_critical_lag"},
+                "cdc",
+                True,
+                {"sync_frequency": "1hour"},
+                False,
+                id="frequency_change_on_a_broken_source",
+            ),
+            pytest.param(
+                {"reason": "auto_dropped_critical_lag"},
+                "cdc",
+                False,
+                {"should_sync": True},
+                False,
+                id="sync_turned_on_on_a_broken_source",
+            ),
+            pytest.param(
+                {"reason": "auto_dropped_critical_lag"},
+                "cdc",
+                True,
+                {"sync_frequency": "1hour"},
+                True,
+                id="frequency_change_after_a_repair_resumed_the_table",
+            ),
+            pytest.param(
+                {"reason": "critical_lag_self_managed"},
+                "cdc",
+                True,
+                {"sync_frequency": "1hour"},
+                True,
+                id="frequency_change_under_self_managed_lag",
+            ),
+            pytest.param(
+                {"reason": "billing_limit_expired", "slot_kept": True},
+                "cdc",
+                True,
+                {"sync_frequency": "1hour"},
+                True,
+                id="frequency_change_after_a_billing_stop_that_kept_the_slot",
+            ),
+            pytest.param(
+                {"reason": "auto_dropped_critical_lag"},
+                "incremental",
+                True,
+                {"sync_frequency": "1hour"},
+                True,
+                id="frequency_change_beside_a_marker_left_on_a_table_that_left_cdc",
+            ),
+        ],
+    )
+    def test_an_edit_leaves_a_cdc_tables_schedule_as_the_broken_marker_left_it(
+        self, team, user, client: HttpClient, temporal, marker, marked_table_sync_type, synced_before, payload, runs
+    ):
+        client.force_login(user)
+        schema = self._cdc_table_beside_a_marked_one(team, marker, marked_table_sync_type, synced_before)
+        sync_external_data_job_workflow(schema, create=True, should_sync=runs, trigger_immediately=False)
+
+        with self._patch_cdc_edit():
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data=payload,
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200, response.content
+        schema.refresh_from_db()
+        assert schema.should_sync is True
+        schedule = describe_schedule(temporal, str(schema.id)).schedule
+        assert schedule.state.paused is (not runs)
+        if "sync_frequency" in payload:
+            assert schedule.spec.intervals[0].every == timedelta(hours=1)
+
+    def test_sync_turned_on_without_a_schedule_on_a_broken_source_creates_it_paused(
+        self, team, user, client: HttpClient, temporal
+    ):
+        client.force_login(user)
+        schema = self._cdc_table_beside_a_marked_one(team, {"reason": "auto_dropped_critical_lag"}, "cdc", False)
+
+        service = "products.data_warehouse.backend.logic.data_load.service"
+        with (
+            self._patch_cdc_edit(),
+            mock.patch(f"{service}.create_schedule", wraps=create_schedule) as create,
+        ):
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={"should_sync": True},
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200, response.content
+        assert describe_schedule(temporal, str(schema.id)).schedule.state.paused is True
+        assert create.call_args.kwargs["trigger_immediately"] is False
+
+    @pytest.mark.parametrize(
+        "synced_before, payload, runs_after",
+        [
+            pytest.param(False, {"should_sync": True}, True, id="sync_turned_on_is_resumed"),
+            pytest.param(True, {"sync_frequency": "1hour"}, False, id="frequency_change_keeps_the_pause"),
+        ],
+    )
+    def test_an_edit_while_a_repair_runs(
+        self, team, user, client: HttpClient, temporal, synced_before, payload, runs_after
+    ):
+        client.force_login(user)
+        schema = self._cdc_table_beside_a_marked_one(
+            team, {"reason": "auto_dropped_critical_lag"}, "cdc", synced_before
+        )
+        sync_external_data_job_workflow(schema, create=True, should_sync=False, trigger_immediately=False)
+        repair_lock = _repair_lock_key(str(schema.source_id))
+        get_client().set(repair_lock, "1", ex=60)
+
+        try:
+            with self._patch_cdc_edit():
+                response = client.patch(
+                    f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                    data=payload,
+                    content_type="application/json",
+                )
+        finally:
+            get_client().delete(repair_lock)
+
+        assert response.status_code == 200, response.content
+        assert describe_schedule(temporal, str(schema.id)).schedule.state.paused is (not runs_after)
+
+    def test_sync_turned_on_as_a_repair_finishes_resumes_the_table(self, team, user, client: HttpClient, temporal):
+        client.force_login(user)
+        schema = self._cdc_table_beside_a_marked_one(team, {"reason": "auto_dropped_critical_lag"}, "cdc", False)
+        sync_external_data_job_workflow(schema, create=True, should_sync=False, trigger_immediately=False)
+
+        def finish_the_repair(_source: ExternalDataSource) -> bool:
+            self._clear_broken_markers(schema)
+            return False
+
+        views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
+        with (
+            self._patch_cdc_edit(),
+            mock.patch(f"{views}.repair_is_running", side_effect=finish_the_repair),
+        ):
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={"should_sync": True},
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200, response.content
+        assert describe_schedule(temporal, str(schema.id)).schedule.state.paused is False
+
+    @pytest.mark.parametrize(
+        "reset_left_to_capture, runs_after",
+        [
+            pytest.param(False, True, id="resumes_the_table"),
+            pytest.param(True, False, id="keeps_a_reset_left_to_capture_paused"),
+        ],
+    )
+    def test_sync_turned_on_without_a_schedule_as_a_repair_ends(
+        self, team, user, client: HttpClient, temporal, reset_left_to_capture, runs_after
+    ):
+        client.force_login(user)
+        schema = self._cdc_table_beside_a_marked_one(team, {"reason": "auto_dropped_critical_lag"}, "cdc", False)
+
+        def create_as_the_repair_ends(*args: Any, **kwargs: Any) -> Any:
+            created = create_schedule(*args, **kwargs)
+            self._clear_broken_markers(schema)
+            return created
+
+        service = "products.data_warehouse.backend.logic.data_load.service"
+        with (
+            self._patch_cdc_edit(queued_batches=reset_left_to_capture),
+            mock.patch(f"{service}.create_schedule", side_effect=create_as_the_repair_ends),
+        ):
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={"should_sync": True},
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200, response.content
+        assert describe_schedule(temporal, str(schema.id)).schedule.state.paused is (not runs_after)
+
+    @staticmethod
+    def _clear_broken_markers(schema: ExternalDataSchema) -> None:
+        marked = ExternalDataSchema.objects.filter(source_id=schema.source_id, sync_type_config__has_key="cdc_broken")
+        for schema_id in marked.values_list("id", flat=True):
+            update_sync_type_config_keys(schema_id, schema.team_id, removes=["cdc_broken"])
+
+    def _cdc_table_beside_a_marked_one(
+        self, team, marker: dict[str, Any], marked_table_sync_type: str, synced_before: bool
+    ) -> ExternalDataSchema:
+        streaming = {"cdc_mode": "streaming", "cdc_table_mode": "consolidated"}
+        source_is_marked = marked_table_sync_type == "cdc"
+        source, schema = self._managed_cdc_source_and_full_refresh_schema(
+            team,
+            should_sync=synced_before,
+            initial_sync_complete=True,
+            sync_frequency_interval=timedelta(minutes=5),
+            sync_type_config={**streaming, **({"cdc_broken": marker} if synced_before and source_is_marked else {})},
+        )
+        ExternalDataSchema.objects.filter(id=schema.id).update(sync_type=ExternalDataSchema.SyncType.CDC)
+        ExternalDataSchema.objects.create(
+            team=team,
+            source=source,
+            name="analytics.orders",
+            should_sync=True,
+            sync_type=marked_table_sync_type,
+            sync_type_config={**streaming, "cdc_broken": marker},
+        )
+        schema.refresh_from_db()
+        return schema
+
+    @staticmethod
+    def _patch_cdc_edit(queued_batches: bool = False) -> contextlib.ExitStack:
+        stack = contextlib.ExitStack()
+        views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
+        data_imports = "products.warehouse_sources.backend.temporal.data_imports"
+        facade = "products.data_warehouse.backend.facade.api"
+        stack.enter_context(mock.patch(f"{views}.is_cdc_enabled_for_team", return_value=True))
+        stack.enter_context(mock.patch(f"{views}.sync_cdc_extraction_schedule"))
+        stack.enter_context(mock.patch(f"{facade}.trigger_cdc_extraction_schedule", return_value=True))
+        stack.enter_context(mock.patch(f"{data_imports}.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"))
+        stack.enter_context(
+            mock.patch(f"{data_imports}.cdc.source_manager.has_queued_batches", return_value=queued_batches)
+        )
+        return stack
 
     def test_update_schema_sync_time_of_day_when_previously_not_set(self, team, user, client: HttpClient, temporal):
         client.force_login(user)

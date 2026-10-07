@@ -31,12 +31,8 @@ from posthog.shared_link_user import SharedLinkUser
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG, MetricFilter
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp
-from products.metrics.backend.metric_query_runner import (
-    _INTERVAL_LADDER,
-    _QUERY_SETTINGS,
-    MetricQueryRunner,
-    _interval_step,
-)
+from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, _QUERY_SETTINGS, _interval_step
+from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -128,7 +124,7 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
         )
 
         try:
-            runner = MetricQueryRunner(
+            runner = build_metric_query_runner(
                 team=self.team,
                 metric_name=self.query.metricName,
                 aggregation="histogram_quantile",
@@ -137,6 +133,9 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
                 filters=filters,
                 interval=interval,
                 quantile=0.5,  # unused by the grid query; required by the constructor
+                # One metric name can hold series of more than one OTel type; the
+                # heatmap must grid only the distribution the viewer picked.
+                metric_type=self.query.metricType.value if self.query.metricType else None,
             )
         except ValueError as exc:
             # The runner signals user errors (inverted range, too-wide span, unknown
@@ -161,7 +160,8 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
         # The runner floors date_from onto the bucket grid in the team timezone and returns
         # tz-aware bucket starts; rebuild the same grid so response rows land on columns exactly.
         grid_start = runner.date_from
-        step = _interval_step(interval)
+        # The runner may coarsen the interval to stay within its bucket limit, so read its step.
+        step = _interval_step(runner.interval)
 
         # Rows: (time, bounds, bounds_variants, counts). Bounds variants must agree (same rule
         # as the quantile runner) or the grid has no stable y axis.
@@ -220,3 +220,5 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
                 date_from=dashboard_filter.date_from,
                 date_to=dashboard_filter.date_to,
             )
+        if dashboard_filter.metricFilters:
+            self.query.filters = [*(self.query.filters or []), *dashboard_filter.metricFilters]

@@ -11,8 +11,6 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
-
 from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.service import afetch_batch_export_runs_in_range
 from products.batch_exports.backend.temporal.monitoring import (
@@ -31,6 +29,11 @@ from products.batch_exports.backend.temporal.monitoring import (
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
     create_clickhouse_tables_and_views,
     truncate_events,
+)
+from products.batch_exports.backend.tests.temporal.utils.models import (
+    acreate_batch_export,
+    adelete_batch_export,
+    afetch_batch_export_runs,
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]

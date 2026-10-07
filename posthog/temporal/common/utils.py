@@ -1,4 +1,5 @@
 import time
+import asyncio
 import inspect
 import threading
 from collections.abc import Callable, Coroutine
@@ -12,6 +13,8 @@ from django.conf import settings
 
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
+
+from posthog.temporal.common.heartbeat_sync import heartbeat_through_loop
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -137,9 +140,13 @@ def asyncify(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
                         f"thread_name={threading.current_thread().name}"
                     )
 
-        return await sync_to_async(thread_sensitive=False, executor=get_asyncify_executor())(
+        run_on_thread = sync_to_async(thread_sensitive=False, executor=get_asyncify_executor())(
             close_db_connections(instrumented)
-        )()
+        )
+        if not activity.in_activity():
+            return await run_on_thread()
+        with heartbeat_through_loop(asyncio.get_running_loop()):
+            return await run_on_thread()
 
     return wrapper
 

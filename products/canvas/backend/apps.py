@@ -8,5 +8,6 @@ class CanvasConfig(AppConfig):
     verbose_name = "Canvas"
 
     def ready(self) -> None:
-        # Registers the artifact-delivery configuration system checks.
-        from products.canvas.backend import checks  # noqa: F401, PLC0415
+        # Registers the artifact-delivery configuration system checks and the
+        # search-index signal receivers.
+        from products.canvas.backend import checks, search_sync  # noqa: F401, PLC0415

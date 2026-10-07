@@ -10,8 +10,14 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from jwt import PyJWTError
 
 from products.tasks.backend.facade.api import signal_workflow_completion
+from products.tasks.backend.logic.services.process_killed import (
+    PROCESS_KILLED_EVENT,
+    ProcessKilledNotice,
+    process_killed_event_uuid,
+)
 from products.tasks.backend.logic.stream.budget_steer import BudgetSteerCapture
 from products.tasks.backend.logic.stream.event_ingest import _parse_budget_steer_properties
+from products.tasks.backend.metrics import observe_sandbox_process_killed
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.presentation.serializers import (
     AgentProxyCallbackRequestSerializer,
@@ -27,10 +33,10 @@ logger = logging.getLogger(__name__)
 AgentBootMilestone = Literal["agent_command_dispatched", "agent_activity_observed"]
 
 
-def _dispatch_heartbeat(run_id: str, task_id: str, team_id: int) -> bool:
+def _dispatch_heartbeat(run_id: str, task_id: str, team_id: int, force: bool) -> bool:
     try:
         task_run = TaskRun.objects.get(id=run_id, task_id=task_id, team_id=team_id)
-        task_run.heartbeat_workflow(agent_active=True)
+        task_run.heartbeat_workflow(agent_active=True, force=force)
         return True
     except TaskRun.DoesNotExist:
         logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
@@ -50,13 +56,13 @@ def _dispatch_boot_milestone(run_id: str, task_id: str, team_id: int, kind: str,
     return False
 
 
-def _dispatch_awaiting_input(run_id: str, task_id: str, team_id: int, turn_completed: bool = True) -> bool:
+def _dispatch_awaiting_input(
+    run_id: str, task_id: str, team_id: int, turn_completed: bool, turn_succeeded: bool
+) -> bool:
     try:
         # The push dispatcher reads task.created_by; prefetch it so the dispatch stays one query.
         task_run = TaskRun.objects.select_related("task__created_by").get(id=run_id, task_id=task_id, team_id=team_id)
-        task_run.signal_agent_turn_completed()
-        if task_run.mode != "interactive":
-            return False
+        task_run.signal_agent_turn_completed(succeeded=turn_succeeded)
         return dispatch_turn_completed(task_run, turn_completed=turn_completed)
     except TaskRun.DoesNotExist:
         logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
@@ -78,16 +84,24 @@ def _dispatch_turn_failed(run_id: str, task_id: str, team_id: int) -> bool:
 
 
 def _dispatch_callback(
-    kind: str, agent_active: bool, run_id: str, task_id: str, team_id: int, turn_completed: bool = True
+    kind: str,
+    agent_active: bool,
+    run_id: str,
+    task_id: str,
+    team_id: int,
+    *,
+    turn_completed: bool,
+    turn_succeeded: bool,
+    activity_started: bool,
 ) -> bool:
     if kind == "heartbeat":
-        return _dispatch_heartbeat(run_id, task_id, team_id) if agent_active else False
+        return _dispatch_heartbeat(run_id, task_id, team_id, activity_started) if agent_active else False
     if kind == "command_dispatched":
         return _dispatch_boot_milestone(run_id, task_id, team_id, kind, "agent_command_dispatched")
     if kind == "agent_activity":
         return _dispatch_boot_milestone(run_id, task_id, team_id, kind, "agent_activity_observed")
     if kind == "awaiting_input":
-        return _dispatch_awaiting_input(run_id, task_id, team_id, turn_completed)
+        return _dispatch_awaiting_input(run_id, task_id, team_id, turn_completed, turn_succeeded)
     if kind == "turn_failed":
         return _dispatch_turn_failed(run_id, task_id, team_id)
     return False
@@ -117,7 +131,8 @@ def _dispatch_callback(
     description=(
         "Internal endpoint called by the standalone Node agent-proxy after accepting an ingest event "
         "that requires a Django-side side effect. Dispatches a Temporal heartbeat, a boot milestone, "
-        "an awaiting-input mobile push notification, a failed-run completion, or budget-steer analytics "
+        "an awaiting-input mobile push notification, a failed-run completion, budget-steer analytics, "
+        "or a sandbox memory watchdog kill "
         "depending on `kind`. "
         "Authenticated with the forwarded sandbox event ingest JWT plus the X-Agent-Proxy-Secret "
         "shared secret (required outside local dev/test) — no session or API key involved. "
@@ -188,6 +203,8 @@ def agent_proxy_callback(request, run_id: str) -> JsonResponse:
     if task_id != claims.task_id or team_id != claims.team_id:
         return JsonResponse({"error": "Token claims do not match request body"}, status=403)
 
+    dispatched = False
+
     if kind == "budget_steer":
         properties = _parse_budget_steer_properties(
             claims, {"notification": {"method": "_posthog/budget_steer", "params": body}}
@@ -201,7 +218,37 @@ def agent_proxy_callback(request, run_id: str) -> JsonResponse:
         except Exception:
             logger.exception("agent_proxy_callback.budget_steer_failed", extra={"run_id": run_id})
             return JsonResponse({"dispatched": False}, status=503)
+    elif kind == "process_killed":
+        sequence = data.get("sequence")
+        killed = data.get("process_killed")
+        if sequence is None or killed is None:
+            return JsonResponse({"error": "Invalid process kill"}, status=400)
+        notice = ProcessKilledNotice(**killed)
+        try:
+            task_run = TaskRun.objects.select_related("task__created_by", "team").get(
+                id=run_id, task_id=task_id, team_id=team_id
+            )
+        except TaskRun.DoesNotExist:
+            logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
+        else:
+            dispatched = task_run.capture_event(
+                PROCESS_KILLED_EVENT,
+                notice.analytics_properties(),
+                event_uuid=process_killed_event_uuid(run_id, sequence),
+            )
+            if not dispatched:
+                return JsonResponse({"dispatched": False}, status=503)
+            observe_sandbox_process_killed()
     else:
-        dispatched = _dispatch_callback(kind, agent_active, run_id, task_id, team_id, data["turn_completed"])
+        dispatched = _dispatch_callback(
+            kind,
+            agent_active,
+            run_id,
+            task_id,
+            team_id,
+            turn_completed=data["turn_completed"],
+            turn_succeeded=data["turn_succeeded"],
+            activity_started=data["activity_started"],
+        )
 
     return JsonResponse(AgentProxyCallbackResponseSerializer({"dispatched": dispatched}).data)

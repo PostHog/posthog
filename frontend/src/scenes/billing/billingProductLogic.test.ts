@@ -93,6 +93,33 @@ describe('billingProductLogic', () => {
         })
     })
 
+    describe('product variants', () => {
+        // No Logs fixture exists, so reuse replay's shape: a variant product with a usage-based add-on.
+        const replay = productByType('session_replay')
+        const addonFixture = replay.addons[0]
+        const noCurrentPlan = addonFixture.plans.map((plan) => ({ ...plan, current_plan: false }))
+
+        it.each([
+            ['lists a subscribed add-on', { subscribed: true, plans: noCurrentPlan }, true],
+            ['lists an add-on on a current plan', { subscribed: false, plans: addonFixture.plans }, true],
+            ['skips an add-on the customer does not hold', { subscribed: false, plans: noCurrentPlan }, false],
+        ])('%s', (_name, addonState, listed) => {
+            const logs: BillingProductV2Type = {
+                ...replay,
+                type: 'logs',
+                addons: [{ ...addonFixture, type: 'logs_retention_custom', ...addonState }],
+            }
+            const logic = billingProductLogic({ product: logs })
+            logic.mount()
+            mounted.push(logic)
+
+            expect(logic.values.productVariants?.map(({ key, displayName }) => ({ key, displayName }))).toEqual([
+                { key: 'logs', displayName: 'Logs ingestion (14-day retention)' },
+                ...(listed ? [{ key: 'logs_retention_custom', displayName: 'Custom retention' }] : []),
+            ])
+        })
+    })
+
     describe('unsubscribe survey state', () => {
         it('keeps survey responses isolated per product type', async () => {
             await seedBilling({})
@@ -144,9 +171,10 @@ describe('billingProductLogic', () => {
                     'reportSurveySent',
                     'setSurveyID',
                 ])
-                // Enough to fire the loader's breakpoint(2000) but not the post-report
-                // breakpoint(400), so the jsdom-unsupported scrollIntoView is never reached.
-                await jest.advanceTimersByTimeAsync(2100)
+                // Run past the post-report breakpoint(400) so the scroll runs. The scene element
+                // is absent in jsdom, so this also guards that indexing it stays safe: without the
+                // optional-chain guard, scrollIntoView on the missing element throws a TypeError.
+                await jest.advanceTimersByTimeAsync(2500)
                 await expectation
 
                 expect(deactivateBody).toEqual({ products: 'product_analytics' })

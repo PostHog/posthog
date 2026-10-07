@@ -1,4 +1,4 @@
-import { toBlob } from 'html-to-image'
+import { toBlob, toSvg } from 'html-to-image'
 
 /** html-to-image does not re-export its options type. */
 export type CaptureImageOptions = NonNullable<Parameters<typeof toBlob>[1]>
@@ -39,4 +39,12 @@ export async function captureElementImage(element: HTMLElement, options?: Captur
     }
 
     return blob
+}
+
+/** Serializes a live DOM element to an SVG data URL, for callers that edit the clone before they rasterize it. */
+export async function captureElementSvg(element: HTMLElement, options?: CaptureImageOptions): Promise<string> {
+    return await toSvg(element, {
+        includeStyleProperties: getStylePropertyNames(),
+        ...options,
+    })
 }

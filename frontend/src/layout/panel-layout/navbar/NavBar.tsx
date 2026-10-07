@@ -2,8 +2,7 @@ import './NavBar.scss'
 
 import { Tabs } from '@base-ui/react/tabs'
 import { cva } from 'cva'
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { Suspense, useEffect, useRef } from 'react'
 
@@ -22,7 +21,6 @@ import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
-import { urls } from 'scenes/urls'
 
 import {
     NavExperimentTab,
@@ -37,7 +35,11 @@ import { NavSearchBar, NavSearchButton } from '../../../lib/components/NavSearch
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { NavBarFooter } from './NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
+import { PostHogTeamCohortBanner } from './PostHogTeamCohortBanner'
+import { postHogTeamCohortBannerLogic } from './postHogTeamCohortBannerLogic'
 import { FlatNavBrowse } from './tabs/flat-nav/FlatNavBrowse'
+import { navProductsTabLogic } from './tabs/navProductsTabLogic'
+import { NavStarredProductsTree } from './tabs/NavStarredProductsTree'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
 import { NavTabFiles } from './tabs/NavTabFiles'
 import { NavTabProducts } from './tabs/NavTabProducts'
@@ -101,7 +103,7 @@ export function PanelIndicatorIcon(): JSX.Element | null {
 }
 
 const SIMPLE_TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] = [
-    { id: 'home', label: 'Browse', icon: <IconApps /> },
+    { id: 'home', label: 'Apps', icon: <IconApps /> },
     { id: 'files', label: 'Files', icon: <IconFolderOpen /> },
     { id: 'chat', label: 'Chat', icon: <IconChat /> },
 ]
@@ -112,6 +114,7 @@ const TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] =
 ]
 
 export function NavBar(): JSX.Element {
+    useMountedLogic(navProductsTabLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const {
         toggleLayoutNavCollapsed,
@@ -134,6 +137,7 @@ export function NavBar(): JSX.Element {
     const { toggleCommand } = useActions(commandLogic)
     const { sidebarDensity } = useValues(uiCustomizationLogic)
     const isSimpleSidepanelEnabled = useFeatureFlag('SIMPLE_SIDEPANEL')
+    const { bannerVisible: isCohortBannerVisible } = useValues(postHogTeamCohortBannerLogic)
     const isOverlayOpen = isSimpleSidepanelEnabled && isNavCollapsed && isNavOverlayOpen
     const isLayoutNavCollapsed = isNavCollapsed && !isOverlayOpen
     const isFlatNavEnabled = useFeatureFlag('FLAT_NAV', 'test')
@@ -166,10 +170,11 @@ export function NavBar(): JSX.Element {
 
     useShortcut({
         name: 'ToggleLeftNav',
-        keybind: [keyBinds.toggleLeftNav],
+        keybind: [keyBinds.toggleLeftNav, keyBinds.toggleLeftNavFallback],
         intent: 'Toggle collapse left navigation',
         interaction: 'function',
         callback: toggleLayoutNavCollapsed,
+        ignoreInEditable: true,
     })
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
@@ -260,9 +265,6 @@ export function NavBar(): JSX.Element {
                                                 is_open: isOpening,
                                             })
                                             handlePanelTriggerClick('Chat')
-                                            if (isOpening) {
-                                                router.actions.push(urls.ai())
-                                            }
                                         }}
                                     >
                                         <span
@@ -304,9 +306,6 @@ export function NavBar(): JSX.Element {
                             clearActivePanelIdentifier()
                             showLayoutPanel(false)
                         }
-                        if (value === 'chat') {
-                            router.actions.push(urls.ai())
-                        }
                     }}
                     orientation={isLayoutNavCollapsed ? 'vertical' : 'horizontal'}
                 >
@@ -327,7 +326,10 @@ export function NavBar(): JSX.Element {
                                             {...props}
                                             className={cn(
                                                 'group gap-1 data-[composite-item-active]:bg-surface-tertiary justify-center',
-                                                isSimpleSidepanelEnabled ? 'flex-auto min-w-0' : 'w-1/2'
+                                                // In the vertical collapsed list, flex-1 would override the button height
+                                                !isSimpleSidepanelEnabled
+                                                    ? 'w-1/2'
+                                                    : !isLayoutNavCollapsed && 'flex-1 min-w-0'
                                             )}
                                             iconOnly={isSimpleSidepanelEnabled && isLayoutNavCollapsed}
                                             tooltip={isSimpleSidepanelEnabled ? tab.label : undefined}
@@ -371,9 +373,14 @@ export function NavBar(): JSX.Element {
                     <div
                         className={cn(
                             'flex-1 overflow-hidden relative',
-                            isSimpleSidepanelEnabled && isLayoutNavCollapsed && '[&>*]:hidden'
+                            isSimpleSidepanelEnabled && isLayoutNavCollapsed && '[&>[role=tabpanel]]:hidden'
                         )}
                     >
+                        {isSimpleSidepanelEnabled && isLayoutNavCollapsed && (
+                            <div className="absolute inset-0 flex flex-col items-center group/colorful-product-icons colorful-product-icons-true">
+                                <NavStarredProductsTree treeSize="narrow" />
+                            </div>
+                        )}
                         <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
                             {isSimpleSidepanelEnabled ? (
                                 <NavTabProducts />
@@ -427,6 +434,12 @@ export function NavBar(): JSX.Element {
                     <div className={cn('p-1', !isSimpleSidepanelEnabled && isLayoutNavCollapsed && 'hidden')}>
                         <NavBarFooter isLayoutNavCollapsed={isLayoutNavCollapsed} />
                     </div>
+                    {/* The collapsed nav hides the footer without the simple side panel, so the reminder renders here instead. */}
+                    {!isSimpleSidepanelEnabled && isLayoutNavCollapsed && isCohortBannerVisible && (
+                        <div className="flex justify-center p-1">
+                            <PostHogTeamCohortBanner isCollapsed />
+                        </div>
+                    )}
                 </Tabs.Root>
                 {!isMobileLayout && !isOverlayOpen && (
                     <Resizer

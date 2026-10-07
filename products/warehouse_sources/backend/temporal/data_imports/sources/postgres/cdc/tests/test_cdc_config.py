@@ -59,8 +59,8 @@ def test_from_dict_defaults():
 @pytest.mark.parametrize(
     "job_inputs",
     [
-        {"cdc_slot_name": "slot_a", "cdc_ingest_mode": "buffered"},
-        '{"cdc_slot_name": "slot_a", "cdc_ingest_mode": "buffered"}',
+        {"cdc_slot_name": "slot_a"},
+        '{"cdc_slot_name": "slot_a"}',
     ],
 )
 def test_from_dict_reads_whichever_shape_job_inputs_decrypted_to(job_inputs):
@@ -68,7 +68,6 @@ def test_from_dict_reads_whichever_shape_job_inputs_decrypted_to(job_inputs):
     # every field here is read off a mapping.
     config = PostgresCDCConfig.from_dict(job_inputs)
     assert config.slot_name == "slot_a"
-    assert config.ingest_mode == "buffered"
 
 
 def test_from_dict_thresholds_coerce_stringified_ints():

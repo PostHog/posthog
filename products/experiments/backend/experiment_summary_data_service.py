@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, TypeIs, Union
+from typing import Any, TypeIs
 
 from django.conf import settings
 
@@ -10,11 +10,7 @@ from posthoganalytics import capture_exception
 from posthog.schema import (
     CacheMissResponse,
     ExperimentExposureQuery,
-    ExperimentFunnelMetric,
-    ExperimentMeanMetric,
     ExperimentQuery,
-    ExperimentRatioMetric,
-    ExperimentRetentionMetric,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
     MaxExperimentMetricResult,
@@ -36,6 +32,11 @@ from products.experiments.backend.facade.contracts import MAX_METRICS_TO_SUMMARI
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_resolution import (
+    METRIC_BUILDERS,
+    ExperimentMetric,
+    resolve_saved_metric_definition,
+)
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment, get_experiment_rule, metric_display_rank
 
@@ -56,23 +57,12 @@ class ExposureQueryResult:
 
 MAX_CONCURRENT_EXPERIMENT_SUMMARY_QUERIES = 10
 
-ExperimentMetricType = Union[
-    ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric
-]
 
-
-def parse_metric_dict(metric_dict: dict) -> ExperimentMetricType | None:
-    """Parse a metric dictionary into its typed Pydantic object."""
-    metric_type = metric_dict.get("metric_type")
-    if metric_type == "mean":
-        return ExperimentMeanMetric(**metric_dict)
-    if metric_type == "funnel":
-        return ExperimentFunnelMetric(**metric_dict)
-    if metric_type == "ratio":
-        return ExperimentRatioMetric(**metric_dict)
-    if metric_type == "retention":
-        return ExperimentRetentionMetric(**metric_dict)
-    return None
+def parse_metric_dict(metric_dict: dict) -> ExperimentMetric | None:
+    """Parse a metric dictionary into its typed Pydantic object. Legacy Trends/Funnels
+    definitions carry no metric_type and are skipped rather than summarized."""
+    builder = METRIC_BUILDERS.get(metric_dict.get("metric_type", ""))
+    return builder(**metric_dict) if builder else None
 
 
 def get_delta_from_interval(interval: list[float] | None) -> float | None:
@@ -282,6 +272,7 @@ class ExperimentSummaryDataService:
             query = link.saved_metric.query
             if not query:
                 continue
+            query = resolve_saved_metric_definition(query, link.metadata)
             # The display name lives on the saved metric model, not in its query dict —
             # without it the summary falls back to raw event names.
             if link.saved_metric.name:

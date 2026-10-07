@@ -39,13 +39,14 @@ class TestHoneybadgerSource:
             assert schemas[endpoint].supports_append is False
             assert schemas[endpoint].incremental_fields == []
 
-    def test_notices_are_opt_in_by_default(self) -> None:
+    def test_high_request_tables_are_opt_in_by_default(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
 
-        # Notices fan out one request per fault against a 360 req/hour quota, so they must
-        # not be part of the default table selection.
-        assert schemas["notices"].should_sync_default is False
-        assert all(schema.should_sync_default for name, schema in schemas.items() if name != "notices")
+        # These tables cost one or more requests per fault, site, or alarm against a 360 req/hour
+        # quota, so they must not be part of the default table selection.
+        opt_in = {"notices", "affected_users", "comments", "uptime_checks", "alarm_history"}
+        assert all(schemas[name].should_sync_default is False for name in opt_in)
+        assert all(schema.should_sync_default for name, schema in schemas.items() if name not in opt_in)
 
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["faults"])

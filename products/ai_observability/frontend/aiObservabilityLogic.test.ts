@@ -46,6 +46,7 @@ describe('LLM analytics URL split', () => {
         expect(urls.aiObservabilityDatasets()).toBe('/ai-evals/datasets')
         expect(urls.aiObservabilityTags()).toBe('/ai-evals/taggers')
         expect(urls.aiObservabilityEvaluations()).toBe('/ai-evals/evaluations')
+        expect(urls.aiObservabilityScorers()).toBe('/ai-evals/evaluations/scorers')
         expect(urls.aiObservabilityPrompts()).toBe('/prompt-management/prompts')
     })
 
@@ -72,6 +73,27 @@ describe('LLM analytics URL split', () => {
             '/prompt-management/prompts/prompt-1'
         )
     })
+
+    it.each(['/llm-analytics/reviews', '/llm-observability/reviews'])(
+        'moves legacy scorer bookmarks to Evaluations: %s',
+        (path) => {
+            expect(
+                redirectUrl(
+                    path,
+                    {},
+                    {
+                        human_reviews_tab: 'scorers',
+                        search: 'quality',
+                        archived: 'all',
+                        page: '2',
+                        queue_id: 'queue-1',
+                        review_search: 'discard',
+                        date_from: '-7d',
+                    }
+                )
+            ).toBe('/ai-evals/evaluations/scorers?search=quality&page=2&archived=all')
+        }
+    )
 
     it('redirects AI observability settings to the project-level BYOK setting', () => {
         expect(redirectUrl('/ai-observability/settings')).toBe(

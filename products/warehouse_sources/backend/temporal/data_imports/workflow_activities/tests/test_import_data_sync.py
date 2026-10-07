@@ -1,16 +1,21 @@
 import uuid
+import asyncio
+import functools
+import threading
 import contextlib
 import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest
 from unittest import mock
 
 from django.db import InterfaceError, InternalError, OperationalError
 
 import redis.exceptions as redis_exceptions
+import deltalake.exceptions
 from jsonpath_ng.exceptions import JsonPathParserError
 from parameterized import parameterized
 from requests.exceptions import HTTPError, ProxyError
@@ -22,6 +27,7 @@ from posthog.integration_secrets.errors import (
     SecretMissingError,
 )
 from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -67,12 +73,17 @@ class _FakeAsyncCM:
     async def __aexit__(self, *args):
         return False
 
+    def run_on_shutdown(self, callback):
+        pass
 
-def _passthrough(fn):
-    """Stand-in for database_sync_to_async_pool that just calls the wrapped fn."""
+
+def _passthrough(fn, *, executor=None):
+    """Stand-in for database_sync_to_async_pool that honors an explicitly selected executor."""
 
     async def _inner(*args, **kwargs):
-        return fn(*args, **kwargs)
+        if executor is None:
+            return fn(*args, **kwargs)
+        return await asyncio.get_running_loop().run_in_executor(executor, functools.partial(fn, *args, **kwargs))
 
     return _inner
 
@@ -82,12 +93,14 @@ def _patched_activity(source_mock, model=None, schema=None):
     """Patch out every dependency import_data_activity_sync touches before source setup."""
     if model is None:
         model = mock.MagicMock()
+        model.pipeline_version = ExternalDataJob.PipelineVersion.V3
         model.pipeline.source_type = "MongoDB"
         model.pipeline.job_inputs = {}
         model.folder_path = mock.Mock(return_value="dataset")
 
     if schema is None:
         schema = mock.MagicMock()
+        schema.sync_type = ExternalDataSchema.SyncType.FULL_REFRESH
         schema.should_use_incremental_field = False
         schema.row_filters = None
         schema.delta_revive_required = None
@@ -151,6 +164,32 @@ class TestGetModelsPrefetchesSource(BaseTest):
 
         with self.assertNumQueries(0):
             models.job.folder_path()
+
+
+class TestSchemaSyncHistory(BaseTest):
+    @parameterized.expand(
+        [
+            (ExternalDataJob.Status.COMPLETED, True, True, True),
+            (ExternalDataJob.Status.FAILED, True, True, False),
+            (ExternalDataJob.Status.RUNNING, True, True, False),
+            (ExternalDataJob.Status.COMPLETED, False, True, False),
+            (ExternalDataJob.Status.COMPLETED, True, False, False),
+        ]
+    )
+    def test_only_a_completed_job_for_this_team_and_schema_counts(
+        self, status: str, same_schema: bool, same_team: bool, expected: bool
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Gladly"
+        )
+        schema = ExternalDataSchema.objects.create(name="contact_timestamps", team=self.team, source=source)
+        ExternalDataJob.objects.create(team=self.team, pipeline=source, schema=schema, status=status)
+
+        has_completed_job = cast(Any, module._has_completed_schema_job).func(
+            schema.id if same_schema else uuid.uuid4(), self.team.pk if same_team else self.team.pk + 1
+        )
+
+        assert has_completed_job is expected
 
 
 @pytest.mark.asyncio
@@ -336,6 +375,28 @@ async def test_source_classified_retryable_error_logged_as_warning_not_exception
 
     assert exc_info.value.__cause__ is error
     logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_worker_shutdown_is_reraised_unwrapped_as_a_handoff_not_an_exception():
+    error = WorkerShuttingDownError("5", "import_data_activity_sync", "data-warehouse-task-queue", 2, "wf", "wt")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = {"worker that is shutting down"}
+
+    logger = mock.MagicMock()
+    logger.ainfo = mock.AsyncMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(WorkerShuttingDownError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value is error
+    logger.ainfo.assert_awaited_once()
     logger.aexception.assert_not_awaited()
 
 
@@ -666,6 +727,34 @@ async def test_transient_object_store_error_reraised_as_non_reportable():
     logger.aexception.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_transient_delta_maintenance_error_reraised_as_non_reportable():
+    # A warehouse-parent fan-out reader pins a parent table to a version, then opens it lazily —
+    # if the parent resyncs and resets its table in between, the pinned version's `_delta_log`
+    # entry is gone by the time the read happens. Self-healing on retry (a fresh pin resolves
+    # against the post-reset table), so it must not be captured as a bug, same as the identical
+    # race already classified for the writer's own maintenance path.
+    error = deltalake.exceptions.DeltaError(
+        "Kernel error: File not found: dlt/team_1_stripe_source/customer/_delta_log/00000000000000000017.json"
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
 @parameterized.expand(
     [
         (
@@ -833,6 +922,9 @@ async def test_shared_non_retryable_error_routes_through_handler_without_source_
 
 def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -> mock.MagicMock:
     schema = mock.MagicMock()
+    schema.sync_type = (
+        ExternalDataSchema.SyncType.INCREMENTAL if is_incremental else ExternalDataSchema.SyncType.FULL_REFRESH
+    )
     schema.should_use_incremental_field = True
     schema.is_incremental = is_incremental
     schema.incremental_field_type = IncrementalFieldType.Timestamp
@@ -852,8 +944,10 @@ def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -
 
 
 @contextlib.contextmanager
-def _patched_activity_reaching_run(source_mock, schema, api_version=None):
+def _patched_activity_reaching_run(source_mock, schema, api_version=None, workflow_run_id=None):
     model = mock.MagicMock()
+    model.workflow_run_id = workflow_run_id
+    model.pipeline_version = ExternalDataJob.PipelineVersion.V3
     model.pipeline.source_type = "MongoDB"
     model.pipeline.job_inputs = {}
     model.pipeline.api_version = api_version
@@ -873,9 +967,9 @@ def _patched_activity_reaching_run(source_mock, schema, api_version=None):
         mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
         mock.patch.object(module.SourceRegistry, "is_registered", return_value=True),
         mock.patch.object(module.SourceRegistry, "get_source", return_value=source_mock),
-        mock.patch.object(module, "_run", new=mock.AsyncMock(return_value=mock.sentinel.run_result)),
+        mock.patch.object(module, "_run", new=mock.AsyncMock(return_value=mock.sentinel.run_result)) as run_mock,
     ):
-        yield
+        yield run_mock
 
 
 def _inputs_no_reset() -> ImportDataActivityInputs:
@@ -886,6 +980,20 @@ def _inputs_no_reset() -> ImportDataActivityInputs:
         run_id=str(uuid.uuid4()),
         reset_pipeline=False,
     )
+
+
+@pytest.mark.asyncio
+async def test_source_setup_uses_a_dedicated_executor():
+    thread_names: list[str] = []
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.side_effect = lambda *_args: thread_names.append(threading.current_thread().name)
+    schema = _incremental_schema(is_incremental=False, lookback_seconds=None)
+
+    with _patched_activity_reaching_run(source, schema):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    assert thread_names[0].startswith("warehouse-source-setup")
 
 
 @pytest.mark.asyncio
@@ -918,18 +1026,32 @@ async def test_incremental_lookback_shifts_query_value_not_stored_watermark(
 
 
 @pytest.mark.asyncio
-async def test_reset_run_drops_last_synced_at_with_the_cursor():
-    # A reset must re-walk the whole reconcile window, not only what changed since the last sync.
+@pytest.mark.parametrize(
+    "last_synced_at,has_completed_job,expected_has_ever_synced",
+    [
+        pytest.param(None, False, False, id="never_synced"),
+        pytest.param(None, True, True, id="deleted_table"),
+        pytest.param(datetime(2026, 6, 14), False, True, id="successful_sync"),
+    ],
+)
+async def test_reset_run_drops_cursors_but_preserves_sync_history(
+    last_synced_at: datetime | None, has_completed_job: bool, expected_has_ever_synced: bool
+) -> None:
     source = mock.MagicMock(spec=SimpleSource)
     source.parse_config.return_value = {}
     source.source_for_pipeline.return_value = mock.MagicMock()
     schema = _incremental_schema(is_incremental=True, lookback_seconds=3600)
-    with _patched_activity_reaching_run(source, schema):
+    schema.last_synced_at = last_synced_at
+    with (
+        _patched_activity_reaching_run(source, schema),
+        mock.patch.object(module, "_has_completed_schema_job", new=mock.AsyncMock(return_value=has_completed_job)),
+    ):
         await import_data_activity_sync(dataclasses.replace(_inputs_no_reset(), reset_pipeline=True))
 
     _, source_inputs = source.source_for_pipeline.call_args.args
     assert source_inputs.db_incremental_field_last_value is None
     assert source_inputs.last_synced_at is None
+    assert source_inputs.schema_has_ever_synced is expected_has_ever_synced
 
 
 @pytest.mark.asyncio
@@ -938,6 +1060,7 @@ async def test_pending_delta_revive_extracts_full_table_not_incremental_slice():
     source.parse_config.return_value = {}
     source.source_for_pipeline.return_value = mock.MagicMock()
     schema = _incremental_schema(is_incremental=True, lookback_seconds=3600)
+    schema.last_synced_at = datetime(2026, 6, 14)
     schema.incremental_field_earliest_value = "2026-01-01T00:00:00"
     # The model reads this marker out of the persisted config through a property. Set both, because
     # the mock cannot run the property, and the config carries the shape a real revive leaves behind.
@@ -957,6 +1080,8 @@ async def test_pending_delta_revive_extracts_full_table_not_incremental_slice():
     # replaces the whole table with the rows after the watermark.
     assert source_inputs.db_incremental_field_last_value is None
     assert source_inputs.db_incremental_field_earliest_value is None
+    assert source_inputs.last_synced_at is None
+    assert source_inputs.schema_has_ever_synced is True
     # The stored watermark stays put, so a completed rebuild advances it from the rows it read.
     assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T15:33:31.802833"
 
@@ -1018,8 +1143,8 @@ def _parent(
     [None, "disabled", "never_synced", "append_mode", "cdc_mode", "too_small", "unknown_size"],
 )
 async def test_unusable_parent_falls_back_to_the_api_path(parent):
-    # A child enabled without its parent is a config that syncs today, so turning the flag on
-    # must leave it working: fall back to the parent API instead of failing the run. Append and
+    # A child enabled without its parent is a config that syncs today, so reuse must leave it
+    # working: fall back to the parent API instead of failing the run. Append and
     # CDC parents hold more than one row per key, so the reader must not stream them either. A
     # parent under the size floor costs more to open than the listing it would replace.
     parent_obj = None
@@ -1038,7 +1163,6 @@ async def test_unusable_parent_falls_back_to_the_api_path(parent):
 
     with (
         mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
-        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=True),
         mock.patch.object(module, "get_schema_if_exists", return_value=parent_obj),
     ):
         result = await module._warehouse_parent_reuse_available(
@@ -1062,7 +1186,6 @@ async def test_synced_parent_uses_the_warehouse_path(sync_type):
     # because its drains merge on the primary key rather than appending.
     with (
         mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
-        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=True),
         mock.patch.object(
             module,
             "get_schema_if_exists",
@@ -1077,9 +1200,24 @@ async def test_synced_parent_uses_the_warehouse_path(sync_type):
 
 
 @pytest.mark.asyncio
+async def test_persisted_append_mode_reaches_source_before_extraction():
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    schema = _incremental_schema(is_incremental=False, lookback_seconds=None)
+    schema.sync_type = ExternalDataSchema.SyncType.APPEND
+
+    with _patched_activity_reaching_run(source, schema):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    _, source_inputs = source.source_for_pipeline.call_args.args
+    assert source_inputs.sync_type == ExternalDataSchema.SyncType.APPEND
+
+
+@pytest.mark.asyncio
 async def test_fanout_gate_result_threaded_into_source_inputs():
     # The gate's decision must reach the source via SourceInputs — if this wiring drops,
-    # every child silently falls back to re-pulling the parent API with the flag on.
+    # every child silently falls back to re-pulling the parent API.
     source = mock.MagicMock(spec=SimpleSource)
     source.parse_config.return_value = {}
     source.get_required_parent_schemas.return_value = ["issues"]
@@ -1089,7 +1227,6 @@ async def test_fanout_gate_result_threaded_into_source_inputs():
 
     with (
         _patched_activity_reaching_run(source, schema),
-        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=True),
         mock.patch.object(
             module, "get_schema_if_exists", return_value=_parent(should_sync=True, initial_sync_complete=True)
         ),
@@ -1101,36 +1238,22 @@ async def test_fanout_gate_result_threaded_into_source_inputs():
 
 
 @pytest.mark.asyncio
-async def test_parent_gate_inert_when_flag_disabled():
-    with (
-        mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
-        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=False),
-        mock.patch.object(module, "get_schema_if_exists") as schema_lookup,
-    ):
+async def test_parent_gate_inert_for_sources_without_requirements():
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_required_parent_schemas.return_value = []
+
+    with mock.patch.object(module, "get_schema_if_exists") as schema_lookup:
         result = await module._warehouse_parent_reuse_available(
-            _fanout_source(), _fanout_child_schema(), uuid.uuid4(), 1, mock.AsyncMock()
+            source, _fanout_child_schema(), uuid.uuid4(), 1, mock.AsyncMock()
         )
 
     assert result is False
     schema_lookup.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_parent_gate_inert_for_sources_without_requirements():
-    source = mock.MagicMock(spec=SimpleSource)
-    source.get_required_parent_schemas.return_value = []
-
-    with mock.patch.object(module, "is_fanout_warehouse_reuse_enabled") as flag_check:
-        result = await module._warehouse_parent_reuse_available(
-            source, _fanout_child_schema(), uuid.uuid4(), 1, mock.AsyncMock()
-        )
-
-    assert result is False
-    flag_check.assert_not_called()
-
-
 def _probe_model() -> mock.MagicMock:
     model = mock.MagicMock()
+    model.pipeline_version = ExternalDataJob.PipelineVersion.V3
     model.pipeline.source_type = "Postgres"
     model.pipeline.job_inputs = {}
     model.folder_path = mock.Mock(return_value="dataset")
@@ -1140,6 +1263,7 @@ def _probe_model() -> mock.MagicMock:
 def _probe_schema() -> mock.MagicMock:
     schema = mock.MagicMock()
     schema.id = uuid.uuid4()
+    schema.sync_type = ExternalDataSchema.SyncType.FULL_REFRESH
     schema.should_use_incremental_field = False
     schema.is_incremental = False
     schema.sync_type_config = {}
@@ -1405,21 +1529,29 @@ def test_a_staged_repartition_swap_holds_the_import_whatever_the_rollout_flag_sa
 
 
 @pytest.mark.parametrize(
-    "scheduled_full_refresh,due_in_days,expected",
+    "scheduled_full_refresh,next_full_refresh_at,expected",
     [
-        pytest.param(True, -1, True, id="first_attempt_of_a_due_refresh"),
-        pytest.param(True, 7, False, id="retry_after_the_wipe_moved_the_due_time"),
-        pytest.param(False, -1, False, id="run_not_marked_as_a_refresh"),
+        pytest.param(True, datetime(2026, 9, 22, 1, 0, tzinfo=UTC), True, id="first_attempt_of_a_due_refresh"),
+        pytest.param(
+            True, datetime(2026, 9, 29, 1, 31, tzinfo=UTC), False, id="retry_after_the_wipe_moved_the_due_time"
+        ),
+        # A 1-day interval at 03:00: the 01:31 wipe moved the due time to 03:00 the same day, which is within the
+        # slack of a retry at 02:11.
+        pytest.param(
+            True, datetime(2026, 9, 22, 3, 0, tzinfo=UTC), False, id="retry_after_a_wipe_before_the_chosen_time"
+        ),
+        pytest.param(False, datetime(2026, 9, 22, 1, 0, tzinfo=UTC), False, id="run_not_marked_as_a_refresh"),
     ],
 )
 def test_a_scheduled_full_refresh_resets_only_while_the_schema_is_due(
-    scheduled_full_refresh: bool, due_in_days: int, expected: bool
+    scheduled_full_refresh: bool, next_full_refresh_at: datetime, expected: bool
 ) -> None:
     schema = ExternalDataSchema(
         sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
         sync_type_config={},
-        full_refresh_interval_days=7,
-        next_full_refresh_at=datetime.now(UTC) + timedelta(days=due_in_days),
+        sync_frequency_interval=timedelta(days=1),
+        full_refresh_interval_days=1,
+        next_full_refresh_at=next_full_refresh_at,
     )
     inputs = ImportDataActivityInputs(
         team_id=1,
@@ -1429,4 +1561,109 @@ def test_a_scheduled_full_refresh_resets_only_while_the_schema_is_due(
         scheduled_full_refresh=scheduled_full_refresh,
     )
 
-    assert _resolve_reset_pipeline(inputs, schema) is expected
+    with time_machine.travel(datetime(2026, 9, 22, 2, 11, tzinfo=UTC), tick=False):
+        assert (
+            _resolve_reset_pipeline(inputs, schema, job_created_at=datetime(2026, 9, 22, 1, 30, tzinfo=UTC)) is expected
+        )
+
+
+_STORED_WATERMARK = datetime(2026, 6, 14, 15, 33, 31, 802833)
+_QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "carry_over_enabled,staged,reset_pipeline,expected_last_value,expected_resumed",
+    [
+        pytest.param(
+            True,
+            {"run_uuid": "wfrun-1-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            False,
+            _QUEUED_UP_TO,
+            _QUEUED_UP_TO,
+            id="continues_after_the_last_queued_batch",
+        ),
+        # The lookback of one hour applies to a run that starts from the stored watermark.
+        pytest.param(
+            False,
+            {"run_uuid": "wfrun-1-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            False,
+            _STORED_WATERMARK - timedelta(hours=1),
+            None,
+            id="setting_off_restarts_from_the_stored_watermark",
+        ),
+        pytest.param(
+            True,
+            {"run_uuid": "wfrun-0-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            False,
+            _STORED_WATERMARK - timedelta(hours=1),
+            None,
+            id="value_of_an_earlier_workflow_run_is_not_used",
+        ),
+        pytest.param(
+            True,
+            {"run_uuid": "wfrun-1-a1", "last_value": "2026-06-21T00:00:00"},
+            False,
+            _STORED_WATERMARK - timedelta(hours=1),
+            None,
+            id="earlier_attempt_recorded_no_value",
+        ),
+        pytest.param(
+            True,
+            {"run_uuid": "wfrun-1-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            True,
+            None,
+            None,
+            id="reset_reads_everything",
+        ),
+    ],
+)
+async def test_an_interrupted_incremental_import_continues_after_its_last_queued_batch(
+    carry_over_enabled: bool,
+    staged: dict[str, Any],
+    reset_pipeline: bool,
+    expected_last_value: datetime | None,
+    expected_resumed: datetime | None,
+    settings,
+):
+    settings.DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED = carry_over_enabled
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    schema = _incremental_schema(is_incremental=True, lookback_seconds=3600)
+    schema.sync_type_config["incremental_staged"] = staged
+
+    with _patched_activity_reaching_run(source, schema, workflow_run_id="wfrun-1") as run_mock:
+        await import_data_activity_sync(dataclasses.replace(_inputs_no_reset(), reset_pipeline=reset_pipeline))
+
+    _, source_inputs = source.source_for_pipeline.call_args.args
+    assert source_inputs.db_incremental_field_last_value == expected_last_value
+    # The pipeline queues the attempt as a resume exactly when it reads after the earlier rows.
+    assert run_mock.await_args.kwargs["resumed_incremental_value"] == expected_resumed
+    assert run_mock.await_args.kwargs["resumed_incremental_run_uuid"] == (
+        "wfrun-1-a1" if expected_resumed is not None else None
+    )
+    # The stored watermark moves only when the loader completes the whole run.
+    assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T15:33:31.802833"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("handoffs_are_free", [True, False])
+async def test_a_free_handoff_is_a_result_and_any_other_handoff_is_a_retry(handoffs_are_free: bool):
+    error = WorkerShuttingDownError("5", "import_data_activity_sync", "data-warehouse-task-queue", 2, "wf", "wt")
+    inputs = dataclasses.replace(_inputs_no_reset(), handoffs_are_free=handoffs_are_free, prior_attempts=4)
+
+    with (
+        mock.patch.object(module, "tag_queries"),
+        mock.patch.object(module, "report_heartbeat_timeout"),
+        mock.patch.object(module, "aworkload_reporting", return_value=_FakeAsyncCM()),
+        mock.patch.object(module, "_import_data_with_reporting", new=mock.AsyncMock(side_effect=error)),
+        mock.patch.object(module, "current_activity_attempt", return_value=2),
+    ):
+        if handoffs_are_free:
+            result = await import_data_activity_sync(inputs)
+            # The workflow adds the attempts up, so it needs the attempt number of this execution only.
+            assert result == {"should_trigger_cdp_producer": False, "handed_off": True, "handoff_attempts_used": 2}
+        else:
+            with pytest.raises(WorkerShuttingDownError):
+                await import_data_activity_sync(inputs)

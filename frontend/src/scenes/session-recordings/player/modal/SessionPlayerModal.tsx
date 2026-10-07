@@ -92,7 +92,13 @@ export function SessionPlayerModal(): JSX.Element | null {
                                 Use this moment as background
                             </LemonButton>
                         ) : null}
-                        <LemonButton icon={<IconX />} size="small" onClick={closeSessionPlayer} tooltip="Close" />
+                        <LemonButton
+                            data-attr="player-modal-close"
+                            icon={<IconX />}
+                            size="small"
+                            onClick={closeSessionPlayer}
+                            tooltip="Close"
+                        />
                     </div>
                 </div>
             )}

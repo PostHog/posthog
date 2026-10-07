@@ -46,10 +46,18 @@ export function PipelineStatTiles(): JSX.Element {
         healthIssues,
         healthIssuesLoading,
         failingSyncCount,
+        issuesBySeverity,
+        syncingTableCount,
+        sources,
+        sourcesLoading,
     } = useValues(pipelineOverviewSceneLogic)
 
-    const issueCount = healthIssues?.count ?? 0
-    const running = (jobStats?.external_data_jobs?.running ?? 0) + (jobStats?.modeling_jobs?.running ?? 0)
+    // `job_stats` reports syncs and materialized view runs separately, and every count here
+    // reads the sync half. The totals it also returns fold the two together.
+    const syncJobs = jobStats?.external_data_jobs
+    // The list this scene shows, not `healthIssues.count`, which counts the whole warehouse
+    // including the materialized views this scene leaves out.
+    const issueCount = issuesBySeverity.length
 
     return (
         <div className="@container">
@@ -60,26 +68,40 @@ export function PipelineStatTiles(): JSX.Element {
                     // otherwise wrap out of the tile.
                     value={humanFriendlyLargeNumber(rowsStats?.total_rows ?? 0)}
                     exact={humanFriendlyNumber(rowsStats?.total_rows ?? 0)}
-                    sub={rowsStats?.billing_available ? undefined : 'Billing is unavailable, so this may be behind'}
+                    // Only once the answer is in: a null `rowsStats` is still loading, and
+                    // reading it as "unavailable" put a warning under a spinner.
+                    sub={
+                        rowsStats && !rowsStats.billing_available
+                            ? 'Billing is unavailable, so this may be behind'
+                            : undefined
+                    }
                     loading={rowsStatsLoading && rowsStats === null}
                 />
                 <StatTile
-                    label="Runs"
-                    value={humanFriendlyNumber(jobStats?.total_jobs ?? 0)}
-                    sub={`${humanFriendlyNumber(jobStats?.successful_jobs ?? 0)} succeeded`}
-                    loading={jobStatsLoading && jobStats === null}
+                    label="Tables syncing"
+                    value={humanFriendlyNumber(syncingTableCount)}
+                    sub="Switched on across every source"
+                    loading={sourcesLoading && sources === null}
                 />
                 <StatTile
                     label="Needs attention"
                     value={humanFriendlyNumber(issueCount)}
-                    sub={issueCount > 0 ? `${failingSyncCount} of them syncs` : 'Everything is healthy'}
+                    // The list can also hold a source or a destination, so name the sync share
+                    // only when it is not the whole of it.
+                    sub={
+                        issueCount === 0
+                            ? 'Every sync is healthy'
+                            : failingSyncCount < issueCount
+                              ? `${failingSyncCount} of them syncs`
+                              : undefined
+                    }
                     loading={healthIssuesLoading && healthIssues === null}
                     danger={issueCount > 0}
                 />
                 <StatTile
                     label="Running now"
-                    value={humanFriendlyNumber(running)}
-                    sub="Syncs and materializations"
+                    value={humanFriendlyNumber(syncJobs?.running ?? 0)}
+                    sub="Syncs in flight"
                     loading={jobStatsLoading && jobStats === null}
                 />
             </div>

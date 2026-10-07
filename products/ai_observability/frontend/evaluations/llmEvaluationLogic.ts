@@ -4,9 +4,7 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -15,7 +13,6 @@ import { DateRange, InsightVizNode, NodeKind } from '~/queries/schema/schema-gen
 import { MaxContextInput, createMaxContextHelpers } from '~/scenes/max/maxTypes'
 import { ActivityScope, Breadcrumb, ChartDisplayType, HogQLMathType } from '~/types'
 
-import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import {
     evaluationsBackfillsRetrieve,
     evaluationsCreate,
@@ -40,6 +37,10 @@ import {
     evaluationIsDetector,
     numericOutputConfigError,
     numericScorePasses,
+    categoricalResultPasses,
+    categoricalOutputConfigError,
+    categoricalEvaluationPassedHogQL,
+    EVALUATION_CATEGORICAL_GRADED_HOGQL,
 } from './constants'
 import {
     evaluationCanResolveModel,
@@ -84,10 +85,6 @@ const EVALUATION_DETAIL_TABS = new Set(['configuration', 'reports', 'runs', 'bac
 
 function evaluationDetailTab(value: unknown): string | null {
     if (typeof value !== 'string' || !EVALUATION_DETAIL_TABS.has(value)) {
-        return null
-    }
-    // Backfills is flag-gated, so a bookmarked URL for it falls back to the default tab.
-    if (value === 'backfills' && !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_BACKFILLS]) {
         return null
     }
     return value
@@ -158,22 +155,34 @@ function toLLMJudgeEvaluation(evaluation: EvaluationConfig): LLMJudgeEvaluation 
         ...evaluation,
         evaluation_type: 'llm_judge',
         evaluation_config: { prompt: '' },
-        output_type: evaluation.output_type === 'numeric' ? 'numeric' : 'boolean',
-        output_config: evaluation.output_type === 'numeric' ? evaluation.output_config : { allows_na: false },
+        output_type: evaluation.output_type === 'sentiment' ? 'boolean' : evaluation.output_type,
+        output_config: ['numeric', 'categorical'].includes(evaluation.output_type)
+            ? evaluation.output_config
+            : { allows_na: false },
     }
+}
+
+function defaultCategoricalHogSource(config: EvaluationOutputConfig): string {
+    return `return ['${config.options?.[0]?.key ?? 'resolved'}'];`
 }
 
 function toHogEvaluation(evaluation: EvaluationConfig): HogEvaluation {
     return {
         ...evaluation,
         evaluation_type: 'hog',
-        evaluation_config: { source: evaluation.output_type === 'numeric' ? 'return 0;' : DEFAULT_HOG_SOURCE },
-        output_type: evaluation.output_type === 'numeric' ? 'numeric' : 'boolean',
+        evaluation_config: {
+            source:
+                evaluation.output_type === 'numeric'
+                    ? 'return 0;'
+                    : evaluation.output_type === 'categorical'
+                      ? defaultCategoricalHogSource(evaluation.output_config)
+                      : DEFAULT_HOG_SOURCE,
+        },
+        output_type: evaluation.output_type === 'sentiment' ? 'boolean' : evaluation.output_type,
         model_configuration: null,
-        output_config:
-            evaluation.output_type === 'numeric'
-                ? evaluation.output_config
-                : { ...evaluation.output_config, allows_na: false },
+        output_config: ['numeric', 'categorical'].includes(evaluation.output_type)
+            ? evaluation.output_config
+            : { ...evaluation.output_config, allows_na: false },
     }
 }
 
@@ -204,7 +213,7 @@ function filterEvaluationRuns(
     // A skipped run carries result=false when the evaluation disallows N/A, so it has to be
     // excluded before the outcome is read or it lands in the fail bucket without being graded.
     const gradedRuns = completedRuns.filter((r) => !r.skipped)
-    if (evaluation?.output_type === 'numeric') {
+    if (evaluation?.output_type === 'numeric' || evaluation?.output_type === 'categorical') {
         if (filter === 'na') {
             return gradedRuns.filter((run) => run.applicable === false)
         }
@@ -213,10 +222,13 @@ function filterEvaluationRuns(
             return []
         }
         return gradedRuns.filter((run) => {
-            if (run.applicable === false || run.score == null) {
+            if (run.applicable === false) {
                 return false
             }
-            const passed = numericScorePasses(run.score, rule)
+            const passed =
+                evaluation.output_type === 'categorical'
+                    ? categoricalResultPasses(run.categories, rule)
+                    : numericScorePasses(run.score, rule)
             return filter === 'pass' ? passed === true : filter === 'fail' ? passed === false : false
         })
     }
@@ -285,7 +297,6 @@ export interface LLMEvaluationLogicProps {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface llmEvaluationLogicValues {
-    featureFlags: FeatureFlagsSet // featureFlagLogic
     activeProviderKey: LLMProviderKey | null | undefined // llmProviderKeysLogic
     providerKeys: LLMProviderKey[] // llmProviderKeysLogic
     providerKeysLoading: boolean // llmProviderKeysLogic
@@ -314,8 +325,9 @@ export interface llmEvaluationLogicValues {
     isReportableEvaluation: boolean
     maxContext: MaxContextInput[]
     modelSelectionRequired: boolean
+    numericBoundsRequired: boolean
     originalEvaluation: EvaluationConfig | null
-    outputConfigDrafts: Partial<Record<'boolean' | 'numeric', EvaluationOutputConfig>>
+    outputConfigDrafts: Partial<Record<'boolean' | 'categorical' | 'numeric', EvaluationOutputConfig>>
     runsBackfill: EvaluationBackfillApi | null
     runsBackfillId: string | null
     runsBackfillLoading: boolean
@@ -470,9 +482,9 @@ export interface llmEvaluationLogicActions {
     setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => {
         modelConfiguration: ModelConfiguration | null
     }
-    setOutputType: (outputType: 'boolean' | 'numeric') => {
+    setOutputType: (outputType: 'boolean' | 'categorical' | 'numeric') => {
         outputConfig: EvaluationApiOutputConfig | undefined
-        outputType: 'boolean' | 'numeric'
+        outputType: 'boolean' | 'categorical' | 'numeric'
         previousEvaluation: EvaluationConfig | null
     }
     setRunsBackfillId: (backfillId: string | null) => {
@@ -528,7 +540,12 @@ export interface llmEvaluationLogicMeta {
             originalEvaluation: EvaluationConfig | null,
             evaluationId: string
         ) => boolean
-        formValid: (evaluation: EvaluationConfig | null, modelSelectionRequired: boolean) => boolean
+        numericBoundsRequired: (evaluation: EvaluationConfig | null) => boolean
+        formValid: (
+            evaluation: EvaluationConfig | null,
+            modelSelectionRequired: boolean,
+            numericBoundsRequired: boolean
+        ) => boolean
         canEnable: (
             evaluation: EvaluationConfig | null,
             activeProviderKey: LLMProviderKey | null | undefined
@@ -590,8 +607,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         values: [
             llmProviderKeysLogic,
             ['providerKeys', 'providerKeysLoading', 'requiresProviderKey', 'activeProviderKey'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [llmProviderKeysLogic, ['loadProviderKeys', 'loadEvaluationConfigSuccess']],
     })),
@@ -602,7 +617,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setEvaluationDescription: (description: string) => ({ description }),
         setEvaluationPrompt: (prompt: string) => ({ prompt }),
         setEvaluationEnabled: (enabled: boolean) => ({ enabled }),
-        setOutputType: (outputType: 'boolean' | 'numeric') => ({
+        setOutputType: (outputType: 'boolean' | 'numeric' | 'categorical') => ({
             outputType,
             previousEvaluation: values.evaluation,
             outputConfig: values.outputConfigDrafts[outputType],
@@ -666,7 +681,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     if (!isTestableHogEvaluation(evaluation)) {
                         return null
                     }
-                    if (evaluation.output_type === 'numeric' && numericOutputConfigError(evaluation.output_config)) {
+                    if (
+                        (evaluation.output_type === 'numeric' && numericOutputConfigError(evaluation.output_config)) ||
+                        (evaluation.output_type === 'categorical' &&
+                            categoricalOutputConfigError(evaluation.output_config))
+                    ) {
                         return null
                     }
 
@@ -767,7 +786,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
     reducers(({ props }) => ({
         outputConfigDrafts: [
-            {} as Partial<Record<'boolean' | 'numeric', EvaluationOutputConfig>>,
+            {} as Partial<Record<'boolean' | 'numeric' | 'categorical', EvaluationOutputConfig>>,
             {
                 loadEvaluationSuccess: () => ({}),
                 setOutputType: (state, { previousEvaluation }) =>
@@ -802,9 +821,23 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     ) {
                         return state
                     }
-                    const output_config = outputConfig ?? { allows_na: state.output_config.allows_na ?? false }
+                    const output_config = outputConfig ?? {
+                        allows_na: state.output_config.allows_na ?? false,
+                        ...(outputType === 'categorical'
+                            ? {
+                                  options: [
+                                      { key: 'resolved', label: 'Resolved' },
+                                      { key: 'unresolved', label: 'Unresolved' },
+                                  ],
+                                  selection_mode: 'single' as const,
+                              }
+                            : {}),
+                    }
                     if (state.evaluation_type === 'hog') {
                         const source = state.evaluation_config.source
+                        const isDefaultCategoricalSource =
+                            state.output_type === 'categorical' &&
+                            source === defaultCategoricalHogSource(state.output_config)
                         return {
                             ...state,
                             output_type: outputType,
@@ -812,21 +845,48 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             evaluation_config: {
                                 ...state.evaluation_config,
                                 source:
-                                    outputType === 'numeric' &&
-                                    (source === DEFAULT_HOG_SOURCE || LEGACY_HOG_DEFAULT_SOURCES.includes(source))
-                                        ? 'return 0;'
-                                        : outputType === 'boolean' && source === 'return 0;'
-                                          ? DEFAULT_HOG_SOURCE
-                                          : source,
+                                    outputType === 'categorical' &&
+                                    (source === 'return 0;' ||
+                                        source === DEFAULT_HOG_SOURCE ||
+                                        LEGACY_HOG_DEFAULT_SOURCES.includes(source))
+                                        ? defaultCategoricalHogSource(output_config)
+                                        : outputType === 'numeric' &&
+                                            (isDefaultCategoricalSource ||
+                                                source === DEFAULT_HOG_SOURCE ||
+                                                LEGACY_HOG_DEFAULT_SOURCES.includes(source))
+                                          ? 'return 0;'
+                                          : outputType === 'boolean' &&
+                                              (isDefaultCategoricalSource || source === 'return 0;')
+                                            ? DEFAULT_HOG_SOURCE
+                                            : source,
                             },
                         }
                     }
                     return { ...state, output_type: outputType, output_config }
                 },
-                patchOutputConfig: (state, { patch }) =>
-                    state?.output_type === 'numeric'
-                        ? { ...state, output_config: { ...state.output_config, ...patch } }
-                        : state,
+                patchOutputConfig: (state, { patch }) => {
+                    if (state?.output_type !== 'numeric' && state?.output_type !== 'categorical') {
+                        return state
+                    }
+                    const output_config = { ...state.output_config, ...patch }
+                    // Only the untouched example follows category edits; custom code belongs to the user.
+                    if (
+                        state.output_type === 'categorical' &&
+                        state.evaluation_type === 'hog' &&
+                        patch.options &&
+                        state.evaluation_config.source === defaultCategoricalHogSource(state.output_config)
+                    ) {
+                        return {
+                            ...state,
+                            output_config,
+                            evaluation_config: {
+                                ...state.evaluation_config,
+                                source: defaultCategoricalHogSource(output_config),
+                            },
+                        }
+                    }
+                    return { ...state, output_config }
+                },
                 setAllowsNA: (state, { allowsNA }) =>
                     state && state.output_type !== 'sentiment'
                         ? { ...state, output_config: { ...state.output_config, allows_na: allowsNA } }
@@ -849,7 +909,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         return toHogEvaluation(state)
                     }
                     if (evaluationType === 'sentiment') {
-                        if (props.evaluationId !== 'new' && state.output_type === 'numeric') {
+                        if (
+                            props.evaluationId !== 'new' &&
+                            (state.output_type === 'numeric' || state.output_type === 'categorical')
+                        ) {
                             return state
                         }
                         return toSentimentEvaluation(state)
@@ -1035,7 +1098,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 previousEvaluation.evaluation_config.source === values.evaluation?.evaluation_config.source
             ) {
                 lemonToast.warning(
-                    `Your code was kept. Update it to return a ${outputType === 'numeric' ? 'number' : 'boolean'} and test it before enabling this evaluation.`
+                    `Your code was kept. Update it to return a ${outputType === 'numeric' ? 'number' : outputType === 'categorical' ? 'list of category keys' : 'boolean'} and test it before enabling this evaluation.`
                 )
             }
         },
@@ -1249,7 +1312,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (isNew) {
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpLlmEvaluation)
                     // Saving navigates away, so the offer to cover past data travels with the user.
-                    if (response?.id && values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_BACKFILLS]) {
+                    if (response?.id) {
                         lemonToast.info('This evaluation grades new data from now on.', {
                             button: {
                                 label: 'Evaluate past data',
@@ -1356,14 +1419,19 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                                           custom_name: `${evaluation.name} - ${evaluation.output_type === 'numeric' && !evaluation.output_config.passing_rule ? 'Mean score' : 'Pass rate'}`,
                                           math: HogQLMathType.HogQL,
                                           math_hogql:
-                                              evaluation.output_type === 'numeric'
-                                                  ? evaluation.output_config.passing_rule
-                                                      ? evaluationPassRateHogQL(
-                                                            numericEvaluationPassedHogQL(evaluation),
-                                                            EVALUATION_NUMERIC_GRADED_HOGQL
-                                                        )
-                                                      : EVALUATION_NUMERIC_MEAN_HOGQL
-                                                  : evaluationPassRateHogQL(evaluationPassedHogQL(evaluation)),
+                                              evaluation.output_type === 'categorical'
+                                                  ? evaluationPassRateHogQL(
+                                                        categoricalEvaluationPassedHogQL(evaluation),
+                                                        EVALUATION_CATEGORICAL_GRADED_HOGQL
+                                                    )
+                                                  : evaluation.output_type === 'numeric'
+                                                    ? evaluation.output_config.passing_rule
+                                                        ? evaluationPassRateHogQL(
+                                                              numericEvaluationPassedHogQL(evaluation),
+                                                              EVALUATION_NUMERIC_GRADED_HOGQL
+                                                          )
+                                                        : EVALUATION_NUMERIC_MEAN_HOGQL
+                                                    : evaluationPassRateHogQL(evaluationPassedHogQL(evaluation)),
                                           properties: [
                                               {
                                                   key: '$ai_evaluation_id',
@@ -1373,7 +1441,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                                               },
                                           ],
                                       },
-                                      ...(evaluation.output_type !== 'numeric' && evaluation.output_config.allows_na
+                                      ...(evaluation.output_type === 'boolean' && evaluation.output_config.allows_na
                                           ? [
                                                 {
                                                     kind: NodeKind.EventsNode as const,
@@ -1431,13 +1499,24 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             },
         ],
 
+        numericBoundsRequired: [
+            (s) => [s.evaluation],
+            (evaluation: EvaluationConfig | null): boolean =>
+                isLLMJudgeEvaluation(evaluation) &&
+                evaluation.output_type === 'numeric' &&
+                evaluation.model_configuration?.provider === 'system_one',
+        ],
         formValid: [
-            (s) => [s.evaluation, s.modelSelectionRequired],
-            (evaluation: EvaluationConfig | null, modelSelectionRequired: boolean) => {
+            (s) => [s.evaluation, s.modelSelectionRequired, s.numericBoundsRequired],
+            (evaluation: EvaluationConfig | null, modelSelectionRequired: boolean, numericBoundsRequired: boolean) => {
                 if (!evaluation) {
                     return false
                 }
-                if (evaluation.output_type === 'numeric' && numericOutputConfigError(evaluation.output_config)) {
+                if (
+                    (evaluation.output_type === 'numeric' &&
+                        numericOutputConfigError(evaluation.output_config, numericBoundsRequired)) ||
+                    (evaluation.output_type === 'categorical' && categoricalOutputConfigError(evaluation.output_config))
+                ) {
                     return false
                 }
                 const hasValidName = (evaluation.name?.length ?? 0) > 0
@@ -1497,13 +1576,20 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
 
                 const { total, trueCount } = stats
-                const applicable = evaluation?.output_type === 'numeric' ? (stats.scoreCount ?? 0) : stats.applicable
+                const applicable =
+                    evaluation?.output_type === 'categorical'
+                        ? (stats.categoricalCount ?? 0)
+                        : evaluation?.output_type === 'numeric'
+                          ? (stats.scoreCount ?? 0)
+                          : stats.applicable
                 const passed =
-                    evaluation?.output_type === 'numeric'
-                        ? (stats.numericPassCount ?? 0)
-                        : evaluation && evaluationIsDetector(evaluation)
-                          ? applicable - trueCount
-                          : trueCount
+                    evaluation?.output_type === 'categorical'
+                        ? (stats.categoricalPassCount ?? 0)
+                        : evaluation?.output_type === 'numeric'
+                          ? (stats.numericPassCount ?? 0)
+                          : evaluation && evaluationIsDetector(evaluation)
+                            ? applicable - trueCount
+                            : trueCount
                 // Applicable runs excludes N/A results
                 const failed = applicable - passed
 

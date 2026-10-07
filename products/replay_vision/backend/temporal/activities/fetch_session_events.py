@@ -24,6 +24,7 @@ from products.replay_vision.backend.queries.session_identity import (
     person_display_name,
     person_email,
     person_organization,
+    session_geoip,
 )
 from products.replay_vision.backend.session_limits import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
@@ -67,7 +68,12 @@ _EXTRA_FIELDS = [
     "elements_chain_ids",
     "properties.$exception_types",
     "properties.$exception_values",
+    # Read once for the session's device class, then dropped before the rows reach the model.
+    "properties.$device_type",
 ]
+# HogQL returns `properties.$device_type` as a bare `$device_type` column.
+_DEVICE_TYPE_COLUMN = "$device_type"
+_TOUCH_DEVICE_TYPES = frozenset({"Mobile", "Tablet"})
 
 # Token names for URL and window-id simplification — referenced by `base.jinja`'s resolver instructions.
 _URL_PREFIX = "url"
@@ -94,7 +100,7 @@ async def fetch_session_events_activity(inputs: FetchSessionEventsInputs) -> Non
     if await redis_client.exists(redis_key):
         return
 
-    payload = await sync_to_async(_fetch_payload)(inputs.team_id, inputs.session_id)
+    payload = await sync_to_async(fetch_session_payload)(inputs.team_id, inputs.session_id)
     if payload is None:
         raise IneligibleSessionError(
             "No events to analyze",
@@ -113,6 +119,7 @@ def _persist_session_identity(observation_id: Any, payload: ScannerLlmInputs) ->
         recording_subject_email=payload.identity.person_email,
         session_started_at=payload.metadata.start_time,
         session_group_keys=payload.group_keys or None,
+        session_geoip=payload.session_geoip or None,
     )
 
 
@@ -133,15 +140,12 @@ def _resolve_group_keys(team: Team, session_id: str, metadata: RecordingMetadata
         return {}
 
 
-def _resolve_identity(
-    team: Team, session_id: str, metadata: RecordingMetadata, group_keys: dict[int, str]
-) -> SessionIdentity:
+def _resolve_identity(team: Team, properties: dict[str, Any], group_keys: dict[int, str]) -> SessionIdentity:
     """The recorded person and the groups their session belongs to, as far as each can be read.
 
     Every lookup is independent and best-effort: a scanner that only needs the video must not fail because
     the person query returned nothing or the groups query errored.
     """
-    properties = _resolve_person_properties(team, session_id, metadata)
     return SessionIdentity(
         person_email=person_email(properties),
         person_name=person_display_name(properties),
@@ -194,7 +198,7 @@ def _group_type_labels(team: Team) -> dict[int, str]:
         return {}
 
 
-def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
+def fetch_session_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     # select_related saves the extra round trip when fetch_product_context reads team.project.
     team = Team.objects.select_related("project").get(pk=team_id)
     events_obj = SessionReplayEvents()
@@ -273,6 +277,7 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
 
     group_keys = _resolve_group_keys(team, session_id, metadata)
     distinct_id = metadata.get("distinct_id")
+    subject_properties = _resolve_person_properties(team, session_id, metadata)
 
     return ScannerLlmInputs(
         session_id=session_id,
@@ -287,8 +292,9 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
         navigation_dropped=processed.navigation_dropped,
         events_truncated=events_truncated,
         distinct_id=distinct_id,
-        identity=_resolve_identity(team, session_id, metadata, group_keys),
+        identity=_resolve_identity(team, subject_properties, group_keys),
         group_keys=group_keys,
+        session_geoip=session_geoip(subject_properties),
         metadata=SessionMetadata(
             start_time=metadata["start_time"],
             end_time=metadata["end_time"],
@@ -300,6 +306,7 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
             mouse_activity_count=metadata.get("mouse_activity_count"),
             start_url=metadata.get("first_url"),
             console_error_count=metadata.get("console_error_count"),
+            touch=metadata.get("snapshot_source") == "mobile" or processed.device_type in _TOUCH_DEVICE_TYPES,
         ),
     )
 
@@ -315,6 +322,8 @@ class ProcessedEvents:
     event_timestamps: dict[str, int]  # event uuid -> ms since session start
     navigation: list[NavigationEntry]
     navigation_dropped: int
+    # First `$device_type` any event carried; None when no event had one.
+    device_type: str | None = None
 
 
 def _process_events(
@@ -324,6 +333,14 @@ def _process_events(
     lookup, and derive the per-window URL-change timeline the preamble renders."""
     uuid_index = raw_columns.index("uuid") if "uuid" in raw_columns else None
     timestamp_index = raw_columns.index("timestamp") if "timestamp" in raw_columns else None
+    device_index = raw_columns.index(_DEVICE_TYPE_COLUMN) if _DEVICE_TYPE_COLUMN in raw_columns else None
+    device_type: str | None = None
+    if device_index is not None:
+        device_type = next((str(row[device_index]) for row in raw_rows if row[device_index]), None)
+        raw_columns = [c for i, c in enumerate(raw_columns) if i != device_index]
+        raw_rows = [[v for i, v in enumerate(row) if i != device_index] for row in raw_rows]
+        uuid_index = raw_columns.index("uuid") if "uuid" in raw_columns else None
+        timestamp_index = raw_columns.index("timestamp") if "timestamp" in raw_columns else None
     # All other indexes are over the LLM-visible column set (uuid stripped); compute once.
     visible_columns = [c for i, c in enumerate(raw_columns) if i != uuid_index]
     url_index = visible_columns.index("$current_url") if "$current_url" in visible_columns else None
@@ -372,6 +389,7 @@ def _process_events(
         event_timestamps=event_timestamps,
         navigation=navigation,
         navigation_dropped=navigation_dropped,
+        device_type=device_type,
     )
 
 

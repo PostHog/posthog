@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.close import (
+    CLOSE_BASE_URL,
     CloseResumeConfig,
     close_source,
     validate_credentials as validate_close_credentials,
@@ -54,7 +55,16 @@ class CloseSource(ResumableSource[CloseSourceConfig, CloseResumeConfig]):
         # regardless of the underlying cause (refused connection, read timeout, dropped socket), so
         # match that stable prefix rather than the per-request URL or nested error detail. Temporal
         # then retries the whole activity, so the failure is transient and self-recovering.
-        return {"Max retries exceeded with url"}
+        return {
+            "Max retries exceeded with url",
+            # `close_organizations_source` calls `/me/` and `/organization/{id}/` directly with
+            # `raise_for_status()` rather than through the shared REST engine, so a persistent 5xx
+            # there isn't wrapped as `RESTClientRetryableError`. `DEFAULT_RETRY` already retried the
+            # request in-process before this reaches us, so a Close-side 500 here is a transient
+            # upstream blip, not a bug. Match the stable prefix (status + reason + endpoint), not
+            # the organization id in the URL.
+            f"500 Server Error: Internal Server Error for url: {CLOSE_BASE_URL}/organization/",
+        }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.close.canonical_descriptions import (
