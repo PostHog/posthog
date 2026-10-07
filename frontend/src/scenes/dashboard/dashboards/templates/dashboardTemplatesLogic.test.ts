@@ -179,6 +179,7 @@ describe('dashboardTemplatesLogic', () => {
             template: { scope: 'global', team_id: null },
             canManage: true,
             managedInAnotherProject: false,
+            canEditTemplates: true,
         },
         {
             label: 'an editor on a team template',
@@ -187,6 +188,7 @@ describe('dashboardTemplatesLogic', () => {
             template: { scope: 'team', team_id: MOCK_TEAM_ID },
             canManage: true,
             managedInAnotherProject: false,
+            canEditTemplates: true,
         },
         {
             label: "an editor on this project's organization template",
@@ -195,6 +197,7 @@ describe('dashboardTemplatesLogic', () => {
             template: { scope: 'organization', team_id: MOCK_TEAM_ID },
             canManage: true,
             managedInAnotherProject: false,
+            canEditTemplates: true,
         },
         {
             label: "an editor on another project's organization template",
@@ -203,6 +206,7 @@ describe('dashboardTemplatesLogic', () => {
             template: { scope: 'organization', team_id: MOCK_TEAM_ID + 1 },
             canManage: false,
             managedInAnotherProject: true,
+            canEditTemplates: true,
         },
         {
             label: 'an editor on an organization template with no owning project',
@@ -211,6 +215,7 @@ describe('dashboardTemplatesLogic', () => {
             template: { scope: 'organization', team_id: null },
             canManage: false,
             managedInAnotherProject: true,
+            canEditTemplates: true,
         },
         {
             label: 'a viewer without editor access on a team template',
@@ -219,10 +224,11 @@ describe('dashboardTemplatesLogic', () => {
             template: { scope: 'team', team_id: MOCK_TEAM_ID },
             canManage: false,
             managedInAnotherProject: false,
+            canEditTemplates: false,
         },
     ])(
-        '$label: can manage $canManage, managed in another project $managedInAnotherProject',
-        ({ isStaff, canEditDashboards, template, canManage, managedInAnotherProject }) => {
+        '$label: can manage $canManage, managed in another project $managedInAnotherProject, can edit templates $canEditTemplates',
+        ({ isStaff, canEditDashboards, template, canManage, managedInAnotherProject, canEditTemplates }) => {
             jest.mocked(userHasAccess).mockReturnValue(canEditDashboards)
             userLogic.mount()
             userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: isStaff })
@@ -238,6 +244,7 @@ describe('dashboardTemplatesLogic', () => {
 
             expect(mounted.values.canManageTemplate(record)).toBe(canManage)
             expect(mounted.values.isManagedInAnotherProject(record)).toBe(managedInAnotherProject)
+            expect(mounted.values.canEditTemplates).toBe(canEditTemplates)
         }
     )
 

@@ -76,6 +76,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         isStaffViewer,
         searchText,
         hasActiveFilters,
+        canEditTemplates,
         canManageTemplate,
         isManagedInAnotherProject,
         currentTeamId,
@@ -306,17 +307,20 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                 const builtInOfficial = isBuiltInOfficialTemplate(record)
 
                 if (!canManageTemplate(record)) {
-                    if (!isManagedInAnotherProject(record)) {
+                    const lockReason = isManagedInAnotherProject(record)
+                        ? `Managed in ${organizationTeams.find((t) => t.id === record.team_id)?.name ?? 'another project'}`
+                        : !canEditTemplates
+                          ? 'You need editor access to dashboards to manage templates'
+                          : null
+                    if (!lockReason) {
                         return null
                     }
-                    const owningProjectName =
-                        organizationTeams.find((t) => t.id === record.team_id)?.name ?? 'another project'
                     return (
-                        <Tooltip title={`Managed in ${owningProjectName}`}>
+                        <Tooltip title={lockReason}>
                             <span
                                 className="flex size-7 items-center justify-center text-secondary"
                                 role="img"
-                                aria-label={`Managed in ${owningProjectName}`}
+                                aria-label={lockReason}
                             >
                                 <IconLock className="size-4" />
                             </span>

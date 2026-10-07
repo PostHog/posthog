@@ -85,6 +85,7 @@ function mountTable({
     searchText = null,
     loadFailed = false,
     canManage = true,
+    canEditTemplates = true,
     managedInAnotherProject = false,
 }: {
     isStaff: boolean
@@ -92,6 +93,7 @@ function mountTable({
     searchText?: string | null
     loadFailed?: boolean
     canManage?: boolean
+    canEditTemplates?: boolean
     managedInAnotherProject?: boolean
 }): Record<string, jest.Mock> {
     // One shared action bag for every useActions() caller; the component reads disjoint keys from each.
@@ -127,6 +129,7 @@ function mountTable({
             templatesTabVisibility: 'all',
             isStaffViewer: isStaff,
             currentTeamId: CURRENT_TEAM_ID,
+            canEditTemplates,
             canManageTemplate: () => canManage,
             isManagedInAnotherProject: () => managedInAnotherProject,
         }
@@ -191,28 +194,37 @@ describe('DashboardTemplatesTable', () => {
         expect(actions.openEdit).toHaveBeenCalledWith(template)
     })
 
-    describe('templates the viewer cannot manage', () => {
-        it('names the owning project for an organization template managed in another project', () => {
+    it.each([
+        {
+            label: 'an organization template managed in another project',
+            template: makeTemplate('organization', { team_id: OTHER_TEAM.id }),
+            managedInAnotherProject: true,
+            canEditTemplates: true,
+            lockLabel: 'Managed in Marketing site',
+        },
+        {
+            label: 'a viewer without editor access',
+            template: makeTemplate('team'),
+            managedInAnotherProject: false,
+            canEditTemplates: false,
+            lockLabel: 'You need editor access to dashboards to manage templates',
+        },
+    ])(
+        'shows a read-only row with a lock that explains why for $label',
+        ({ template, managedInAnotherProject, canEditTemplates, lockLabel }) => {
             mountTable({
                 isStaff: false,
-                templates: [makeTemplate('organization', { team_id: OTHER_TEAM.id })],
+                templates: [template],
                 canManage: false,
-                managedInAnotherProject: true,
+                canEditTemplates,
+                managedInAnotherProject,
             })
 
-            expect(screen.getByLabelText('Managed in Marketing site')).toBeInTheDocument()
+            expect(screen.getByLabelText(lockLabel)).toBeInTheDocument()
             expect(document.querySelector('[data-attr="dashboard-template-name-edit"]')).not.toBeInTheDocument()
             expect(screen.queryByText('Edit')).not.toBeInTheDocument()
-        })
-
-        it('shows a read-only row with no lock when the viewer lacks editor access', () => {
-            mountTable({ isStaff: false, templates: [makeTemplate('team')], canManage: false })
-
-            expect(document.querySelector('[data-attr="dashboard-template-name-edit"]')).not.toBeInTheDocument()
-            expect(screen.queryByText('Edit')).not.toBeInTheDocument()
-            expect(screen.queryByLabelText(/^Managed in/)).not.toBeInTheDocument()
-        })
-    })
+        }
+    )
 
     it.each([
         { label: 'staff', isStaff: true, showsOfficial: true },

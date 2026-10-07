@@ -48,7 +48,7 @@ export type DashboardTemplateTableOrdering = '' | 'template_name' | '-template_n
  * Official templates go last. Inside each group, the table ordering applies, or featured first and then A–Z by name,
  * which matches the API default. The API cannot do this for the mixed unscoped list or the merged customer list.
  */
-function sortTemplatesByOrdering(
+function sortTemplatesTeamScopeBeforeOfficial(
     templates: DashboardTemplateType[],
     ordering: DashboardTemplateTableOrdering
 ): DashboardTemplateType[] {
@@ -100,6 +100,7 @@ export interface dashboardTemplatesLogicValues {
     allTemplatesLoadFailed: boolean
     allTemplatesLoaded: boolean
     allTemplatesLoading: boolean
+    canEditTemplates: boolean
     canManageTemplate: (template: DashboardTemplateType) => boolean
     hasActiveFilters: boolean
     isManagedInAnotherProject: (template: DashboardTemplateType) => boolean
@@ -155,8 +156,10 @@ export interface dashboardTemplatesLogicMeta {
             templatesTabVisibility: DashboardTemplatesTabVisibility
         ) => boolean
         isManagedInAnotherProject: (currentTeamId: number | null) => (template: DashboardTemplateType) => boolean
+        canEditTemplates: (isStaffViewer: boolean) => boolean
         canManageTemplate: (
             isStaffViewer: boolean,
+            canEditTemplates: boolean,
             isManagedInAnotherProject: (template: DashboardTemplateType) => boolean
         ) => (template: DashboardTemplateType) => boolean
     }
@@ -250,21 +253,25 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                 (template) =>
                     template.scope === 'organization' && template.team_id !== currentTeamId,
         ],
-        canManageTemplate: [
-            (s) => [s.isStaffViewer, s.isManagedInAnotherProject],
-            (
-                isStaffViewer: boolean,
-                isManagedInAnotherProject: (template: DashboardTemplateType) => boolean
-            ): ((template: DashboardTemplateType) => boolean) => {
+        canEditTemplates: [
+            (s) => [s.isStaffViewer],
+            (isStaffViewer: boolean): boolean =>
                 // `dashboard_template` inherits `dashboard` in RBAC (#54694). The access level comes from the bootstrap
                 // context, which changes only on a page load.
-                const canEditDashboards = userHasAccess(AccessControlResourceType.Dashboard, AccessControlLevel.Editor)
-                return (template) =>
+                isStaffViewer || userHasAccess(AccessControlResourceType.Dashboard, AccessControlLevel.Editor),
+        ],
+        canManageTemplate: [
+            (s) => [s.isStaffViewer, s.canEditTemplates, s.isManagedInAnotherProject],
+            (
+                isStaffViewer: boolean,
+                canEditTemplates: boolean,
+                isManagedInAnotherProject: (template: DashboardTemplateType) => boolean
+            ): ((template: DashboardTemplateType) => boolean) =>
+                (template) =>
                     isStaffViewer ||
-                    (canEditDashboards &&
+                    (canEditTemplates &&
                         (template.scope === 'team' || template.scope === 'organization') &&
-                        !isManagedInAnotherProject(template))
-            },
+                        !isManagedInAnotherProject(template)),
         ],
     }),
     lazyLoaders(({ props, values }) => ({
@@ -313,12 +320,14 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                         ])
                         // A search ranks each page on the server, but the rank is not returned, so team matches come first.
                         const results = [...teamPage.results, ...organizationPage.results]
-                        return useSearch ? results : sortTemplatesByOrdering(results, values.templateNameOrdering)
+                        return useSearch
+                            ? results
+                            : sortTemplatesTeamScopeBeforeOfficial(results, values.templateNameOrdering)
                     }
 
                     const page = await api.dashboardTemplates.list(params)
                     if (!useSearch && listScope === undefined) {
-                        return sortTemplatesByOrdering(page.results, values.templateNameOrdering)
+                        return sortTemplatesTeamScopeBeforeOfficial(page.results, values.templateNameOrdering)
                     }
                     return page.results
                 },
