@@ -1702,6 +1702,69 @@ describe('insightNavLogic', () => {
                     },
                 },
                 {
+                    label: 'trends flag calls to retention',
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.DataWarehouseNode,
+                                id: 'posthog.flag_evaluations',
+                                name: 'Feature flag called',
+                                table_name: 'posthog.flag_evaluations',
+                                id_field: 'uuid',
+                                timestamp_field: 'timestamp',
+                                distinct_id_field: 'distinct_id',
+                            },
+                        ],
+                    },
+                    targetView: InsightType.RETENTION,
+                    expectedSource: {
+                        kind: NodeKind.RetentionQuery,
+                        retentionFilter: {
+                            targetEntity: {
+                                type: 'data_warehouse',
+                                table_name: 'posthog.flag_evaluations',
+                                timestamp_field: 'timestamp',
+                                aggregation_target_field: 'person_id',
+                            },
+                            returningEntity: {
+                                type: 'data_warehouse',
+                                table_name: 'posthog.flag_evaluations',
+                                aggregation_target_field: 'person_id',
+                            },
+                        },
+                    },
+                },
+                {
+                    label: 'retention flag calls to funnels',
+                    source: {
+                        kind: NodeKind.RetentionQuery,
+                        retentionFilter: {
+                            targetEntity: {
+                                type: 'data_warehouse',
+                                id: 'posthog.flag_evaluations',
+                                name: 'Feature flag called',
+                                table_name: 'posthog.flag_evaluations',
+                                timestamp_field: 'timestamp',
+                                aggregation_target_field: 'person_id',
+                            },
+                        },
+                    },
+                    targetView: InsightType.FUNNELS,
+                    expectedSource: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.FunnelsDataWarehouseNode,
+                                table_name: 'posthog.flag_evaluations',
+                                id_field: 'uuid',
+                                timestamp_field: 'timestamp',
+                                aggregation_target_field: 'person_id',
+                            },
+                        ],
+                    },
+                },
+                {
                     label: 'lifecycle flag calls to trends',
                     source: {
                         kind: NodeKind.LifecycleQuery,

@@ -338,10 +338,25 @@ const seriesEntityToRetentionEntity = (
             ...(entity.properties?.length ? { properties: entity.properties } : {}),
         }
     }
+    // A flag calls series has a known column for each field, so it maps to a warehouse retention entity.
+    if (isAnyDataWarehouseNode(entity) && entity.table_name === FLAG_EVALUATIONS_TABLE) {
+        return {
+            type: EntityTypes.DATA_WAREHOUSE,
+            id: FLAG_EVALUATIONS_TABLE,
+            table_name: FLAG_EVALUATIONS_TABLE,
+            timestamp_field: FLAG_EVALUATIONS_SERIES_FIELDS.timestamp_field,
+            aggregation_target_field: FLAG_EVALUATIONS_SERIES_FIELDS.aggregation_target_field,
+            ...(entity.name ? { name: entity.name } : {}),
+            ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
+            ...(entity.properties?.length ? { properties: entity.properties } : {}),
+        }
+    }
     return undefined
 }
 
-const retentionEntityToSeriesEntity = (entity: RetentionEntity | undefined): EventsNode | ActionsNode | undefined => {
+const retentionEntityToSeriesEntity = (
+    entity: RetentionEntity | undefined
+): EventsNode | ActionsNode | DataWarehouseNode | undefined => {
     if (!entity) {
         return undefined
     }
@@ -349,6 +364,19 @@ const retentionEntityToSeriesEntity = (entity: RetentionEntity | undefined): Eve
         return {
             kind: NodeKind.ActionsNode,
             id: typeof entity.id === 'string' ? parseInt(entity.id, 10) : (entity.id ?? 0),
+            ...(entity.name ? { name: entity.name } : {}),
+            ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
+            ...(entity.properties?.length ? { properties: entity.properties } : {}),
+        }
+    }
+    if (entity.type === EntityTypes.DATA_WAREHOUSE && entity.table_name === FLAG_EVALUATIONS_TABLE) {
+        return {
+            kind: NodeKind.DataWarehouseNode,
+            id: FLAG_EVALUATIONS_TABLE,
+            table_name: FLAG_EVALUATIONS_TABLE,
+            id_field: FLAG_EVALUATIONS_SERIES_FIELDS.id_field,
+            timestamp_field: FLAG_EVALUATIONS_SERIES_FIELDS.timestamp_field,
+            distinct_id_field: FLAG_EVALUATIONS_SERIES_FIELDS.distinct_id_field,
             ...(entity.name ? { name: entity.name } : {}),
             ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
             ...(entity.properties?.length ? { properties: entity.properties } : {}),
@@ -828,10 +856,14 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
             // A target that still points at the cached entity keeps it whole, math included; a target
             // edited on retention replaces it.
             const targetIsCachedEntity =
-                firstCached?.kind === seriesEntity.kind &&
-                (seriesEntity.kind === NodeKind.ActionsNode
-                    ? (firstCached as ActionsNode).id === seriesEntity.id
-                    : (firstCached as EventsNode).event === seriesEntity.event)
+                seriesEntity.kind === NodeKind.DataWarehouseNode
+                    ? !!firstCached &&
+                      isAnyDataWarehouseNode(firstCached) &&
+                      firstCached.table_name === seriesEntity.table_name
+                    : firstCached?.kind === seriesEntity.kind &&
+                      (seriesEntity.kind === NodeKind.ActionsNode
+                          ? (firstCached as ActionsNode).id === seriesEntity.id
+                          : (firstCached as EventsNode).event === seriesEntity.event)
             newCache.series = [targetIsCachedEntity ? firstCached : seriesEntity, ...restCached]
         }
     }
