@@ -254,7 +254,7 @@ class TestDetachDistinctIdJob:
         lookup_row = (PDI_ID, PDI_VERSION, PERSON_PK, UUID(PERSON_UUID))
         conn, _cursor = self._make_connection(lookup_row, other_count=2)
         producer = MagicMock()
-        producer.produce.return_value.get.side_effect = KafkaException(KafkaError(KafkaError._MSG_TIMED_OUT))
+        producer.produce.return_value.get.side_effect = KafkaException(KafkaError(KafkaError._MSG_TIMED_OUT))  # type: ignore[attr-defined]
 
         result = detach_distinct_id_job.execute_in_process(
             run_config=self._run_config(dry_run=False),
