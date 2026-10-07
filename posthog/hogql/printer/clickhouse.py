@@ -34,13 +34,10 @@ from posthog.hogql.escape_sql import (
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.prompt_jev import is_decision_call
-from posthog.hogql.functions.udfs import (
-    JSON_DROP_KEYS_CLICKHOUSE_NAME,
-    JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME,
-)
+from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
-from posthog.hogql.printer.events_json_document import event_document_sql, json_member_pairs_sql
+from posthog.hogql.printer.events_json_document import event_document_sql, json_document_sql, person_document_sql
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.restricted_properties import (
     RESTRICTABLE_JSON_BLOB_COLUMNS,
@@ -594,9 +591,11 @@ class ClickHousePrinter(BasePrinter):
             serialized = event_document_sql(
                 field_sql, temporary_properties_sql, self._document_feature_flags_sql(type, field_sql)
             )
+        elif resolved_field.name == "person_properties":
+            serialized = person_document_sql(field_sql)
         else:
-            serialized = f"concat('{{', arrayStringConcat({json_member_pairs_sql(field_sql)}, ','), '}}')"
-        return f"{JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME}({serialized})"
+            serialized = json_document_sql(field_sql)
+        return serialized
 
     def _document_feature_flags_sql(self, type: ast.FieldType, field_sql: str) -> str | None:
         """The `$feature_flags` map without restricted flags, or None when a restricted `$feature_flags` hides them all."""

@@ -16,7 +16,7 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.escape_sql import escape_clickhouse_string
 
-from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS
+from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 
 
 def declared_array_paths(subcolumns: dict[str, str]) -> tuple[str, ...]:
@@ -24,21 +24,40 @@ def declared_array_paths(subcolumns: dict[str, str]) -> tuple[str, ...]:
     return tuple(sorted(path for path, declared_type in subcolumns.items() if declared_type.startswith("Array(")))
 
 
+def declared_string_paths(subcolumns: dict[str, str]) -> tuple[str, ...]:
+    """The declared paths of a JSON column whose type is a plain or LowCardinality string."""
+    return tuple(
+        sorted(
+            path for path, declared_type in subcolumns.items() if declared_type in ("String", "LowCardinality(String)")
+        )
+    )
+
+
 EVENTS_PROPERTIES_DECLARED_ARRAY_PATHS = declared_array_paths(EVENTS_PROPERTIES_JSON_SUBCOLUMNS)
+EVENTS_PROPERTIES_DECLARED_STRING_PATHS = declared_string_paths(EVENTS_PROPERTIES_JSON_SUBCOLUMNS)
+PERSON_PROPERTIES_DECLARED_STRING_PATHS = declared_string_paths(PERSON_PROPERTIES_JSON_SUBCOLUMNS)
 
 
 def json_member_pairs_sql(
-    document_sql: str, *, exclude_key: str | None = None, declared_array_paths: Iterable[str] = ()
+    document_sql: str,
+    *,
+    exclude_key: str | None = None,
+    declared_array_paths: Iterable[str] = (),
+    declared_string_paths: Iterable[str] = (),
 ) -> str:
     """`"key":<raw json>` strings for the members of a JSON column.
 
-    The JSON type materializes a declared array path as `[]` on every row, so for those paths an empty array means
-    the key was absent and the pair is left out. An empty array under any other key was sent and stays.
+    The JSON type materializes a declared path on every row, as `[]` for an array and `''` for a string, so under
+    those keys an empty value means the key was absent and the pair is left out. An empty array or string under any
+    other key was sent and stays; the cleaner already removed nulls at insert, so nothing else is filtered.
     """
     conditions = []
     array_paths = ", ".join(escape_clickhouse_string(path) for path in declared_array_paths)
     if array_paths:
         conditions.append(f"not (kv.2 = '[]' and kv.1 in ({array_paths}))")
+    string_paths = ", ".join(escape_clickhouse_string(path) for path in declared_string_paths)
+    if string_paths:
+        conditions.append(f"not (kv.2 = '\"\"' and kv.1 in ({string_paths}))")
     if exclude_key is not None:
         conditions.append(f"kv.1 != {escape_clickhouse_string(exclude_key)}")
     members = f"JSONExtractKeysAndValuesRaw(toJSONString({document_sql}))"
@@ -72,8 +91,18 @@ def feature_flag_pairs_sql(feature_flags_sql: str) -> str:
     return f"arrayConcat({flag_pairs}, {active_pair})"
 
 
+def json_document_sql(document_sql: str, **filters: Iterable[str]) -> str:
+    """A JSON column as document text, built from its member pairs so declared defaults can be left out."""
+    return f"concat('{{', arrayStringConcat({json_member_pairs_sql(document_sql, **filters)}, ','), '}}')"
+
+
+def person_document_sql(person_properties_sql: str) -> str:
+    """The person properties column as document text, without the declared string defaults."""
+    return json_document_sql(person_properties_sql, declared_string_paths=PERSON_PROPERTIES_DECLARED_STRING_PATHS)
+
+
 def event_document_sql(properties_sql: str, temporary_properties_sql: str, feature_flags_sql: str | None) -> str:
-    """The rebuilt document as JSON text. The caller wraps it in the strip UDF and any restricted-key masking.
+    """The rebuilt document as JSON text. The caller wraps it in any restricted-key masking.
 
     `feature_flags_sql` is the flags map to rebuild from, already filtered of restricted flags, or None when every
     flag is hidden. The `$feature_flags` member of `properties` is left out because its entries come back as
@@ -81,7 +110,10 @@ def event_document_sql(properties_sql: str, temporary_properties_sql: str, featu
     """
     pairs = [
         json_member_pairs_sql(
-            properties_sql, exclude_key="$feature_flags", declared_array_paths=EVENTS_PROPERTIES_DECLARED_ARRAY_PATHS
+            properties_sql,
+            exclude_key="$feature_flags",
+            declared_array_paths=EVENTS_PROPERTIES_DECLARED_ARRAY_PATHS,
+            declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
         )
     ]
     if feature_flags_sql is not None:

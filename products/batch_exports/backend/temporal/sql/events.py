@@ -2,7 +2,7 @@
 
 from string import Template
 
-from posthog.hogql.printer.events_json_document import event_document_sql
+from posthog.hogql.printer.events_json_document import event_document_sql, person_document_sql
 
 # Projected columns a HogQL query can select.
 # NOTE: this is just for the 'old' version of our HogQL support, where a user can define a custom
@@ -513,19 +513,22 @@ _PROPERTIES_DOCUMENT = (
     .replace("{", "{{")
     .replace("}", "}}")
 )
+_PERSON_PROPERTIES_DOCUMENT = person_document_sql("person_properties").replace("{", "{{").replace("}", "}}")
 SERIALIZED_EVENTS_JSON_SOURCE = """(
     SELECT * REPLACE (
         toString(uuid) AS uuid,
         toString(person_id) AS person_id,
-        JSONStripEmptyStringsAndNulls(__PROPERTIES_DOCUMENT__) AS properties,
-        JSONStripEmptyStringsAndNulls(toJSONString(person_properties)) AS person_properties
+        __PROPERTIES_DOCUMENT__ AS properties,
+        __PERSON_PROPERTIES_DOCUMENT__ AS person_properties
     ),
         nullIf(toJSONString(temporary_properties.^`$set`), '{{}}') AS set,
         nullIf(toJSONString(temporary_properties.^`$set_once`), '{{}}') AS set_once,
         nullIf(toJSONString(temporary_properties.^`$unset`), '[]') AS unset,
         nullIf(toJSONString(temporary_properties.^`$group_set`), '{{}}') AS group_set
     FROM events_json
-)""".replace("__PROPERTIES_DOCUMENT__", _PROPERTIES_DOCUMENT)
+)""".replace("__PROPERTIES_DOCUMENT__", _PROPERTIES_DOCUMENT).replace(
+    "__PERSON_PROPERTIES_DOCUMENT__", _PERSON_PROPERTIES_DOCUMENT
+)
 
 
 def native_events_export_query(
