@@ -748,6 +748,30 @@ describe('preserveGroupTargetingFilters', () => {
         expect(merged?.groups?.[1]?.properties?.[0]?.group_type_index).toBe(0)
     })
 
+    // The pinned set shares `plan` with the group set. If it claimed that set, elimination would
+    // pair the rollout set with the person set.
+    it.each([
+        { name: 'clears its own aggregation', pinnedSet: { aggregation_group_type_index: null }, property: {} },
+        { name: 'carries an explicit person property', pinnedSet: {}, property: { type: 'person' } },
+    ])('leaves the group set to a rollout set when the set that shares its key $name', ({ pinnedSet, property }) => {
+        const merged = preserveGroupTargetingFilters(existingMixedFlag, {
+            groups: [
+                { properties: [], rollout_percentage: 100 },
+                {
+                    ...pinnedSet,
+                    properties: [{ key: 'plan', operator: 'exact', value: 'pro', ...property }],
+                    rollout_percentage: 100,
+                },
+            ],
+        })
+
+        expect(merged?.groups?.[0]).toEqual({
+            aggregation_group_type_index: 0,
+            properties: [],
+            rollout_percentage: 100,
+        })
+    })
+
     // The merge walks both sides by index. A malformed entry on either side must not throw.
     it.each([
         { name: 'null groups on the existing flag', existing: { groups: null } },
