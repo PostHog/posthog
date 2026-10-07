@@ -25,7 +25,7 @@ class _Perspective:
 
 
 LOGIC = _Perspective("s-logic")
-SEC = _Perspective("s-sec")
+SEC = _Perspective("review-hog-perspective-security-audit")
 # Empty description → not prunable: the selector can't judge it, so it must always run.
 NO_DESC = _Perspective("s-custom", description="  ")
 ROSTER = [LOGIC, SEC, NO_DESC]
@@ -57,9 +57,9 @@ class TestApplySelection:
                 "sparse_honored_and_undescribed_always_kept",
                 [
                     ChunkSelectionDTO(chunk_id=1, perspectives=["s-logic"]),
-                    ChunkSelectionDTO(chunk_id=2, perspectives=["s-sec"]),
+                    ChunkSelectionDTO(chunk_id=2, perspectives=[SEC.skill_name]),
                 ],
-                [("s-logic", 1), ("s-sec", 2), ("s-custom", 1), ("s-custom", 2)],
+                [("s-logic", 1), (SEC.skill_name, 2), ("s-custom", 1), ("s-custom", 2)],
             ),
             (
                 "unknown_names_dropped",
@@ -72,16 +72,16 @@ class TestApplySelection:
             (
                 "uncovered_chunk_runs_everything",
                 [ChunkSelectionDTO(chunk_id=1, perspectives=["s-logic"])],
-                [("s-logic", 1), ("s-logic", 2), ("s-sec", 2), ("s-custom", 1), ("s-custom", 2)],
+                [("s-logic", 1), ("s-logic", 2), (SEC.skill_name, 2), ("s-custom", 1), ("s-custom", 2)],
             ),
             (
                 "duplicate_chunk_entries_union",
                 [
                     ChunkSelectionDTO(chunk_id=1, perspectives=["s-logic"]),
-                    ChunkSelectionDTO(chunk_id=1, perspectives=["s-sec"]),
+                    ChunkSelectionDTO(chunk_id=1, perspectives=[SEC.skill_name]),
                     ChunkSelectionDTO(chunk_id=2, perspectives=["s-logic"]),
                 ],
-                [("s-logic", 1), ("s-logic", 2), ("s-sec", 1), ("s-custom", 1), ("s-custom", 2)],
+                [("s-logic", 1), ("s-logic", 2), (SEC.skill_name, 1), ("s-custom", 1), ("s-custom", 2)],
             ),
         ],
     )
@@ -110,7 +110,7 @@ class TestApplySelection:
             ]
         )
         units = _units(selection, perspectives=PRUNABLE_ONLY, blind_spot_runs=False)
-        assert sorted(units) == [("s-logic", 1), ("s-logic", 2), ("s-sec", 2)]
+        assert sorted(units) == sorted([("s-logic", 1), ("s-logic", 2), (SEC.skill_name, 2)])
 
 
 class TestNormalizeSelection:
@@ -120,16 +120,16 @@ class TestNormalizeSelection:
         # re-added, duplicate entries merged, uncovered chunks running everything.
         raw = PerspectiveSelection(
             chunks=[
-                ChunkPerspectiveSelection(chunk_id=1, perspectives=["s-sec", "nonexistent"], reason="r1"),
+                ChunkPerspectiveSelection(chunk_id=1, perspectives=[SEC.skill_name, "nonexistent"], reason="r1"),
                 ChunkPerspectiveSelection(chunk_id=1, perspectives=["s-logic"], reason="dupe, ignored"),
                 ChunkPerspectiveSelection(chunk_id=99, perspectives=["s-logic"], reason="unknown chunk"),
             ]
         )
         normalized = normalize_selection(ROSTER, [1, 2], raw)
         assert [c.chunk_id for c in normalized.chunks] == [1, 2]
-        assert normalized.chunks[0].perspectives == ["s-logic", "s-sec", "s-custom"]  # roster order
+        assert normalized.chunks[0].perspectives == ["s-logic", SEC.skill_name, "s-custom"]  # roster order
         assert normalized.chunks[0].reason == "r1"
-        assert normalized.chunks[1].perspectives == ["s-logic", "s-sec", "s-custom"]  # uncovered → all
+        assert normalized.chunks[1].perspectives == ["s-logic", SEC.skill_name, "s-custom"]  # uncovered → all
         assert normalized.chunks[1].reason == ""
 
     def test_zero_selection_survives_normalization(self):
@@ -172,7 +172,7 @@ class TestGenerateSelectionPrompt:
         chunks = [Chunk(chunk_id=1, files=[FileInfo(filename="a.py")], chunk_type="tests", key_changes=["Adds x"])]
         prompt = generate_selection_prompt(pr_metadata, chunks, files, ROSTER)
         assert "`s-logic`" in prompt
-        assert "`s-sec`" in prompt
+        assert f"`{SEC.skill_name}`" in prompt
         assert "s-custom" not in prompt
         assert pr_metadata.title in prompt
         assert '"chunk_type": "tests"' in prompt

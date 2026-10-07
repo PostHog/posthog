@@ -53,7 +53,7 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
     perspectives run on the requesting user's PR reviews. Visibility is per-user: the menu shows
     the canonicals plus the customs the requesting user authored — a teammate's custom is neither
     listed nor enableable (`visible_skill_names`). `list` joins that menu with the user's enable
-    state (the 3 canonicals auto-seed enabled on first read); `partial_update` toggles one by skill
+    state (the canonicals auto-seed enabled on first read); `partial_update` toggles one by skill
     name (upserting the config row, so a freshly authored custom perspective is enabled by the same
     call). At least one perspective must stay enabled.
     """
@@ -80,7 +80,7 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         description=(
             "List the `review-hog-perspective-*` skills visible to the requesting user — the "
             "canonical perspectives plus the customs they authored — joined with their enable "
-            "state. The 3 canonical perspectives are auto-seeded enabled on the first read; a "
+            "state. The canonical perspectives are auto-seeded enabled on the first read; a "
             "custom perspective the user has not switched on shows as disabled."
         ),
     )

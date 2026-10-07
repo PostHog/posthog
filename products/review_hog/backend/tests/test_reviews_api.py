@@ -35,6 +35,7 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_pr_snapshot,
 )
 from products.review_hog.backend.reviewer.progress import RESOLUTION_RUN_NOTE_AUTHOR
+from products.review_hog.backend.reviewer.skill_loader import CANONICAL_PERSPECTIVE_SKILL_NAMES
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import NoteArtefact
@@ -447,12 +448,11 @@ class TestRecentReviewsAPI(APIBaseTest):
             results={(1, 1): _issues_review(1), (2, 1): _issues_review(0)},
             review_arm=DEFAULT_REVIEW_ARM,
         )
-        # No persisted plan (a fallback run): the dense estimate — 2 chunks × (3 canonical
-        # perspectives + the blind-spot sweep) = 8 expected reads.
+        # Without a persisted plan, progress estimates one read per canonical perspective and blind-spot sweep per chunk.
         assert self.client.get(self.url).json()["results"][0]["progress"] == {
             "review_stage": "reviewing",
             "done": 2,
-            "total": 8,
+            "total": 2 * (len(CANONICAL_PERSPECTIVE_SKILL_NAMES) + 1),
         }
 
         # Once the selector's plan lands, the total is exact: planned wave units + one blind spot per

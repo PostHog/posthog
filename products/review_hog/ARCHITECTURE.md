@@ -8,7 +8,7 @@ GitHub, splits it into logically reviewable **chunks**, picks which perspectives
 (**perspective selection**, a cheap one-shot), runs the selected **perspective reviews in parallel** on each
 chunk inside **sandbox agents**, then combines → scope-cleans → deduplicates → validates the findings, renders
 a markdown report, and posts inline review comments back to the PR. Each review **perspective** (Logic &
-Correctness, Contracts & Security, Performance & Reliability) is a DB-synced **LLMA skill** the sandbox agent
+Correctness, Contracts & Security, Performance & Reliability, Security audit) is a DB-synced **LLMA skill** the sandbox agent
 pulls over MCP — the same canonical-skill pattern the Signals scouts use.
 
 The repo-access LLM steps (perspective review, blind-spot check, validation) run inside **sandbox agents**
@@ -281,21 +281,24 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    same Sonnet 5 @ xhigh via the `CHUNKING_*` constants (identical prompt — the sandbox only adds repo
    access the agent may not use). Returns the
    `ChunksList`; persists a `chunk_set` row (and resumes from it on a re-run of the same head).
-5. **Parallel perspective review** — `review_chunks` runs **three independent specialist perspectives
-   concurrently** per chunk (one sandbox activity per `(perspective × chunk)`, bounded by the child workflow's `asyncio.Semaphore`),
+5. **Parallel perspective review** — `review_chunks` runs the selected specialist perspectives
+   concurrently per chunk (one sandbox activity per `(perspective × chunk)`, bounded by the child workflow's `asyncio.Semaphore`),
    each with **no cross-perspective context** — overlap is left to dedup (7):
    - **Logic & Correctness** (`PerspectiveType.LOGIC_CORRECTNESS`)
    - **Contracts & Security** (`PerspectiveType.CONTRACTS_SECURITY`)
    - **Performance & Reliability** (`PerspectiveType.PERFORMANCE_RELIABILITY`)
+   - **Security audit** (`PerspectiveType.SECURITY_AUDIT`)
 
-   The three perspectives come from the ordered `PERSPECTIVES` registry (`reviewer/skill_loader.py`);
-   `load_perspectives_for_run(team_id)` pins each one's current `LLMSkill` version for the run. Delivery is
+   The four canonical perspectives come from `PERSPECTIVES` (`reviewer/skill_loader.py`) and are enabled by default for each user.
+   Users can disable them, and perspective selection can skip a perspective on chunks outside its scope.
+   Security audit is an independent copy of the repository's [security-audit skill](../../.agents/skills/security-audit/SKILL.md), with its audit checks and evidence requirements preserved and its input and reporting adapted to ReviewHog.
+   `load_perspectives_for_run(team_id, acting_user_id)` pins each enabled skill's current `LLMSkill` version for the run. Delivery is
    **pull** — the prompt instructs the sandbox agent to `skill-get(review-hog-perspective-…, version=N)` over
    MCP and apply that perspective's focus, rather than splicing the focus text into the prompt. Each
    perspective×chunk is one sandbox call validating `IssuesReview` (step name `issues-review-p{pass}-c{chunk}`);
    the reviewer self-investigates the chunk from the diff + `<pr_intent>` (no separate analysis pass is fed in).
    Returns `dict[(pass, chunk), IssuesReview]`; persists/resumes per-pair `perspective_result` rows. (The `pass`
-   ordinal = the perspective's 1-based position in `PERSPECTIVES`.) A **blind-spot sweep** then runs once per
+   ordinal is the perspective's 1-based position in the user's enabled skill names, sorted by name.) A **blind-spot sweep** then runs once per
    chunk under a reserved pass number, told which lenses already ran, to catch what none of them surfaced.
 
 6. **Combine + scope-clean** — `combine_issues(perspective_results)` flattens every perspective×chunk `Issue`
@@ -587,7 +590,7 @@ content". Most begin with `{{ CLAUDE_CODE_CONTEXT | safe }}` (the `@path#L…` r
   Validation uses the same delivery path for its pinned criteria.
   → `IssuesReview`. The perspective focuses themselves
   live as **DB-synced LLMA skills** at
-  `products/review_hog/skills/review-hog-perspective-{logic-correctness,contracts-security,performance-reliability}/SKILL.md`.
+  `products/review_hog/skills/review-hog-perspective-{logic-correctness,contracts-security,performance-reliability,security-audit}/SKILL.md`.
 - `issue_deduplicator/prompt.jinja` — mark duplicates (same file + overlapping lines + similar root cause)
   and issues matching prior review comments; keep the single most comprehensive representative. →
   `IssueDeduplication`.

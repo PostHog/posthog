@@ -30,6 +30,7 @@ PERSPECTIVES: tuple[tuple[PerspectiveType, str], ...] = (
     (PerspectiveType.LOGIC_CORRECTNESS, f"{REVIEW_HOG_PERSPECTIVE_PREFIX}logic-correctness"),
     (PerspectiveType.CONTRACTS_SECURITY, f"{REVIEW_HOG_PERSPECTIVE_PREFIX}contracts-security"),
     (PerspectiveType.PERFORMANCE_RELIABILITY, f"{REVIEW_HOG_PERSPECTIVE_PREFIX}performance-reliability"),
+    (PerspectiveType.SECURITY_AUDIT, f"{REVIEW_HOG_PERSPECTIVE_PREFIX}security-audit"),
 )
 
 # The canonical perspective skill names — the set `register_missing_perspective_configs` auto-enables.
@@ -105,7 +106,7 @@ def register_missing_perspective_configs(team_id: int, user_id: int) -> None:
 def load_perspectives_for_run(team_id: int, acting_user_id: int) -> list[LoadedPerspective]:
     """Resolve the acting user's enabled perspectives, each pinned to its current latest version.
 
-    Seeds the canonical configs first (so a cold user gets the 3 canonicals), then reads the user's
+    Seeds the canonical configs first (so a cold user gets the canonicals), then reads the user's
     enabled set and resolves each name to its live `LLMSkill` (latest, non-deleted). `pass_number`
     is the 1-based slot in the full enabled set sorted by name — NOT an index over the live subset,
     so a dead skill leaves a hole instead of shifting the others. That keeps each surviving

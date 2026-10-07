@@ -2,6 +2,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.models import User
 
 from products.review_hog.backend.models import ReviewSkillConfig
@@ -25,6 +27,7 @@ from products.review_hog.backend.temporal.activities import _sync_review_skills
 from products.skills.backend.models.skills import LLMSkill
 
 _LOGIC = f"{REVIEW_HOG_PERSPECTIVE_PREFIX}logic-correctness"
+_SECURITY_AUDIT = f"{REVIEW_HOG_PERSPECTIVE_PREFIX}security-audit"
 _CUSTOM = f"{REVIEW_HOG_PERSPECTIVE_PREFIX}custom-x"
 
 
@@ -34,7 +37,7 @@ def _author_perspective_skill(team, name: str, created_by: User | None = None) -
     )
 
 
-def test_discover_finds_the_three_canonical_perspectives() -> None:
+def test_discover_finds_the_canonical_perspectives() -> None:
     # The on-disk SKILL.md set must parse and match the registry names exactly.
     discovered = {s.name for s in discover_canonical_perspectives()}
     assert discovered == {name for _, name in PERSPECTIVES}
@@ -148,7 +151,7 @@ class TestSyncCanonicalPerspectives(BaseTest):
 
 class TestRegisterMissingPerspectiveConfigs(BaseTest):
     def test_seeds_only_canonicals_enabled_and_is_idempotent(self) -> None:
-        # Seeding enables the 3 canonicals for the user and must NOT auto-create a config for a custom
+        # Seeding enables the canonicals for the user and must NOT auto-create a config for a custom
         # perspective (customs are user-enabled only). Re-running must not duplicate rows.
         _author_perspective_skill(self.team, _CUSTOM)
         register_missing_perspective_configs(self.team.id, self.user.id)
@@ -158,29 +161,30 @@ class TestRegisterMissingPerspectiveConfigs(BaseTest):
         assert {r.skill_name for r in rows} == set(CANONICAL_PERSPECTIVE_SKILL_NAMES)
         assert all(r.enabled for r in rows)
 
-    def test_does_not_re_enable_a_disabled_canonical(self) -> None:
+    @parameterized.expand([("logic", _LOGIC), ("security_audit", _SECURITY_AUDIT)])
+    def test_does_not_re_enable_a_disabled_canonical(self, _name: str, skill_name: str) -> None:
         # A user who switched a canonical off must not have it silently flipped back on by the next run.
         register_missing_perspective_configs(self.team.id, self.user.id)
-        ReviewSkillConfig.objects.for_team(self.team.id).filter(user_id=self.user.id, skill_name=_LOGIC).update(
+        ReviewSkillConfig.objects.for_team(self.team.id).filter(user_id=self.user.id, skill_name=skill_name).update(
             enabled=False
         )
 
         register_missing_perspective_configs(self.team.id, self.user.id)
 
-        config = ReviewSkillConfig.objects.for_team(self.team.id).get(user_id=self.user.id, skill_name=_LOGIC)
+        config = ReviewSkillConfig.objects.for_team(self.team.id).get(user_id=self.user.id, skill_name=skill_name)
         assert config.enabled is False
 
 
 class TestLoadPerspectivesForRun(BaseTest):
     def test_cold_user_gets_the_canonicals_pinned(self) -> None:
-        # A user who never toggled anything: seeding enables the 3 canonicals, the loader resolves them
+        # A user who never toggled anything: seeding enables the canonicals, the loader resolves them
         # sorted, pass_number a contiguous per-run index, version pinned to the synced latest.
         sync_canonical_perspectives(self.team)
 
         loaded = load_perspectives_for_run(self.team.id, self.user.id)
 
         assert [lp.skill_name for lp in loaded] == sorted(CANONICAL_PERSPECTIVE_SKILL_NAMES)
-        assert [lp.pass_number for lp in loaded] == [1, 2, 3]
+        assert [lp.pass_number for lp in loaded] == list(range(1, len(CANONICAL_PERSPECTIVE_SKILL_NAMES) + 1))
         assert all(lp.version == 1 for lp in loaded)
 
     def test_pins_the_latest_version(self) -> None:
@@ -194,19 +198,20 @@ class TestLoadPerspectivesForRun(BaseTest):
         loaded = {lp.skill_name: lp.version for lp in load_perspectives_for_run(self.team.id, self.user.id)}
         assert loaded[_LOGIC] == 2
 
-    def test_returns_only_enabled_and_reindexes_pass_number(self) -> None:
+    @parameterized.expand([("logic", _LOGIC), ("security_audit", _SECURITY_AUDIT)])
+    def test_returns_only_enabled_and_reindexes_pass_number(self, _name: str, skill_name: str) -> None:
         # Disabling one perspective drops it from the run and re-indexes pass_number contiguously over
         # what's left — so finding ids never reference a perspective that didn't run.
         sync_canonical_perspectives(self.team)
         register_missing_perspective_configs(self.team.id, self.user.id)
-        ReviewSkillConfig.objects.for_team(self.team.id).filter(user_id=self.user.id, skill_name=_LOGIC).update(
+        ReviewSkillConfig.objects.for_team(self.team.id).filter(user_id=self.user.id, skill_name=skill_name).update(
             enabled=False
         )
 
         loaded = load_perspectives_for_run(self.team.id, self.user.id)
 
-        assert [lp.skill_name for lp in loaded] == sorted(set(CANONICAL_PERSPECTIVE_SKILL_NAMES) - {_LOGIC})
-        assert [lp.pass_number for lp in loaded] == [1, 2]
+        assert [lp.skill_name for lp in loaded] == sorted(set(CANONICAL_PERSPECTIVE_SKILL_NAMES) - {skill_name})
+        assert [lp.pass_number for lp in loaded] == list(range(1, len(CANONICAL_PERSPECTIVE_SKILL_NAMES)))
 
     def test_includes_an_enabled_custom_perspective(self) -> None:
         # The core "author a custom perspective and run it" path: an enabled custom prefixed skill is
@@ -221,7 +226,7 @@ class TestLoadPerspectivesForRun(BaseTest):
         loaded = load_perspectives_for_run(self.team.id, self.user.id)
 
         assert _CUSTOM in {lp.skill_name for lp in loaded}
-        assert [lp.pass_number for lp in loaded] == [1, 2, 3, 4]
+        assert [lp.pass_number for lp in loaded] == list(range(1, len(CANONICAL_PERSPECTIVE_SKILL_NAMES) + 2))
 
     def test_ignores_an_enabled_validator_row(self) -> None:
         # Perspectives and validators share one config table; an enabled validator row must not be
@@ -254,7 +259,7 @@ class TestLoadPerspectivesForRun(BaseTest):
         # An archived custom must drop out of the run (not fail it) WITHOUT shifting the survivors'
         # pass numbers: (pass_number, chunk_id) is the same-head_sha resume key, so a reindex would
         # make a surviving perspective silently reuse the dead one's persisted review on resume.
-        # Sorted enabled set: contracts(1), custom-x(2, dead), logic(3), performance(4).
+        # Sorted enabled set: contracts(1), custom-x(2, dead), logic(3), performance(4), security-audit(5).
         sync_canonical_perspectives(self.team)
         register_missing_perspective_configs(self.team.id, self.user.id)
         ReviewSkillConfig.objects.for_team(self.team.id).create(
@@ -264,13 +269,13 @@ class TestLoadPerspectivesForRun(BaseTest):
         loaded = load_perspectives_for_run(self.team.id, self.user.id)
 
         assert [lp.skill_name for lp in loaded] == sorted(CANONICAL_PERSPECTIVE_SKILL_NAMES)
-        assert [lp.pass_number for lp in loaded] == [1, 3, 4]
+        assert [lp.pass_number for lp in loaded] == [1, 3, 4, 5]
 
     def test_skips_an_enabled_perspective_authored_by_another_user(self) -> None:
         # A leftover enabled config for a teammate's custom (from before visibility became
         # author-only) must be skipped, not silently run as an invisible perspective — and like a
         # dead skill it leaves its pass_number slot as a hole so resume keys stay stable.
-        # Sorted enabled set: contracts(1), custom-x(2, foreign), logic(3), performance(4).
+        # Sorted enabled set: contracts(1), custom-x(2, foreign), logic(3), performance(4), security-audit(5).
         sync_canonical_perspectives(self.team)
         teammate = User.objects.create(email="teammate-loader@example.com")
         _author_perspective_skill(self.team, _CUSTOM, created_by=teammate)
@@ -282,7 +287,7 @@ class TestLoadPerspectivesForRun(BaseTest):
         loaded = load_perspectives_for_run(self.team.id, self.user.id)
 
         assert [lp.skill_name for lp in loaded] == sorted(CANONICAL_PERSPECTIVE_SKILL_NAMES)
-        assert [lp.pass_number for lp in loaded] == [1, 3, 4]
+        assert [lp.pass_number for lp in loaded] == [1, 3, 4, 5]
 
     def test_enablement_is_per_user(self) -> None:
         # Disabling a perspective for one user must not affect another user's run — enablement is per-USER.
