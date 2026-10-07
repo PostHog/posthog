@@ -44,7 +44,7 @@ function ScoredBody({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX.El
                     />
                     <span className="text-xs text-secondary">{quality.basis}</span>
                 </div>
-                <span className="text-xs text-secondary">{quality.sentence}</span>
+                <span className="text-xs text-secondary break-words">{quality.sentence}</span>
             </div>
             {trend.length > 1 && (
                 <Tooltip title="Realized AUC on recent checked dates">
@@ -65,10 +65,10 @@ function TrainingBody({ liveRun }: { liveRun: AutoresearchLiveTrainingRunApi | n
         <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between gap-2 text-xs">
                 <span className="font-semibold">
-                    Experiment {liveRun.experiment_count} of {liveRun.iteration_budget}
+                    {`Experiment ${liveRun.experiment_count} of ${liveRun.iteration_budget}`}
                 </span>
                 {liveRun.best_holdout_score != null && (
-                    <span className="text-secondary">Best AUC so far {liveRun.best_holdout_score.toFixed(2)}</span>
+                    <span className="text-secondary">{`Best AUC so far ${liveRun.best_holdout_score.toFixed(2)}`}</span>
                 )}
             </div>
             <LemonProgress percent={(liveRun.experiment_count / liveRun.iteration_budget) * 100} />
@@ -124,7 +124,7 @@ export function AutoresearchModelCard({ pipeline }: { pipeline: AutoresearchPipe
                 <Link
                     to={urls.autoresearchPipeline(pipeline.id)}
                     onClick={() => modelCardOpened(pipeline.id)}
-                    className="font-semibold text-base"
+                    className="font-semibold text-base break-words"
                     data-attr="autoresearch-model-card"
                 >
                     {pipelineQuestion(pipeline)}
@@ -144,15 +144,16 @@ export function AutoresearchModelCard({ pipeline }: { pipeline: AutoresearchPipe
             </div>
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-secondary mt-auto">
                 <span>
-                    {pipeline.people_scored != null
-                        ? `${humanFriendlyNumber(pipeline.people_scored)} people scored`
-                        : 'Not scored yet'}
-                    {pipeline.last_scored_at && ` · ${dayjs(pipeline.last_scored_at).fromNow()}`}
+                    {[
+                        pipeline.people_scored != null
+                            ? `${humanFriendlyNumber(pipeline.people_scored)} people scored`
+                            : 'Not scored yet',
+                        pipeline.last_scored_at ? dayjs(pipeline.last_scored_at).fromNow() : null,
+                    ]
+                        .filter(Boolean)
+                        .join(' · ')}
                 </span>
-                <span>
-                    {pluralize(pipeline.training_run_count, 'run')} ·{' '}
-                    {pluralize(pipeline.experiment_count, 'experiment')}
-                </span>
+                <span>{`${pluralize(pipeline.training_run_count, 'run')} · ${pluralize(pipeline.experiment_count, 'experiment')}`}</span>
             </div>
         </LemonCard>
     )

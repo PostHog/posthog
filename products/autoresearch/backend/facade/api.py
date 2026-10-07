@@ -473,9 +473,7 @@ def list_pipelines(team_id: int, *, offset: int, limit: int) -> tuple[list[Pipel
         )
     )
     champions: dict[UUID, AutoresearchModel] = {
-        row.id: row.prefetched_champions[0]
-        for row in rows
-        if row.prefetched_champions
+        row.id: row.prefetched_champions[0] for row in rows if row.prefetched_champions
     }
     activity = _pipeline_activity(team_id, [row.id for row in rows], champions)
     pipelines = [_pipeline_to_contract(row, champion=champions.get(row.id), activity=activity[row.id]) for row in rows]
