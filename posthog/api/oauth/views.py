@@ -37,7 +37,7 @@ from oauthlib.common import Request as OauthlibRequest
 from oauthlib.oauth2 import InvalidClientIdError, InvalidGrantError
 from redis.exceptions import RedisError
 from rest_framework import serializers, status
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import AuthenticationFailed, NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -68,7 +68,7 @@ from posthog.api.oauth.metadata import (
     openid_provider_metadata,
     protected_resource_metadata,
 )
-from posthog.auth import SessionAuthentication
+from posthog.auth import IDJagAccessTokenAuthentication, SessionAuthentication, VerifiedIdJagAccessToken
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.helpers.oauth_pending_connection import (
     PendingOAuthConnection,
@@ -2408,6 +2408,15 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         """
         if self._is_self_introspection(request):
             bearer_token = request.headers.get("Authorization", "")[7:]
+            if IDJagAccessTokenAuthentication.is_id_jag_token(bearer_token):
+                request.id_jag_self_introspection = True
+                try:
+                    request.verified_id_jag_access_token = IDJagAccessTokenAuthentication.verify_access_token(
+                        bearer_token
+                    )
+                except AuthenticationFailed:
+                    request.verified_id_jag_access_token = None
+                return True, request
             token_checksum = hashlib.sha256(bearer_token.encode("utf-8")).hexdigest()
             try:
                 request.oauth_caller_access_token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
@@ -2452,6 +2461,28 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         client = getattr(request, "oauth_authenticated_client", None)
         return client.client_id if client is not None else None
 
+    @staticmethod
+    def _id_jag_token_response(verified: VerifiedIdJagAccessToken | None) -> JsonResponse:
+        """An ID-JAG access token is a signed JWT with no database row, so it is described from
+        its verified claims. It reaches only the organization it was minted for."""
+        if verified is None:
+            return JsonResponse({"active": False}, status=200)
+        client_id = str(verified.claims["client_id"])
+        data = {
+            "active": True,
+            "token_type": "access_token",
+            "scope": verified.claims.get("scope") or "",
+            "is_impersonated": False,
+            "scoped_teams": [],
+            "scoped_organizations": [verified.organization_id],
+            "exp": int(verified.claims["exp"]),
+            "client_id": client_id,
+        }
+        client_name = OAuthApplication.objects.filter(client_id=client_id).values_list("name", flat=True).first()
+        if client_name:
+            data["client_name"] = client_name
+        return JsonResponse(data)
+
     def get_token_response(self, request, token_value=None):
         """
         RFC 7662 Token Introspection response.
@@ -2466,6 +2497,9 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         """
         if not token_value:
             return JsonResponse({"active": False}, status=200)
+
+        if getattr(request, "id_jag_self_introspection", False):
+            return self._id_jag_token_response(getattr(request, "verified_id_jag_access_token", None))
 
         credential_client_id = self._client_credentials_client_id(request)
 

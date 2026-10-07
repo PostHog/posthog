@@ -1318,6 +1318,14 @@ class TestAuthenticatorClient(SimpleTestCase):
             get_authenticator_client(authenticator), {"credential_type": "oauth", "client_id": "app_client_id"}
         )
 
+    def test_an_id_jag_caller_is_the_client_its_token_was_issued_to(self):
+        authenticator = IDJagAccessTokenAuthentication()
+        authenticator.id_jag_claims = {"client_id": "agent_client_id"}
+
+        self.assertEqual(
+            get_authenticator_client(authenticator), {"credential_type": "id_jag", "client_id": "agent_client_id"}
+        )
+
 
 class TestPostHogFeatureFlagPermission(BaseTest):
     def setUp(self):

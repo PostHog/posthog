@@ -31,6 +31,7 @@ from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication, tag_queries
 from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
@@ -602,6 +603,13 @@ class JwtAuthentication(ActivityCredentialMixin, authentication.BaseAuthenticati
         return cls.keyword
 
 
+@frozen
+class VerifiedIdJagAccessToken:
+    user: User
+    organization_id: str
+    claims: dict[str, Any]
+
+
 class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Authenticates inbound API requests using an access token minted by the
@@ -637,7 +645,7 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
         return token
 
     @classmethod
-    def _is_id_jag_token(cls, token: str) -> bool:
+    def is_id_jag_token(cls, token: str) -> bool:
         # Personal/OAuth API key prefixes are reserved for those auth backends.
         if token.startswith((PERSONAL_API_KEY_PREFIX, OAUTH_ACCESS_TOKEN_PREFIX, SECRET_API_TOKEN_PREFIX)):
             return False
@@ -650,110 +658,116 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
             return False
         return header.get("typ") == cls._ID_JAG_ACCESS_TOKEN_TYPE
 
+    @classmethod
+    def verify_access_token(cls, token: str) -> VerifiedIdJagAccessToken:
+        """Verify the signature and claims and resolve the active member, or raise AuthenticationFailed.
+
+        No request side effects, so token introspection can share it."""
+        verification_keys = get_oidc_verification_keys()
+        if not verification_keys:
+            raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
+
+        site_url = (settings.SITE_URL or "").rstrip("/")
+        if not site_url:
+            raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
+
+        # The token's `aud` is the resource it was minted for (id_jag._construct_access_token_payload).
+        # Accept SITE_URL plus any advertised resource identifier; `iss` stays SITE_URL (we mint it).
+        # Function-level import keeps the heavier id_jag module off auth.py's foundational import path.
+        from posthog.api.id_jag import get_allowed_resources  # noqa: PLC0415
+
+        allowed_resources = get_allowed_resources()
+
+        # Try the active signing key first, then any keys being rotated out. A wrong
+        # key fails the signature check, so we move on; a key that matches but fails
+        # claim validation (expiry, audience, …) raises the real error to report.
+        claims = None
+        for verification_key in verification_keys:
+            try:
+                claims = jwt.decode(
+                    token,
+                    verification_key,
+                    algorithms=["RS256"],
+                    audience=allowed_resources,
+                    issuer=site_url,
+                    leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
+                    options={
+                        "require": ["iss", "sub", "user_uuid", "aud", "exp", "iat", "client_id", "scope", "org_id"],
+                        "verify_signature": True,
+                        "verify_exp": True,
+                        "verify_aud": True,
+                        "verify_iss": True,
+                    },
+                )
+                break
+            except jwt.InvalidSignatureError:
+                continue
+            except jwt.ExpiredSignatureError:
+                raise AuthenticationFailed(detail="ID-JAG access token has expired.")
+            except jwt.InvalidAudienceError:
+                raise AuthenticationFailed(detail="ID-JAG access token audience does not match this resource server.")
+            except jwt.InvalidIssuerError:
+                raise AuthenticationFailed(detail="ID-JAG access token has an unexpected issuer.")
+            except jwt.MissingRequiredClaimError as e:
+                raise AuthenticationFailed(detail=f"ID-JAG access token is missing required claim: {e.claim}.")
+            except jwt.PyJWTError:
+                raise AuthenticationFailed(detail="ID-JAG access token is invalid.")
+
+        if claims is None:
+            raise AuthenticationFailed(detail="ID-JAG access token is invalid.")
+
+        organization_id = str(claims.get("org_id") or "")
+        if not organization_id:
+            raise AuthenticationFailed(detail="ID-JAG access token is missing the org_id claim.")
+
+        # Membership is re-checked on every request, because the user may have left the
+        # organization after the token was issued.
+        membership = (
+            OrganizationMembership.objects.filter(
+                organization_id=organization_id,
+                user__is_active=True,
+                user__uuid=str(claims["user_uuid"]),
+            )
+            .select_related("user", "organization")
+            .first()
+        )
+        if not membership:
+            raise AuthenticationFailed(
+                detail="No active PostHog user matches the ID-JAG access token subject for this organization."
+            )
+
+        user = membership.user
+        organization = membership.organization
+
+        if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
+            raise AuthenticationFailed(detail="ID-JAG (XAA) is not enabled for this organization.")
+
+        return VerifiedIdJagAccessToken(user=user, organization_id=organization_id, claims=claims)
+
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         with tracer.start_as_current_span("posthog.auth.id_jag"):
             token = self._extract_token(request)
             if not token:
                 return None
-            if not self._is_id_jag_token(token):
+            if not self.is_id_jag_token(token):
                 return None
 
-            verification_keys = get_oidc_verification_keys()
-            if not verification_keys:
-                raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
-
-            site_url = (settings.SITE_URL or "").rstrip("/")
-            if not site_url:
-                raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
-
-            # The token's `aud` is the resource it was minted for (id_jag._construct_access_token_payload).
-            # Accept SITE_URL plus any advertised resource identifier; `iss` stays SITE_URL (we mint it).
-            # Function-level import keeps the heavier id_jag module off auth.py's foundational import path.
-            from posthog.api.id_jag import get_allowed_resources  # noqa: PLC0415
-
-            allowed_resources = get_allowed_resources()
-
-            # Try the active signing key first, then any keys being rotated out. A wrong
-            # key fails the signature check, so we move on; a key that matches but fails
-            # claim validation (expiry, audience, …) raises the real error to report.
-            claims = None
-            for verification_key in verification_keys:
-                try:
-                    claims = jwt.decode(
-                        token,
-                        verification_key,
-                        algorithms=["RS256"],
-                        audience=allowed_resources,
-                        issuer=site_url,
-                        leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
-                        options={
-                            "require": ["iss", "sub", "user_uuid", "aud", "exp", "iat", "client_id", "scope", "org_id"],
-                            "verify_signature": True,
-                            "verify_exp": True,
-                            "verify_aud": True,
-                            "verify_iss": True,
-                        },
-                    )
-                    break
-                except jwt.InvalidSignatureError:
-                    continue
-                except jwt.ExpiredSignatureError:
-                    raise AuthenticationFailed(detail="ID-JAG access token has expired.")
-                except jwt.InvalidAudienceError:
-                    raise AuthenticationFailed(
-                        detail="ID-JAG access token audience does not match this resource server."
-                    )
-                except jwt.InvalidIssuerError:
-                    raise AuthenticationFailed(detail="ID-JAG access token has an unexpected issuer.")
-                except jwt.MissingRequiredClaimError as e:
-                    raise AuthenticationFailed(detail=f"ID-JAG access token is missing required claim: {e.claim}.")
-                except jwt.PyJWTError:
-                    raise AuthenticationFailed(detail="ID-JAG access token is invalid.")
-
-            if claims is None:
-                raise AuthenticationFailed(detail="ID-JAG access token is invalid.")
-
-            organization_id = str(claims.get("org_id") or "")
-            if not organization_id:
-                raise AuthenticationFailed(detail="ID-JAG access token is missing the org_id claim.")
-
-            # Membership is re-checked on every request, because the user may have left the
-            # organization after the token was issued.
-            membership = (
-                OrganizationMembership.objects.filter(
-                    organization_id=organization_id,
-                    user__is_active=True,
-                    user__uuid=str(claims["user_uuid"]),
-                )
-                .select_related("user", "organization")
-                .first()
-            )
-            if not membership:
-                raise AuthenticationFailed(
-                    detail="No active PostHog user matches the ID-JAG access token subject for this organization."
-                )
-
-            user = membership.user
-            organization = membership.organization
-
-            if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
-                raise AuthenticationFailed(detail="ID-JAG (XAA) is not enabled for this organization.")
-
-            refuse_blocked_account(request, user, call_site="id_jag_token", impersonated=False)
-            self.id_jag_claims = claims
-            self.scopes = str(claims.get("scope") or "").split()
-            self.organization_id = organization_id
+            verified = self.verify_access_token(token)
+            refuse_blocked_account(request, verified.user, call_site="id_jag_token", impersonated=False)
+            self.id_jag_claims = verified.claims
+            self.scopes = str(verified.claims.get("scope") or "").split()
+            self.organization_id = verified.organization_id
 
             tag_authentication(
-                user_id=user.pk,
-                team_id=user.current_team_id,
+                user_id=verified.user.pk,
+                team_id=verified.user.current_team_id,
                 access_method=AccessMethod.ID_JAG,
             )
 
-            self.record_activity_actor(user, str(claims["client_id"]))
+            self.record_activity_actor(verified.user, str(verified.claims["client_id"]))
             record_agent_intent(request)
 
-            return user, None
+            return verified.user, None
 
     def authenticate_header(self, request) -> str:
         return self.keyword

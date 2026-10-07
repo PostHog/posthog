@@ -751,7 +751,8 @@ def get_authenticator_client(authenticator) -> dict[str, str]:
     if isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
         return {"credential_type": "project_secret_key", "client_id": "project_secret_key"}
     if isinstance(authenticator, IDJagAccessTokenAuthentication):
-        return {"credential_type": "id_jag", "client_id": getattr(authenticator, "client_id", None) or "id_jag"}
+        claims = getattr(authenticator, "id_jag_claims", None) or {}
+        return {"credential_type": "id_jag", "client_id": str(claims.get("client_id") or "") or "id_jag"}
     if authenticator is None or isinstance(authenticator, SessionAuthentication):
         return {"credential_type": "session", "client_id": CLIENT_ID_POSTHOG}
     return {"credential_type": "other", "client_id": "other"}

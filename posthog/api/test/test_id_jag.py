@@ -1169,6 +1169,25 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         resp = self._call_authenticated(token)
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    @parameterized.expand([("valid", 300, True), ("expired", -60, False)])
+    def test_token_can_introspect_itself(self, _name: str, exp_seconds: int, expected_active: bool) -> None:
+        token = self._mint_access_token(scope="feature_flag:read", exp_seconds=exp_seconds)
+
+        resp = self.client.post(
+            "/oauth/introspect",
+            data={"token": token},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        body = resp.json()
+        self.assertEqual(body["active"], expected_active)
+        if expected_active:
+            self.assertEqual(body["scope"], "feature_flag:read")
+            self.assertEqual(body["scoped_organizations"], [str(self.organization.id)])
+            self.assertEqual(body["client_id"], _RESOURCE_CLIENT_ID)
+
     def test_unknown_user_uuid_rejected(self) -> None:
         token = self._mint_access_token(user_uuid=str(uuid.uuid4()), scope="user:read")
         resp = self._call_authenticated(token)
