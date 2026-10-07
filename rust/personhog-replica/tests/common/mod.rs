@@ -1,8 +1,27 @@
+use common_database::{get_pool_with_config, PoolConfig};
 use personhog_replica::storage::{postgres::PostgresStorage, FullStorage};
 use rand::Rng;
 use sqlx::postgres::PgPool;
 use std::sync::Arc;
 use uuid::Uuid;
+
+fn database_url() -> String {
+    std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://posthog:posthog@localhost:5432/posthog_persons".to_string())
+}
+
+fn storage_over(pool: PgPool) -> Arc<dyn FullStorage> {
+    // In tests, use the same pool for everything
+    Arc::new(PostgresStorage::new(
+        pool.clone(),
+        pool.clone(),
+        pool.clone(),
+        pool,
+        50, // bulk_chunk_size — small so parallel path is exercised with fewer test rows
+        5,  // bulk_max_concurrent_chunks
+        12, // tombstoned_delete_max_rows, small enough that the clamp is observable
+    ))
+}
 
 fn random_team_id() -> i64 {
     rand::thread_rng().gen_range(1_000_000..100_000_000)
@@ -21,23 +40,10 @@ pub struct TestContext {
 
 impl TestContext {
     pub async fn new() -> Self {
-        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgres://posthog:posthog@localhost:5432/posthog_persons".to_string()
-        });
-
-        let pool = PgPool::connect(&database_url)
+        let pool = PgPool::connect(&database_url())
             .await
             .expect("Failed to connect to test database");
-        // In tests, use the same pool for everything
-        let storage = Arc::new(PostgresStorage::new(
-            pool.clone(),
-            pool.clone(),
-            pool.clone(),
-            pool.clone(),
-            50, // bulk_chunk_size — small so parallel path is exercised with fewer test rows
-            5,  // bulk_max_concurrent_chunks
-            12, // tombstoned_delete_max_rows, small enough that the clamp is observable
-        ));
+        let storage = storage_over(pool.clone());
         let team_id = random_team_id();
 
         Self {
@@ -45,6 +51,18 @@ impl TestContext {
             storage,
             team_id,
         }
+    }
+
+    pub fn storage_with_statement_timeout(statement_timeout_ms: u64) -> Arc<dyn FullStorage> {
+        let pool = get_pool_with_config(
+            &database_url(),
+            PoolConfig {
+                statement_timeout_ms: Some(statement_timeout_ms),
+                ..PoolConfig::default()
+            },
+        )
+        .expect("Failed to create test database pool");
+        storage_over(pool)
     }
 
     pub async fn insert_person(

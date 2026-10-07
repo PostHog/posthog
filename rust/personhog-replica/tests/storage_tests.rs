@@ -1598,6 +1598,48 @@ async fn test_upsert_hash_key_overrides_replaces_only_a_stored_cookieless_sentin
     ctx.cleanup().await.ok();
 }
 
+#[tokio::test]
+async fn test_upsert_hash_key_overrides_statement_timeout_covers_person_row_lock() {
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("upsert_locked_user", None).await.unwrap();
+    let storage = TestContext::storage_with_statement_timeout(200);
+
+    // FOR UPDATE conflicts with the KEY SHARE lock that the foreign key check takes on the
+    // person row.
+    let mut holder = ctx.pool.begin().await.unwrap();
+    let locked =
+        sqlx::query("SELECT id FROM posthog_person WHERE team_id = $1 AND id = $2 FOR UPDATE")
+            .bind(ctx.team_id)
+            .bind(person.id)
+            .execute(&mut *holder)
+            .await
+            .unwrap();
+    assert_eq!(locked.rows_affected(), 1);
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        storage.upsert_hash_key_overrides(
+            ctx.team_id,
+            &["upsert_locked_user".to_string()],
+            &["locked-flag".to_string()],
+            "locked_hash",
+        ),
+    )
+    .await
+    .expect("the upsert waited for the person row lock instead of timing out");
+    holder.rollback().await.unwrap();
+
+    assert!(
+        matches!(
+            &result,
+            Err(personhog_replica::storage::StorageError::Query(msg)) if msg.contains("statement timeout")
+        ),
+        "expected a statement timeout, got {result:?}"
+    );
+
+    ctx.cleanup().await.ok();
+}
+
 // ============================================================
 // Delete hash key overrides by teams tests
 // ============================================================
