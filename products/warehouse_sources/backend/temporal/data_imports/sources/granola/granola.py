@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.granola.se
 GRANOLA_BASE_URL = "https://public-api.granola.ai"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class GranolaResumeConfig:
     # Full, self-contained next-page URL (base + filters + cursor) so a resume can GET it directly.
     next_url: str | None = None
@@ -72,7 +72,8 @@ class GranolaTranscriptPaginator(JSONResponseCursorPaginator):
     """Body-cursor pagination for a single note's transcript, with the same ``hasMore`` gate."""
 
     def __init__(self) -> None:
-        super().__init__(cursor_path="cursor", cursor_param="cursor")
+        # A cursor that does not advance would re-request the same page until the activity times out.
+        super().__init__(cursor_path="cursor", cursor_param="cursor", raise_on_repeated_cursor=True)
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         super().update_state(response, data)

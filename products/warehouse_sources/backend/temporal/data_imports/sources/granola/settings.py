@@ -11,7 +11,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 PAGE_SIZE = 30
 
 
-@dataclass
+@dataclass(frozen=True)
 class GranolaEndpointConfig:
     name: str
     path: str

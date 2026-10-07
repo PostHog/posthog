@@ -367,6 +367,26 @@ class TestTranscriptsFanout:
         assert seen[1]["url"] == f"{GRANOLA_BASE_URL}/v1/notes/not_2/transcript"
         assert seen[1]["params"]["cursor"] == "t5"
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_repeated_transcript_cursor_fails_instead_of_looping(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"notes": [{"id": "not_1"}], "hasMore": False, "cursor": None}),
+                _response({"transcript": [{"text": "a"}], "hasMore": True, "cursor": "t1"}),
+                _response({"transcript": [{"text": "a"}], "hasMore": True, "cursor": "t1"}),
+            ],
+        )
+
+        with pytest.raises(ValueError, match="not advancing"):
+            _rows(
+                granola_source(
+                    "grn_test", "transcripts", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+                )
+            )
+        assert session.send.call_count == 3
+
 
 class TestGranolaSource:
     @mock.patch(CLIENT_SESSION_PATCH)

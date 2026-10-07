@@ -629,8 +629,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gorgias/gorgias.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gorgias/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/grafana/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/granola/granola.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/granola/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/greenhouse/greenhouse.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gridly/gridly.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gridly/settings.py
