@@ -100,6 +100,18 @@ class TestBingWebmasterToolsSource:
 
         assert not error_message_matches(message, self.source.get_non_retryable_errors())
 
+    @pytest.mark.parametrize(
+        "error_message",
+        [
+            "HTTPSConnectionPool(host='ssl.bing.com', port=443): Read timed out. (read timeout=60)",
+            "HTTPSConnectionPool(host='ssl.bing.com', port=443): Max retries exceeded with url: "
+            "/webmaster/api.svc/json/GetUserSites?apikey=REDACTED",
+        ],
+    )
+    def test_transport_errors_are_retryable(self, error_message):
+        assert error_message_matches(error_message, self.source.get_retryable_errors())
+        assert not error_message_matches(error_message, self.source.get_non_retryable_errors())
+
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_for_pipeline_plumbs_schema_name(self, endpoint):
         response = self.source.source_for_pipeline(self.config, _make_inputs(endpoint))

@@ -58,6 +58,15 @@ class BingWebmasterToolsSource(SimpleSource[BingWebmasterToolsSourceConfig]):
             "not verified sites on the connected account": None,
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # A read timeout or a dropped connection to ssl.bing.com reaches the activity once the
+        # tracked session's own GET retry is used up. Temporal retries the activity, so the
+        # failure recovers by itself and must not reach error tracking.
+        return {
+            "Read timed out",
+            "Max retries exceeded with url",
+        }
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.canonical_descriptions import (  # noqa: PLC0415 (keeps the descriptions dict off the registry import path; only the enrichment activity reads it)
             CANONICAL_DESCRIPTIONS,
