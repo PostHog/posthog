@@ -12,9 +12,11 @@ import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/typ
 import { metricsQueryCreate, metricsSamplesCreate, metricsNamesRetrieve } from 'products/metrics/frontend/generated/api'
 import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
 
+import { metricsDashboardImportLogic } from '../dashboardImport/metricsDashboardImportLogic'
 import { metricsSceneLogic } from '../metricsSceneLogic'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
+import { metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 import { metricsViewerLogic } from './metricsViewerLogic'
 
@@ -125,6 +127,25 @@ describe('metricsUsageTrackingLogic', () => {
                     {} as any
                 ),
             { aggregation: 'p95', clause_count: 1, has_formula: false },
+        ],
+        [
+            'metrics dashboard import opened',
+            () => metricsDashboardImportLogic.actions.openImportModal('screenshot'),
+            { source: 'screenshot', step: 'input' },
+        ],
+        [
+            'metrics dashboard import start failed',
+            () => metricsDashboardImportLogic.actions.startImportFailure('Paste the Grafana dashboard JSON.', 400),
+            { source: 'grafana', status_code: 400 },
+        ],
+        [
+            'metrics starter dashboard created',
+            () =>
+                metricsStarterDashboardLogic.actions.createDashboardSuccess(
+                    { id: 42, name: 'Billing' } as any,
+                    'Dashboard "Billing" created, but only 1 of 2 insights could be added'
+                ),
+            { partial: true },
         ],
     ])('%s fires with enum/count properties only', (event, dispatch, expectedProperties) => {
         dispatch()

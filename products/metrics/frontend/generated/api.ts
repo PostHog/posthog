@@ -11,11 +11,15 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AppMetricsResponseApi,
     AppMetricsTotalsResponseApi,
+    DashboardImportApi,
+    DashboardImportCreateApi,
     MetricsAttributeValuesRetrieveParams,
     MetricsAttributesRetrieveParams,
     MetricsErrorSpikesRetrieveParams,
     MetricsNamesRetrieveParams,
     MetricsValuesRetrieveParams,
+    PanelQueryCheckRequestApi,
+    PanelQueryCheckResponseApi,
     _HasMetricsResponseApi,
     _MetricAnomalyReportApi,
     _MetricAnomalyRequestApi,
@@ -157,6 +161,65 @@ export const metricsCharacterizeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_metricAnomalyRequestApi),
+    })
+}
+
+export const getMetricsDashboardImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_imports/`
+}
+
+/**
+ * Import a Grafana dashboard JSON model or a dashboard screenshot as a new dashboard. Panels that match the project's metrics import at once. An AI agent converts the rest, and the response then has an id to poll.
+ */
+export const metricsDashboardImportsCreate = async (
+    projectId: string,
+    dashboardImportCreateApi: DashboardImportCreateApi,
+    options?: RequestInit
+): Promise<DashboardImportApi> => {
+    return apiMutator<DashboardImportApi>(getMetricsDashboardImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dashboardImportCreateApi),
+    })
+}
+
+export const getMetricsDashboardImportsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_imports/${id}/`
+}
+
+/**
+ * Status of one of the user's dashboard imports. Poll it until the status is not 'running'.
+ */
+export const metricsDashboardImportsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DashboardImportApi> => {
+    return apiMutator<DashboardImportApi>(getMetricsDashboardImportsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsDashboardImportsValidateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_imports/validate/`
+}
+
+/**
+ * Check dashboard panel queries before they go on a dashboard: the metrics must exist, PromQL must
+ * run, and SQL must compile and read only logs or traces.
+ */
+export const metricsDashboardImportsValidateCreate = async (
+    projectId: string,
+    panelQueryCheckRequestApi: PanelQueryCheckRequestApi,
+    options?: RequestInit
+): Promise<PanelQueryCheckResponseApi> => {
+    return apiMutator<PanelQueryCheckResponseApi>(getMetricsDashboardImportsValidateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(panelQueryCheckRequestApi),
     })
 }
 

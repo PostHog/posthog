@@ -404,6 +404,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         # Business knowledge sandbox questions. Reserved: only the sandbox endpoint creates
         # these, and they stay internal so the normal task APIs never list them.
         BUSINESS_KNOWLEDGE = "business_knowledge", "Business Knowledge"
+        # Metrics dashboard imports from a Grafana export or a screenshot. Reserved: only the
+        # metrics import endpoint creates these, and they stay internal so the task APIs never list them.
+        METRICS_IMPORT = "metrics_import", "Metrics Import"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -1187,14 +1190,15 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        # A repo-less signals or autoresearch task must carry no GitHub credential at all — team
-        # or personal. Provisioning injects whatever integration is attached, and these runs read
+        # A repo-less signals, autoresearch or metrics import task must carry no GitHub credential at
+        # all, team or personal. Provisioning injects whatever integration is attached, and these runs read
         # text any member can write, so an attached token turns planted text into repository access.
         github_resolution_allowed = bool(repository) or origin_product not in (
             Task.OriginProduct.SIGNALS_CHAT,
             Task.OriginProduct.SIGNAL_REPORT,
             Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
             Task.OriginProduct.AUTORESEARCH,
+            Task.OriginProduct.METRICS_IMPORT,
         )
         github_integration = None
         if github_resolution_allowed:

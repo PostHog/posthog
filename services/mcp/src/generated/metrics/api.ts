@@ -3,10 +3,109 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 3 enabled ops
+ * PostHog API - MCP 6 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * Observed values for one metric attribute key, most frequent first.
+ * Backs the filter bar's value autocomplete.
+ */
+export const MetricsAttributeValuesRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const metricsAttributeValuesRetrieveQueryKeyMax = 255
+
+export const metricsAttributeValuesRetrieveQueryLimitDefault = 100
+export const metricsAttributeValuesRetrieveQueryLimitMax = 1000
+
+export const metricsAttributeValuesRetrieveQueryValueDefault = ``
+export const metricsAttributeValuesRetrieveQueryValueMax = 1024
+
+export const MetricsAttributeValuesRetrieveQueryParams = () => zod.object({
+    dateFrom: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            'Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 24 hours ago.'
+        ),
+    dateTo: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('Upper bound (exclusive) of the window. ISO 8601. Defaults to now.'),
+    key: zod
+        .string()
+        .min(1)
+        .max(metricsAttributeValuesRetrieveQueryKeyMax)
+        .describe("Attribute key to list values for (e.g. 'env'). 'service_name'\/'service.name' list service names."),
+    limit: zod
+        .number()
+        .min(1)
+        .max(metricsAttributeValuesRetrieveQueryLimitMax)
+        .default(metricsAttributeValuesRetrieveQueryLimitDefault)
+        .describe('Max number of values to return. Defaults to 100; maximum 1000.'),
+    value: zod
+        .string()
+        .max(metricsAttributeValuesRetrieveQueryValueMax)
+        .default(metricsAttributeValuesRetrieveQueryValueDefault)
+        .describe(
+            "Substring filter (case-insensitive) applied to values. Named 'value' to match the property-values autocomplete convention."
+        ),
+})
+
+/**
+ * Attribute keys ordered by distinct series count, from highest to
+ * lowest. `metricName` limits choices to one metric.
+ */
+export const MetricsAttributesRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const metricsAttributesRetrieveQueryLimitDefault = 100
+export const metricsAttributesRetrieveQueryLimitMax = 1000
+
+export const metricsAttributesRetrieveQueryMetricNameDefault = ``
+export const metricsAttributesRetrieveQueryMetricNameMax = 255
+
+export const metricsAttributesRetrieveQuerySearchDefault = ``
+export const metricsAttributesRetrieveQuerySearchMax = 255
+
+export const MetricsAttributesRetrieveQueryParams = () => zod.object({
+    dateFrom: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 24 hours ago.'),
+    dateTo: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('Upper bound (exclusive) of the window. ISO 8601. Defaults to now.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(metricsAttributesRetrieveQueryLimitMax)
+        .default(metricsAttributesRetrieveQueryLimitDefault)
+        .describe('Max number of keys to return. Defaults to 100; maximum 1000.'),
+    metricName: zod
+        .string()
+        .max(metricsAttributesRetrieveQueryMetricNameMax)
+        .default(metricsAttributesRetrieveQueryMetricNameDefault)
+        .describe('Exact metric name to limit attribute keys to. Omit to list keys across all metrics.'),
+    search: zod
+        .string()
+        .max(metricsAttributesRetrieveQuerySearchMax)
+        .default(metricsAttributesRetrieveQuerySearchDefault)
+        .describe('Substring filter (case-insensitive) applied to attribute keys.'),
+})
 
 /**
  * Characterize a metric anomaly: compare an anomaly window against a
@@ -119,6 +218,166 @@ export const MetricsCharacterizeCreateBody = () => zod.object({
                 ),
         })
         .describe('The anomaly characterization to run.'),
+})
+
+/**
+ * Check dashboard panel queries before they go on a dashboard: the metrics must exist, PromQL must
+ * run, and SQL must compile and read only logs or traces.
+ */
+export const MetricsDashboardImportsValidateCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const metricsDashboardImportsValidateCreateBodyPanelsItemKeyMax = 64
+
+export const metricsDashboardImportsValidateCreateBodyPanelsItemBuilderOneClausesItemNameMax = 64
+
+export const metricsDashboardImportsValidateCreateBodyPanelsItemBuilderOneClausesItemMetricNameMax = 255
+
+export const metricsDashboardImportsValidateCreateBodyPanelsItemBuilderOneClausesItemQuantileMin = 0
+export const metricsDashboardImportsValidateCreateBodyPanelsItemBuilderOneClausesItemQuantileMax = 1
+
+export const metricsDashboardImportsValidateCreateBodyPanelsItemBuilderOneClausesItemFiltersItemKeyMax = 255
+
+export const metricsDashboardImportsValidateCreateBodyPanelsItemBuilderOneClausesItemFiltersItemValueMax = 1024
+
+export const metricsDashboardImportsValidateCreateBodyPanelsItemBuilderOneClausesItemGroupByItemMax = 255
+
+export const metricsDashboardImportsValidateCreateBodyPanelsMax = 20
+
+export const MetricsDashboardImportsValidateCreateBody = () => zod.object({
+    panels: zod
+        .array(
+            zod.object({
+                key: zod
+                    .string()
+                    .max(metricsDashboardImportsValidateCreateBodyPanelsItemKeyMax)
+                    .describe('Panel key. The result for the panel carries the same key.'),
+                language: zod
+                    .enum(['promql', 'builder', 'histogram', 'hogql'])
+                    .describe(
+                        '\* `promql` - Promql\n\* `builder` - Builder\n\* `histogram` - Histogram\n\* `hogql` - Hogql'
+                    )
+                    .describe(
+                        "'promql' or 'builder' for metrics, 'histogram' for a latency heatmap, 'hogql' for logs and traces.\n\n\* `promql` - Promql\n\* `builder` - Builder\n\* `histogram` - Histogram\n\* `hogql` - Hogql"
+                    ),
+                promql: zod.string().nullish().describe("PromQL expression. Used when language is 'promql'."),
+                builder: zod
+                    .union([
+                        zod.object({
+                            clauses: zod
+                                .array(
+                                    zod.object({
+                                        name: zod
+                                            .string()
+                                            .max(
+                                                metricsDashboardImportsValidateCreateBodyPanelsItemBuilderOneClausesItemNameMax
+                                            )
+                                            .describe("Alias that a formula uses, for example 'a'."),
+                                        metric_name: zod
+                                            .string()
+                                            .max(
+                                                metricsDashboardImportsValidateCreateBodyPanelsItemBuilderOneClausesItemMetricNameMax
+                                            )
+                                            .describe('Exact metric name.'),
+                                        aggregation: zod
+                                            .enum([
+                                                'sum',
+                                                'avg',
+                                                'count',
+                                                'min',
+                                                'max',
+                                                'p95',
+                                                'rate',
+                                                'increase',
+                                                'histogram_quantile',
+                                            ])
+                                            .describe(
+                                                '\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
+                                            )
+                                            .describe(
+                                                'Aggregation for each bucket, with the same meaning as in the metrics query API.\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
+                                            ),
+                                        quantile: zod
+                                            .number()
+                                            .min(
+                                                metricsDashboardImportsValidateCreateBodyPanelsItemBuilderOneClausesItemQuantileMin
+                                            )
+                                            .max(
+                                                metricsDashboardImportsValidateCreateBodyPanelsItemBuilderOneClausesItemQuantileMax
+                                            )
+                                            .nullish()
+                                            .describe(
+                                                "Quantile between 0 and 1. Required for 'histogram_quantile'. The other aggregations ignore it."
+                                            ),
+                                        filters: zod
+                                            .array(
+                                                zod.object({
+                                                    key: zod
+                                                        .string()
+                                                        .max(
+                                                            metricsDashboardImportsValidateCreateBodyPanelsItemBuilderOneClausesItemFiltersItemKeyMax
+                                                        )
+                                                        .describe("Attribute name, for example 'service.name'."),
+                                                    op: zod
+                                                        .enum(['eq', 'neq', 'regex', 'not_regex'])
+                                                        .describe(
+                                                            '\* `eq` - eq\n\* `neq` - neq\n\* `regex` - regex\n\* `not_regex` - not_regex'
+                                                        )
+                                                        .describe(
+                                                            'Comparison. Regex operators use RE2.\n\n\* `eq` - eq\n\* `neq` - neq\n\* `regex` - regex\n\* `not_regex` - not_regex'
+                                                        ),
+                                                    value: zod
+                                                        .string()
+                                                        .max(
+                                                            metricsDashboardImportsValidateCreateBodyPanelsItemBuilderOneClausesItemFiltersItemValueMax
+                                                        )
+                                                        .describe('Value or regex to compare against.'),
+                                                })
+                                            )
+                                            .optional()
+                                            .describe('Attribute filters, joined with AND.'),
+                                        group_by: zod
+                                            .array(
+                                                zod
+                                                    .string()
+                                                    .max(
+                                                        metricsDashboardImportsValidateCreateBodyPanelsItemBuilderOneClausesItemGroupByItemMax
+                                                    )
+                                            )
+                                            .optional()
+                                            .describe('Attribute names that split the result into series.'),
+                                    })
+                                )
+                                .describe('One clause for each series.'),
+                            formula: zod
+                                .string()
+                                .nullish()
+                                .describe("Arithmetic over clause aliases, for example 'a \/ b'."),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe("Builder query. Used when language is 'builder'."),
+                histogram_metric: zod
+                    .string()
+                    .nullish()
+                    .describe("Histogram metric name. Used when language is 'histogram'."),
+                hogql: zod
+                    .string()
+                    .nullish()
+                    .describe(
+                        "SQL SELECT over logs or posthog.trace_spans with {filters} in the WHERE clause. Used when language is 'hogql'."
+                    ),
+            })
+        )
+        .min(1)
+        .max(metricsDashboardImportsValidateCreateBodyPanelsMax)
+        .describe('Up to 20 panel queries to check.'),
 })
 
 export const MetricsQueryCreateParams = () => zod.object({

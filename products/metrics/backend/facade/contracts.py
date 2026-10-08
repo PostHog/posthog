@@ -21,8 +21,18 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
+from typing import Any
 
-from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
+from .enums import (
+    AttributeScope,
+    DashboardImportSource,
+    DashboardImportState,
+    FilterOp,
+    MetricAggregation,
+    MetricType,
+    PanelImportOutcome,
+    PanelQueryLanguage,
+)
 
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
@@ -36,6 +46,9 @@ METRICS_FEATURE_FLAG = "metrics"
 # Extra gate for the error-spike overlay PoC, layered on top of METRICS_FEATURE_FLAG.
 # Staff-only while it is a proof of concept.
 METRICS_ERROR_OVERLAYS_FEATURE_FLAG = "metrics-error-overlays"
+
+# Gates the Grafana and screenshot dashboard import, on top of METRICS_FEATURE_FLAG.
+METRICS_DASHBOARD_IMPORT_FEATURE_FLAG = "metrics-dashboard-import"
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,3 +377,75 @@ class MetricsOverview:
     series: int
     lookback_seconds: int
     services: tuple[MetricsServiceOverview, ...]
+
+
+class DashboardImportError(ValueError):
+    """A dashboard import cannot start or continue. The message is safe to show to the user."""
+
+
+class DashboardImportInProgress(DashboardImportError):
+    """The user already has a dashboard import that has not finished."""
+
+
+class DashboardImportNotAllowed(DashboardImportError):
+    """The organization does not allow the import: AI data processing is off, or the AI credits ran out."""
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportRequest:
+    source: DashboardImportSource
+    name: str | None = None
+    grafana_json: str | None = None
+    image: bytes | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportPanel:
+    key: str
+    title: str
+    outcome: PanelImportOutcome
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportSummary:
+    total: int
+    imported: int
+    approximated: int
+    failed: int
+    skipped: int
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportStatus:
+    """Where an import is. `id` is None for an import that needed no agent and finished in the request."""
+
+    id: str | None
+    source: DashboardImportSource
+    status: DashboardImportState
+    dashboard_name: str
+    progress: str | None = None
+    dashboard_id: int | None = None
+    error: str | None = None
+    summary: DashboardImportSummary | None = None
+    panels: tuple[DashboardImportPanel, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PanelQueryCheckRequest:
+    """One panel query for the import agent to check. `builder` holds the builder query as JSON."""
+
+    key: str
+    language: PanelQueryLanguage
+    promql: str | None = None
+    builder: dict[str, Any] | None = None
+    histogram_metric: str | None = None
+    hogql: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PanelQueryCheckResult:
+    key: str
+    valid: bool
+    error: str | None = None
+    notes: tuple[str, ...] = ()

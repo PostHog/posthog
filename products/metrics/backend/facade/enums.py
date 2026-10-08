@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
+
 
 class AttributeScope(StrEnum):
     """Where a label lives on a `metrics1` row.
@@ -90,3 +92,32 @@ class MetricAggregation(StrEnum):
     @property
     def is_counter_function(self) -> bool:
         return self in (MetricAggregation.RATE, MetricAggregation.INCREASE)
+
+
+class DashboardImportSource(LabeledStrEnum):
+    """What a dashboard import reads: a Grafana dashboard JSON model, or a screenshot of a dashboard."""
+
+    GRAFANA = "grafana"
+    SCREENSHOT = "screenshot"
+
+
+class DashboardImportState(LabeledStrEnum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class PanelImportOutcome(LabeledStrEnum):
+    """What happened to one panel. APPROXIMATED means the panel imported, but what it shows changed."""
+
+    IMPORTED = "imported"
+    APPROXIMATED = "approximated"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class PanelQueryLanguage(LabeledStrEnum):
+    PROMQL = "promql"
+    BUILDER = "builder"
+    HISTOGRAM = "histogram"
+    HOGQL = "hogql"

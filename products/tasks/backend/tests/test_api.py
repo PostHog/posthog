@@ -2853,6 +2853,7 @@ class TestTaskAPI(BaseTaskAPITest):
             (Task.OriginProduct.SLACK,),
             (Task.OriginProduct.SPACE_SETUP,),
             (Task.OriginProduct.BUSINESS_KNOWLEDGE,),
+            (Task.OriginProduct.METRICS_IMPORT,),
         ]
     )
     def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):

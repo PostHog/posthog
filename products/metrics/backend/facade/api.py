@@ -17,12 +17,14 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.error_tracking.backend.facade.api import list_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
+    DashboardImportRequest,
+    DashboardImportStatus,
     IncidentContext,
     InvestigationResult,
     MetricAnomalyReport,
@@ -34,6 +36,8 @@ from products.metrics.backend.facade.contracts import (
     MetricQueryRequest,
     MetricSeries,
     MetricsOverview,
+    PanelQueryCheckRequest,
+    PanelQueryCheckResult,
 )
 from products.metrics.backend.facade.enums import FilterOp, MetricAggregation, MetricType
 from products.metrics.backend.formula import evaluate, parse_formula
@@ -565,3 +569,45 @@ def investigate_incident(*, team: Team, context: IncidentContext) -> Investigati
         filters=filters,
         companions=context.companions,
     )
+
+
+def start_dashboard_import(*, team: Team, user: User, request: DashboardImportRequest) -> DashboardImportStatus:
+    """Start an import of a Grafana dashboard JSON model or a dashboard screenshot as a new dashboard.
+
+    Converts what it can at once. Starts an agent task for the rest, and then the status has an id to poll.
+    Raises `DashboardImportError` with a message for the user.
+    """
+    from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path
+        DashboardImporter,
+    )
+
+    return DashboardImporter(team=team, user=user).start(request)
+
+
+def get_dashboard_import(*, team: Team, user: User, import_id: str) -> DashboardImportStatus | None:
+    """The status of the user's import. Builds the dashboard when the agent finished and nothing built it yet."""
+    from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path
+        DashboardImporter,
+    )
+
+    return DashboardImporter(team=team, user=user).status(import_id)
+
+
+def finalize_dashboard_import(*, team_id: int, import_id: str) -> None:
+    """Build the dashboard of an import whose agent task ended. Safe to call more than once."""
+    from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path
+        finalize_import,
+    )
+
+    finalize_import(team_id=team_id, task_id=import_id, background=True)
+
+
+def check_dashboard_panel_queries(
+    *, team: Team, user: User, panels: Sequence[PanelQueryCheckRequest]
+) -> list[PanelQueryCheckResult]:
+    """Check panel queries the way a dashboard import checks them before it builds the dashboard."""
+    from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path
+        check_panel_queries,
+    )
+
+    return check_panel_queries(team=team, user=user, panels=panels)

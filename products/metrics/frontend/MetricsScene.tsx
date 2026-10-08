@@ -17,10 +17,12 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { metricNamePickerLogic } from './components/metricNamePickerLogic'
 import { MetricsCatalog } from './components/MetricsCatalog'
 import { metricsCatalogLogic } from './components/metricsCatalogLogic'
+import { MetricsDashboardActions } from './components/MetricsDashboardActions'
 import { MetricsOverview } from './components/MetricsOverview'
 import { MetricsSqlEditor } from './components/MetricsSqlEditor'
 import { metricsUsageTrackingLogic } from './components/metricsUsageTrackingLogic'
 import { MetricsViewer } from './components/MetricsViewer'
+import { MetricsDashboardImportModal } from './dashboardImport/MetricsDashboardImportModal'
 import { metricsEmptyState } from './emptyState/metricsEmptyState'
 import { metricsFeaturePreviewGate } from './featurePreviewGate'
 import { MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
@@ -46,7 +48,7 @@ export const scene: SceneExport = {
 export function MetricsScene(): JSX.Element {
     return (
         <FeaturePreviewSceneGate config={metricsFeaturePreviewGate}>
-            <SceneContent className="h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
+            <SceneContent className="@container/metrics-scene h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
                 <MetricsSceneContent />
             </SceneContent>
         </FeaturePreviewSceneGate>
@@ -93,9 +95,15 @@ const MetricsSceneContent = (): JSX.Element => {
                     type: sceneConfigurations[Scene.Metrics].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <LemonButton size="small" type="secondary" icon={<IconFeedback />} onClick={onFeedbackClick}>
-                        Feedback
-                    </LemonButton>
+                    <>
+                        {/* In a narrow scene, the tab bar has no space for the dashboard actions. */}
+                        <div className="@min-[48rem]/metrics-scene:hidden">
+                            <MetricsDashboardActions />
+                        </div>
+                        <LemonButton size="small" type="secondary" icon={<IconFeedback />} onClick={onFeedbackClick}>
+                            Feedback
+                        </LemonButton>
+                    </>
                 }
             />
             <LemonBanner
@@ -121,6 +129,8 @@ const MetricsSceneContent = (): JSX.Element => {
                     disabledReason: tabDisabledReasons[tab.key] ?? undefined,
                 }))}
                 sceneInset
+                rightSlot={<MetricsDashboardActions />}
+                rightSlotClassName="hidden @min-[48rem]/metrics-scene:flex"
             />
             <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
                 {activeTab === 'overview' && <MetricsOverview />}
@@ -128,6 +138,7 @@ const MetricsSceneContent = (): JSX.Element => {
                 {activeTab === 'viewer' && <MetricsViewer />}
                 {activeTab === 'sql' && <MetricsSqlEditor />}
             </div>
+            <MetricsDashboardImportModal />
         </>
     )
 }
