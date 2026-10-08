@@ -281,6 +281,27 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
+    def test_hobby_legacy_entitlement_allows_one_demo_but_not_a_second_project(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 2}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        demo_response = self.client.post("/api/projects/", {"name": "Demo", "is_demo": True}, format="json")
+        duplicate_demo_response = self.client.post(
+            "/api/projects/", {"name": "Another demo", "is_demo": True}, format="json"
+        )
+        second_project_response = self.client.post(
+            "/api/projects/", {"name": "Second project", "is_demo": "false"}, format="json"
+        )
+
+        self.assertEqual(demo_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(duplicate_demo_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(second_project_response.status_code, status.HTTP_403_FORBIDDEN)
+
     def _set_unlimited_projects(self, with_member_create_entitlement: bool = True) -> None:
         features: list[dict] = [{"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}]
         if with_member_create_entitlement:

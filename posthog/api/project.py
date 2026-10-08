@@ -2347,7 +2347,12 @@ class PremiumMultiProjectPermission(BasePermission):
                 return False
 
         current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("project_id").count()
-        if is_hobby() and view.action == "create" and current_non_demo_project_count >= 1:
+        if (
+            is_hobby()
+            and view.action == "create"
+            and request.data.get("is_demo") is not True
+            and current_non_demo_project_count >= 1
+        ):
             return False
         projects_feature = organization.get_available_feature(AvailableFeature.ORGANIZATIONS_PROJECTS)
 
