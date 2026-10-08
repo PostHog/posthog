@@ -23,11 +23,27 @@ export function isCompacting(entries: StoredLogEntry[]): boolean {
   return false;
 }
 
+// Claude Code reports its context as an ACP usage update; the window can be unknown, which leaves the fill unknown.
+function acpUsage(entry: StoredLogEntry): ContextFill | null | undefined {
+  const notification = entry.notification;
+  if (notification?.method !== "session/update") return undefined;
+  const update = (
+    notification.params as
+      | { update?: { sessionUpdate?: string; used?: number; size?: number } }
+      | undefined
+  )?.update;
+  if (update?.sessionUpdate !== "usage_update") return undefined;
+  if (typeof update.used !== "number" || !update.size) return null;
+  return { tokens: update.used, window: update.size };
+}
+
 // How full the agent's context was after its last turn, the way the desktop reads it from turn usage.
 // A compaction since then leaves the size unknown until the next turn reports it.
 export function contextFill(entries: StoredLogEntry[]): ContextFill | null {
   let tokens: number | null = null;
   for (let index = entries.length - 1; index >= 0; index--) {
+    const acp = acpUsage(entries[index]);
+    if (acp !== undefined) return acp;
     const event = entries[index].type === "pi_event" && entries[index].event;
     if (!event) continue;
     if (tokens === null && isCompletedCompaction(event)) return null;
@@ -58,15 +74,20 @@ export function donut(fill: ContextFill): string {
   return tint(percent, DONUT[Math.round(percent / 25)]);
 }
 
-// The composer's corner: the context donut, then the task's cost so far.
+// The composer's corner: the context donut, then the task's cost so far, or a note that the user's own plan pays.
 // A zero cost is usually spend not attributed yet, so it stays hidden like an unknown one.
 // Background shells come first, as the agent's own status line names them, such as "2 shells · 1 monitor".
 export function usageStatus(
   fill: ContextFill | null,
-  costUsd: number | null,
+  costUsd: number | "plan" | null,
   shells?: string,
 ): string {
-  const cost = costUsd !== null && costUsd > 0 ? formatCostUsd(costUsd) : null;
+  const cost =
+    costUsd === "plan"
+      ? "using sub"
+      : costUsd !== null && costUsd > 0
+        ? formatCostUsd(costUsd)
+        : null;
   // The cost is faint like the rule it sits on; only the donut's colour should catch the eye.
   const faint = cost ? `\u001b[2m${fill ? " • " : ""}${cost}\u001b[22m` : "";
   const usage = `${fill ? donut(fill) : ""}${faint}`;

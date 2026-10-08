@@ -291,7 +291,19 @@ export function Pane({
   // Panes without focus fade back, so the eye lands on the one being typed into.
   const shade = (line: string): string => (focused ? line : faint(line));
   const fill = useMemo(() => contextFill(view.entries), [view.entries]);
-  const cost = useTaskCost(runs, paneTaskId, transcript.turnOpen);
+  const access = run?.state as
+    | { claude_model_access?: string; codex_model_access?: string }
+    | undefined;
+  const onPlan = local
+    ? local.plan
+    : access?.claude_model_access === "own-subscription" ||
+      access?.codex_model_access === "own-subscription";
+  const spent = useTaskCost(
+    runs,
+    onPlan ? null : paneTaskId,
+    transcript.turnOpen,
+  );
+  const cost = onPlan ? "plan" : spent;
   // A local agent is live once started; a cloud run once its sandbox reports in.
   const live =
     (view.status === "queued" || view.status === "in_progress") &&

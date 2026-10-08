@@ -22,6 +22,7 @@ const unavailable = (): Promise<never> =>
 // Claude Code running on this machine on the user's own Claude plan, through the desktop app's agent service.
 export class ClaudeLocalSession implements LocalAgent {
   readonly runtime = "acp";
+  readonly plan = true;
   readonly control: PiControl;
   private sessionId: string | null = null;
   private turn: Promise<unknown> | null = null;
