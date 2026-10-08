@@ -42,6 +42,7 @@ from products.alerts_platform.backend.facade.api import due_checks, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
+    GroupOutcome,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
     SkipReason,
@@ -175,7 +176,7 @@ def evaluate_insight_check(
 
 
 def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> AlertDeliveryRequest | None:
-    if outcome.kind.value not in _EVENT_IDS_BY_KIND:
+    if not any(group.kind.value in _EVENT_IDS_BY_KIND for group in outcome.groups):
         return None
     legacy_id = str(check.legacy_configuration_id) if check.legacy_configuration_id is not None else None
     if legacy_id not in LIVE_DELIVERY_INSIGHT_ALERT_IDS:
@@ -355,12 +356,17 @@ def _recorded(
     return PlatformAlertOutcome(
         configuration_id=check.id,
         evaluation_key=_evaluation_key(check, now),
-        kind=NOTIFICATION_EVENT_KINDS[notification],
-        new_state=outcome.new_state.value,
-        notified=notified,
         consecutive_failures=outcome.consecutive_failures,
-        firing_episode=decide_firing_episode(snapshot, outcome, now, policy=INSIGHT_ALERT_POLICY),
-        value=value,
+        groups=(
+            GroupOutcome(
+                grouping_key="",
+                kind=NOTIFICATION_EVENT_KINDS[notification],
+                new_state=outcome.new_state.value,
+                notified=notified,
+                firing_episode=decide_firing_episode(snapshot, outcome, now, policy=INSIGHT_ALERT_POLICY),
+                value=value,
+            ),
+        ),
         error_message=error_message,
         query_duration_ms=query_duration_ms,
         disable=disable,

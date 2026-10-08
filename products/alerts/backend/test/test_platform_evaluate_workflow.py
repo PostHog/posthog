@@ -21,6 +21,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertBatchKey,
     AlertDeliveryRequest,
     AlertEventKind,
+    GroupOutcome,
     PlatformAlertOutcome,
     SourceBatchEvaluation,
     SourceEvaluationInputs,
@@ -53,10 +54,8 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
         outcome = PlatformAlertOutcome(
             configuration_id=uuid.UUID(inputs.configuration_id),
             evaluation_key="slot:2026-09-16T10:00:00+00:00",
-            kind=AlertEventKind.FIRING,
-            new_state="firing",
-            notified=True,
             consecutive_failures=0,
+            groups=(GroupOutcome(grouping_key="", kind=AlertEventKind.FIRING, new_state="firing", notified=True),),
         )
         delivery = AlertDeliveryRequest(
             source=SourceKind.INSIGHT,
