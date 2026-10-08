@@ -84,7 +84,11 @@ from products.approvals.backend.tasks import (
     sync_experiment_approval_policies,
     validate_pending_change_requests,
 )
-from products.canvas.backend.facade.tasks import cleanup_canvas_builds, sweep_canvas_builds
+from products.canvas.backend.facade.tasks import (
+    check_canvas_data_dependencies,
+    cleanup_canvas_builds,
+    sweep_canvas_builds,
+)
 from products.conversations.backend.tasks.email import flush_pending_email_replies
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
@@ -1040,6 +1044,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="1", minute="27"),
         cleanup_canvas_builds.s(),
         name="apply canvas build artifact retention",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="3", minute="41"),
+        check_canvas_data_dependencies.s(),
+        name="check canvas data dependencies for drift",
     )
 
     add_periodic_task_with_expiry(

@@ -659,6 +659,85 @@ export interface CanvasConnectorCallResultApi {
 }
 
 /**
+ * * `unchecked` - Unchecked
+ * * `ok` - Ok
+ * * `drift` - Drift
+ */
+export type CanvasDataCheckStatusEnumApi =
+    (typeof CanvasDataCheckStatusEnumApi)[keyof typeof CanvasDataCheckStatusEnumApi]
+
+export const CanvasDataCheckStatusEnumApi = {
+    Unchecked: 'unchecked',
+    Ok: 'ok',
+    Drift: 'drift',
+} as const
+
+/**
+ * * `event` - Event
+ * * `person` - Person
+ * * `group` - Group
+ * * `session` - Session
+ */
+export type CanvasDataPropertyDeclarationTypeEnumApi =
+    (typeof CanvasDataPropertyDeclarationTypeEnumApi)[keyof typeof CanvasDataPropertyDeclarationTypeEnumApi]
+
+export const CanvasDataPropertyDeclarationTypeEnumApi = {
+    Event: 'event',
+    Person: 'person',
+    Group: 'group',
+    Session: 'session',
+} as const
+
+/**
+ * One property a canvas reads, with the kind of property it is.
+ */
+export interface CanvasDataPropertyDeclarationApi {
+    /**
+     * Property name, e.g. '$current_url' or 'plan'.
+     * @maxLength 400
+     */
+    name: string
+    /** Which kind of property the name refers to.
+     *
+     * * `event` - Event
+     * * `person` - Person
+     * * `group` - Group
+     * * `session` - Session */
+    type: CanvasDataPropertyDeclarationTypeEnumApi
+}
+
+/**
+ * Declared data the project no longer has.
+ */
+export interface CanvasDataCheckMissingApi {
+    /** Declared events with no definition. */
+    events: string[]
+    /** Declared properties with no definition of that type. */
+    properties: CanvasDataPropertyDeclarationApi[]
+    /** Declared warehouse tables that are no longer queryable. */
+    tables: string[]
+}
+
+/**
+ * The latest nightly data dependency check of a canvas.
+ */
+export interface CanvasDataCheckApi {
+    /** 'unchecked' before the first nightly run, 'ok' when everything declared exists, else 'drift'.
+     *
+     * * `unchecked` - Unchecked
+     * * `ok` - Ok
+     * * `drift` - Drift */
+    status: CanvasDataCheckStatusEnumApi
+    /**
+     * When the check last ran, if ever.
+     * @nullable
+     */
+    checked_at: string | null
+    /** What is missing; every list is empty when status is ok. */
+    missing: CanvasDataCheckMissingApi
+}
+
+/**
  * * `base64` - base64
  */
 export type EncodingEnumApi = (typeof EncodingEnumApi)[keyof typeof EncodingEnumApi]
@@ -747,6 +826,29 @@ export interface CanvasOperationDeclarationApi {
     inputs?: string[]
 }
 
+/**
+ * The data a canvas reads, declared so a nightly check can detect schema drift.
+ */
+export interface CanvasDataDeclarationApi {
+    /**
+     * Event names the canvas's queries read.
+     * @maxItems 100
+     * @items.maxLength 400
+     */
+    events?: string[]
+    /**
+     * Properties the canvas's queries read or filter on.
+     * @maxItems 100
+     */
+    properties?: CanvasDataPropertyDeclarationApi[]
+    /**
+     * Data warehouse table names the canvas's queries read.
+     * @maxItems 100
+     * @items.maxLength 400
+     */
+    tables?: string[]
+}
+
 export interface CanvasPostHogCapabilitiesApi {
     /**
      * @maxItems 100
@@ -776,6 +878,8 @@ export interface CanvasPostHogCapabilitiesApi {
      * @maxItems 20
      */
     operations?: CanvasOperationDeclarationApi[]
+    /** The events, properties, and tables the canvas reads. A nightly check compares them with the project's current schema and flags drift on the canvas, from which a person requests a fix. */
+    data?: CanvasDataDeclarationApi
 }
 
 export interface CanvasNetworkCapabilitiesApi {

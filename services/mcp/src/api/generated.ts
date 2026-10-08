@@ -20434,6 +20434,63 @@ export namespace Schemas {
       inputs?: string[];
     }
 
+    /**
+     * * `event` - Event
+     * * `person` - Person
+     * * `group` - Group
+     * * `session` - Session
+     */
+    export type CanvasDataPropertyDeclarationTypeEnum = typeof CanvasDataPropertyDeclarationTypeEnum[keyof typeof CanvasDataPropertyDeclarationTypeEnum];
+
+
+    export const CanvasDataPropertyDeclarationTypeEnum = {
+      Event: 'event',
+      Person: 'person',
+      Group: 'group',
+      Session: 'session',
+    } as const;
+
+    /**
+     * One property a canvas reads, with the kind of property it is.
+     */
+    export interface CanvasDataPropertyDeclaration {
+      /**
+         * Property name, e.g. '$current_url' or 'plan'.
+         * @maxLength 400
+         */
+      name: string;
+      /** Which kind of property the name refers to.
+       *
+       * * `event` - Event
+       * * `person` - Person
+       * * `group` - Group
+       * * `session` - Session */
+      type: CanvasDataPropertyDeclarationTypeEnum;
+    }
+
+    /**
+     * The data a canvas reads, declared so a nightly check can detect schema drift.
+     */
+    export interface CanvasDataDeclaration {
+      /**
+         * Event names the canvas's queries read.
+         * @maxItems 100
+         * @items.maxLength 400
+         */
+      events?: string[];
+      /**
+         * Properties the canvas's queries read or filter on.
+         * @maxItems 100
+         */
+      properties?: CanvasDataPropertyDeclaration[];
+      /**
+         * Data warehouse table names the canvas's queries read.
+         * @maxItems 100
+         * @items.maxLength 400
+         */
+      tables?: string[];
+    }
+
     export interface CanvasPostHogCapabilities {
       /**
          * @maxItems 100
@@ -20463,6 +20520,8 @@ export namespace Schemas {
          * @maxItems 20
          */
       operations?: CanvasOperationDeclaration[];
+      /** The events, properties, and tables the canvas reads. A nightly check compares them with the project's current schema and flags drift on the canvas, from which a person requests a fix. */
+      data?: CanvasDataDeclaration;
     }
 
     export interface CanvasNetworkCapabilities {
@@ -20852,6 +20911,51 @@ export namespace Schemas {
          * @maxLength 64
          */
       template_id?: string;
+    }
+
+    /**
+     * * `unchecked` - Unchecked
+     * * `ok` - Ok
+     * * `drift` - Drift
+     */
+    export type CanvasDataCheckStatusEnum = typeof CanvasDataCheckStatusEnum[keyof typeof CanvasDataCheckStatusEnum];
+
+
+    export const CanvasDataCheckStatusEnum = {
+      Unchecked: 'unchecked',
+      Ok: 'ok',
+      Drift: 'drift',
+    } as const;
+
+    /**
+     * Declared data the project no longer has.
+     */
+    export interface CanvasDataCheckMissing {
+      /** Declared events with no definition. */
+      events: string[];
+      /** Declared properties with no definition of that type. */
+      properties: CanvasDataPropertyDeclaration[];
+      /** Declared warehouse tables that are no longer queryable. */
+      tables: string[];
+    }
+
+    /**
+     * The latest nightly data dependency check of a canvas.
+     */
+    export interface CanvasDataCheck {
+      /** 'unchecked' before the first nightly run, 'ok' when everything declared exists, else 'drift'.
+       *
+       * * `unchecked` - Unchecked
+       * * `ok` - Ok
+       * * `drift` - Drift */
+      status: CanvasDataCheckStatusEnum;
+      /**
+         * When the check last ran, if ever.
+         * @nullable
+         */
+      checked_at: string | null;
+      /** What is missing; every list is empty when status is ok. */
+      missing: CanvasDataCheckMissing;
     }
 
     /**

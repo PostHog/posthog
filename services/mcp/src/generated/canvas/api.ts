@@ -321,6 +321,18 @@ export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogOperationsIt
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogOperationsMax = 20
 
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogDataOneEventsItemMax = 400
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogDataOneEventsMax = 100
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesItemNameMax = 400
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesMax = 100
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogDataOneTablesItemMax = 400
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogDataOneTablesMax = 100
+
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -531,6 +543,66 @@ export const CanvasesDraftCreateBody = () => zod
                                 .describe(
                                     'Named operations agents may invoke on this canvas, each bound to a declared verb. Listed by the operations endpoint and exported as a team skill.'
                                 ),
+                            data: zod
+                                .object({
+                                    events: zod
+                                        .array(
+                                            zod
+                                                .string()
+                                                .max(
+                                                    canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogDataOneEventsItemMax
+                                                )
+                                        )
+                                        .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogDataOneEventsMax)
+                                        .optional()
+                                        .describe("Event names the canvas's queries read."),
+                                    properties: zod
+                                        .array(
+                                            zod
+                                                .object({
+                                                    name: zod
+                                                        .string()
+                                                        .max(
+                                                            canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesItemNameMax
+                                                        )
+                                                        .describe("Property name, e.g. '$current_url' or 'plan'."),
+                                                    type: zod
+                                                        .enum(['event', 'person', 'group', 'session'])
+                                                        .describe(
+                                                            '\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
+                                                        )
+                                                        .describe(
+                                                            'Which kind of property the name refers to.\n\n\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
+                                                        ),
+                                                })
+                                                .describe(
+                                                    'One property a canvas reads, with the kind of property it is.'
+                                                )
+                                        )
+                                        .max(
+                                            canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesMax
+                                        )
+                                        .optional()
+                                        .describe("Properties the canvas's queries read or filter on."),
+                                    tables: zod
+                                        .array(
+                                            zod
+                                                .string()
+                                                .max(
+                                                    canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogDataOneTablesItemMax
+                                                )
+                                        )
+                                        .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogDataOneTablesMax)
+                                        .optional()
+                                        .describe("Data warehouse table names the canvas's queries read."),
+                                })
+                                .describe(
+                                    'The data a canvas reads, declared so a nightly check can detect schema drift.'
+                                )
+                                .optional()
+                                .describe(
+                                    "The events, properties, and tables the canvas reads. A nightly check compares them with the project's current schema and flags drift on the canvas, from which a person requests a fix."
+                                ),
                         }),
                         network: zod.object({
                             origins: zod
@@ -649,6 +721,18 @@ export const canvasesEditCreateBodyCapabilitiesOnePosthogOperationsItemInputsIte
 export const canvasesEditCreateBodyCapabilitiesOnePosthogOperationsItemInputsMax = 16
 
 export const canvasesEditCreateBodyCapabilitiesOnePosthogOperationsMax = 20
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogDataOneEventsItemMax = 400
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogDataOneEventsMax = 100
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogDataOnePropertiesItemNameMax = 400
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogDataOnePropertiesMax = 100
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogDataOneTablesItemMax = 400
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogDataOneTablesMax = 100
 
 export const canvasesEditCreateBodyCapabilitiesOneNetworkOriginsItemMax = 2048
 
@@ -789,6 +873,52 @@ export const CanvasesEditCreateBody = () => zod
                         .optional()
                         .describe(
                             'Named operations agents may invoke on this canvas, each bound to a declared verb. Listed by the operations endpoint and exported as a team skill.'
+                        ),
+                    data: zod
+                        .object({
+                            events: zod
+                                .array(
+                                    zod.string().max(canvasesEditCreateBodyCapabilitiesOnePosthogDataOneEventsItemMax)
+                                )
+                                .max(canvasesEditCreateBodyCapabilitiesOnePosthogDataOneEventsMax)
+                                .optional()
+                                .describe("Event names the canvas's queries read."),
+                            properties: zod
+                                .array(
+                                    zod
+                                        .object({
+                                            name: zod
+                                                .string()
+                                                .max(
+                                                    canvasesEditCreateBodyCapabilitiesOnePosthogDataOnePropertiesItemNameMax
+                                                )
+                                                .describe("Property name, e.g. '$current_url' or 'plan'."),
+                                            type: zod
+                                                .enum(['event', 'person', 'group', 'session'])
+                                                .describe(
+                                                    '\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
+                                                )
+                                                .describe(
+                                                    'Which kind of property the name refers to.\n\n\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
+                                                ),
+                                        })
+                                        .describe('One property a canvas reads, with the kind of property it is.')
+                                )
+                                .max(canvasesEditCreateBodyCapabilitiesOnePosthogDataOnePropertiesMax)
+                                .optional()
+                                .describe("Properties the canvas's queries read or filter on."),
+                            tables: zod
+                                .array(
+                                    zod.string().max(canvasesEditCreateBodyCapabilitiesOnePosthogDataOneTablesItemMax)
+                                )
+                                .max(canvasesEditCreateBodyCapabilitiesOnePosthogDataOneTablesMax)
+                                .optional()
+                                .describe("Data warehouse table names the canvas's queries read."),
+                        })
+                        .describe('The data a canvas reads, declared so a nightly check can detect schema drift.')
+                        .optional()
+                        .describe(
+                            "The events, properties, and tables the canvas reads. A nightly check compares them with the project's current schema and flags drift on the canvas, from which a person requests a fix."
                         ),
                 }),
                 network: zod.object({
@@ -1382,6 +1512,18 @@ export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogOperations
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogOperationsMax = 20
 
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogDataOneEventsItemMax = 400
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogDataOneEventsMax = 100
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesItemNameMax = 400
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesMax = 100
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogDataOneTablesItemMax = 400
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogDataOneTablesMax = 100
+
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -1593,6 +1735,66 @@ export const CanvasesPublishCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     'Named operations agents may invoke on this canvas, each bound to a declared verb. Listed by the operations endpoint and exported as a team skill.'
+                                ),
+                            data: zod
+                                .object({
+                                    events: zod
+                                        .array(
+                                            zod
+                                                .string()
+                                                .max(
+                                                    canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogDataOneEventsItemMax
+                                                )
+                                        )
+                                        .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogDataOneEventsMax)
+                                        .optional()
+                                        .describe("Event names the canvas's queries read."),
+                                    properties: zod
+                                        .array(
+                                            zod
+                                                .object({
+                                                    name: zod
+                                                        .string()
+                                                        .max(
+                                                            canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesItemNameMax
+                                                        )
+                                                        .describe("Property name, e.g. '$current_url' or 'plan'."),
+                                                    type: zod
+                                                        .enum(['event', 'person', 'group', 'session'])
+                                                        .describe(
+                                                            '\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
+                                                        )
+                                                        .describe(
+                                                            'Which kind of property the name refers to.\n\n\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
+                                                        ),
+                                                })
+                                                .describe(
+                                                    'One property a canvas reads, with the kind of property it is.'
+                                                )
+                                        )
+                                        .max(
+                                            canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesMax
+                                        )
+                                        .optional()
+                                        .describe("Properties the canvas's queries read or filter on."),
+                                    tables: zod
+                                        .array(
+                                            zod
+                                                .string()
+                                                .max(
+                                                    canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogDataOneTablesItemMax
+                                                )
+                                        )
+                                        .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogDataOneTablesMax)
+                                        .optional()
+                                        .describe("Data warehouse table names the canvas's queries read."),
+                                })
+                                .describe(
+                                    'The data a canvas reads, declared so a nightly check can detect schema drift.'
+                                )
+                                .optional()
+                                .describe(
+                                    "The events, properties, and tables the canvas reads. A nightly check compares them with the project's current schema and flags drift on the canvas, from which a person requests a fix."
                                 ),
                         }),
                         network: zod.object({
@@ -1896,6 +2098,18 @@ export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogOperation
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogOperationsMax = 20
 
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogDataOneEventsItemMax = 400
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogDataOneEventsMax = 100
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesItemNameMax = 400
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesMax = 100
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogDataOneTablesItemMax = 400
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogDataOneTablesMax = 100
+
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -2107,6 +2321,66 @@ export const CanvasesValidateCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     'Named operations agents may invoke on this canvas, each bound to a declared verb. Listed by the operations endpoint and exported as a team skill.'
+                                ),
+                            data: zod
+                                .object({
+                                    events: zod
+                                        .array(
+                                            zod
+                                                .string()
+                                                .max(
+                                                    canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogDataOneEventsItemMax
+                                                )
+                                        )
+                                        .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogDataOneEventsMax)
+                                        .optional()
+                                        .describe("Event names the canvas's queries read."),
+                                    properties: zod
+                                        .array(
+                                            zod
+                                                .object({
+                                                    name: zod
+                                                        .string()
+                                                        .max(
+                                                            canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesItemNameMax
+                                                        )
+                                                        .describe("Property name, e.g. '$current_url' or 'plan'."),
+                                                    type: zod
+                                                        .enum(['event', 'person', 'group', 'session'])
+                                                        .describe(
+                                                            '\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
+                                                        )
+                                                        .describe(
+                                                            'Which kind of property the name refers to.\n\n\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
+                                                        ),
+                                                })
+                                                .describe(
+                                                    'One property a canvas reads, with the kind of property it is.'
+                                                )
+                                        )
+                                        .max(
+                                            canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogDataOnePropertiesMax
+                                        )
+                                        .optional()
+                                        .describe("Properties the canvas's queries read or filter on."),
+                                    tables: zod
+                                        .array(
+                                            zod
+                                                .string()
+                                                .max(
+                                                    canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogDataOneTablesItemMax
+                                                )
+                                        )
+                                        .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogDataOneTablesMax)
+                                        .optional()
+                                        .describe("Data warehouse table names the canvas's queries read."),
+                                })
+                                .describe(
+                                    'The data a canvas reads, declared so a nightly check can detect schema drift.'
+                                )
+                                .optional()
+                                .describe(
+                                    "The events, properties, and tables the canvas reads. A nightly check compares them with the project's current schema and flags drift on the canvas, from which a person requests a fix."
                                 ),
                         }),
                         network: zod.object({

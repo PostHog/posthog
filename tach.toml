@@ -1004,6 +1004,9 @@ depends_on = [
     "products.surveys",
     # Publishing a canvas's declared operations as a team skill (via the skills facade).
     "products.skills",
+    # The nightly data dependency check reads event/property definitions and warehouse table names.
+    "products.event_definitions",
+    "products.warehouse_sources",
 ]
 layer = "modules"
 
