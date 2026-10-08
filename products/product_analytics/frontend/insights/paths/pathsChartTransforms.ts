@@ -85,16 +85,19 @@ export interface PathsSankeyGraph<Edge extends PathsEdge> {
     /** The highest step in the result. */
     stepCount: number
     /** Whether nodes sit in their step's column, so the caller can label columns by step. False
-     *  when pinning was off or the result has more steps than the chart has columns. */
+     *  when pinning was off or the result has more steps than `pinStepsUpTo` allows. */
     stepsPinned: boolean
 }
 
 export interface PathsSankeyGraphOptions {
     /** Short labels for page URLs. Off for a host that draws its own labels. */
     labelUrls?: boolean
-    /** Pin each node to its step's column, so a path that ends early or an edge whose earlier steps
-     *  were cut still sits under the right step. */
-    pinSteps?: boolean
+    /** Pin each node to its step's column when the result has at most this many steps, so a path
+     *  that ends early or an edge whose earlier steps were cut still sits under the right step. A
+     *  pinned layout keeps a column for every step up to the highest, so set this to the columns
+     *  the caller can show. Past it the layout places nodes by depth, which skips empty steps.
+     *  Omit to never pin. */
+    pinStepsUpTo?: number
     nodeColor?: (key: string) => string | undefined
     linkColor?: string
 }
@@ -103,13 +106,13 @@ export interface PathsSankeyGraphOptions {
  *  is two nodes. Node `meta` is the name without its step; link `meta` is the result row. */
 export function buildPathsSankeyGraph<Edge extends PathsEdge>(
     edges: Edge[],
-    { labelUrls = false, pinSteps = false, nodeColor, linkColor }: PathsSankeyGraphOptions = {}
+    { labelUrls = false, pinStepsUpTo, nodeColor, linkColor }: PathsSankeyGraphOptions = {}
 ): PathsSankeyGraph<Edge> {
     const keys = pathNodeKeys(edges)
     const parsed = keys.map((key) => ({ key, ...parsePathNodeKey(key) }))
     const singleOrigin = labelUrls && pathOrigins(parsed.map(({ name }) => name)).size <= 1
     const stepCount = parsed.reduce((max, { step }) => Math.max(max, step), 0)
-    const stepsPinned = pinSteps && stepCount - 1 <= MAX_SANKEY_COLUMN
+    const stepsPinned = pinStepsUpTo !== undefined && stepCount <= Math.min(pinStepsUpTo, MAX_SANKEY_COLUMN + 1)
 
     const nodes = parsed.map(
         ({ key, step, name }): SankeyNodeInput<string> => ({

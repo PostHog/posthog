@@ -10,19 +10,26 @@ describe('pathsChartTransforms', () => {
         expect(pathStartCount(edges)).toBe(10)
     })
 
-    it('pins each node to its step, labels URLs by path on a single origin, and keeps event names whole', () => {
-        const graph = buildPathsSankeyGraph(
-            [
-                { source: '1_https://example.com/home', target: '3_https://example.com/#/app/settings', value: 4 },
-                { source: '1_https://example.com/home', target: '2_clicked: signup button', value: 2 },
-            ],
-            { labelUrls: true, pinSteps: true }
-        )
-        expect(graph.nodes.map(({ label, column }) => [label, column])).toEqual([
-            ['/home', 0],
-            ['/#/app/settings', 2],
-            ['clicked: signup button', 1],
-        ])
-        expect(graph.stepCount).toBe(3)
-    })
+    it.each([
+        { pinStepsUpTo: 3, columns: [0, 2, 1], stepsPinned: true },
+        { pinStepsUpTo: 2, columns: [undefined, undefined, undefined], stepsPinned: false },
+    ])(
+        'pins nodes to their steps only within $pinStepsUpTo steps, labels URLs by path on a single origin, and keeps event names whole',
+        ({ pinStepsUpTo, columns, stepsPinned }) => {
+            const graph = buildPathsSankeyGraph(
+                [
+                    { source: '1_https://example.com/home', target: '3_https://example.com/#/app/settings', value: 4 },
+                    { source: '1_https://example.com/home', target: '2_clicked: signup button', value: 2 },
+                ],
+                { labelUrls: true, pinStepsUpTo }
+            )
+            expect(graph.nodes.map(({ label }) => label)).toEqual([
+                '/home',
+                '/#/app/settings',
+                'clicked: signup button',
+            ])
+            expect(graph.nodes.map(({ column }) => column)).toEqual(columns)
+            expect(graph).toMatchObject({ stepCount: 3, stepsPinned })
+        }
+    )
 })
