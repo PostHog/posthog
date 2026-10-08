@@ -731,9 +731,12 @@ def render_environment_model_regex(models: set[str]) -> str:
 def write_environment_model_regex(models: set[str]) -> None:
     text = SEMGREP_RULES_FILE.read_text()
     rule_start = text.index(f"- id: {ENVIRONMENT_RULE_ID}\n")
-    # The first `regex: |` block after the rule id holds the model list.
+    next_rule = text.find("\n    - id: ", rule_start + 1)
+    rule_end = len(text) if next_rule == -1 else next_rule
+    # The first `regex: |` block inside the rule holds the model list. The search stops at the
+    # next rule, so a missing block cannot rewrite another rule's list.
     regex_block = re.compile(r"(regex: \|\n)(.*?\)\$\n)", re.DOTALL)
-    match = regex_block.search(text, rule_start)
+    match = regex_block.search(text, rule_start, rule_end)
     if match is None:
         raise ValueError(f"No `regex: |` block found in rule {ENVIRONMENT_RULE_ID}")
     new_text = text[: match.start(2)] + render_environment_model_regex(models) + text[match.end(2) :]
