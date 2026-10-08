@@ -36,6 +36,11 @@ class TestCloudflareSource:
                 False,
                 "Invalid API Token (code 1000)",
             ),
+            (
+                TokenCheck(is_valid=False, status=400, reason="Invalid request headers (code 6003)", code=6003),
+                False,
+                "not the Global API Key",
+            ),
             (TokenCheck(is_valid=False, status=None), False, "Couldn't reach Cloudflare"),
             (TokenCheck(is_valid=False, status=500), False, "Couldn't reach Cloudflare"),
             (TokenCheck(is_valid=False, status=429), False, "Couldn't reach Cloudflare"),

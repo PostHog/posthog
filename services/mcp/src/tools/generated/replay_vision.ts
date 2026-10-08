@@ -453,27 +453,6 @@ const visionObservationsLabelDelete = (): ToolBase<
     },
 })
 
-const VisionObservationsLabelDestroySchema = () => {
-    const VisionObservationsLabelDestroyParams = orvalSchemas.VisionObservationsLabelDestroyParams()
-    return VisionObservationsLabelDestroyParams.omit({ project_id: true })
-}
-
-const visionObservationsLabelDestroy = (): ToolBase<
-    ReturnType<typeof VisionObservationsLabelDestroySchema>,
-    unknown
-> => ({
-    name: 'vision-observations-label-destroy',
-    schema: VisionObservationsLabelDestroySchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionObservationsLabelDestroySchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'DELETE',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/${encodeURIComponent(String(params.id))}/label/`,
-        })
-        return result
-    },
-})
-
 const VisionObservationsListSchema = () => {
     const VisionObservationsListQueryParams = orvalSchemas.VisionObservationsListQueryParams()
     return VisionObservationsListQueryParams
@@ -518,46 +497,6 @@ const visionObservationsList = (): ToolBase<
             )
         },
     })
-
-const VisionObservationsRetrieveSchema = () => {
-    const VisionObservationsRetrieveParams = orvalSchemas.VisionObservationsRetrieveParams()
-    const VisionObservationsRetrieveQueryParams = orvalSchemas.VisionObservationsRetrieveQueryParams()
-    return VisionObservationsRetrieveParams.omit({ project_id: true }).extend(
-        VisionObservationsRetrieveQueryParams.shape
-    )
-}
-
-const visionObservationsRetrieve = (): ToolBase<
-    ReturnType<typeof VisionObservationsRetrieveSchema>,
-    WithPostHogUrl<Schemas.ReplayObservation>
-> => ({
-    name: 'vision-observations-retrieve',
-    schema: VisionObservationsRetrieveSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionObservationsRetrieveSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ReplayObservation>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/${encodeURIComponent(String(params.id))}/`,
-            query: {
-                backfill_id: params.backfill_id,
-                date_from: params.date_from,
-                date_to: params.date_to,
-                labeled: params.labeled,
-                max_score: params.max_score,
-                min_score: params.min_score,
-                order_by: params.order_by,
-                recording_subject: params.recording_subject,
-                session_id: params.session_id,
-                status: params.status,
-                tags: params.tags,
-                triggered_by: params.triggered_by,
-                variant: params.variant,
-                verdict: params.verdict,
-            },
-        })
-        return await withPostHogUrl(context, result, `/replay/${result.session_id}`)
-    },
-})
 
 const VisionObservationsRetrySchema = () => {
     const VisionObservationsRetryCreateParams = orvalSchemas.VisionObservationsRetryCreateParams()
@@ -639,21 +578,6 @@ const visionQuotaGet = (): ToolBase<ReturnType<typeof VisionQuotaGetSchema>, Sch
     name: 'vision-quota-get',
     schema: VisionQuotaGetSchema(),
     handler: async (context: Context, _params: z.infer<ReturnType<typeof VisionQuotaGetSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.VisionQuota>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/quota/`,
-        })
-        return result
-    },
-})
-
-const VisionQuotaRetrieveSchema = () => z.object({})
-
-const visionQuotaRetrieve = (): ToolBase<ReturnType<typeof VisionQuotaRetrieveSchema>, Schemas.VisionQuota> => ({
-    name: 'vision-quota-retrieve',
-    schema: VisionQuotaRetrieveSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof VisionQuotaRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.VisionQuota>({
             method: 'GET',
@@ -1090,50 +1014,6 @@ const visionScannersEstimate = (): ToolBase<
     },
 })
 
-const VisionScannersEstimateCreateSchema = () => {
-    const VisionScannersEstimateCreateBody = orvalSchemas.VisionScannersEstimateCreateBody()
-    return VisionScannersEstimateCreateBody
-}
-
-const visionScannersEstimateCreate = (): ToolBase<
-    ReturnType<typeof VisionScannersEstimateCreateSchema>,
-    Schemas.EstimateResponse
-> => ({
-    name: 'vision-scanners-estimate-create',
-    schema: VisionScannersEstimateCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersEstimateCreateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.query !== undefined) {
-            body['query'] = params.query
-        }
-        if (params.sampling_rate !== undefined) {
-            body['sampling_rate'] = params.sampling_rate
-        }
-        if (params.sampling_mode !== undefined) {
-            body['sampling_mode'] = params.sampling_mode
-        }
-        if (params.scanner_id !== undefined) {
-            body['scanner_id'] = params.scanner_id
-        }
-        if (params.model !== undefined) {
-            body['model'] = params.model
-        }
-        if (params.experiment_targeting !== undefined) {
-            body['experiment_targeting'] = params.experiment_targeting
-        }
-        if (params.experiment !== undefined) {
-            body['experiment'] = params.experiment
-        }
-        const result = await context.api.request<Schemas.EstimateResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/estimate/`,
-            body,
-        })
-        return result
-    },
-})
-
 const VisionScannersGetSchema = () => {
     const VisionScannersRetrieveParams = orvalSchemas.VisionScannersRetrieveParams()
     return VisionScannersRetrieveParams.omit({ project_id: true })
@@ -1183,37 +1063,6 @@ const visionScannersImpactGet = (): ToolBase<
     },
 })
 
-const VisionScannersImpactRetrieveSchema = () => {
-    const VisionScannersImpactRetrieveParams = orvalSchemas.VisionScannersImpactRetrieveParams()
-    const VisionScannersImpactRetrieveQueryParams = orvalSchemas.VisionScannersImpactRetrieveQueryParams()
-    return VisionScannersImpactRetrieveParams.omit({ project_id: true }).extend(
-        VisionScannersImpactRetrieveQueryParams.shape
-    )
-}
-
-const visionScannersImpactRetrieve = (): ToolBase<
-    ReturnType<typeof VisionScannersImpactRetrieveSchema>,
-    Schemas.ScannerImpact
-> => ({
-    name: 'vision-scanners-impact-retrieve',
-    schema: VisionScannersImpactRetrieveSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersImpactRetrieveSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ScannerImpact>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/impact/`,
-            query: {
-                max_score: params.max_score,
-                min_score: params.min_score,
-                tag: params.tag,
-                verdict: params.verdict,
-                window_days: params.window_days,
-            },
-        })
-        return result
-    },
-})
-
 const VisionScannersInlineScanSchema = () => {
     const VisionScannersInlineScanCreateBody = orvalSchemas.VisionScannersInlineScanCreateBody()
     return VisionScannersInlineScanCreateBody
@@ -1224,42 +1073,6 @@ const visionScannersInlineScan = (): ToolBase<ReturnType<typeof VisionScannersIn
         name: 'vision-scanners-inline-scan',
         schema: VisionScannersInlineScanSchema(),
         handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersInlineScanSchema>>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const body: Record<string, unknown> = {}
-            if (params.session_ids !== undefined) {
-                body['session_ids'] = params.session_ids
-            }
-            if (params.prompt !== undefined) {
-                body['prompt'] = params.prompt
-            }
-            if (params.scanner_type !== undefined) {
-                body['scanner_type'] = params.scanner_type
-            }
-            if (params.scanner_config !== undefined) {
-                body['scanner_config'] = params.scanner_config
-            }
-            if (params.model !== undefined) {
-                body['model'] = params.model
-            }
-            const result = await context.api.request<unknown>({
-                method: 'POST',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/inline_scan/`,
-                body,
-            })
-            return result
-        },
-    })
-
-const VisionScannersInlineScanCreateSchema = () => {
-    const VisionScannersInlineScanCreateBody = orvalSchemas.VisionScannersInlineScanCreateBody()
-    return VisionScannersInlineScanCreateBody
-}
-
-const visionScannersInlineScanCreate = (): ToolBase<ReturnType<typeof VisionScannersInlineScanCreateSchema>, unknown> =>
-    withUiApp('inline-scan', {
-        name: 'vision-scanners-inline-scan-create',
-        schema: VisionScannersInlineScanCreateSchema(),
-        handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersInlineScanCreateSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
             if (params.session_ids !== undefined) {
@@ -1819,14 +1632,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-observations-get': visionObservationsGet,
     'vision-observations-label-create': visionObservationsLabelCreate,
     'vision-observations-label-delete': visionObservationsLabelDelete,
-    'vision-observations-label-destroy': visionObservationsLabelDestroy,
     'vision-observations-list': visionObservationsList,
-    'vision-observations-retrieve': visionObservationsRetrieve,
     'vision-observations-retry': visionObservationsRetry,
     'vision-observations-search': visionObservationsSearch,
     'vision-observations-signal-reports-list': visionObservationsSignalReportsList,
     'vision-quota-get': visionQuotaGet,
-    'vision-quota-retrieve': visionQuotaRetrieve,
     'vision-quota-spend-series-get': visionQuotaSpendSeriesGet,
     'vision-scanners-affected-cohort-create': visionScannersAffectedCohortCreate,
     'vision-scanners-backfills-cancel': visionScannersBackfillsCancel,
@@ -1841,12 +1651,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-scanners-draft': visionScannersDraft,
     'vision-scanners-duplicate': visionScannersDuplicate,
     'vision-scanners-estimate': visionScannersEstimate,
-    'vision-scanners-estimate-create': visionScannersEstimateCreate,
     'vision-scanners-get': visionScannersGet,
     'vision-scanners-impact-get': visionScannersImpactGet,
-    'vision-scanners-impact-retrieve': visionScannersImpactRetrieve,
     'vision-scanners-inline-scan': visionScannersInlineScan,
-    'vision-scanners-inline-scan-create': visionScannersInlineScanCreate,
     'vision-scanners-list': visionScannersList,
     'vision-scanners-observations-get': visionScannersObservationsGet,
     'vision-scanners-observations-list': visionScannersObservationsList,
