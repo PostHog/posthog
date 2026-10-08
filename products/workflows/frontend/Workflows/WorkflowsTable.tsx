@@ -29,6 +29,8 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { AutomationSuggestionBanner } from '../setupGuide/AutomationSuggestionBanner'
+import { MessagingSetupReminderBanner } from '../setupGuide/MessagingSetupReminderBanner'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
@@ -116,6 +118,7 @@ export function WorkflowsTable(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
     const newNavigationEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_NEW_NAVIGATION]
+    const guidedOnboardingEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_GUIDED_ONBOARDING]
     const logic = workflowsLogic()
     const {
         workflowsLoading,
@@ -392,6 +395,7 @@ export function WorkflowsTable(): JSX.Element {
     return (
         <div className="workflows-section" data-attr="workflows-table" data-loading={workflowsLoading}>
             <>
+                {guidedOnboardingEnabled && <MessagingSetupReminderBanner />}
                 {newNavigationEnabled && (
                     <div className="mb-3">
                         <LemonSegmentedButton<WorkflowTypeFilter>
@@ -494,6 +498,7 @@ export function WorkflowsTable(): JSX.Element {
                     nouns={['workflow', 'workflows']}
                     emptyState="No workflows matching filters"
                 />
+                {guidedOnboardingEnabled && <AutomationSuggestionBanner />}
             </>
         </div>
     )
