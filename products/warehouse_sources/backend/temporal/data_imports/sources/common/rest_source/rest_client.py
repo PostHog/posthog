@@ -525,7 +525,15 @@ class RESTClient:
     def _send_request(
         self, request: Request, hooks: Hooks, body_check: Optional[Callable[[Any], None]] = None
     ) -> tuple[Response, Any]:
-        prepared = self.session.prepare_request(request)
+        # Preparing the request runs the session auth, and an OAuth2 auth mints its token here on
+        # the first request. A stalled or unreachable token endpoint is as transient as a stalled
+        # data request, so reissue it through the same retry loop.
+        try:
+            prepared = self.session.prepare_request(request)
+        except (RequestsConnectionError, RequestsTimeout) as e:
+            raise RESTClientRetryableError(
+                self._redact(f"Auth request failed ({type(e).__name__}) while preparing {_safe_url(request.url or '')}")
+            ) from e
         # Fail loud on a pagination/resume URL that points off the expected host before the
         # request (and its Authorization header) ever leaves the process. Raised outside the
         # retryable-error type so it propagates immediately rather than being retried.

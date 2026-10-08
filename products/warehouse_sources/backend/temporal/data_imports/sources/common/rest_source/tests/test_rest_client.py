@@ -646,6 +646,27 @@ class TestRESTClient:
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
     )
+    def test_send_request_retries_auth_token_mint_timeout_then_succeeds(self, MockSession, mock_sleep) -> None:
+        # An OAuth2 auth mints its token inside `prepare_request`, so a stalled token endpoint raises there.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.side_effect = [
+            ReadTimeout("Read timed out."),
+            MagicMock(url="https://api.example.com/items"),
+        ]
+        mock_session.send.return_value = _make_response({"results": [{"id": 1}]})
+
+        client = RESTClient(base_url="https://api.example.com")
+        pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
+
+        assert pages == [[{"id": 1}]]
+        assert mock_session.prepare_request.call_count == 2
+        assert mock_session.send.call_count == 1
+
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
     def test_request_timeout_is_passed_to_session_send(self, MockSession, mock_sleep) -> None:
         # The configured timeout must reach `session.send` — without it a stalled host holds the
         # import worker forever, the vulnerability this bound closes.
