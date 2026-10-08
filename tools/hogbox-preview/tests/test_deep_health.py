@@ -20,6 +20,7 @@ sibling tests.
 
 from __future__ import annotations
 
+import re
 from contextlib import ExitStack
 
 import unittest
@@ -190,6 +191,17 @@ class OverrideTemporalParityTest(unittest.TestCase):
         script = backend.long_runs[-1]
         self.assertIn("register_temporal_search_attributes", script)
         self.assertIn("WARN", script)  # non-fatal fallthrough, not a bare run
+
+    def test_migrate_applies_the_prs_cyclotron_node_migrations_tolerantly(self):
+        backend = _RecordingBackend()
+        stack = PostHogPreviewStack(backend)
+        stack.write_override()
+        stack.migrate()
+        override = backend.files[f"{stack.repo_dir}/{stack.OVERRIDE}"]
+        migrate_block = re.split(r"\n  \S", override.split("  cyclotron-node-migrate:", 1)[1], maxsplit=1)[0]
+        self.assertIn("./rust/cyclotron-node-migrations:/migrations/cyclotron-node-migrations:ro", migrate_block)
+        script = next(run for run in backend.long_runs if "cyclotron-node-migrate" in run)
+        self.assertIn("WARN", script)
 
     def test_reset_database_recreates_temporal(self):
         # The wiped postgres volume held temporal's DBs, and only temporal's
