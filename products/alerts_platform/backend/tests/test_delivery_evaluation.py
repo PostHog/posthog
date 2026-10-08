@@ -108,7 +108,11 @@ def _transition(kind: AlertEventKind, grouping_key: str = "") -> AnnouncedTransi
 
 def _announcement(*transitions: AnnouncedTransition) -> EvaluationAnnouncement:
     return EvaluationAnnouncement(
-        configuration_id="cfg-1", alert_name="API errors", consecutive_failures=0, transitions=transitions
+        source=SourceKind.LOGS,
+        configuration_id="cfg-1",
+        alert_name="API errors",
+        consecutive_failures=0,
+        transitions=transitions,
     )
 
 
@@ -164,8 +168,8 @@ class TestDeliverEvaluation(APIBaseTest):
         self._run(announced, {FIRING_EVENT: [_group(fires_only)], RESOLVED_EVENT: [_group(resolves_only)]})
 
         assert sorted((channel, m.headline) for channel, m in RecordingTransport.sends) == [
-            ("C-fires", "API errors is firing"),
-            ("C-resolves", "API errors is resolved"),
+            ("C-fires", "Log alert 'API errors' is firing"),
+            ("C-resolves", "Log alert 'API errors' is resolved"),
         ]
 
     def test_a_destination_subscribed_to_both_hears_about_both(self) -> None:
@@ -177,8 +181,8 @@ class TestDeliverEvaluation(APIBaseTest):
         self._run(announced, {FIRING_EVENT: [_group(SLACK)], RESOLVED_EVENT: [_group(SLACK)]})
 
         assert sorted(m.headline for _, m in RecordingTransport.sends) == [
-            "API errors is firing",
-            "API errors is resolved",
+            "Log alert 'API errors' is firing",
+            "Log alert 'API errors' is resolved",
         ]
 
     def test_a_delivery_that_exists_only_for_its_incident_sends_no_message(self) -> None:
@@ -196,7 +200,13 @@ class TestDeliverEvaluation(APIBaseTest):
         [
             # Cooldown held the resolve, so chat hears nothing and the incident still closes.
             ("a_held_resolve", AlertEventKind.CHECK, False, IncidentAction.RESOLVE, []),
-            ("an_announced_fire", AlertEventKind.FIRING, True, IncidentAction.TRIGGER, ["API errors is firing"]),
+            (
+                "an_announced_fire",
+                AlertEventKind.FIRING,
+                True,
+                IncidentAction.TRIGGER,
+                ["Log alert 'API errors' is firing"],
+            ),
         ]
     )
     def test_an_incident_action_reaches_only_the_incident_subscription(

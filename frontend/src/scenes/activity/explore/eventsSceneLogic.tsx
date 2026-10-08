@@ -10,6 +10,7 @@ import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { applyTestAccountFilter, getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import {
+    FEATURE_FLAG_CALLED_EVENT,
     reachesPastFlagEvaluationsRetention,
     readsFlagEvaluationsTable,
 } from 'scenes/feature-flags/featureFlagUsageQueries'
@@ -29,7 +30,6 @@ import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../types'
 
 const FLAG_EVALUATIONS_ONLY_MODE = FlagEvaluationsModeEnumApi.Number2
-const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'
 
 export type FlagCallsNote = 'stored-separately' | 'retention'
 
