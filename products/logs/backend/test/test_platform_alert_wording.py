@@ -36,6 +36,13 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
             ("firing", AlertEventKind.FIRING, 11.0, "Threshold breached", "11 logs in 10m (threshold: above 10)"),
             ("resolved", AlertEventKind.RESOLVED, 3.0, "Current count", "3 logs in 10m (threshold: above 10)"),
             ("held_check", AlertEventKind.CHECK, 1.0, "Count", "1 log in 10m (threshold: above 10)"),
+            (
+                "large_count",
+                AlertEventKind.FIRING,
+                1_250_000.0,
+                "Threshold breached",
+                "1,250,000 logs in 10m (threshold: above 10)",
+            ),
         ]
     )
     def test_a_transition_reads_as_a_count_of_logs(

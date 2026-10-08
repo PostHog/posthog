@@ -42,7 +42,9 @@ def _details(transition: AnnouncedTransition) -> tuple[MessageDetail, ...]:
     if transition.value is None:
         return ()
     condition = transition.condition
-    count = f"{transition.value:g}"
+    # A count of logs is a whole number, and `:g` would print a million as "1e+06".
+    value = transition.value
+    count = f"{value:,.0f}" if value.is_integer() else f"{value:g}"
     noun = "log" if count == "1" else "logs"
     summary = (
         f"{count} {noun} in {condition['window_minutes']}m "
