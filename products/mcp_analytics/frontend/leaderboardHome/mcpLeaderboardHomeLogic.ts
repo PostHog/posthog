@@ -165,9 +165,9 @@ export interface mcpLeaderboardHomeLogicValues {
     leaderboardLoading: boolean
     modelSeries: ShareSeries[]
     protocolVersionSeries: ShareSeries[]
+    reliabilityFailed: boolean
     reliabilityRows: ReliabilityRow[]
     reliabilityRowsLoading: boolean
-    reliabilityFailed: boolean
     reliabilitySeries: ReliabilitySeries
     scoreboardMetric: ScoreboardMetric
     scoreboardShares: LabShare[]
