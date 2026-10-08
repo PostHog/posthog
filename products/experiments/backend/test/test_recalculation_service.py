@@ -5,6 +5,7 @@ import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -151,6 +152,24 @@ class TestRecalculationService(BaseTest):
         assert exc_info.value.wait is not None
         assert 170 <= exc_info.value.wait <= 180
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
+
+    @override_settings(DEBUG=True, TEST=False)
+    @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=True)
+    def test_request_recalculation_skips_the_refresh_window_in_local_development(self, _mock_flag):
+        exp = self._launched_experiment(flag_key="window-debug")
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="completed",
+            trigger="manual",
+            query_to=timezone.now() - timedelta(days=1),
+            completed_at=timezone.now() - timedelta(minutes=2),
+        )
+
+        result = request_recalculation(exp, self.user, "manual")
+
+        assert result["is_existing"] is False
+        assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 2
 
     @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=False)
     def test_request_recalculation_skips_the_refresh_window_when_the_flag_is_off(self, _mock_flag):

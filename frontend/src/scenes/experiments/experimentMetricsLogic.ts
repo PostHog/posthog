@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { FeatureFlagsSet } from '~/lib/logic/featureFlagLogic'
@@ -220,6 +221,7 @@ const resolveErrorByUuid = (recalculation: RecalculationPayload): ResolveByUuid<
 export interface experimentMetricsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
+    isDev: boolean | undefined // preflightLogic
     currentProjectId: number | null // projectLogic
     backendEnforcesRefreshWindow: boolean
     currentRecalculation: RecalculationPayload | null
@@ -313,7 +315,11 @@ export interface experimentMetricsLogicMeta {
         totalMetricsCount: (arg: any) => number
         lastRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
         nextAllowedManualRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
-        isManualRefreshBlocked: (nextAllowedManualRefresh: string | null, refreshEligibilityTick: number) => boolean
+        isManualRefreshBlocked: (
+            nextAllowedManualRefresh: string | null,
+            refreshEligibilityTick: number,
+            isDev: any
+        ) => boolean
         metricRetries: (currentRecalculation: RecalculationPayload | null) => Record<string, MetricRetryInfo>
         nextRetryAt: (metricRetries: Record<string, MetricRetryInfo>) => string | null
         recalculationDisplayState: (
@@ -336,7 +342,14 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
     key((props) => props.experiment.id),
     path((key) => ['scenes', 'experiment', 'experimentMetricsLogic', String(key)]),
     connect(() => ({
-        values: [projectLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags', 'receivedFeatureFlags']],
+        values: [
+            projectLogic,
+            ['currentProjectId'],
+            featureFlagLogic,
+            ['featureFlags', 'receivedFeatureFlags'],
+            preflightLogic,
+            ['isDev'],
+        ],
         actions: [featureFlagLogic, ['setFeatureFlags']],
     })),
     actions({
@@ -477,10 +490,11 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     : null,
         ],
         isManualRefreshBlocked: [
-            (s) => [s.nextAllowedManualRefresh, s.refreshEligibilityTick],
+            (s) => [s.nextAllowedManualRefresh, s.refreshEligibilityTick, s.isDev],
             // State for the reload button only. The backend is the gate: it answers 429 inside the window.
-            (nextAllowedManualRefresh: string | null, _tick: number): boolean =>
-                !!nextAllowedManualRefresh && dayjs(nextAllowedManualRefresh).isAfter(dayjs()),
+            // Local development skips the window, as the backend does, so a developer can reload at will.
+            (nextAllowedManualRefresh: string | null, _tick: number, isDev: boolean | undefined): boolean =>
+                !isDev && !!nextAllowedManualRefresh && dayjs(nextAllowedManualRefresh).isAfter(dayjs()),
         ],
         metricRetries: [
             (s) => [s.currentRecalculation],

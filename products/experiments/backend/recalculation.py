@@ -312,6 +312,9 @@ def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
 
 
 def _refresh_window_enforced(experiment: Experiment) -> bool:
+    # Local development skips the window so a developer can reload at will. Tests keep it, because they assert it.
+    if settings.DEBUG and not settings.TEST:
+        return False
     organization_id = str(experiment.team.organization_id)
     # Evaluated locally: this sits on the POST path, and a miss would otherwise block the request on a call
     # to /flags. The flag has to target the organization id sent here, or it reads false for everyone.
