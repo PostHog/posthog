@@ -29,7 +29,7 @@ function suggestionItem(
                 </span>
             </div>
         ),
-        icon:
+        sideIcon:
             openingId === suggestion.id ? (
                 <Spinner />
             ) : created ? (
