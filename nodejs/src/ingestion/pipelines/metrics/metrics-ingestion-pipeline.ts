@@ -10,7 +10,7 @@ import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { aggregateKafkaDebugContexts, createBatch } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 
-import { createDecodeMetricsPacketStep, fanInMetricRecords, fanOutMetricRecords } from './decode-metrics-packet-step'
+import { createDecodeMetricsPacketStep } from './decode-metrics-packet-step'
 import { createDropQuotaLimitedStep } from './drop-quota-limited-step'
 import { MetricsUsageBatchContext } from './metrics-usage'
 import {
@@ -52,10 +52,9 @@ export type MetricsIngestionPipeline = BatchingPipeline<
  * 1. Per message, concurrently: read headers, resolve the team, tally what was
  *    received, drop quota-limited teams.
  * 2. Whole batch: one Redis round trip for the token-bucket rate limit.
- * 3. Per message, concurrently: decode the Avro packet, fan its rows out
- *    through the (currently pass-through) per-record sub-pipeline and back in.
- * 4. Per team: merge the batch's packets into as few output packets as the
- *    caps allow, encode and produce them to ClickHouse.
+ * 3. Per message, concurrently: decode the Avro packet into its rows.
+ * 4. Per team: merge the batch's rows into as few output packets as the caps
+ *    allow, encode and produce them to ClickHouse.
  * 5. After the batch: emit Prometheus counters and billing rows from the tally.
  */
 export function createMetricsIngestionPipeline(config: MetricsIngestionPipelineConfig): MetricsIngestionPipeline {
@@ -87,9 +86,6 @@ export function createMetricsIngestionPipeline(config: MetricsIngestionPipelineC
                         .gather()
                         .pipeChunk(createRateLimitMetricsStep(rateLimiter))
                         .concurrently((b) => b.pipe(createDecodeMetricsPacketStep()))
-                        .fanOut(fanOutMetricRecords)
-                        .via((sub) => sub)
-                        .fanIn(fanInMetricRecords)
                         // The whole batch must be in one chunk for a team's packets to meet in one group.
                         .gather()
                         .concurrentlyPerGroup(metricsRepackGroupKey, (group) =>
