@@ -54,6 +54,7 @@ from posthog.api.tagged_item import (
     current_tag_names,
     normalize_tag_names,
     resolve_bulk_tags,
+    stored_tag_names,
 )
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, ServiceRequest, action
 from posthog.auth import (
@@ -3953,8 +3954,11 @@ class FeatureFlagViewSet(
         normalized_tags = normalize_tag_names(tags)
         # Normalize the resolved set: a flag left holding only a blank tag row keeps no real tag,
         # so the edit has to be rejected the same way an empty result is.
+        # Read the stored tags, not the tags loaded with each flag. A remove deletes only the named
+        # tags from the stored rows, so a tag that another request attached or removed after the
+        # load decides whether the flag keeps a tag.
         if any(
-            not normalize_tag_names(resolve_bulk_tags(current_tag_names(flag), tag_action, normalized_tags))
+            not normalize_tag_names(resolve_bulk_tags(stored_tag_names(flag), tag_action, normalized_tags))
             for flag in objects
         ):
             raise serializers.ValidationError({"tags": REQUIRE_TAGS_ON_UPDATE_ERROR})

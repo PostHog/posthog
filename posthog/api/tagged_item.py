@@ -91,6 +91,11 @@ def current_tag_names(obj: Any) -> set[str]:
     return {tagged_item.tag.name for tagged_item in tagged_items}
 
 
+def stored_tag_names(obj: Any) -> set[str]:
+    """The object's tags as the database holds them now, ignoring any ``prefetched_tags`` snapshot."""
+    return {tagged_item.tag.name for tagged_item in obj.tagged_items.select_related("tag")}
+
+
 def resolve_bulk_tags(current_tags: set[str], tag_action: str, normalized_tags: set[str]) -> set[str]:
     """The tags an object ends up with after an add/remove/set bulk mutation."""
     if tag_action == "add":
@@ -153,7 +158,7 @@ def apply_bulk_tag_changes(
             # attached after the objects were loaded. The before side of the activity diff comes
             # from the database for the same reason, because the after side is read live and a
             # stale before side would credit this request with the other request's change.
-            current_tags = {tagged_item.tag.name for tagged_item in obj.tagged_items.select_related("tag")}
+            current_tags = stored_tag_names(obj)
             write_tags = add_tags_to_object if tag_action == "add" else remove_tags_from_object
             new_tags = {tagged_item.tag.name for tagged_item in write_tags(tags, obj)}
         updated.append({"id": obj.id, "tags": sorted(new_tags)})
