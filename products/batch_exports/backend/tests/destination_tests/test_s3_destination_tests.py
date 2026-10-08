@@ -131,12 +131,8 @@ def test_get_destination_test_resolves_s3_family(destination, expected_test, exp
     assert [type(step) for step in destination_test.steps] == expected_steps
 
 
-def test_aws_s3_destination_test_builds_steps_without_integration():
-    """AwsS3 configured with inline credentials (no integration) must not raise.
-
-    Its steps reference `organization_id` and each step needs an initialized
-    `result`, so building the steps and reading each result exercises both.
-    """
+def test_aws_s3_destination_test_builds_steps_without_integration() -> None:
+    # The AwsS3 steps read organization_id, which an inline-credential config never sets.
     destination_test = AwsS3DestinationTest()
     destination_test.configure(bucket_name="b", region="us-east-1", aws_access_key_id="a", aws_secret_access_key="s")
 

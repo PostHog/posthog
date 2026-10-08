@@ -48,7 +48,7 @@ def test_can_get_test_for_destination(client: HttpClient, destination: str, orga
     assert all("name" in step and "description" in step for step in destination_test["steps"])
 
 
-def test_get_test_for_destination_without_a_test_is_not_found(client: HttpClient, organization, team, user):
+def test_get_test_for_destination_without_a_test_is_not_found(client: HttpClient, organization, team, user) -> None:
     client.force_login(user)
 
     response = client.get(f"/api/projects/{team.pk}/batch_exports/test", {"destination": "Postgres"})
@@ -56,7 +56,7 @@ def test_get_test_for_destination_without_a_test_is_not_found(client: HttpClient
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-def test_run_test_step_for_destination_without_a_test_is_rejected(client: HttpClient, organization, team, user):
+def test_run_test_step_for_destination_without_a_test_is_rejected(client: HttpClient, organization, team, user) -> None:
     client.force_login(user)
 
     response = client.post(
