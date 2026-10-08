@@ -17,6 +17,7 @@ from django_filters import BooleanFilter, FilterSet
 from products.workflows.backend.facade.contracts import (
     Workflow,
     WorkflowAccessDenied,
+    WorkflowArchived,
     WorkflowEditState,
     WorkflowListFilterError,
     WorkflowListFiltersInvalid,
@@ -88,23 +89,22 @@ def get_workflow_edit_state(
     return to_edit_state(flow)
 
 
-def get_team_workflow_edit_state(*, team_id: int, workflow_id: UUID | str) -> WorkflowEditState:
-    """The team's workflow for an edit made outside a request, with no access check."""
+def get_team_workflow_edit_state(
+    *, team_id: int, workflow_id: UUID | str, user_access_control: "UserAccessControl", required_level: str
+) -> WorkflowEditState:
+    """The team's workflow for an edit made outside a request, read once for the archived and access checks.
+    An archived workflow raises WorkflowArchived before the access check, so every caller gets the same answer."""
     try:
         flow = HogFlow.objects.select_related("created_by").get(team_id=team_id, pk=workflow_id)
     except (HogFlow.DoesNotExist, ValidationError, ValueError):
         raise WorkflowNotFound()
-    return to_edit_state(flow)
-
-
-def check_workflow_access(
-    *, team_id: int, workflow_id: UUID | str, user_access_control: "UserAccessControl", required_level: str
-) -> bool:
-    """Whether the user's access level for the team's workflow is at least `required_level`."""
-    flow = HogFlow.objects.get(team_id=team_id, pk=workflow_id)
-    return user_access_control.check_access_level_for_object(
+    if flow.status == HogFlow.State.ARCHIVED:
+        raise WorkflowArchived()
+    if not user_access_control.check_access_level_for_object(
         flow, required_level=cast("AccessControlLevel", required_level)
-    )
+    ):
+        raise WorkflowAccessDenied(required_level)
+    return to_edit_state(flow)
 
 
 def to_edit_state(flow: HogFlow) -> WorkflowEditState:

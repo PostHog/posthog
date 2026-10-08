@@ -139,7 +139,6 @@ from products.workflows.backend.facade.contracts import (
     Workflow,
     WorkflowAccessDenied,
     WorkflowActor,
-    WorkflowArchived,
     WorkflowBatchJobNotFound,
     WorkflowDraftChanged,
     WorkflowDraftExists,
@@ -230,7 +229,6 @@ from products.workflows.backend.facade.workflows import (
     BROADCAST_STATUSES,
     WORKFLOW_FIELD_FILTER_PARAMS,
     WORKFLOW_TYPES,
-    check_workflow_access,
     get_team_workflow_edit_state,
     get_workflow,
     get_workflow_edit_state,
@@ -3120,15 +3118,11 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: uuid_mod.UU
     Enabling validates the whole workflow the way an API activation does, so it lives with
     the serializer rather than behind the facade.
     """
-    hog_flow = get_team_workflow_edit_state(team_id=team_id, workflow_id=workflow_id)
-    if hog_flow.status == HogFlow.State.ARCHIVED:
-        raise WorkflowArchived()
     team = Team.objects.get(id=team_id)
     user_access_control = UserAccessControl(user=User.objects.get(id=user_id), team=team)
-    if not check_workflow_access(
-        team_id=team_id, workflow_id=hog_flow.id, user_access_control=user_access_control, required_level="editor"
-    ):
-        raise WorkflowAccessDenied("editor")
+    hog_flow = get_team_workflow_edit_state(
+        team_id=team_id, workflow_id=workflow_id, user_access_control=user_access_control, required_level="editor"
+    )
     target = HogFlow.State.ACTIVE if enabled else HogFlow.State.DRAFT
     if hog_flow.status != target:
         validated_data: dict[str, Any] = {"status": target}
