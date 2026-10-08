@@ -203,9 +203,9 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         None,                                          // overflow_limiter
         options.ai_events_overflow_limiter,
         options.ai_byte_rate_limiter,
-        None, // replay_overflow_limiter
-        None, // v1_sink_router
-        8,    // capture_v1_scatter_gather_min_batch
+        None,  // replay_overflow_limiter
+        false, // capture_v1_enabled
+        8,     // capture_v1_scatter_gather_min_batch
         options.ai_gateway_signing_secret,
         true,                              // ai_events_overflow_enabled
         options.ingestion_warning_emitter, // ingestion_warning_emitter

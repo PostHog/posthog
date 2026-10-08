@@ -108,9 +108,6 @@ pub struct State {
     /// the kafka sink can route to the replay overflow topic. Same rationale
     /// as `overflow_limiter` above.
     pub replay_overflow_limiter: Option<Arc<RedisLimiter>>,
-    /// V1 sink router for the new capture analytics pipeline.
-    /// When present, the v1 analytics handler publishes events through this.
-    pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     /// Whether the AI overflow valve is armed (`CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC` is
     /// set). Gates overflow stamping for the AI lane in both pipelines: when
     /// false, AI events never overflow (pre-overflow behavior).
@@ -194,7 +191,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
-    v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
+    capture_v1_enabled: bool,
     capture_v1_scatter_gather_min_batch: usize,
     ai_gateway_signing_secret: Option<String>,
     ai_events_overflow_enabled: bool,
@@ -225,7 +222,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         ai_events_overflow_limiter,
         ai_byte_rate_limiter,
         replay_overflow_limiter,
-        v1_sink_router,
         capture_v1_scatter_gather_min_batch,
         ai_gateway_signing_secret,
         ai_events_overflow_enabled,
@@ -461,11 +457,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // scoped to v0/status routes; v1 ships its own policy.
     router = router.layer(cors);
 
-    // The v1 endpoints are only routable when a v1 sink is configured.
-    // Without a sink the handler can't publish, so we keep the paths
-    // unregistered (404) rather than advertising endpoints that can only
-    // ever return 503. This also isolates the routes to deployments that
-    // opt in via CAPTURE_V1_SINKS.
+    // The v1 endpoints are only routable on deployments that opt in via
+    // CAPTURE_V1_ENABLED; elsewhere the paths stay unregistered (404).
     //
     // Merged after every legacy layer above: the v1 router owns its full
     // middleware stack (CORS, limits) and applies the same per-route
@@ -489,7 +482,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         CaptureMode::Ai => true,
         CaptureMode::Events | CaptureMode::Import | CaptureMode::Recordings => false,
     };
-    if (serves_v1_analytics || serves_v1_ai_events) && state.v1_sink_router.is_some() {
+    if capture_v1_enabled && (serves_v1_analytics || serves_v1_ai_events) {
         router = router.merge(crate::v1::router::router(crate::v1::router::RouterConfig {
             concurrency_limit,
             max_compressed_body_bytes: state.capture_v1_max_compressed_body_bytes,

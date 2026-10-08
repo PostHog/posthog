@@ -386,15 +386,7 @@ services:
             REDIS_URL: 'redis://redis7:6379/'
             CAPTURE_MODE: events
             RUST_LOG: 'info,rdkafka=warn'
-            CAPTURE_V1_SINKS: 'msk'
-            CAPTURE_V1_SINK_MSK_KAFKA_HOSTS: 'kafka:9092'
-            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_MAIN: 'events_plugin_ingestion'
-            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HISTORICAL: 'events_plugin_ingestion_historical'
-            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_OVERFLOW: 'events_plugin_ingestion_overflow'
-            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_DLQ: 'events_plugin_ingestion_dlq'
-            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_EXCEPTION: 'ingestion-errortracking-main'
-            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HEATMAP: 'heatmaps_ingestion'
-            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_CLIENT_INGESTION_WARNING: 'ingestion-clientwarnings-main-1'
+            CAPTURE_V1_ENABLED: 'true'
 
     replay-capture:
         image: ghcr.io/posthog/posthog/capture:master
@@ -430,17 +422,8 @@ services:
             # matching the production capture-ai deployment.
             CAPTURE_MODE: ai
             RUST_LOG: 'info,rdkafka=warn'
-            # v1 sink for `/i/v1/ai/events` (Django's capture_ai_internal). The sink config
-            # requires every topic var; `ai` mode only produces to the AI topic.
-            CAPTURE_V1_SINKS: 'msk'
-            CAPTURE_V1_SINK_MSK_KAFKA_HOSTS: 'kafka:9092'
-            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_MAIN: 'events_plugin_ingestion_ai'
-            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HISTORICAL: 'events_plugin_ingestion_ai'
-            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_OVERFLOW: 'events_plugin_ingestion_ai'
-            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_DLQ: 'events_plugin_ingestion_dlq'
-            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_EXCEPTION: 'ingestion-errortracking-main'
-            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HEATMAP: 'heatmaps_ingestion'
-            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_CLIENT_INGESTION_WARNING: 'ingestion-clientwarnings-main-1'
+            # `/i/v1/ai/events` (Django's capture_ai_internal).
+            CAPTURE_V1_ENABLED: 'true'
 
     capture-logs:
         image: ghcr.io/posthog/posthog/capture-logs:master

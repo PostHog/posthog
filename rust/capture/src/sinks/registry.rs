@@ -196,7 +196,7 @@ impl<R> OutputTable<R> {
         }
     }
 
-    pub(crate) fn map_producers<T>(&self, mut f: impl FnMut(&R) -> T) -> OutputTable<T> {
+    pub fn map_producers<T>(&self, mut f: impl FnMut(&R) -> T) -> OutputTable<T> {
         let custom_producer = f(&self.custom_producer);
         let mut target = |t: &OutputTarget<R>| OutputTarget {
             topic: Arc::clone(&t.topic),

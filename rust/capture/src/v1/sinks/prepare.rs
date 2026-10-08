@@ -1,10 +1,9 @@
 //! Hoisted, CaptureMode-agnostic serialize step.
 //!
-//! `serialize_batch` turns a batch of [`Event`]s into [`PreparedEvent`]s
-//! (owned, storage-agnostic) before any [`Sink`](super::sink::Sink) sees them.
-//! Pulling serialization out of the Sink lets every capture mode (analytics,
-//! replay, AI) share one CPU-bound step and enables serialize-once /
-//! fan-out-to-many-sinks for dual-write topologies.
+//! `serialize_batch` turns a batch of [`Event`]s into the outputs layer's
+//! [`PreparedEvent`]s (owned, addressed, storage-agnostic), which
+//! `OutputRegistry::publish_prepared` takes. Every capture mode (analytics,
+//! replay, AI) shares this one CPU-bound step.
 //!
 //! Small batches serialize sequentially; large batches scatter across tokio
 //! tasks and gather back in input order. Per-event panics are isolated so one
@@ -19,27 +18,27 @@ use tokio::task::JoinSet;
 use tracing::Level;
 use uuid::Uuid;
 
+use crate::outputs::PreparedEvent;
 use crate::v1::constants::{
     CAPTURE_V1_SERIALIZE_DURATION_SECONDS, CAPTURE_V1_SERIALIZE_FAILED_TOTAL,
     CAPTURE_V1_SERIALIZE_PANIC_TOTAL,
 };
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event;
-use crate::v1::sinks::types::{PreparedEvent, SerializationFailure, SinkResult};
+use crate::v1::sinks::types::SerializationFailure;
 
 /// Default scatter-gather threshold; overridden by `CAPTURE_V1_SCATTER_GATHER_MIN_BATCH`.
 pub const DEFAULT_SCATTER_GATHER_MIN_BATCH: usize = 8;
 
 /// Outcome of the serialize step: events ready to publish (input order) plus
-/// per-event failures, each already a `SinkResult` so the caller can merge them
-/// straight into the batch's result set.
+/// per-event failures.
 pub struct SerializedBatch {
     pub prepared: Vec<PreparedEvent>,
-    pub failures: Vec<Box<dyn SinkResult>>,
+    pub failures: Vec<SerializationFailure>,
 }
 
-/// Per-event result before aggregation. `Skipped` mirrors the Sink's existing
-/// behavior of silently dropping `should_publish() == false` events.
+/// Per-event result before aggregation. `Skipped` is an event that is not
+/// published (`should_publish() == false`), which gets no result.
 // Prepared is the hot, dominant variant and is immediately drained into a
 // Vec<PreparedEvent>; boxing it just to even out variant sizes would add a
 // heap allocation per successful event.
@@ -56,10 +55,13 @@ fn prepare_one<E: Event>(ev: &E, ctx: &RequestContext) -> anyhow::Result<Option<
     if !ev.should_publish() {
         return Ok(None);
     }
+    let Some(address) = ev.destination().address() else {
+        return Ok(None);
+    };
     let payload = ev.serialize(ctx)?;
     Ok(Some(PreparedEvent {
         uuid: ev.uuid(),
-        destination: ev.destination().clone(),
+        address,
         payload,
         headers: ev.headers(ctx),
         partition_key: ev.partition_key(ctx),
@@ -142,7 +144,7 @@ where
     };
 
     let mut prepared = Vec::with_capacity(n);
-    let mut failures: Vec<Box<dyn SinkResult>> = Vec::new();
+    let mut failures: Vec<SerializationFailure> = Vec::new();
     let mut failed_count = 0u64;
     let mut panic_count = 0u64;
     for slot in slots {
@@ -164,7 +166,7 @@ where
                     );
                     failed_count += 1;
                 }
-                failures.push(Box::new(f));
+                failures.push(f);
             }
         }
     }
@@ -199,7 +201,8 @@ mod tests {
 
     use super::*;
     use crate::ordering::OrderingGuarantee;
-    use crate::v1::sinks::types::{Destination, Outcome};
+    use crate::pipeline::{Address, Lane, Pipeline};
+    use crate::v1::sinks::types::Destination;
     use crate::v1::test_utils::test_context;
 
     fn empty_captured_headers() -> CapturedEventHeaders {
@@ -318,7 +321,13 @@ mod tests {
         for (i, prepared) in out.prepared.iter().enumerate() {
             assert_eq!(prepared.payload.as_ref(), format!("payload-{i}").as_bytes());
             assert_eq!(prepared.partition_key, format!("key-{i}"));
-            assert_eq!(prepared.destination, Destination::AnalyticsMain);
+            assert_eq!(
+                prepared.address,
+                Address::Lane {
+                    pipeline: Pipeline::Analytics,
+                    lane: Lane::Main
+                }
+            );
         }
     }
 
@@ -351,7 +360,7 @@ mod tests {
     }
 
     /// A serialize error is isolated: the good events still come through and the
-    /// failure surfaces as a fatal, non-retriable `SinkResult`.
+    /// failure surfaces as a `serialization_failed` failure.
     #[rstest]
     #[case::sequential(3)]
     #[case::parallel(16)]
@@ -369,10 +378,8 @@ mod tests {
         assert_eq!(out.prepared.len(), n - 1);
         assert_eq!(out.failures.len(), 1);
         let failure = &out.failures[0];
-        assert_eq!(failure.key(), bad_uuid);
-        assert_eq!(failure.outcome(), Outcome::FatalError);
-        assert_eq!(failure.cause(), Some("serialization_failed"));
-        assert!(failure.elapsed().is_none());
+        assert_eq!(failure.uuid(), bad_uuid);
+        assert_eq!(failure.cause(), "serialization_failed");
     }
 
     /// A panicking `serialize` is caught: the rest of the batch is unaffected
@@ -391,8 +398,7 @@ mod tests {
         assert_eq!(events.len(), n);
         assert_eq!(out.prepared.len(), n - 1);
         assert_eq!(out.failures.len(), 1);
-        assert_eq!(out.failures[0].cause(), Some("serialization_panic"));
-        assert_eq!(out.failures[0].outcome(), Outcome::FatalError);
+        assert_eq!(out.failures[0].cause(), "serialization_panic");
     }
 
     /// Panic failures preserve the correct event UUID (not nil).
@@ -410,8 +416,8 @@ mod tests {
         let (_events, out) = serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
         assert_eq!(out.failures.len(), 1);
-        assert_eq!(out.failures[0].key(), panic_uuid);
-        assert_eq!(out.failures[0].cause(), Some("serialization_panic"));
+        assert_eq!(out.failures[0].uuid(), panic_uuid);
+        assert_eq!(out.failures[0].cause(), "serialization_panic");
     }
 
     #[tokio::test]

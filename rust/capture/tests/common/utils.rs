@@ -146,7 +146,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
     continuous_profiling: ContinuousProfilingConfig::default(),
-    capture_v1_sinks: String::new(),
+    capture_v1_enabled: false,
     capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
     capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
     capture_v1_scatter_gather_min_batch: 8,
@@ -163,27 +163,21 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     ai_byte_limit_local_cache_max_entries: 300_000,
 });
 
-/// Build the per-sink env snapshot the v1 sink loader expects, with every
-/// topic pointing at a single (ephemeral) topic. Mirrors the env layout from
-/// `v1::sinks::load_sink_config`: keys are `CAPTURE_V1_SINK_<NAME>_KAFKA_*`.
-pub fn v1_sink_env_for_topic(sink: &str, topic: &str) -> HashMap<String, String> {
-    let prefix = format!("CAPTURE_V1_SINK_{}_", sink.to_uppercase());
-    [
-        ("KAFKA_HOSTS", TEST_KAFKA_HOSTS),
-        ("KAFKA_TOPIC_MAIN", topic),
-        ("KAFKA_TOPIC_HISTORICAL", topic),
-        ("KAFKA_TOPIC_OVERFLOW", topic),
-        ("KAFKA_TOPIC_DLQ", topic),
-        ("KAFKA_TOPIC_EXCEPTION", topic),
-        ("KAFKA_TOPIC_HEATMAP", topic),
-        ("KAFKA_TOPIC_CLIENT_INGESTION_WARNING", topic),
-        ("KAFKA_LINGER_MS", "0"),
-        ("KAFKA_COMPRESSION_CODEC", "none"),
-        ("KAFKA_MESSAGE_TIMEOUT_MS", "10000"),
-    ]
-    .into_iter()
-    .map(|(k, v)| (format!("{prefix}{k}"), v.to_string()))
-    .collect()
+/// Points every non-AI output at one (ephemeral) topic, so a consumer of that
+/// topic sees whichever lane the v1 pipeline picks.
+pub fn point_outputs_at(config: &mut Config, topic: &str) {
+    let outputs = &mut config.outputs;
+    for field in [
+        &mut outputs.analytics_main_topic,
+        &mut outputs.analytics_historical_topic,
+        &mut outputs.analytics_overflow_topic,
+        &mut outputs.dlq_topic,
+        &mut outputs.error_tracking_topic,
+        &mut outputs.heatmaps_topic,
+        &mut outputs.client_warnings_topic,
+    ] {
+        *field = topic.to_string();
+    }
 }
 
 static TRACING_INIT: Once = Once::new();
@@ -250,16 +244,14 @@ impl ServerHandle {
         Self::for_config(config).await
     }
 
-    /// Boots a server with the v1 analytics pipeline enabled: a single `msk`
-    /// sink whose topics all point at `topic`, injected via a deterministic env
-    /// snapshot (no global `std::env` mutation, so parallel tests don't race on
-    /// distinct ephemeral topics). The v1 route is merged because
-    /// `v1_sink_router` ends up `Some`.
+    /// Boots a server with the v1 endpoints enabled and every non-AI output
+    /// pointed at `topic`. The topics live on the config rather than in
+    /// `std::env`, so parallel tests don't race on distinct ephemeral topics.
     pub async fn for_v1_topic(topic: &EphemeralTopic) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
-        config.capture_v1_sinks = "msk".to_string();
-        let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
-        Self::for_config_with_sink_env(config, sink_env).await
+        config.capture_v1_enabled = true;
+        point_outputs_at(&mut config, topic.topic_name());
+        Self::for_config(config).await
     }
 
     /// Like `for_v1_topic`, with the synthetic ingestion warnings emitter
@@ -271,27 +263,27 @@ impl ServerHandle {
         warnings_topic: &EphemeralTopic,
     ) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
-        config.capture_v1_sinks = "msk".to_string();
+        config.capture_v1_enabled = true;
+        point_outputs_at(&mut config, topic.topic_name());
         config.capture_ingestion_warnings_enabled = true;
         // The emitter reads only its own dedicated config now (no v0 KAFKA_*
         // fallback), so point it at the same ephemeral broker as the main sink.
         config.capture_ingestion_warnings_kafka_hosts = TEST_KAFKA_HOSTS.to_string();
         config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
-        let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
-        Self::for_config_with_sink_env(config, sink_env).await
+        Self::for_config(config).await
     }
 
     /// Like `for_v1_topic`, with the AI-gateway signing secret configured so the
     /// provenance check runs.
     pub async fn for_v1_topic_with_signing_secret(topic: &EphemeralTopic, secret: &str) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
-        config.capture_v1_sinks = "msk".to_string();
+        config.capture_v1_enabled = true;
+        point_outputs_at(&mut config, topic.topic_name());
         config.ai_gateway_signing_secret = Some(secret.to_string());
         // The gateway tests send AI events, which route to the AI topic;
         // point it at the same ephemeral topic so the consumer sees them.
         config.outputs.ai_main_topic = topic.topic_name().to_string();
-        let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
-        Self::for_config_with_sink_env(config, sink_env).await
+        Self::for_config(config).await
     }
 
     pub async fn for_config(config: Config) -> Self {
