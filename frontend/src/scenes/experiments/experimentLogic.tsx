@@ -294,17 +294,36 @@ export function getSectionMetricUuids(experiment: Experiment, isSecondary: boole
     return [...inlineMetrics.map((metric) => metric.uuid), ...sharedMetrics.map(({ query }) => query?.uuid)]
 }
 
+interface MetricLocation {
+    kind: 'shared' | 'inline'
+    isPrimary: boolean
+    /** Position in `saved_metrics` for a shared metric, and in `metrics` or `metrics_secondary` for an inline one. */
+    index: number
+}
+
+function locateMetric(experiment: Experiment, uuid: string): MetricLocation | null {
+    const savedMetrics: ExperimentSavedMetric[] = experiment.saved_metrics || []
+    const sharedIndex = savedMetrics.findIndex(({ query }) => query?.uuid === uuid)
+    if (sharedIndex !== -1) {
+        return { kind: 'shared', isPrimary: savedMetrics[sharedIndex].metadata?.type === 'primary', index: sharedIndex }
+    }
+    const primaryIndex = (experiment.metrics || []).findIndex((metric) => metric.uuid === uuid)
+    if (primaryIndex !== -1) {
+        return { kind: 'inline', isPrimary: true, index: primaryIndex }
+    }
+    const secondaryIndex = (experiment.metrics_secondary || []).findIndex((metric) => metric.uuid === uuid)
+    return secondaryIndex === -1 ? null : { kind: 'inline', isPrimary: false, index: secondaryIndex }
+}
+
 function isPrimaryMetric(experiment: Experiment, uuid: string): boolean {
-    const sharedMetric = ((experiment.saved_metrics || []) as ExperimentSavedMetric[]).find(
-        ({ query }) => query?.uuid === uuid
-    )
-    return sharedMetric ? sharedMetric.metadata.type === 'primary' : experiment.metrics.some((m) => m.uuid === uuid)
+    return locateMetric(experiment, uuid)?.isPrimary ?? false
 }
 
 /**
  * Applies a breakdown config edit to one metric of the experiment. A shared metric keeps this config on the
  * metadata of its link to the experiment, so the edit does not change the shared metric for other experiments.
- * An inline metric keeps the config on the metric itself. An unknown uuid returns the experiment unchanged.
+ * An inline metric keeps the config on the metric itself. When the uuid matches no metric, or the edit returns
+ * its input as is, this returns the same experiment object, which tells the listeners that nothing changed.
  */
 function editMetricConfig(
     experiment: Experiment,
@@ -314,22 +333,28 @@ function editMetricConfig(
         inline: (metric: ExperimentMetric) => ExperimentMetric
     }
 ): Experiment {
-    const savedMetrics: ExperimentSavedMetric[] = [...(experiment.saved_metrics || [])]
-    const savedMetricIndex = savedMetrics.findIndex(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
-    if (savedMetricIndex !== -1) {
-        const savedMetric = savedMetrics[savedMetricIndex]
-        savedMetrics[savedMetricIndex] = { ...savedMetric, metadata: edit.shared(savedMetric.metadata) }
+    const location = locateMetric(experiment, uuid)
+    if (location?.kind === 'shared') {
+        const savedMetrics: ExperimentSavedMetric[] = [...experiment.saved_metrics]
+        const savedMetric = savedMetrics[location.index]
+        const metadata = edit.shared(savedMetric.metadata)
+        if (metadata === savedMetric.metadata) {
+            return experiment
+        }
+        savedMetrics[location.index] = { ...savedMetric, metadata }
         return { ...experiment, saved_metrics: savedMetrics }
     }
-
-    const metricsKey = (experiment.metrics || []).some((m) => m.uuid === uuid) ? 'metrics' : 'metrics_secondary'
-    const metrics = [...(experiment[metricsKey] || [])]
-    const targetIndex = metrics.findIndex((m) => m.uuid === uuid)
-    if (targetIndex === -1) {
-        return experiment
+    if (location?.kind === 'inline') {
+        const metricsKey = location.isPrimary ? 'metrics' : 'metrics_secondary'
+        const metrics = [...experiment[metricsKey]]
+        const metric = edit.inline(metrics[location.index] as ExperimentMetric)
+        if (metric === metrics[location.index]) {
+            return experiment
+        }
+        metrics[location.index] = metric
+        return { ...experiment, [metricsKey]: metrics }
     }
-    metrics[targetIndex] = edit.inline(metrics[targetIndex] as ExperimentMetric)
-    return { ...experiment, [metricsKey]: metrics }
+    return experiment
 }
 
 /**
@@ -1922,10 +1947,14 @@ export const experimentLogic = kea<experimentLogicType>([
                         // The scene shows the breakdowns of the link's effective_query, which only the API
                         // resolves, so that list can differ from metadata.breakdowns until the save returns.
                         // Remove the breakdown by value, so that an index into the shown list never removes a
-                        // different breakdown.
+                        // different breakdown. A shown breakdown that the metadata no longer holds leaves the
+                        // metadata as is, so the listeners do not save or report a removal.
                         shared: (metadata) => {
                             const breakdowns = metadata?.breakdowns || []
                             const position = breakdowns.findIndex((candidate) => objectsEqual(candidate, breakdown))
+                            if (position === -1) {
+                                return metadata
+                            }
                             return { ...metadata, breakdowns: breakdowns.filter((_, i) => i !== position) }
                         },
                         inline: (metric) =>
@@ -2113,13 +2142,24 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
     }),
-    sharedListeners(({ values, actions, cache }) => ({
+    sharedListeners(({ values, actions, selectors, cache }) => ({
         /**
          * Saves a breakdown config edit that a reducer has already applied to `values.experiment`, then
          * re-runs the results that the edit changes.
          */
-        saveMetricConfigAndReload: async ({ uuid }: { uuid: string }) => {
-            const savedMetrics: ExperimentSavedMetric[] = values.experiment.saved_metrics || []
+        saveMetricConfigAndReload: async (
+            { uuid }: { uuid: string },
+            _breakpoint: BreakPointFunction,
+            _action: unknown,
+            previousState: unknown
+        ): Promise<void> => {
+            // editMetricConfig returns the same experiment when the edit changes nothing.
+            if (values.experiment === selectors.experiment(previousState)) {
+                return
+            }
+            // Locate the metric before the save. The save can outlive the page, and `values.experiment`
+            // throws once the logic unmounts.
+            const location = locateMetric(values.experiment, uuid)
             const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
@@ -2127,7 +2167,8 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             // Only include saved_metrics_ids if we modified a shared metric
-            if (savedMetrics.some(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)) {
+            if (location?.kind === 'shared') {
+                const savedMetrics: ExperimentSavedMetric[] = values.experiment.saved_metrics
                 updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
                     id: saved_metric,
                     metadata,
@@ -2145,14 +2186,14 @@ export const experimentLogic = kea<experimentLogicType>([
             // fingerprint while unchanged metrics load from cache. Legacy reloads the section that holds the metric.
             if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
                 actions.refreshExperimentResults(true, 'metric_config_change')
-            } else if (isPrimaryMetric(values.experiment, uuid)) {
+            } else if (location?.isPrimary) {
                 actions.loadPrimaryMetricsResults(true)
             } else {
                 actions.loadSecondaryMetricsResults(true)
             }
         },
     })),
-    listeners(({ values, actions, asyncActions, cache, props, sharedListeners }) => ({
+    listeners(({ values, actions, selectors, asyncActions, cache, props, sharedListeners }) => ({
         reportExperimentMetricsRefreshed: ({ experiment, forceRefresh, context }) => {
             posthog.capture('experiment metrics refreshed', {
                 ...getEventPropertiesForExperiment(experiment),
@@ -3331,18 +3372,25 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             }
         },
-        updateMetricBreakdown: async (payload, breakpoint, action, previousState) => {
-            const { uuid, breakdown } = payload
-            const isPrimary = isPrimaryMetric(values.experiment, uuid)
-            actions.reportExperimentMetricBreakdownAdded(values.experiment, uuid, breakdown, isPrimary)
-            await sharedListeners.saveMetricConfigAndReload(payload, breakpoint, action, previousState)
-        },
-        removeMetricBreakdown: async (payload, breakpoint, action, previousState) => {
-            const { uuid, index, breakdown } = payload
-            const isPrimary = isPrimaryMetric(values.experiment, uuid)
-            actions.reportExperimentMetricBreakdownRemoved(values.experiment, uuid, breakdown, index, isPrimary)
-            await sharedListeners.saveMetricConfigAndReload(payload, breakpoint, action, previousState)
-        },
+        updateMetricBreakdown: [
+            ({ uuid, breakdown }, _breakpoint, _action, previousState): void => {
+                // Like the save, the event skips an edit that changed nothing.
+                if (values.experiment !== selectors.experiment(previousState)) {
+                    const isPrimary = isPrimaryMetric(values.experiment, uuid)
+                    actions.reportExperimentMetricBreakdownAdded(values.experiment, uuid, breakdown, isPrimary)
+                }
+            },
+            sharedListeners.saveMetricConfigAndReload,
+        ],
+        removeMetricBreakdown: [
+            ({ uuid, index, breakdown }, _breakpoint, _action, previousState): void => {
+                if (values.experiment !== selectors.experiment(previousState)) {
+                    const isPrimary = isPrimaryMetric(values.experiment, uuid)
+                    actions.reportExperimentMetricBreakdownRemoved(values.experiment, uuid, breakdown, index, isPrimary)
+                }
+            },
+            sharedListeners.saveMetricConfigAndReload,
+        ],
         updateMetricBreakdownAttribution: sharedListeners.saveMetricConfigAndReload,
         updateMetricBreakdownLimit: sharedListeners.saveMetricConfigAndReload,
         setVariantExcluded: async ({ variantKey, excluded }, _breakpoint) => {

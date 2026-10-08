@@ -1319,82 +1319,6 @@ describe('experimentLogic', () => {
         })
     })
     describe('breakdown management', () => {
-        it('should add breakdown to inline metric', () => {
-            const breakdown: Breakdown = { property: '$browser', type: 'event' }
-            const testExperiment: Experiment = {
-                ...experiment,
-                metrics: [
-                    {
-                        uuid: 'test-metric-uuid',
-                        metric_type: ExperimentMetricType.MEAN,
-                        source: { kind: NodeKind.EventsNode, event: '$pageview' },
-                        breakdownFilter: { breakdowns: [] },
-                    },
-                ] as unknown as ExperimentMetric[],
-            }
-
-            logic.actions.setExperiment(testExperiment)
-            logic.actions.updateMetricBreakdown('test-metric-uuid', breakdown)
-
-            const updatedMetric = logic.values.experiment.metrics[0] as ExperimentMetric
-            expect(updatedMetric.breakdownFilter?.breakdowns).toEqual([breakdown])
-        })
-
-        it('should add breakdown to shared metric metadata', () => {
-            const breakdown: Breakdown = { property: '$browser', type: 'event' }
-            const testExperiment: Experiment = {
-                ...experiment,
-                saved_metrics: [
-                    {
-                        id: 1,
-                        experiment: experiment.id as number,
-                        saved_metric: 123,
-                        name: 'Shared Metric',
-                        query: {
-                            uuid: 'shared-metric-uuid',
-                            kind: NodeKind.ExperimentMetric,
-                            metric_type: ExperimentMetricType.MEAN,
-                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
-                        },
-                        metadata: { type: 'primary' },
-                        created_at: '2024-01-01T00:00:00Z',
-                    } satisfies ExperimentSavedMetric,
-                ],
-                metrics: [],
-            }
-
-            logic.actions.setExperiment(testExperiment)
-            logic.actions.updateMetricBreakdown('shared-metric-uuid', breakdown)
-
-            expect(logic.values.experiment.saved_metrics[0].metadata.breakdowns).toEqual([breakdown])
-        })
-
-        it('should remove breakdown from inline metric', () => {
-            const testExperiment: Experiment = {
-                ...experiment,
-                metrics: [
-                    {
-                        uuid: 'test-metric-uuid',
-                        metric_type: ExperimentMetricType.MEAN,
-                        source: { kind: NodeKind.EventsNode, event: '$pageview' },
-                        breakdownFilter: {
-                            breakdowns: [
-                                { property: '$browser', type: 'event' },
-                                { property: '$os', type: 'event' },
-                            ],
-                        },
-                    },
-                ] as unknown as ExperimentMetric[],
-            }
-
-            logic.actions.setExperiment(testExperiment)
-            const breakdownToRemove: Breakdown = { property: '$browser', type: 'event' }
-            logic.actions.removeMetricBreakdown('test-metric-uuid', 0, breakdownToRemove)
-
-            const updatedMetric = logic.values.experiment.metrics[0] as ExperimentMetric
-            expect(updatedMetric.breakdownFilter?.breakdowns).toEqual([{ property: '$os', type: 'event' }])
-        })
-
         const browserBreakdown: Breakdown = { property: '$browser', type: 'event' }
         const osBreakdown: Breakdown = { property: '$os', type: 'event' }
         const deviceBreakdown: Breakdown = { property: '$device_type', type: 'event' }
@@ -1550,44 +1474,6 @@ describe('experimentLogic', () => {
             expect(logic.values.experiment.saved_metrics[0].metadata.breakdowns).toEqual([breakdown])
         })
 
-        it('should remove breakdown from secondary shared metric metadata', () => {
-            const testExperiment: Experiment = {
-                ...experiment,
-                saved_metrics: [
-                    {
-                        id: 1,
-                        experiment: experiment.id as number,
-                        saved_metric: 123,
-                        name: 'Secondary Shared Metric',
-                        query: {
-                            uuid: 'secondary-metric-uuid',
-                            kind: NodeKind.ExperimentMetric,
-                            metric_type: ExperimentMetricType.MEAN,
-                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
-                        },
-                        metadata: {
-                            type: 'secondary',
-                            breakdowns: [
-                                { property: '$browser', type: 'event' } satisfies Breakdown,
-                                { property: '$os', type: 'event' } satisfies Breakdown,
-                            ],
-                        },
-                        created_at: '2024-01-01T00:00:00Z',
-                    } satisfies ExperimentSavedMetric,
-                ],
-                metrics: [],
-                metrics_secondary: [],
-            }
-
-            logic.actions.setExperiment(testExperiment)
-            const breakdownToRemove: Breakdown = { property: '$browser', type: 'event' }
-            logic.actions.removeMetricBreakdown('secondary-metric-uuid', 0, breakdownToRemove)
-
-            expect(logic.values.experiment.saved_metrics[0].metadata.breakdowns).toEqual([
-                { property: '$os', type: 'event' },
-            ])
-        })
-
         it('should include breakdowns when preparing secondary shared metrics for loading', () => {
             const testExperiment: Experiment = {
                 ...experiment,
@@ -1638,54 +1524,6 @@ describe('experimentLogic', () => {
             ])
         })
 
-        it('should update breakdown limit on inline metric', () => {
-            const testExperiment: Experiment = {
-                ...experiment,
-                metrics: [
-                    {
-                        uuid: 'test-metric-uuid',
-                        metric_type: ExperimentMetricType.MEAN,
-                        source: { kind: NodeKind.EventsNode, event: '$pageview' },
-                        breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
-                    },
-                ] as unknown as ExperimentMetric[],
-            }
-
-            logic.actions.setExperiment(testExperiment)
-            logic.actions.updateMetricBreakdownLimit('test-metric-uuid', 10)
-
-            const updatedMetric = logic.values.experiment.metrics[0] as ExperimentMetric
-            expect(updatedMetric.breakdownFilter?.breakdown_limit).toEqual(10)
-        })
-
-        it('should update breakdown limit on shared metric metadata', () => {
-            const testExperiment: Experiment = {
-                ...experiment,
-                saved_metrics: [
-                    {
-                        id: 1,
-                        experiment: experiment.id as number,
-                        saved_metric: 123,
-                        name: 'Shared Metric',
-                        query: {
-                            uuid: 'shared-metric-uuid',
-                            kind: NodeKind.ExperimentMetric,
-                            metric_type: ExperimentMetricType.MEAN,
-                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
-                        },
-                        metadata: { type: 'primary', breakdowns: [{ property: '$browser', type: 'event' }] },
-                        created_at: '2024-01-01T00:00:00Z',
-                    } satisfies ExperimentSavedMetric,
-                ],
-                metrics: [],
-            }
-
-            logic.actions.setExperiment(testExperiment)
-            logic.actions.updateMetricBreakdownLimit('shared-metric-uuid', 10)
-
-            expect(logic.values.experiment.saved_metrics[0].metadata.breakdown_limit).toEqual(10)
-        })
-
         describe.each([
             {
                 name: 'adding a breakdown',
@@ -1694,6 +1532,7 @@ describe('experimentLogic', () => {
                 inlineEdit: { breakdownFilter: { breakdowns: [browserBreakdown, osBreakdown, deviceBreakdown] } },
                 sharedEdit: { breakdowns: [browserBreakdown, osBreakdown, deviceBreakdown] },
                 event: ['experiment metric breakdown added', { breakdown_property: '$device_type' }] as const,
+                noOpEdits: [],
             },
             {
                 name: 'removing a breakdown',
@@ -1705,6 +1544,12 @@ describe('experimentLogic', () => {
                     'experiment metric breakdown removed',
                     { breakdown_property: '$browser', breakdown_index: 0 },
                 ] as const,
+                noOpEdits: [
+                    {
+                        edit: 'a shown breakdown that the link metadata does not hold',
+                        run: () => logic.actions.removeMetricBreakdown('shared-primary', 2, deviceBreakdown),
+                    },
+                ],
             },
             {
                 name: 'changing the breakdown limit',
@@ -1713,6 +1558,7 @@ describe('experimentLogic', () => {
                 inlineEdit: { breakdownFilter: { breakdowns: [browserBreakdown, osBreakdown], breakdown_limit: 10 } },
                 sharedEdit: { breakdown_limit: 10 },
                 event: null,
+                noOpEdits: [],
             },
             {
                 name: 'changing the breakdown attribution',
@@ -1722,11 +1568,14 @@ describe('experimentLogic', () => {
                 inlineEdit: { breakdownAttributionType: BreakdownAttributionType.Step, breakdownAttributionValue: 1 },
                 sharedEdit: { breakdownAttributionType: BreakdownAttributionType.Step, breakdownAttributionValue: 1 },
                 event: null,
+                noOpEdits: [],
             },
-        ])('$name', ({ action, change, inlineEdit, sharedEdit, event }) => {
+        ])('$name', ({ action, change, inlineEdit, sharedEdit, event, noOpEdits }) => {
             const legacyReloads = ['loadPrimaryMetricsResults', 'loadSecondaryMetricsResults']
+            let captureSpy: jest.SpyInstance
+            let updateSpy: jest.SpyInstance
 
-            const breakdownEvents = (captureSpy: jest.SpyInstance): any[] =>
+            const breakdownEvents = (): any[] =>
                 captureSpy.mock.calls
                     .filter(([name]) => String(name).startsWith('experiment metric breakdown'))
                     .map(([name, properties]) => [name, properties])
@@ -1753,7 +1602,16 @@ describe('experimentLogic', () => {
                         '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
                     },
                 })
+                captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+                updateSpy = jest.spyOn(api, 'update').mockResolvedValue(metricConfigExperiment)
                 logic.actions.setExperiment(metricConfigExperiment)
+            })
+
+            afterEach(() => {
+                // clearMocks resets the calls but keeps the implementations, so a spy left in place would answer
+                // every later test in this file.
+                updateSpy.mockRestore()
+                captureSpy.mockRestore()
             })
 
             it.each([
@@ -1762,8 +1620,6 @@ describe('experimentLogic', () => {
                 { location: 'a shared primary metric', uuid: 'shared-primary', isPrimary: true },
                 { location: 'a shared secondary metric', uuid: 'shared-secondary', isPrimary: false },
             ])('on $location saves the edit and reloads its section', async ({ uuid, isPrimary }) => {
-                const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
-                const updateSpy = jest.spyOn(api, 'update').mockResolvedValue(metricConfigExperiment)
                 const reload = isPrimary ? 'loadPrimaryMetricsResults' : 'loadSecondaryMetricsResults'
 
                 // toNotHaveDispatchedActions searches only the history after the last match. The earlier tests in
@@ -1797,14 +1653,27 @@ describe('experimentLogic', () => {
                         ),
                     }),
                 })
-                expect(breakdownEvents(captureSpy)).toEqual(expectedBreakdownEvents(uuid, isPrimary))
+                expect(breakdownEvents()).toEqual(expectedBreakdownEvents(uuid, isPrimary))
+            })
+
+            it.each([
+                { edit: 'a metric the experiment does not have', run: () => change('missing-metric') },
+                ...noOpEdits,
+            ])('skips the save, the reload and the event for $edit', async ({ run }) => {
+                await expectLogic(logic, () => {
+                    run()
+                })
+                    .toDispatchActions([action])
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['updateExperiment', ...legacyReloads, 'refreshExperimentResults'])
+
+                expect(breakdownEvents()).toEqual([])
             })
 
             it('refreshes results on the recalculation flow', async () => {
                 featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
                     [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
                 })
-                jest.spyOn(api, 'update').mockResolvedValue(metricConfigExperiment)
 
                 await expectLogic(logic, () => {
                     change('inline-secondary')
@@ -1821,8 +1690,7 @@ describe('experimentLogic', () => {
             })
 
             it('skips the reload when the save fails', async () => {
-                const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
-                jest.spyOn(api, 'update').mockRejectedValue(new Error('network down'))
+                updateSpy.mockRejectedValue(new Error('network down'))
 
                 await expectLogic(logic, () => {
                     change('shared-primary')
@@ -1833,7 +1701,30 @@ describe('experimentLogic', () => {
                     .toDispatchActions(['updateExperimentFailure'])
 
                 // The event reports the user action, so it fires before the save and does not wait for it.
-                expect(breakdownEvents(captureSpy)).toEqual(expectedBreakdownEvents('shared-primary', true))
+                expect(breakdownEvents()).toEqual(expectedBreakdownEvents('shared-primary', true))
+            })
+
+            it('finishes a save that outlives the page', async () => {
+                let saveStarted: () => void = () => {}
+                const started = new Promise<void>((resolve) => {
+                    saveStarted = resolve
+                })
+                let finishSave: () => void = () => {}
+                updateSpy.mockImplementation(
+                    () =>
+                        new Promise((resolve) => {
+                            finishSave = () => resolve(metricConfigExperiment)
+                            saveStarted()
+                        })
+                )
+
+                change('inline-primary')
+                await started
+                logic.unmount()
+                finishSave()
+
+                // A `values` read after the save would throw "[KEA] Can not find path" into the listener.
+                await expectLogic(logic).toFinishAllListeners()
             })
         })
     })
