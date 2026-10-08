@@ -49,6 +49,7 @@ from products.review_hog.backend.reviewer.constants import (
     validation_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
+from products.review_hog.backend.reviewer.models.issue_deduplicator import FlashIssueDeduplication
 from products.review_hog.backend.reviewer.sandbox.executor import JSON_RETRY_PROMPT
 from products.review_hog.backend.reviewer.skill_loader import (
     load_blind_spots_skill_for_run,
@@ -175,6 +176,8 @@ class TurnFingerprint:
                 (SINGLE_AGENT_PROMPT_PATH / prompt_file).read_text()
             )
         hashes["issue_deduplicator/system"] = _text_hash(DEDUP_SYSTEM_PROMPT)
+        # The Flash dedup renders its output schema from the model, not from `schema.json`.
+        hashes["issue_deduplicator/flash_schema"] = _text_hash(json.dumps(FlashIssueDeduplication.model_json_schema()))
         hashes["sandbox/json_retry"] = _text_hash(JSON_RETRY_PROMPT)
         return hashes
 

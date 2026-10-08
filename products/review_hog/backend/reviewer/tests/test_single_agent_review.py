@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 from products.review_hog.backend.reviewer.constants import FLASH_LENSES, SINGLE_AGENT_SOURCE
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRFileUpdate, PRMetadata
-from products.review_hog.backend.reviewer.models.issue_deduplicator import DuplicateIssue, IssueDeduplication
+from products.review_hog.backend.reviewer.models.issue_deduplicator import FlashDuplicateIssue, FlashIssueDeduplication
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.tools.single_agent_review import (
     SingleAgentPrompt,
@@ -139,31 +139,22 @@ class TestComposeFlashFindings:
         assert [issue.id for issue in kept] == expected_ids
 
 
-class TestDedupeFlashFindings:
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "llm_duplicates,expected_ids",
-        [
-            pytest.param(["2000-1-1"], ["2000-1-1", "2002-1-1"], id="llm_names_the_main_finding"),
-            pytest.param(["2002-1-1"], ["2000-1-1"], id="llm_names_the_lens_finding"),
-        ],
-    )
-    async def test_a_lens_finding_can_lose_to_a_main_finding_but_never_the_reverse(
-        self, pr_metadata: PRMetadata, llm_duplicates: list[str], expected_ids: list[str]
-    ) -> None:
-        # Dedup keeps whichever restatement reads more complete, so one call over both lists could
-        # drop the main finding, and a lens call that ignores the main findings posts the same
-        # problem twice.
-        main = _issue("2000-1-1", IssuePriority.MUST_FIX)
-        lens = _issue("2002-1-1", IssuePriority.MUST_FIX, _LENS_SOURCE)
-        mock_llm = AsyncMock(
-            return_value=IssueDeduplication(duplicates=[DuplicateIssue(id=issue_id) for issue_id in llm_duplicates])
+def _flash_dedup(*duplicates: tuple[str, str]) -> AsyncMock:
+    return AsyncMock(
+        return_value=FlashIssueDeduplication(
+            duplicates=[FlashDuplicateIssue(id=issue_id, duplicate_of=target) for issue_id, target in duplicates]
         )
+    )
+
+
+class TestDedupeFlashFindings:
+    @staticmethod
+    async def _dedupe(pr_metadata: PRMetadata, issues: list[Issue], mock_llm: AsyncMock) -> list[Issue]:
         with patch(f"{_DEDUP_MODULE}.run_oneshot_openai_review", mock_llm):
-            kept = await dedupe_flash_findings(
+            return await dedupe_flash_findings(
                 team_id=1,
                 user_id=1,
-                issues=[main, lens],
+                issues=issues,
                 pr_metadata=pr_metadata,
                 pr_comments=[],
                 prior_findings=[],
@@ -172,5 +163,52 @@ class TestDedupeFlashFindings:
                 lens_part_count=1,
             )
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "llm_duplicate,expected_ids",
+        [
+            pytest.param(("2000-1-1", "2002-1-1"), ["2000-1-1", "2002-1-1"], id="llm_names_the_main_finding"),
+            pytest.param(("2002-1-1", "2000-1-1"), ["2000-1-1"], id="llm_names_the_lens_finding"),
+        ],
+    )
+    async def test_a_lens_finding_can_lose_to_a_main_finding_but_never_the_reverse(
+        self, pr_metadata: PRMetadata, llm_duplicate: tuple[str, str], expected_ids: list[str]
+    ) -> None:
+        # Dedup keeps whichever restatement reads more complete, so one call over both lists could
+        # drop the main finding, and a lens call that ignores the main findings posts the same
+        # problem twice.
+        main = _issue("2000-1-1", IssuePriority.MUST_FIX)
+        lens = _issue("2002-1-1", IssuePriority.MUST_FIX, _LENS_SOURCE)
+        mock_llm = _flash_dedup(llm_duplicate)
+
+        kept = await self._dedupe(pr_metadata, [main, lens], mock_llm)
+
         assert [issue.id for issue in kept] == expected_ids
         assert mock_llm.call_count == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "issues,llm_duplicate,survivor_id",
+        [
+            pytest.param(
+                [_issue("2000-1-1", IssuePriority.CONSIDER), _issue("2002-1-1", IssuePriority.MUST_FIX, _LENS_SOURCE)],
+                ("2002-1-1", "2000-1-1"),
+                "2000-1-1",
+                id="lens_p1_repeats_a_main_p3_anchor",
+            ),
+            pytest.param(
+                [_issue("2000-1-1", IssuePriority.MUST_FIX), _issue("2000-1-2", IssuePriority.CONSIDER)],
+                ("2000-1-1", "2000-1-2"),
+                "2000-1-2",
+                id="main_p1_repeats_a_main_p3_sibling",
+            ),
+        ],
+    )
+    async def test_the_survivor_takes_the_priority_of_the_duplicate_it_replaces(
+        self, pr_metadata: PRMetadata, issues: list[Issue], llm_duplicate: tuple[str, str], survivor_id: str
+    ) -> None:
+        # Dedup keeps the more complete statement, not the more severe one, so without the raise a
+        # P1 that repeats a P3 posts as a P3, or not at all once the cap cuts the P3.
+        kept = await self._dedupe(pr_metadata, issues, _flash_dedup(llm_duplicate))
+
+        assert [(issue.id, issue.priority) for issue in kept] == [(survivor_id, IssuePriority.MUST_FIX)]

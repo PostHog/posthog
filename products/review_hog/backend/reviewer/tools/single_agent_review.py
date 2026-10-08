@@ -26,7 +26,7 @@ from products.review_hog.backend.reviewer.models import PROMPTS_DIR
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentReview
-from products.review_hog.backend.reviewer.tools.issue_deduplicator import deduplicate_issues
+from products.review_hog.backend.reviewer.tools.issue_deduplicator import Duplicate, deduplicate_issues
 from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import is_reviewable_path
 
@@ -221,6 +221,25 @@ def compose_flash_findings(main: list[Issue], lens: list[Issue], *, lens_part_co
     return [*must_fix, *others[: max(cap - len(must_fix), 0)]]
 
 
+def _raise_survivors(kept: list[Issue], duplicates: list[Duplicate]) -> None:
+    """Give each kept finding the highest priority among the duplicates dedup removed in its favor.
+
+    Dedup keeps the most complete statement of a problem, not the most severe one, so a lens P1 that
+    repeats a main P3 would otherwise post as the P3, or not at all once the cap cuts it.
+    """
+    kept_by_id = {issue.id: issue for issue in kept}
+    for duplicate in duplicates:
+        survivor = kept_by_id.get(duplicate.duplicate_of or "")
+        if survivor is not None and priority_rank(duplicate.issue.priority) > priority_rank(survivor.priority):
+            logger.info(
+                "Raising %s to %s: dedup removed %s as its duplicate",
+                survivor.id,
+                duplicate.issue.priority.value,
+                duplicate.issue.id,
+            )
+            survivor.priority = duplicate.issue.priority
+
+
 async def dedupe_flash_findings(
     *,
     team_id: int,
@@ -238,11 +257,12 @@ async def dedupe_flash_findings(
 
     Two dedup calls run in parallel. The main findings dedup against PR comments and earlier turns.
     The lens findings dedup against those too and against the main findings as anchors, so a lens
-    finding can lose to a main finding but never the other way around.
+    finding can lose to a main finding but never the other way around. A finding that survives takes
+    the priority of the most severe duplicate removed in its favor.
     """
     main = [issue for issue in issues if issue.source_perspective == SINGLE_AGENT_SOURCE]
     lens = [issue for issue in issues if issue.source_perspective != SINGLE_AGENT_SOURCE]
-    main_kept, lens_kept = await asyncio.gather(
+    main_outcome, lens_outcome = await asyncio.gather(
         deduplicate_issues(
             team_id=team_id,
             user_id=user_id,
@@ -269,11 +289,12 @@ async def dedupe_flash_findings(
             for_flash=True,
         ),
     )
-    kept = compose_flash_findings(main_kept, lens_kept, lens_part_count=lens_part_count)
+    _raise_survivors([*main_outcome.kept, *lens_outcome.kept], [*main_outcome.duplicates, *lens_outcome.duplicates])
+    kept = compose_flash_findings(main_outcome.kept, lens_outcome.kept, lens_part_count=lens_part_count)
     logger.info(
         "Flash keeps %s of %s main and %s lens finding(s) left after dedup",
         len(kept),
-        len(main_kept),
-        len(lens_kept),
+        len(main_outcome.kept),
+        len(lens_outcome.kept),
     )
     return kept

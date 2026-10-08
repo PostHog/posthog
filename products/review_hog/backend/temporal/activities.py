@@ -1374,7 +1374,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
             )
         else:
-            survivors = await deduplicate_issues(
+            outcome = await deduplicate_issues(
                 team_id=input.team_id,
                 user_id=input.user_id,
                 issues=issues,
@@ -1385,6 +1385,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 repository=input.repository,
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
             )
+            survivors = outcome.kept
     issue_ids = await database_sync_to_async(replace_deduplicated_findings, thread_sensitive=False)(
         team_id=input.team_id,
         report_id=input.report_id,

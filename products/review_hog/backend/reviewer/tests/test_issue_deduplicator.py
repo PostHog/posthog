@@ -13,7 +13,11 @@ from products.review_hog.backend.reviewer.constants import (
     FLASH_DEDUP_REASONING_EFFORT,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
-from products.review_hog.backend.reviewer.models.issue_deduplicator import DuplicateIssue, IssueDeduplication
+from products.review_hog.backend.reviewer.models.issue_deduplicator import (
+    DuplicateIssue,
+    FlashIssueDeduplication,
+    IssueDeduplication,
+)
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_sandbox_review
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import (
@@ -168,7 +172,7 @@ async def test_deduplicate_empty_issues_returns_empty_without_llm(pr_metadata: P
             repository="test/repo",
         )
 
-    assert result == []
+    assert result.kept == []
     mock_oneshot.assert_not_called()
     mock_sandbox.assert_not_called()
 
@@ -199,7 +203,7 @@ async def test_deduplicate_no_positional_collision_keeps_all_without_llm(pr_meta
 
     mock_oneshot.assert_not_called()
     mock_sandbox.assert_not_called()
-    assert {i.id for i in result} == {"1-1", "1-2", "1-3"}
+    assert {i.id for i in result.kept} == {"1-1", "1-2", "1-3"}
 
 
 @pytest.mark.asyncio
@@ -225,7 +229,7 @@ async def test_deduplicate_drops_llm_flagged_duplicate_keeps_isolated(pr_metadat
         )
 
     # The flagged duplicate is dropped; the kept candidate and the isolated issue survive.
-    assert {i.id for i in result} == {"1-1", "1-2"}
+    assert {i.id for i in result.kept} == {"1-1", "1-2"}
 
 
 @pytest.mark.asyncio
@@ -249,7 +253,7 @@ async def test_deduplicate_prior_comment_makes_issue_a_candidate(pr_metadata: PR
             repository="test/repo",
         )
 
-    assert result == []
+    assert result.kept == []
 
 
 @pytest.mark.asyncio
@@ -272,7 +276,7 @@ async def test_deduplicate_prior_turn_finding_makes_issue_a_candidate(pr_metadat
             repository="test/repo",
         )
 
-    assert result == []
+    assert result.kept == []
 
 
 @pytest.mark.asyncio
@@ -293,11 +297,12 @@ async def test_dedup_llm_call_routes_by_oneshot_gate(
     # A Flash dedup skips the gate: it always runs on its own OpenAI pins, never on Anthropic ones.
     issues = [_issue(f"1-{i}", "src/auth.py", 45, 50) for i in range(issue_count)]
     keep_all = IssueDeduplication(duplicates=[])
+    flash_keep_all = FlashIssueDeduplication(duplicates=[])
 
     with (
         patch(f"{_MODULE}.run_oneshot_review", new=AsyncMock(return_value=keep_all)) as mock_oneshot,
         patch(f"{_MODULE}.run_sandbox_review", new=AsyncMock(return_value=keep_all)) as mock_sandbox,
-        patch(f"{_MODULE}.run_oneshot_openai_review", new=AsyncMock(return_value=keep_all)) as mock_openai,
+        patch(f"{_MODULE}.run_oneshot_openai_review", new=AsyncMock(return_value=flash_keep_all)) as mock_openai,
     ):
         result = await deduplicate_issues(
             team_id=1,
@@ -311,7 +316,7 @@ async def test_dedup_llm_call_routes_by_oneshot_gate(
             for_flash=for_flash,
         )
 
-    assert len(result) == issue_count
+    assert len(result.kept) == issue_count
     routes = {"oneshot": mock_oneshot, "sandbox": mock_sandbox, "openai": mock_openai}
     assert [name for name, mock in routes.items() if mock.called] == [expected_route]
     if expected_route == "sandbox":

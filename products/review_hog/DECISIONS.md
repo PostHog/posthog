@@ -228,6 +228,12 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   extra part covers more code.
   It runs before anything persists, because a persisted finding that never posts counts as already raised and would
   stay off the PR on every later turn.
+- **Survivor priority.** Dedup keeps the most complete statement of a problem, not the most severe, so a lens P1
+  that repeated a main P3 anchor dropped and the problem posted as a P3, or not at all once the cap cut it. The Flash
+  dedup output (`FlashIssueDeduplication`) now names what each duplicate repeats (`duplicate_of`), and the survivor
+  takes the highest priority of the duplicates removed in its favor, anchors and siblings alike. Prior findings carry
+  their issue key as `id` in the Flash prompt so the dedup can name them. The pipeline's dedup output is unchanged.
+  `reported_priority` stays the reviewer's own P level, so a raised finding reads `must_fix` with its original P3.
 - **Cap rule.** Must-fix (P0/P1) findings always post, outside the cap, so the cap never hides a
   finding that blocks the merge. A hard ceiling of `FLASH_MUST_FIX_CAP_MULTIPLIER` (2) times the cap still bounds
   them, because a lens prompt maps its skill's "Must fix" onto P1 and a session that marks everything must-fix would
