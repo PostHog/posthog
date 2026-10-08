@@ -1,6 +1,9 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { toast } from '@posthog/quill'
 
 import { writeToClipboard } from 'lib/utils/writeToClipboard'
 
@@ -18,22 +21,40 @@ describe('todaySessionMenuLogic', () => {
     let logic: ReturnType<typeof todaySessionMenuLogic.build>
     let requests: string[]
     let writesSucceed: boolean
+    let failingIds: string[]
+    let listLoads: number
+    let warning: jest.SpyInstance
 
-    beforeEach(() => {
+    beforeEach(async () => {
         requests = []
         writesSucceed = false
+        failingIds = []
+        listLoads = 0
+        jest.mocked(posthog.capture).mockClear()
+        warning = jest.spyOn(toast, 'warning').mockClear()
         useMocks({
             get: {
                 '/api/projects/:team_id/task_channels/': [],
-                '/api/projects/:team_id/tasks/': { results: [], count: 0 },
+                '/api/projects/:team_id/tasks/': () => {
+                    listLoads++
+                    return [200, { results: [], count: 0 }]
+                },
             },
             patch: {
                 '/api/projects/:team_id/tasks/:id/': async ({ params, request }) => {
                     requests.push(`patch ${params.id} ${JSON.stringify(await request.json())}`)
-                    return writesSucceed ? [200, {}] : [500, { detail: 'Server error' }]
+                    return writesSucceed && !failingIds.includes(String(params.id))
+                        ? [200, {}]
+                        : [500, { detail: 'Server error' }]
                 },
             },
             post: {
+                '/api/projects/:team_id/tasks/:id/pin/': async ({ params, request }) => {
+                    requests.push(`pin ${params.id} ${JSON.stringify(await request.json())}`)
+                    return writesSucceed && !failingIds.includes(String(params.id))
+                        ? [200, {}]
+                        : [500, { detail: 'Server error' }]
+                },
                 '/api/projects/:team_id/tasks/:id/handoff/': () => [400, { detail: 'Finish every run first.' }],
                 '/api/projects/:team_id/tasks/:task_id/runs/:id/analyze/': () => [400, { error: 'No log yet.' }],
                 '/api/projects/:team_id/tasks/:task_id/runs/:id/cancel/': ({ params }) => {
@@ -45,6 +66,8 @@ describe('todaySessionMenuLogic', () => {
         initKeaTests()
         logic = todaySessionMenuLogic()
         logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        listLoads = 0
     })
 
     it.each([
@@ -108,6 +131,71 @@ describe('todaySessionMenuLogic', () => {
         await expectLogic(logic).toDispatchActions(['sessionUpdateFailed'])
 
         expect(logic.values.archiveConfirmMenuId).toEqual('menu-1')
+    })
+
+    it.each([
+        [
+            'pin',
+            () => logic.actions.bulkSetSessionsPinned(['task-1', 'task-2', 'task-3', 'task-1'], true),
+            (id: string) => `pin ${id} {"pinned":true}`,
+            'today session pinned',
+            'Couldn’t pin 1\u00a0session. Try again.',
+        ],
+        [
+            'move',
+            () => logic.actions.bulkMoveSessions(['task-1', 'task-2', 'task-3', 'task-1'], 'space-1'),
+            (id: string) => `patch ${id} {"channel":"space-1"}`,
+            'today session moved',
+            'Couldn’t move 1\u00a0session. Try again.',
+        ],
+        [
+            'archive',
+            () => logic.actions.bulkArchiveSessions(['task-1', 'task-2', 'task-3', 'task-1'], true),
+            (id: string) => `patch ${id} {"archived":true}`,
+            'today session archived',
+            'Couldn’t archive 1\u00a0session. Try again.',
+        ],
+    ])(
+        'a bulk %s writes each session once, reloads the lists once, and reports the failures by count',
+        async (_, run, request, event, failure) => {
+            writesSucceed = true
+            failingIds = ['task-2']
+            run()
+            expect(logic.values.pendingSessionIds).toEqual(['task-1', 'task-2', 'task-3'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect([...requests].sort()).toEqual(['task-1', 'task-2', 'task-3'].map(request))
+            expect(logic.values.pendingSessionIds).toEqual([])
+            expect(listLoads).toEqual(2)
+            expect(warning).toHaveBeenCalledTimes(1)
+            expect(warning.mock.calls[0][0]).toMatchObject({ description: failure })
+            expect(posthog.capture).toHaveBeenCalledWith(event, { bulk: true, session_count: 3, failed_count: 1 })
+        }
+    )
+
+    it('restores only the sessions the bulk archive changed when the user clicks Undo', async () => {
+        writesSucceed = true
+        failingIds = ['task-2']
+        logic.actions.bulkArchiveSessions(['task-1', 'task-2', 'task-3'], true)
+        await expectLogic(logic).toFinishAllListeners()
+        requests = []
+
+        warning.mock.calls[0][0].action?.onClick()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect([...requests].sort()).toEqual(['patch task-1 {"archived":false}', 'patch task-3 {"archived":false}'])
+    })
+
+    it.each([
+        ['pin', () => logic.actions.setSessionPinned('task-1', true), 'today session pinned'],
+        ['move', () => logic.actions.moveSession('task-1', 'space-1'), 'today session moved'],
+        ['archive', () => logic.actions.archiveSession('task-1', true), 'today session archived'],
+    ])('reports a single %s as a one-session change', async (_, run, event) => {
+        writesSucceed = true
+        run()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(posthog.capture).toHaveBeenCalledWith(event, { bulk: false, session_count: 1, failed_count: 0 })
     })
 
     it('copies the project-scoped session URL', async () => {
