@@ -15,7 +15,10 @@ from posthog.temporal.ai_observability.trace_summarization.coordinator import (
 )
 from posthog.temporal.ai_observability.trace_summarization.fetch_and_format import fetch_and_format_activity
 from posthog.temporal.ai_observability.trace_summarization.models import BatchSummarizationInputs, SampledItem
-from posthog.temporal.ai_observability.trace_summarization.sampling import sample_items_in_window_activity
+from posthog.temporal.ai_observability.trace_summarization.sampling import (
+    filter_teams_with_events_in_window_activity,
+    sample_items_in_window_activity,
+)
 from posthog.temporal.ai_observability.trace_summarization.schedule import create_batch_trace_summarization_schedule
 from posthog.temporal.ai_observability.trace_summarization.summarize_and_save import summarize_and_save_activity
 from posthog.temporal.ai_observability.trace_summarization.workflow import BatchTraceSummarizationWorkflow
@@ -23,6 +26,7 @@ from posthog.temporal.ai_observability.trace_summarization.workflow import Batch
 __all__ = [
     # Activities
     "fetch_and_format_activity",
+    "filter_teams_with_events_in_window_activity",
     "summarize_and_save_activity",
     "sample_items_in_window_activity",
     # Constants

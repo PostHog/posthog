@@ -5,6 +5,9 @@ The full trace data is fetched later by the summarization activity using
 TraceQueryRunner per-item, so sampling only needs IDs and timestamps.
 """
 
+import asyncio
+import dataclasses
+from datetime import datetime
 from typing import Any
 
 import structlog
@@ -16,10 +19,14 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.trace_summarization.constants import (
+    ACTIVE_TEAMS_FILTER_QUERY_TIMEOUT_SECONDS,
     AI_EVENT_TYPES,
     MAX_TRACE_EVENTS_LIMIT,
     MAX_TRACE_PROPERTIES_SIZE,
@@ -69,6 +76,55 @@ def _missing_cohort_ids(team: Team, event_filters: list[dict[str, Any]]) -> list
         ).values_list("id", flat=True)
     )
     return [cid for cid in referenced if cid not in existing]
+
+
+@dataclasses.dataclass(frozen=True)
+class TeamsWithEventsInWindowInput:
+    team_ids: list[int]
+    window_start: str
+    window_end: str
+
+
+@temporalio.activity.defn
+async def filter_teams_with_events_in_window_activity(inputs: TeamsWithEventsInWindowInput) -> list[int]:
+    """Return the teams that have AI events in the window, in input order.
+
+    Sampling reads only these event types in the same window, so a team that this drops would sample nothing.
+    """
+    if not inputs.team_ids:
+        return []
+
+    def _teams_with_events() -> set[int]:
+        query = f"""
+            SELECT DISTINCT team_id
+            FROM {events_read_table(use_new_events_schema(None))}
+            WHERE team_id IN %(team_ids)s
+              AND event IN %(event_types)s
+              AND timestamp >= %(window_start)s
+              AND timestamp < %(window_end)s
+        """
+        with tags_context(
+            product=Product.LLM_ANALYTICS,
+            feature=Feature.QUERY,
+            name="Filter summarization teams with AI events in window",
+        ):
+            rows = sync_execute(
+                query,
+                {
+                    "team_ids": inputs.team_ids,
+                    "event_types": list(AI_EVENT_TYPES),
+                    "window_start": datetime.fromisoformat(inputs.window_start),
+                    "window_end": datetime.fromisoformat(inputs.window_end),
+                },
+                workload=Workload.OFFLINE,
+                settings={"max_execution_time": ACTIVE_TEAMS_FILTER_QUERY_TIMEOUT_SECONDS},
+            )
+        return {row[0] for row in rows}
+
+    async with Heartbeater():
+        teams_with_events = await asyncio.to_thread(_teams_with_events)
+
+    return [team_id for team_id in inputs.team_ids if team_id in teams_with_events]
 
 
 @temporalio.activity.defn

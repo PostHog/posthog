@@ -78,6 +78,13 @@ CONTINUE_AS_NEW_HISTORY_LENGTH = 10_000
 CONTINUE_AS_NEW_HISTORY_SIZE_BYTES = 8 * 1024 * 1024
 FEWER_CONTINUATIONS_PATCH_ID = "llma-summarization-fewer-continuations-2026-10"
 
+# Discovery looks back several days, so most discovered teams have no AI events in the hour a run covers.
+# A run checks all teams with one query and starts children only for the teams with events.
+ACTIVE_TEAMS_FILTER_PATCH_ID = "llma-summarization-active-teams-filter-2026-10"
+ACTIVE_TEAMS_FILTER_QUERY_TIMEOUT_SECONDS = 120
+ACTIVE_TEAMS_FILTER_START_TO_CLOSE_TIMEOUT = timedelta(seconds=ACTIVE_TEAMS_FILTER_QUERY_TIMEOUT_SECONDS + 30)
+ACTIVE_TEAMS_FILTER_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
+
 # Timeout configuration (in seconds)
 SAMPLE_TIMEOUT_SECONDS = 900  # 15 minutes for sampling query (buffer above QUERY_ASYNC 600s ClickHouse timeout)
 

@@ -65,6 +65,9 @@ It starts the next team when any running team finishes, so one slow team holds o
 The coordinator fixes one window from the time Temporal started the run, and passes it to every per-team workflow as `window_start` and `window_end`.
 So each team covers the same hour however late in the run it starts, and consecutive runs cover consecutive hours.
 Continue-as-new carries the remaining teams and the window into the next run, so it loses nothing.
+Discovery looks back several days, so most discovered teams have no AI events in that window.
+Before the first team starts, one ClickHouse query (`filter_teams_with_events_in_window_activity`) keeps only the teams with AI events in the window, and the coordinator starts children for those teams only.
+If that query fails, the coordinator starts children for all discovered teams.
 Before it continues as new, the coordinator waits for the running teams to finish, and the free slots stay idle during that wait.
 So it continues as new only at its own history limits (the `continue_as_new_history_length` and `continue_as_new_history_size_bytes` inputs), not at the lower Temporal suggestion.
 A run that is skipped, or that reaches its timeout before it reaches a team, still loses that hour for the teams it did not reach.
