@@ -21,6 +21,7 @@ from products.alerts_platform.backend.facade.contracts import (
     IncidentAction,
 )
 from products.alerts_platform.backend.logic.platform_reads import alert_snapshot
+from products.alerts_platform.backend.temporal.metrics import increment_root_edit_failures, safe_record
 
 logger = structlog.get_logger(__name__)
 
@@ -134,6 +135,7 @@ def _edit_root(
             transport.edit_root(team_id=team_id, target=target, root=root, state_line=line)
     except Exception:
         logger.exception("alerts_platform.root_edit_failed", provider=transport.provider)
+        safe_record(increment_root_edit_failures, transport.provider)
 
 
 def _thread_key(

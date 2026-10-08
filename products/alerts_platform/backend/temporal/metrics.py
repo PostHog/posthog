@@ -112,6 +112,14 @@ def increment_describer_failures(source: str) -> None:
     ).add(1)
 
 
+def increment_root_edit_failures(provider: str) -> None:
+    """An opening message could not be brought up to date, so it shows an older state."""
+    get_metric_meter({"provider": provider}).create_counter(
+        "alerts_platform_root_edit_failures_total",
+        "Opening messages left showing an older state because the edit failed",
+    ).add(1)
+
+
 def increment_deliveries_previewed(source: str) -> None:
     get_metric_meter({"source": source}).create_counter(
         "alerts_platform_deliveries_previewed_total",
