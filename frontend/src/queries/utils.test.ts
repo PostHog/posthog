@@ -458,6 +458,10 @@ describe('queryUsesDataWarehouse', () => {
         expect(queryUsesDataWarehouse(null)).toBe(false)
         expect(queryUsesDataWarehouse(undefined)).toBe(false)
     })
+
+    it('returns false for a stored query whose series is not a list', () => {
+        expect(queryUsesDataWarehouse({ kind: NodeKind.TrendsQuery, series: {} } as any)).toBe(false)
+    })
 })
 
 describe('dataWarehouseSourcesFromResponse', () => {

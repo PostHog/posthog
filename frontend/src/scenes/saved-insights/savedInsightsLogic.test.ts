@@ -475,6 +475,17 @@ describe('savedInsightsLogic', () => {
                     timestamp: 1721000000000,
                 }),
             ],
+            [
+                'a query of an unknown kind',
+                JSON.stringify({ query: { kind: 'NotARealQuery' }, timestamp: 1721000000000 }),
+            ],
+            [
+                'a series that is not a list',
+                JSON.stringify({
+                    query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: {} } },
+                    timestamp: 1721000000000,
+                }),
+            ],
         ])('drops a malformed draft (%s) instead of surfacing it', async (_label, storedValue) => {
             localStorage.setItem(draftKey, storedValue)
             logic.actions.loadDraftQuery()

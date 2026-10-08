@@ -1,8 +1,8 @@
 import { dayjs } from 'lib/dayjs'
 import { parseDraftQueryFromLocalStorage } from 'scenes/insights/utils'
 
-import { Node } from '~/queries/schema/schema-general'
-import { isNodeWithSource, isWrapperNode } from '~/queries/utils'
+import { Node, NodeKind } from '~/queries/schema/schema-general'
+import { isInsightQueryWithSeries, isNodeWithSource, isWrapperNode } from '~/queries/utils'
 import { AccessControlLevel, InsightShortId, UserBasicType, UserType } from '~/types'
 
 import type { SavedInsightListItem } from './savedInsightsLogic'
@@ -16,17 +16,26 @@ export interface DraftInsightQuery {
 /** Sentinel id for the local draft row in the saved insights table. Real insight ids are positive. */
 export const DRAFT_INSIGHT_ROW_ID = -1
 
+const KNOWN_NODE_KINDS = new Set<string>(Object.values(NodeKind))
+
 /**
- * A wrapper node carries the query that runs in `source`, so a draft that lost its source holds
- * nothing to restore or run. Both the editor that writes a draft and the scenes that read one use
- * this, so the editor cannot persist a value the readers would throw away.
+ * Whether a stored query is complete enough for the scenes that render and restore a draft.
+ * Nothing schema checks local storage or a URL, so this is the boundary that screens the three
+ * shapes the readers cannot survive: an unknown kind, which indexes no metadata and renders no
+ * icon; a wrapper node that lost the `source` holding the query that runs; and a `series` of a
+ * shape the readers cannot iterate. The editor and the readers share this, so the editor cannot
+ * persist a value the readers would throw away.
  */
 export function isRestorableDraftQuery(query: unknown): query is Node<Record<string, any>> {
     const node = query as Node<Record<string, any>> | null
-    if (!node || typeof node !== 'object' || typeof node.kind !== 'string') {
+    if (!node || typeof node !== 'object' || !KNOWN_NODE_KINDS.has(node.kind)) {
         return false
     }
-    return !isWrapperNode(node) || isNodeWithSource(node)
+    if (isWrapperNode(node) && !(isNodeWithSource(node) && KNOWN_NODE_KINDS.has(node.source.kind))) {
+        return false
+    }
+    const source = isNodeWithSource(node) ? node.source : node
+    return !isInsightQueryWithSeries(source) || Array.isArray(source.series)
 }
 
 /** Storage can hold anything, and a non-numeric timestamp would throw in draftInsightListItem. */
