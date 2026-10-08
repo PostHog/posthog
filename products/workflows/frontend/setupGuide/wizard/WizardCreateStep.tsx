@@ -5,7 +5,17 @@ import { WorkflowTemplateSteps } from '../../Workflows/templates/WorkflowTemplat
 import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
 
 export function WizardCreateStep(): JSX.Element | null {
-    const { selectedTemplate } = useValues(workflowsOnboardingWizardLogic)
+    const { selectedTemplate, startsBlank } = useValues(workflowsOnboardingWizardLogic)
+
+    if (startsBlank) {
+        return (
+            <ol className="mb-0 pl-5 list-decimal text-secondary flex flex-col gap-1">
+                <li>We open an empty draft workflow.</li>
+                <li>You add a trigger and the steps you need.</li>
+                <li>Nothing runs until you launch it.</li>
+            </ol>
+        )
+    }
 
     if (!selectedTemplate) {
         return null

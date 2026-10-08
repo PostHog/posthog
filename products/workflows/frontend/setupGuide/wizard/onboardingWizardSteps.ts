@@ -16,6 +16,8 @@ export type WizardStepKey =
 
 // pinned: URL path and search params of the wizard - renaming breaks the Slack sign-in return link
 export const ONBOARDING_WIZARD_TAB = 'onboarding'
+/** The `template` value for starting from an empty workflow instead of a template. */
+export const BLANK_START_ID = 'blank'
 
 export function onboardingWizardUrl(
     path: WorkflowsOnboardingPath,
@@ -79,13 +81,13 @@ export const WIZARD_STEP_COPY: Record<WizardStepKey, WizardStepCopy> = {
         label: 'First journey',
         title: 'Pick your first journey',
         description:
-            'Start from a template. We create a draft, so you can change the trigger and the emails before anything sends.',
+            'Start from a template or from scratch. We create a draft, so you can change the trigger and the emails before anything sends.',
         optional: false,
     },
     template: {
         label: 'Template',
         title: 'What do you want to automate?',
-        description: 'Pick a template to start from. You can change every step later.',
+        description: 'Pick a template, or start from scratch. You can change every step later.',
         optional: false,
     },
     connect: {
