@@ -66,6 +66,9 @@ export interface viewsLogicActions {
         key: string
         page: null | import('./viewFeed').ViewSourcePage
     } // viewFeedLogic
+    applyTypeFilterFromUrl: (typeFilter: ViewTypeFilter) => {
+        typeFilter: ViewTypeFilter
+    }
     loadMoreViews: () => {
         value: true
     }
@@ -82,9 +85,6 @@ export interface viewsLogicActions {
         query: ViewFeedQuery
     }
     setTypeFilter: (typeFilter: ViewTypeFilter) => {
-        typeFilter: ViewTypeFilter
-    }
-    applyTypeFilterFromUrl: (typeFilter: ViewTypeFilter) => {
         typeFilter: ViewTypeFilter
     }
 }
