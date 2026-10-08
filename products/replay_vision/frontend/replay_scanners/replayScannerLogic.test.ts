@@ -1521,7 +1521,6 @@ describe('replayScannerLogic', () => {
         const configure = urls.replayVisionScannerConfigure(scannerId)
         const triggers = urls.replayVisionScannerTriggers(scannerId)
         const template = urls.replayVisionScannerTemplate(scannerId)
-        const selfDriving = urls.replayVisionScannerSelfDriving(scannerId)
         const detail = urls.replayVision(scannerId)
         const base = {
             hasUnsavedChanges: true,
@@ -1550,7 +1549,6 @@ describe('replayScannerLogic', () => {
                 { ...base, nextPathname: urls.replayVisionScannerConfigure('other-id') },
                 true,
             ],
-            ['out from the self-driving step', { ...base, currentPathname: selfDriving, nextPathname: detail }, true],
             // The router stores pathnames with the `/project/:id` prefix; `urls.*` are unprefixed.
             [
                 'out to settings from a project-prefixed URL',

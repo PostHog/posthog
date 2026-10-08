@@ -114,8 +114,8 @@ def select_review_design(
 # Bump a (major, minor) with a pipeline or design change. Prompt, skill, and model pin edits
 # change the turn fingerprint (`reviewer/fingerprint.py`) instead.
 REVIEWHOG_VERSIONS: dict[tuple[str, str], tuple[int, int]] = {
-    (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 1),
-    (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 1),
+    (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 2),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 2),
     (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 0),
 }
 

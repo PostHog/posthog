@@ -16589,7 +16589,8 @@ class ChartSettings(BaseModel):
         default=None,
         description=(
             "Where the legend sits relative to the chart. Unset falls back per chart"
-            " type: right for pie, top for the rest."
+            " type: right for pie and donut, bottom for proportion bar, top for the"
+            " rest."
         ),
     )
     metric: MetricChartSettings | None = None
