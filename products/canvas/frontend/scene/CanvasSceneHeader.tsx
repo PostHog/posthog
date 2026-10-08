@@ -9,11 +9,16 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
     Skeleton,
+    Text,
     Tooltip,
     TooltipContent,
     TooltipTrigger,
 } from '@posthog/quill'
 
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
+
+import { canvasSpaceLabel } from '../canvasTasksApi'
 import { CanvasEditSaveStatus } from '../editing/CanvasEditSaveStatus'
 import { CanvasEditToggle } from '../editing/CanvasEditToggle'
 import { CanvasVersionControls } from '../history/CanvasVersionControls'
@@ -33,7 +38,7 @@ import { CanvasVisibilityControl } from './CanvasVisibilityControl'
  * at the start, then the canvas's status, editing, the side panel, and the canvas menu at the end.
  */
 export function CanvasSceneHeader(): JSX.Element {
-    const { canvas } = useValues(canvasSceneLogic)
+    const { canvas, space } = useValues(canvasSceneLogic)
     const { copyLink, deleteCanvas } = useActions(canvasSceneLogic)
 
     if (!canvas) {
@@ -95,6 +100,22 @@ export function CanvasSceneHeader(): JSX.Element {
                 </>
             }
         >
+            {space && (
+                <>
+                    <Button
+                        size="sm"
+                        variant="link-muted"
+                        className="hidden shrink-0 @min-[32rem]/canvas-toolbar:inline-flex"
+                        render={<LinkPrimitive to={urls.taskSpace(space.id)} />}
+                        data-attr="canvas-toolbar-space"
+                    >
+                        {canvasSpaceLabel(space)}
+                    </Button>
+                    <Text size="sm" variant="muted" aria-hidden className="hidden @min-[32rem]/canvas-toolbar:inline">
+                        /
+                    </Text>
+                </>
+            )}
             <CanvasNameField />
             {/* A narrow canvas keeps its name; the timeline tab still reaches every version. */}
             <div className="hidden @min-[30rem]/canvas-toolbar:contents">
