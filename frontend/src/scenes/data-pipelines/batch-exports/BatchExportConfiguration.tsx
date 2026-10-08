@@ -64,8 +64,6 @@ export function BatchExportConfiguration(): JSX.Element {
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
     const hogqlBatchExports = !!featureFlags[FEATURE_FLAGS.HOGQL_BATCH_EXPORTS]
     const isHogQLModel = selectedModel === BatchExportModelEnumApi.Hogql
-    // The API does not allow changing the model to or from 'hogql' on a saved export
-    const savedModelIsHogQL = !isNew && batchExportConfig?.model === BatchExportModelEnumApi.Hogql
 
     const showTimezoneAndOffsetSelector = configuration.interval === 'day' || configuration.interval === 'week'
     const timezoneOptions =
@@ -248,13 +246,13 @@ export function BatchExportConfiguration(): JSX.Element {
                                         {
                                             value: BatchExportModelEnumApi.Hogql,
                                             label: 'Custom SQL query',
-                                            hidden: !hogqlBatchExports || (!isNew && !savedModelIsHogQL),
+                                            hidden: !hogqlBatchExports,
                                         },
                                     ]}
                                     disabledReason={
-                                        savedModelIsHogQL
-                                            ? 'A saved export that uses a custom SQL query cannot change its model'
-                                            : undefined
+                                        isNew
+                                            ? undefined
+                                            : "A saved batch export can't change its model. Create a new one to export different data."
                                     }
                                     fullWidth={true}
                                 />
