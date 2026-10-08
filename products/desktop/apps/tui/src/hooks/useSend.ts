@@ -4,11 +4,15 @@ import { type Dispatch, type SetStateAction, useRef, useState } from "react";
 import { REGIONS } from "../auth";
 import {
   BILLINGS,
+  billingBlocker,
+  billingNotice,
   billingSheet,
   cloudHarnessFor,
   localHarnessFor,
 } from "../billing";
+import { chatgptAccount } from "../chatgpt";
 import type { PiChats } from "../chats";
+import { loadClaudeToken } from "../claudeToken";
 import type { Composer } from "../composer";
 import { messageOf } from "../errors";
 import {
@@ -199,8 +203,14 @@ export function useSend({
     }
     if (slash?.command === "billing") {
       openModal(paneId, billingSheet(loadPrefs().billing), (index) => {
-        savePrefs({ billing: BILLINGS[index] });
-        flashNotice(`New chats are paid by ${BILLINGS[index]}`, here);
+        const billing = BILLINGS[index];
+        const blocker = billingBlocker(billing, {
+          chatgptAccount: chatgptAccount(),
+          claudeToken: loadClaudeToken() !== null,
+        });
+        if (blocker) return flashNotice(blocker, here);
+        savePrefs({ billing });
+        flashNotice(billingNotice(billing), here);
       });
       return;
     }
@@ -396,6 +406,16 @@ export function useSend({
           },
         );
       return;
+    }
+    if (!current) {
+      const blocker = billingBlocker(loadPrefs().billing, {
+        chatgptAccount: chatgptAccount(),
+        claudeToken: loadClaudeToken() !== null,
+      });
+      if (blocker) {
+        flashNotice(blocker, here);
+        return;
+      }
     }
     if (current) sentAt.current.set(current.id, Date.now());
     (current

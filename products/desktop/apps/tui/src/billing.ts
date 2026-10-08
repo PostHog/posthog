@@ -54,9 +54,29 @@ export function localStartFor(
   return { harness: "pi" };
 }
 
+const NOTICES: Record<Billing, string> = {
+  posthog: "New chats run on PostHog credits",
+  chatgpt: "New chats use your ChatGPT subscription",
+  anthropic: "New chats use your Anthropic subscription",
+};
+
+export const billingNotice = (billing: Billing): string => NOTICES[billing];
+
+// What the plan still needs before a chat can run on it; null when it is ready.
+export function billingBlocker(
+  billing: Billing,
+  state: { chatgptAccount: string | null; claudeToken: boolean },
+): string | null {
+  if (billing === "chatgpt" && !state.chatgptAccount)
+    return "Log in to ChatGPT in settings (Ctrl+;) first";
+  if (billing === "anthropic" && !state.claudeToken)
+    return "Add your Claude token in settings (Ctrl+;) first";
+  return null;
+}
+
 export function billingSheet(current: Billing): Sheet {
   return {
-    title: "Who pays for new chats",
+    title: "What new chats run on",
     description: "Chats already open keep their agent.",
     items: BILLINGS.map((billing) => ({
       ...LABELS[billing],
