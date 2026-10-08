@@ -154,6 +154,7 @@ class HealthCheckRegistration:
     product: Product | None
     remediation: Remediation | None
     access_controlled_resource: APIScopeObject | None
+    access_controlled_object_key: str | None
 
     def __post_init__(self) -> None:
         # A fraction, not a percent: 50 here would silently skip the rollout filter and hit every team.
@@ -165,6 +166,12 @@ class HealthCheckRegistration:
             raise ValueError(
                 f"HealthCheckRegistration not_processed_threshold must be between 0 and 1, "
                 f"got {self.not_processed_threshold}"
+            )
+        # The denied ids are looked up under the resource, so a key alone would gate nobody.
+        if self.access_controlled_object_key is not None and self.access_controlled_resource is None:
+            raise ValueError(
+                f"HealthCheckRegistration access_controlled_object_key={self.access_controlled_object_key!r} "
+                "requires access_controlled_resource"
             )
 
 
@@ -187,6 +194,7 @@ def _register_health_check(cls: type[HealthCheck]) -> None:
         product=cls.product,
         remediation=cls.remediation,
         access_controlled_resource=cls.access_controlled_resource,
+        access_controlled_object_key=cls.access_controlled_object_key,
     )
 
     HEALTH_CHECKS[cls.kind] = registration
@@ -241,12 +249,21 @@ class HealthCheck:
     # Health API hides the check's issues from members whose access to the
     # resource is restricted. None means every team member sees the issues.
     #
-    # Two limits. The gate is resource-level only: an `AccessControl` deny scoped
-    # to one object's `resource_id` is not consulted, so a member barred from a
-    # single source or view still sees its issues. And only the Health API reads
-    # this field: the Signals inbox emitter does not, so a check that also
-    # overrides `render_signal` still publishes its payload there.
+    # Two limits. On its own the gate is resource-level only: an `AccessControl`
+    # deny scoped to one object's `resource_id` is not consulted, so a member
+    # barred from a single source or view still sees its issues. Set
+    # `access_controlled_object_key` as well to close that. And only the Health
+    # API reads these fields: the Signals inbox emitter does not, so a check that
+    # also overrides `render_signal` still publishes its payload there.
     access_controlled_resource: APIScopeObject | None = None
+
+    # The payload key that holds the id of the one object an issue describes, for
+    # example "flag_id" under the "feature_flag" resource. When set, the Health API
+    # also hides an issue from a member whose access to that object resolves to
+    # "none", even though they can view the resource in general. The payload value
+    # and the `AccessControl.resource_id` are compared as strings, so an integer id
+    # in the payload matches. Requires `access_controlled_resource`.
+    access_controlled_object_key: str | None = None
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
@@ -324,6 +341,20 @@ def access_controlled_resources_by_kind() -> dict[str, APIScopeObject]:
         kind: registration.access_controlled_resource
         for kind, registration in HEALTH_CHECKS.items()
         if registration.access_controlled_resource is not None
+    }
+
+
+def access_controlled_object_keys_by_kind() -> dict[str, tuple[APIScopeObject, str]]:
+    """Map check kind → (resource, payload key) for kinds that gate issues on one object.
+
+    Only kinds that declare both `access_controlled_resource` and
+    `access_controlled_object_key` appear.
+    """
+    ensure_registry_loaded()
+    return {
+        kind: (registration.access_controlled_resource, registration.access_controlled_object_key)
+        for kind, registration in HEALTH_CHECKS.items()
+        if registration.access_controlled_resource is not None and registration.access_controlled_object_key is not None
     }
 
 

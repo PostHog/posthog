@@ -871,20 +871,22 @@ class TestStaleFlagsContract(SimpleTestCase):
             unique_hash="h",
         )
 
-    def test_registered_dry_until_the_gate_reaches_every_worker(self) -> None:
+    def test_registered_with_the_live_flag_as_the_only_gate(self) -> None:
         ensure_registry_loaded()
         registration = HEALTH_CHECKS["stale_feature_flags"]
         assert registration.owner == JobOwners.TEAM_FEATURE_FLAGS
         assert registration.product == Product.FEATURE_FLAGS
-        # Web writes these into the schedule before the worker redeploys, so a worker without
-        # `eligible_team_ids` must still find a dry registration. The follow-up drops both and
-        # leaves the flag as the only gate.
-        assert registration.dry_run is True
-        assert registration.rollout_percentage == 0.01
+        # These are the framework defaults. A `rollout_percentage` below 1.0 samples teams out before
+        # `eligible_team_ids` runs, and `dry_run` drops the writes after detection. Overriding either
+        # one means a team the flag enables can still get no issues.
+        assert registration.dry_run is False
+        assert registration.rollout_percentage == 1.0
         assert registration.schedule == "0 6 * * 1"
         assert registration.remediation is not None
-        # Payloads carry flag keys and names, so the Health API must gate them on flag access.
+        # Payloads carry one flag's key, name and rollout state, so the Health API must gate each
+        # issue on access to that flag, not only on access to flags as a resource.
         assert registration.access_controlled_resource == "feature_flag"
+        assert registration.access_controlled_object_key == "flag_id"
 
     def test_remediation_orders_code_removal_before_archive(self) -> None:
         remediation = StaleFeatureFlagsCheck.remediation

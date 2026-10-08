@@ -18,6 +18,7 @@ from posthog.models.team import Team
 from posthog.redis import get_client
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.growth.backend.constants import github_sdk_versions_key
 
 
@@ -571,6 +572,52 @@ class TestHealthIssueAccessControl(APIBaseTest):
 
         retrieve_response = self.client.get(self._url(f"/{issue.id}"))
         self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
+
+    def _create_stale_flag_issue(self, flag: FeatureFlag) -> HealthIssue:
+        return HealthIssue.objects.create(
+            team=self.team,
+            kind="stale_feature_flags",
+            severity=HealthIssue.Severity.INFO,
+            payload={"flag_id": flag.id, "flag_key": flag.key, "flag_name": flag.name},
+            unique_hash=f"stale-{flag.id}",
+        )
+
+    def _deny_flag(self, flag: FeatureFlag) -> None:
+        AccessControl.objects.create(
+            team=self.team, resource="feature_flag", resource_id=str(flag.id), access_level="none"
+        )
+
+    def test_member_denied_one_flag_does_not_see_its_issue_in_list_or_summary(self):
+        denied_flag = FeatureFlag.objects.create(team=self.team, key="denied-flag", created_by=None)
+        allowed_flag = FeatureFlag.objects.create(team=self.team, key="allowed-flag", created_by=None)
+        self._create_stale_flag_issue(denied_flag)
+        allowed_issue = self._create_stale_flag_issue(allowed_flag)
+        self._deny_flag(denied_flag)
+
+        list_response = self.client.get(self._url("?kind=stale_feature_flags"))
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual([result["id"] for result in list_response.json()["results"]], [str(allowed_issue.id)])
+
+        summary_response = self.client.get(self._url("/summary"))
+        self.assertEqual(summary_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(summary_response.json()["unsnoozed"]["by_kind"], {"stale_feature_flags": 1})
+
+    @parameterized.expand(
+        [
+            ("retrieve", lambda client, url: client.get(url)),
+            ("resolve", lambda client, url: client.post(f"{url}/resolve")),
+            ("dismiss", lambda client, url: client.patch(url, {"dismissed": True})),
+            ("snooze", lambda client, url: client.patch(url, {"snoozed_until": "P7D"})),
+        ]
+    )
+    def test_member_denied_one_flag_object_action_returns_403(self, _name, request):
+        flag = FeatureFlag.objects.create(team=self.team, key="denied-flag", created_by=None)
+        issue = self._create_stale_flag_issue(flag)
+        self._deny_flag(flag)
+
+        response = request(self.client, self._url(f"/{issue.id}"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "You do not have viewer access to this resource.")
 
 
 class TestSnoozeDurationField(SimpleTestCase):

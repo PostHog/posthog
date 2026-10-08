@@ -72,18 +72,12 @@ class StaleFeatureFlagsCheck(HealthCheck):
     owner = JobOwners.TEAM_FEATURE_FLAGS
     product = Product.FEATURE_FLAGS
     schedule = "0 6 * * 1"  # weekly, Mondays 06:00 UTC
-    # Payloads carry flag keys and names.
+    # Each payload carries one flag's key, name and rollout state.
     access_controlled_resource = "feature_flag"
+    access_controlled_object_key = "flag_id"
     # Postgres-heavy and one issue per stale flag rather than per team, so smaller
     # batches than the default policy.
     policy = HealthExecutionPolicy(batch_size=250, max_concurrent=2)
-    # Both stay for one more deploy, so the gate reaches every worker before anything can write.
-    # Web's migrate job copies these into the schedule's workflow inputs, and the health-check
-    # worker deploys as a separate app behind it. A worker still on the previous release has no
-    # `eligible_team_ids`, so removing them in this release would let a run that starts inside
-    # that window write live issues for every active team. The follow-up removes both.
-    dry_run = True
-    rollout_percentage = 0.01
     remediation = Remediation(
         human="""
             Open the flag and confirm the staleness evidence is still current. Check every
