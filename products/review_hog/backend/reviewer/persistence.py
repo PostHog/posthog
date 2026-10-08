@@ -14,6 +14,8 @@ Durable rows this layer writes:
   the turn's `head_sha` so resume reuses only the current head's work,
 - the post-dedup findings → `issue_finding` artefacts and their validation verdicts →
   `validation_verdict` artefacts (paired by `issue_key`, latest-wins),
+- a single-agent turn's findings that dedup or the cap dropped → `dropped_finding` artefacts, for
+  analysis only,
 - this turn's point-in-time reviewed diff → a per-turn `commit` artefact (+ the report watermark),
 - the rendered review body → `ReviewReport.report_markdown`.
 
@@ -40,6 +42,7 @@ from products.review_hog.backend.models import ReviewReport, ReviewReportArtefac
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
     ChunkSetArtefact,
+    DroppedFindingArtefact,
     PerspectiveResultArtefact,
     PerspectiveSelectionArtefact,
     PRSnapshotArtefact,
@@ -56,14 +59,16 @@ from products.review_hog.backend.reviewer.constants import (
     ReviewArm,
     ReviewTier,
     is_below_human_tier,
+    is_single_agent_pass,
     resolve_review_arm,
     select_review_tier,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
-from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuesReview
+from products.review_hog.backend.reviewer.models.issues_review import DroppedIssue, Issue, IssuesReview
 from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Commit
 from products.signals.backend.enums import ReportPriority
@@ -418,21 +423,24 @@ def persist_perspective_results(
 
 
 def load_perspective_results(
-    *, team_id: int, report_id: str, head_sha: str, review_arm: ReviewArm
+    *, team_id: int, report_id: str, head_sha: str, review_arm: ReviewArm, review_design: str
 ) -> dict[  # nosemgrep: tuple-return-prefer-dataclass -- Shared (pass, chunk) cache keys.
     tuple[int, int], IssuesReview
 ]:
-    """The (pass, chunk) reviews already computed with this arm (latest wins per key).
+    """The (pass, chunk) reviews this design already computed with this arm (latest wins per key).
 
     The cache is per commit, so another model or effort's findings must not skip this reviewer's work.
+    A Full turn and a single-agent Flash turn at one head can share an arm, so the design filter keeps
+    each turn from combining the other's findings.
     """
     out: dict[tuple[int, int], IssuesReview] = {}
     review_config = json.dumps(asdict(review_arm), sort_keys=True)
+    single_agent = review_design == REVIEW_DESIGN_SINGLE_AGENT
     for content in _load_working_state(
         team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
     ):
         assert isinstance(content, PerspectiveResultArtefact)
-        if content.review_config != review_config:
+        if content.review_config != review_config or is_single_agent_pass(content.pass_number) != single_agent:
             continue
         out[(content.pass_number, content.chunk_id)] = content.review
     return out
@@ -446,6 +454,8 @@ def persist_pr_snapshot(
     pr_metadata: PRMetadata,
     pr_comments: list[PRComment],
     pr_files: list[PRFile],
+    review_design: str = REVIEW_DESIGN_PIPELINE,
+    merge_base_sha: str | None = None,
 ) -> None:
     """Append this turn's fetched PR inputs as a `pr_snapshot` artefact (stored by reference).
 
@@ -457,17 +467,30 @@ def persist_pr_snapshot(
         team_id=team_id,
         report_id=report_id,
         content=PRSnapshotArtefact(
-            head_sha=head_sha, pr_metadata=pr_metadata, pr_comments=pr_comments, pr_files=pr_files
+            head_sha=head_sha,
+            pr_metadata=pr_metadata,
+            pr_comments=pr_comments,
+            pr_files=pr_files,
+            review_design=review_design,
+            merge_base_sha=merge_base_sha,
         ),
         attribution=ArtefactAttribution.system(),
     )
 
 
-def load_pr_snapshot(*, team_id: int, report_id: str, head_sha: str) -> PRSnapshotArtefact | None:
-    """The PR inputs fetched for this turn, or None if the fetch hasn't run (latest wins per head)."""
+def load_pr_snapshot(
+    *, team_id: int, report_id: str, head_sha: str, review_design: str | None = None
+) -> PRSnapshotArtefact | None:
+    """The PR inputs fetched for this turn, or None if the fetch hasn't run (latest wins per head).
+
+    A full turn and a Flash turn at the same head can overlap, and the two designs fetch different
+    file sets. A stage that passes `review_design` reads only the snapshot fetched for that design.
+    """
     latest: PRSnapshotArtefact | None = None
     for content in _load_working_state(team_id, report_id, ReviewReportArtefact.ArtefactType.PR_SNAPSHOT, head_sha):
         assert isinstance(content, PRSnapshotArtefact)
+        if review_design is not None and content.review_design != review_design:
+            continue
         latest = content
     return latest
 
@@ -524,20 +547,23 @@ def replace_deduplicated_findings(
     head_sha: str,
     review_mode: str,
     review_arm: ReviewArm,
-    validation_arm: ReviewArm,
+    validation_arm: ReviewArm | None,
+    review_design: str = REVIEW_DESIGN_PIPELINE,
 ) -> list[str]:
     """Replace an unfinished turn's dedup snapshot, retaining only compatible cached verdicts.
 
     A failed turn keeps its index, so its next attempt can produce different findings or use different
     models. Only unpublished working rows retire: completed history and per-commit reviewer results
-    stay intact. Identical findings at the same head, mode, and arm configurations keep their verdicts.
+    stay intact. Identical findings at the same head, mode, design, and arm configurations keep their
+    verdicts. `validation_arm` is None for the single-agent design, which runs no validator.
     """
     context = json.dumps(
         {
             "head_sha": head_sha,
             "review_mode": review_mode,
+            "review_design": review_design,
             "review_arm": asdict(review_arm),
-            "validation_arm": asdict(validation_arm),
+            "validation_arm": asdict(validation_arm) if validation_arm is not None else None,
         },
         sort_keys=True,
     )
@@ -580,6 +606,68 @@ def replace_deduplicated_findings(
                 team_id=team_id, report_id=report_id, content=finding, attribution=ArtefactAttribution.system()
             )
     return [issue.id for issue, _ in pairs]
+
+
+def replace_dropped_findings(
+    *,
+    team_id: int,
+    report_id: str,
+    run_index: int,
+    head_sha: str,
+    dropped: Sequence[DroppedIssue],
+    cap: int,
+    lens_part_count: int,
+) -> None:
+    """Replace an unfinished single-agent turn's record of the findings it did not keep.
+
+    A failed turn keeps its index, so a retry first retires the earlier attempt's rows, like
+    `replace_deduplicated_findings`; otherwise every attempt would count its drops again. Nothing that
+    publishes or feeds a later turn reads `dropped_finding` rows; they exist for analysis.
+    """
+    artefacts: list[DroppedFindingArtefact] = []
+    for drop in dropped:
+        pass_number, chunk_id, _number = drop.issue.id.split("-")
+        duplicate_of = drop.duplicate_of
+        try:
+            artefacts.append(
+                DroppedFindingArtefact(
+                    head_sha=head_sha,
+                    finding=_to_finding(drop.issue, run_index),
+                    pass_number=int(pass_number),
+                    chunk_id=int(chunk_id),
+                    disposition=drop.disposition,
+                    duplicate_of=_issue_key(duplicate_of, run_index)
+                    if isinstance(duplicate_of, Issue)
+                    else duplicate_of,
+                    rank=drop.rank,
+                    dedup_fallback=drop.dedup_fallback,
+                    cap=cap,
+                    lens_part_count=lens_part_count,
+                )
+            )
+        except ValidationError as e:
+            logger.warning("Skipping dropped finding %s that failed durable validation: %s", drop.issue.id, e)
+    with transaction.atomic():
+        report = ReviewReport.objects.for_team(team_id).select_for_update().only("run_count").get(id=report_id)
+        if run_index <= report.run_count:
+            raise ValueError("Cannot replace dropped findings from a completed review turn")
+        rows = ReviewReportArtefact.objects.for_team(team_id).filter(
+            report_id=report_id, type=ReviewReportArtefact.ArtefactType.DROPPED_FINDING
+        )
+        stale_ids = []
+        for row in rows:
+            try:
+                content = parse_artefact_content(row.type, row.content)
+            except ArtefactContentValidationError:
+                continue
+            if isinstance(content, DroppedFindingArtefact) and content.finding.run_index == run_index:
+                stale_ids.append(row.id)
+        if stale_ids:
+            ReviewReportArtefact.objects.for_team(team_id).filter(report_id=report_id, id__in=stale_ids).delete()
+        for artefact in artefacts:
+            ReviewReportArtefact.append_dropped_finding(
+                team_id=team_id, report_id=report_id, content=artefact, attribution=ArtefactAttribution.system()
+            )
 
 
 def persist_verdicts(
@@ -933,7 +1021,9 @@ def _to_finding(issue: Issue, run_index: int, *, validation_context: str | None 
         lines=issue.lines,
         body=issue.issue,
         suggestion=issue.suggestion,
+        suggestion_code=issue.suggestion_code,
         priority=issue.priority,
+        reported_priority=issue.reported_priority,
         source_perspective=issue.source_perspective,
         is_directly_related_to_changes=issue.is_directly_related_to_changes,
     )
@@ -948,7 +1038,9 @@ def _from_finding(finding: ReviewIssueFinding) -> Issue:
         lines=finding.lines,
         issue=finding.body,
         suggestion=finding.suggestion,
+        suggestion_code=finding.suggestion_code,
         priority=finding.priority,
+        reported_priority=finding.reported_priority,
         source_perspective=finding.source_perspective,
         is_directly_related_to_changes=finding.is_directly_related_to_changes,
     )
