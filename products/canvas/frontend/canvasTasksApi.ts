@@ -13,6 +13,7 @@ import type { ChannelDTOApi, TaskDetailDTOApi } from 'products/tasks/frontend/ge
 
 import { canvasesVersionsRetrieve } from './generated/api'
 import type { CanvasApi } from './generated/api.schemas'
+import { canvasPromptTarget } from './scene/canvasGenerationPrompt'
 
 export type CanvasSpace = Pick<ChannelDTOApi, 'id' | 'name' | 'system_role' | 'channel_type'>
 export type CanvasTaskRun = Pick<NonNullable<TaskDetailDTOApi['latest_run']>, 'id' | 'status'> &
@@ -113,11 +114,11 @@ export async function ownCanvasTaskIds(
 ): Promise<string[]> {
     const userUuid = user.uuid
     const ids = new Set<string>()
-    // Each generation prompt names the canvas, so this also finds earlier runs that made no version.
+    // Each generation prompt names its canvas on one line, so this also finds earlier runs that made no version.
     for (let offset = 0; ; offset += VERSION_PAGE_SIZE) {
         const page = await tasksList(projectId, {
             created_by: user.id,
-            search: canvas.id,
+            search: canvasPromptTarget(canvas.id),
             basic: true,
             limit: VERSION_PAGE_SIZE,
             offset,

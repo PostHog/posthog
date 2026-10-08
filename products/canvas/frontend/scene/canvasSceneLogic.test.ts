@@ -133,7 +133,15 @@ describe('canvasSceneLogic', () => {
                     sandbox_document_url: null,
                 },
                 // An earlier run that failed before it made a version is found by the canvas id in its prompt.
-                '/api/projects/:team_id/tasks/': { next: null, results: [{ id: 'task-failed-run' }] },
+                // A chat that only mentions the canvas id is not one of its runs, so the exact prompt line is searched.
+                '/api/projects/:team_id/tasks/': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search') ?? ''
+                    const tasks = [
+                        { id: 'task-failed-run', description: `- canvas id: "${CANVAS_ID}"` },
+                        { id: 'task-mention', description: `Compare with ${CANVAS_ID}` },
+                    ]
+                    return [200, { next: null, results: tasks.filter((task) => task.description.includes(search)) }]
+                },
                 '/api/projects/:team_id/tasks/:id/': ({ params }) => [
                     200,
                     {
