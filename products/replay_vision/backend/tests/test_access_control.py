@@ -89,6 +89,17 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         update_resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"name": "renamed"}, format="json")
         self.assertEqual(update_resp.status_code, 403, update_resp.json())
 
+    def test_spend_leaves_out_scanners_the_caller_cannot_read(self) -> None:
+        allowed_scanner = self._create_scanner(name="allowed")
+        blocked_scanner = self._create_scanner(name="blocked")
+        self._set_resource_default("replay_scanner", "none")
+        self._grant_object_access(self.other_user, "replay_scanner", str(allowed_scanner.id), "viewer")
+
+        self.client.force_login(self.other_user)
+        resp = self.client.get(f"{self.scanners_url}spend/?scanner_ids={blocked_scanner.id},{allowed_scanner.id}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([row["scanner_id"] for row in resp.json()["results"]], [str(allowed_scanner.id)])
+
     def test_object_level_grant_overrides_resource_default_none(self) -> None:
         allowed_scanner = self._create_scanner(name="allowed")
         blocked_scanner = self._create_scanner(name="blocked")

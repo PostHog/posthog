@@ -47,6 +47,7 @@ import type {
     ScannerScoutCreateApi,
     ScannerScoutCreateResponseApi,
     ScannerSelfDrivingStatsApi,
+    ScannerSpendResponseApi,
     ScannerStatsResponseApi,
     ScoutReportApi,
     SearchSuggestionsQueryApi,
@@ -74,6 +75,7 @@ import type {
     VisionScannersObservationsSignalReportsListParams,
     VisionScannersObservationsStatsRetrieveParams,
     VisionScannersObservationsThumbnailRetrieveParams,
+    VisionScannersSpendRetrieveParams,
     VisionScannersWatchFeedRetrieveParams,
     VisionSpendSeriesApi,
     WatchFeedResponseApi,
@@ -1469,6 +1471,37 @@ export const visionScannersInlineScanCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(inlineScanRequestApi),
+    })
+}
+
+export const getVisionScannersSpendRetrieveUrl = (projectId: string, params: VisionScannersSpendRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/spend/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/spend/`
+}
+
+/**
+ * Spend this billing period for the given scanners — the list's `credits_this_month` and
+ * `observations_this_month`, loaded after the rows so the table does not wait on them.
+ */
+export const visionScannersSpendRetrieve = async (
+    projectId: string,
+    params: VisionScannersSpendRetrieveParams,
+    options?: RequestInit
+): Promise<ScannerSpendResponseApi> => {
+    return apiMutator<ScannerSpendResponseApi>(getVisionScannersSpendRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

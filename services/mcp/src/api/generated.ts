@@ -95815,6 +95815,23 @@ export namespace Schemas {
       pull_requests: SelfDrivingPullRequest[];
     }
 
+    export interface ScannerSpend {
+      /** The scanner these figures belong to. */
+      scanner_id: string;
+      /** Same figure as the scanner's `credits_this_month`. */
+      credits_this_month: number;
+      /** Same figure as the scanner's `observations_this_month`. */
+      observations_this_month: number;
+    }
+
+    /**
+     * Spend this billing period for a set of scanners — lets the list load without its slowest columns.
+     */
+    export interface ScannerSpendResponse {
+      /** One entry for each requested scanner you can read, in request order. */
+      results: ScannerSpend[];
+    }
+
     /**
      * Per-scanner-type count of enabled vs total scanners.
      */
@@ -126886,6 +126903,10 @@ export namespace Schemas {
      */
     experiment_id?: string;
     /**
+     * Set to false to leave `credits_this_month` and `observations_this_month` out of each row. They count every observation of the billing period, so they are the slowest part of the list; load them for the page from `spend/` instead. Defaults to true.
+     */
+    include_spend?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -127215,6 +127236,14 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    };
+
+    export type VisionScannersSpendRetrieveParams = {
+    /**
+     * Comma-separated scanner UUIDs, at most 100. Ids that do not exist or that you cannot read are left out of the response.
+     * @minLength 1
+     */
+    scanner_ids: string;
     };
 
     export type VisionScannersWatchFeedRetrieveParams = {

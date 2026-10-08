@@ -1129,6 +1129,7 @@ const visionScannersList = (): ToolBase<
                 emits_signals: params.emits_signals,
                 enabled: params.enabled,
                 experiment_id: params.experiment_id,
+                include_spend: params.include_spend,
                 limit: params.limit,
                 offset: params.offset,
                 order_by: params.order_by,
