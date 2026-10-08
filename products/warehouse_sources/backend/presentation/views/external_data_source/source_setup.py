@@ -89,6 +89,7 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
 )
+from products.warehouse_sources.backend.source_status import effective_source_status
 
 from . import base, connection_options, credential_store, helpers, webhook_setup
 
@@ -320,36 +321,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return list(instance.schemas.exclude(deleted=True).filter(Q(should_sync=True) | Q(latest_error__isnull=False)))
 
     def get_status(self, instance: ExternalDataSource) -> str:
-        active_schemas: list[ExternalDataSchema] = self._active_schemas(instance)
-        # Negative statuses should ignore schemas the user has disabled — those can linger in
-        # active_schemas via the latest_error prefetch but shouldn't drag the source into a failed state.
-        syncing_schemas = [schema for schema in active_schemas if schema.should_sync]
-        any_failures = any(schema.status == ExternalDataSchema.Status.FAILED for schema in syncing_schemas)
-        any_billing_limits_reached = any(
-            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED for schema in syncing_schemas
-        )
-        any_billing_limits_too_low = any(
-            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW for schema in syncing_schemas
-        )
-        any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
-        any_running = any(schema.status == ExternalDataSchema.Status.RUNNING for schema in active_schemas)
-        any_completed = any(schema.status == ExternalDataSchema.Status.COMPLETED for schema in active_schemas)
-
-        if any_failures:
-            return ExternalDataSchema.Status.FAILED
-        elif any_billing_limits_reached:
-            return "Billing limits"
-        elif any_billing_limits_too_low:
-            return "Billing limits too low"
-        elif any_paused:
-            return ExternalDataSchema.Status.PAUSED
-        elif any_running:
-            return ExternalDataSchema.Status.RUNNING
-        elif any_completed:
-            return ExternalDataSchema.Status.COMPLETED
-        else:
-            # Fallback during migration phase of going from source -> schema as the source of truth for syncs
-            return instance.status
+        return effective_source_status(self._active_schemas(instance), fallback=instance.status)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_latest_error(self, instance: ExternalDataSource):
