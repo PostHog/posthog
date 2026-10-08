@@ -7,24 +7,20 @@ from collections.abc import Sequence
 from copy import deepcopy
 from datetime import timedelta
 from time import monotonic
-from typing import Any, Final, NamedTuple, Optional, cast
+from typing import Any, NamedTuple, Optional, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
 from django.core.cache import cache
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import models, transaction
-from django.db.models import Count, F, OuterRef, Q, QuerySet, Subquery, Value
-from django.db.models.expressions import RawSQL
-from django.db.models.functions import Coalesce
+from django.db.models import QuerySet
 from django.http import Http404, HttpResponse
 from django.utils import timezone
 
 import requests
 import structlog
 import posthoganalytics
-from django_filters import BaseInFilter, BooleanFilter, CharFilter, FilterSet
-from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -117,7 +113,6 @@ from products.tasks.backend.facade.workflow_tasks import (
 from products.workflows.backend.facade.batch_jobs import (
     create_batch_job,
     get_batch_job,
-    hog_flow_ids_with_broadcast_status,
     list_batch_jobs,
     set_batch_job_status,
 )
@@ -142,6 +137,8 @@ from products.workflows.backend.facade.contracts import (
     WorkflowDraftChanged,
     WorkflowDraftExists,
     WorkflowHasNoDraft,
+    WorkflowListFiltersInvalid,
+    WorkflowListQuery,
     WorkflowNotFound,
     WorkflowProposalRecord,
     WorkflowRevisionNotFound,
@@ -220,7 +217,13 @@ from products.workflows.backend.facade.validation import (
     is_duration,
     is_signed_duration,
 )
-from products.workflows.backend.facade.workflows import get_workflow
+from products.workflows.backend.facade.workflows import (
+    BROADCAST_STATUSES,
+    WORKFLOW_FIELD_FILTER_PARAMS,
+    WORKFLOW_TYPES,
+    get_workflow,
+    list_workflows,
+)
 from products.workflows.backend.facade.writes import (
     build_publish_impact,
     create_workflow,
@@ -234,7 +237,6 @@ from products.workflows.backend.facade.writes import (
 )
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
-    MESSAGING_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
     ROW_SCOPED_TRIGGER_TYPES,
     SUPPORTED_ACTION_TYPES,
@@ -242,7 +244,6 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     WORKFLOW_SAFE_INTERNAL_EVENTS,
     HogFlow,
 )
-from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.presentation.views.graph_operations import apply_graph_operations
 from products.workflows.backend.presentation.views.graph_validation import validate_graph
 from products.workflows.backend.presentation.views.hog_flow_batch_job import (
@@ -3898,104 +3899,6 @@ def _validate_merge_keys(field: str, items: Any) -> None:
         seen.add(key)
 
 
-class CommaSeparatedListFilter(BaseInFilter, CharFilter):
-    pass
-
-
-# A workflow's type is what owns it, else what it does. `loop` and `broadcast` name the surfaces that
-# have their own page, and the behavioural values exclude them: a flow those surfaces own is tagged
-# by surface in the UI (see WorkflowTypeTag), so returning it under `messaging` would contradict the
-# tag on the row. Accepting several lets a list say which surfaces it covers, which is how the
-# workflows page asks for everything except the ones that moved out.
-WORKFLOW_TYPES: Final[tuple[str, ...]] = ("messaging", "automation", "loop", "broadcast")
-OWNED_WORKFLOW_TYPES: Final[dict[str, str]] = {
-    "loop": HogFlow.OriginProduct.LOOPS,
-    "broadcast": HogFlow.OriginProduct.BROADCASTS,
-}
-
-
-def workflow_type_q(requested: set[str]) -> Q:
-    owned = Q(origin_product__in=[OWNED_WORKFLOW_TYPES[t] for t in requested if t in OWNED_WORKFLOW_TYPES])
-    behavioural = requested - set(OWNED_WORKFLOW_TYPES)
-    if not behavioural:
-        return owned
-
-    messaging = Q()
-    for action_type in MESSAGING_ACTION_TYPES:
-        messaging |= Q(actions__contains=[{"type": action_type}])
-    unowned = ~Q(origin_product__in=list(OWNED_WORKFLOW_TYPES.values()))
-    if behavioural == {"messaging", "automation"}:
-        return owned | unowned
-    return owned | (unowned & (messaging if behavioural == {"messaging"} else ~messaging))
-
-
-BROADCAST_TRIGGER_TYPE = "batch"
-BROADCAST_ALLOWED_ACTION_TYPES = frozenset({"trigger", "function_email", "exit"})
-
-
-def _json_path(path: str) -> models.Func:
-    # A jsonpath bind parameter. Postgres types a plain parameter as text and the jsonb_path_*
-    # functions take jsonpath, so the cast has to be spelled out.
-    return models.Func(models.Value(path), template="%(expressions)s::jsonpath", output_field=models.TextField())
-
-
-def _jsonb_path_exists(path: str) -> models.Func:
-    return models.Func(
-        models.F("actions"),
-        _json_path(path),
-        function="jsonb_path_exists",
-        output_field=models.BooleanField(),
-    )
-
-
-def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
-    # Whether a workflow has the shape the broadcasts UI renders: a batch trigger and one email step,
-    # evaluated in Postgres so a list can filter on the graph without loading every row's actions.
-    # The trigger comes from the trigger action, where mask_trigger_config reads it: the `trigger`
-    # column is a legacy copy and rows exist where the two disagree. jsonpath runs in lax mode, so a
-    # row whose `actions` is not an array yields no matches rather than an error.
-    other_step = " && ".join(f'@.type != "{action_type}"' for action_type in sorted(BROADCAST_ALLOWED_ACTION_TYPES))
-    return queryset.annotate(
-        _has_batch_trigger=_jsonb_path_exists(
-            f'$[*] ? (@.type == "trigger" && @.config.type == "{BROADCAST_TRIGGER_TYPE}")'
-        ),
-        _email_step_count=models.Func(
-            models.Func(
-                models.F("actions"),
-                _json_path('$[*] ? (@.type == "function_email")'),
-                function="jsonb_path_query_array",
-                output_field=models.JSONField(),
-            ),
-            function="jsonb_array_length",
-            output_field=models.IntegerField(),
-        ),
-        _has_other_step=_jsonb_path_exists(f"$[*] ? ({other_step})"),
-    )
-
-
-BROADCAST_STATUSES = ("draft", "scheduled", "sending", "sent", "failed", "archived")
-
-
-class HogFlowFilterSet(FilterSet):
-    # A producer's work list, so an agent need not read every workflow to find the few it may look at.
-    optimization_enabled = BooleanFilter(
-        method="filter_optimization_enabled",
-        label="Only workflows someone turned suggestions on for.",
-    )
-
-    class Meta:
-        model = HogFlow
-        # `created_by` is filtered by uuid in safely_get_queryset (the list UI's member picker keys on
-        # uuid, not pk), so it's deliberately not an exact-match field here.
-        fields = ["id", "created_at", "updated_at", "status", "origin_product"]
-
-    def filter_optimization_enabled(self, queryset, name: str, value: bool):
-        # Off keeps its row, so "on" is a row still enabled. Archived workflows drop out: nothing runs there.
-        if not value:
-            return queryset.exclude(optimization__enabled=True)
-        return queryset.filter(optimization__enabled=True, status=HogFlow.State.ACTIVE)
-
-
 class _RevisionPages:
     """Lets LimitOffsetPagination page revisions in the database, as it did over a queryset."""
 
@@ -4025,46 +3928,6 @@ class _ProposalPages:
 class HogFlowPagination(LimitOffsetPagination):
     default_limit = 100
     max_limit = 500
-
-
-# The email body as a person reads it: the editor's plain-text export when it exists, otherwise the HTML
-# with style and script blocks and tags removed, so CSS, script and markup never match a search term.
-# The block patterns start with a non-greedy quantifier because Postgres gives a whole regex the
-# greediness of its first quantifier. The tag pattern skips over quoted attribute values, so a '>' inside
-# one (a liquid comparison, say) does not end the tag early and leak the rest of the attribute into the
-# searchable text. Mirrored by emailBodyText in the frontend's workflowSearchMatches.ts.
-_EMAIL_BODY_TEXT_SQL = (
-    "COALESCE(NULLIF(action #>> '{config,inputs,email,value,text}', ''), "
-    "regexp_replace(regexp_replace(regexp_replace(action #>> '{config,inputs,email,value,html}', "
-    "'<style[^>]*?>.*?</style>', ' ', 'gi'), '<script[^>]*?>.*?</script>', ' ', 'gi'), "
-    "'<[^>\"'']*((\"[^\"]*\"|''[^'']*'')[^>\"'']*)*>', ' ', 'g'))"
-)
-
-# What a person remembers about a message they received or authored.
-_ACTION_SEARCH_TEXT_SQL = (
-    "action ->> 'name'",
-    "action #>> '{config,inputs,email,value,subject}'",
-    "action #>> '{config,inputs,email,value,preheader}'",
-    _EMAIL_BODY_TEXT_SQL,
-)
-
-
-def _action_content_matches(regex_pattern: str) -> RawSQL:
-    """A predicate that is true when a step in the live actions or the pending draft matches the search."""
-    table = HogFlow._meta.db_table
-    step_matches = " OR ".join(f"{text} ~* %s" for text in _ACTION_SEARCH_TEXT_SQL)
-    clauses = []
-    for source in (f'"{table}"."actions"', f'"{table}"."draft" -> \'actions\''):
-        # `actions` defaults to {} on a workflow that never got a graph, and jsonb_array_elements raises on
-        # anything but an array, so guard the source rather than let one such row fail the whole list.
-        clauses.append(
-            "EXISTS (SELECT 1 FROM jsonb_array_elements("
-            f"CASE WHEN jsonb_typeof({source}) = 'array' THEN {source} ELSE '[]'::jsonb END"
-            f") AS action WHERE {step_matches})"
-        )
-    params = [regex_pattern] * (len(clauses) * len(_ACTION_SEARCH_TEXT_SQL))
-    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (the search term is bound via params; only constant SQL and the table name from _meta are interpolated)
-    return RawSQL(" OR ".join(clauses), params, output_field=models.BooleanField())
 
 
 class StaleWorkflowUpdateError(exceptions.APIException):
@@ -4146,6 +4009,20 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
     ),
     list=extend_schema(
         parameters=[
+            OpenApiParameter("id", OpenApiTypes.UUID),
+            OpenApiParameter("created_at", OpenApiTypes.DATETIME),
+            OpenApiParameter("updated_at", OpenApiTypes.DATETIME),
+            OpenApiParameter(
+                "status",
+                OpenApiTypes.STR,
+                enum=sorted(HogFlow.State.values),
+                description="\n".join(f"* `{value}` - {label}" for value, label in HogFlow.State.choices),
+            ),
+            OpenApiParameter(
+                "optimization_enabled",
+                OpenApiTypes.BOOL,
+                description="Only workflows someone turned suggestions on for.",
+            ),
             OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
@@ -4234,8 +4111,6 @@ class HogFlowViewSet(
     ]
     queryset = HogFlow.objects.all()
     pagination_class = HogFlowPagination
-    filter_backends = [DjangoFilterBackend]
-    filterset_class = HogFlowFilterSet
     log_source = "hog_flow"
     app_source = "hog_flow"
     function_kind = "hog_flow"
@@ -4352,128 +4227,113 @@ class HogFlowViewSet(
             context["workflow_last_runs"] = self._workflow_last_runs
         return context
 
-    def paginate_queryset(self, queryset: QuerySet | Sequence[Any]) -> Sequence[Any] | None:
-        page = super().paginate_queryset(queryset)
-        # The MCP summary serializer has no last_run, so only the full list row pays for the lookup.
-        if self.action == "list" and page is not None and self.get_serializer_class() is HogFlowMinimalSerializer:
-            # One lookup for every loop on the page, so each row does not query tasks on its own.
-            loop_ids = [flow.id for flow in page if flow.origin_product == HogFlow.OriginProduct.LOOPS]
-            self._workflow_last_runs = list_workflow_last_runs(self.team_id, self.request.user.id, loop_ids)
-        return page
-
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        if self.action == "list":
-            # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
-            # otherwise repeat on one page and never appear on another.
-
-            pending = (
-                WorkflowProposal.objects.filter(hog_flow=OuterRef("pk"), status=WorkflowProposal.Status.SUGGESTED)
-                .order_by()
-                .values("hog_flow")
-                .annotate(count=Count("id"))
-                .values("count")
-            )
-            queryset = queryset.annotate(
-                pending_suggestions=Coalesce(Subquery(pending), 0),
-                suggestions_enabled=Coalesce(F("optimization__enabled"), Value(False)),
-            )
-            # A suggestion waits on a person, so the page that shows them sorts it above recency. Every
-            # other reader of this list — the MCP tool, any other surface — keeps recency, or a stale
-            # workflow with one suggestion would push a fresh one off their first page.
-            # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
-            # otherwise repeat on one page and never appear on another.
-            if self.request.GET.get("suggestions_first") in ("true", "1"):
-                queryset = queryset.order_by("-pending_suggestions", "-updated_at", "-id")
-            else:
-                queryset = queryset.order_by("-updated_at", "-id")
-
-            created_by = self.request.GET.get("created_by")
-            if created_by:
-                try:
-                    uuid_mod.UUID(created_by)
-                except ValueError:
-                    raise exceptions.ValidationError({"created_by": "Must be a valid user uuid"})
-                queryset = queryset.filter(created_by__uuid=created_by)
-
-            workflow_type = self.request.GET.get("type")
-            if workflow_type:
-                requested = {value for value in workflow_type.split(",") if value}
-                unknown = sorted(requested - set(WORKFLOW_TYPES))
-                # A value of only separators names no type. Filtering on nothing would answer with an
-                # empty list, so it is rejected the way any other unusable value is.
-                if unknown or not requested:
-                    named = f"Unknown: {', '.join(unknown)}. " if unknown else ""
-                    raise exceptions.ValidationError({"type": f"{named}Must be one of: {', '.join(WORKFLOW_TYPES)}"})
-                queryset = queryset.filter(workflow_type_q(requested))
-
-            if self.request.GET.get("broadcast_eligible") == "true":
-                queryset = annotate_broadcast_shape(queryset).filter(
-                    Q(origin_product=HogFlow.OriginProduct.BROADCASTS)
-                    | Q(
-                        origin_product__isnull=True,
-                        _has_batch_trigger=True,
-                        _email_step_count=1,
-                        _has_other_step=False,
-                    )
-                )
-
-            broadcast_status = self.request.GET.get("broadcast_status")
-            if broadcast_status:
-                requested_statuses = {value for value in broadcast_status.split(",") if value}
-                unknown_statuses = sorted(requested_statuses - set(BROADCAST_STATUSES))
-                if unknown_statuses or not requested_statuses:
-                    raise exceptions.ValidationError(
-                        {"broadcast_status": f"Must be one or more of: {', '.join(BROADCAST_STATUSES)}"}
-                    )
-                queryset = queryset.filter(
-                    id__in=hog_flow_ids_with_broadcast_status(team_id=self.team_id, statuses=requested_statuses)
-                )
-
-            # `?type=loop` and `?type=broadcast` return the same rows, but Desktop's Loops list sends
-            # this param and ships on its own release cadence, so installed builds keep sending it.
-            origin_product = self.request.GET.get("origin_product")
-            if origin_product:
-                if origin_product not in HogFlow.OriginProduct.values:
-                    raise exceptions.ValidationError(
-                        {"origin_product": f"Must be one of: {', '.join(HogFlow.OriginProduct.values)}"}
-                    )
-                queryset = queryset.filter(origin_product=origin_product)
-
-        if self.request.GET.get("trigger"):
-            try:
-                trigger = json.loads(self.request.GET["trigger"])
-
-                if trigger:
-                    queryset = queryset.filter(trigger__contains=trigger)
-            except (ValueError, KeyError, TypeError):
-                raise exceptions.ValidationError({"trigger": f"Invalid trigger"})
-
+        trigger = self._trigger_filter()
+        if trigger:
+            queryset = queryset.filter(trigger__contains=trigger)
         return queryset
 
-    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
-        # Search runs after the filter backends so the tier decision below sees the same rows the response
-        # will: a name match that the `status` filter then drops must not stop the step search from running.
-        queryset = super().filter_queryset(queryset)
-        if self.action != "list":
-            return queryset
+    def _trigger_filter(self) -> Any:
+        if not self.request.GET.get("trigger"):
+            return None
+        try:
+            return json.loads(self.request.GET["trigger"])
+        except (ValueError, KeyError, TypeError):
+            raise exceptions.ValidationError({"trigger": f"Invalid trigger"})
 
-        search = (self.request.GET.get("search") or "").strip()
-        if not search:
-            return queryset
+    def _list_query(self) -> WorkflowListQuery:
+        """The list's query parameters, validated in the order the list has always checked them."""
+        params = self.request.GET
+
+        created_by_uuid: uuid_mod.UUID | None = None
+        created_by = params.get("created_by")
+        if created_by:
+            try:
+                created_by_uuid = uuid_mod.UUID(created_by)
+            except ValueError:
+                raise exceptions.ValidationError({"created_by": "Must be a valid user uuid"})
+
+        types: set[str] = set()
+        workflow_type = params.get("type")
+        if workflow_type:
+            types = {value for value in workflow_type.split(",") if value}
+            unknown = sorted(types - set(WORKFLOW_TYPES))
+            # A value of only separators names no type. Filtering on nothing would answer with an
+            # empty list, so it is rejected the way any other unusable value is.
+            if unknown or not types:
+                named = f"Unknown: {', '.join(unknown)}. " if unknown else ""
+                raise exceptions.ValidationError({"type": f"{named}Must be one of: {', '.join(WORKFLOW_TYPES)}"})
+
+        broadcast_statuses: set[str] = set()
+        broadcast_status = params.get("broadcast_status")
+        if broadcast_status:
+            broadcast_statuses = {value for value in broadcast_status.split(",") if value}
+            unknown_statuses = sorted(broadcast_statuses - set(BROADCAST_STATUSES))
+            if unknown_statuses or not broadcast_statuses:
+                raise exceptions.ValidationError(
+                    {"broadcast_status": f"Must be one or more of: {', '.join(BROADCAST_STATUSES)}"}
+                )
+
+        origin_product = params.get("origin_product")
+        if origin_product and origin_product not in HogFlow.OriginProduct.values:
+            raise exceptions.ValidationError(
+                {"origin_product": f"Must be one of: {', '.join(HogFlow.OriginProduct.values)}"}
+            )
+
+        trigger = self._trigger_filter()
+
+        search = (params.get("search") or "").strip()
         if len(search) > 200:
             raise exceptions.ValidationError({"search": "Search term cannot exceed 200 characters"})
-        # Escape regex metacharacters, then let spaces match any run of space/dash/underscore
-        # so "welcome email" also matches "welcome-email" — same approach as feature flag search.
-        regex_pattern = re.escape(search).replace(r"\ ", r"[\s\-_]*")
 
-        # Name and description are small columns, while the step search has to read every workflow's `actions`
-        # JSON (tens of KB per email step). Only fall through to the step content when nothing matched by
-        # name, so the common search stays cheap and a subject line or body text, which rarely appears in a
-        # workflow name, is still found.
-        by_name = Q(name__iregex=regex_pattern) | Q(description__iregex=regex_pattern)
-        if queryset.filter(by_name).exists():
-            return queryset.filter(by_name)
-        return queryset.filter(Q(_action_content_matches(regex_pattern)))
+        return WorkflowListQuery(
+            search=search,
+            created_by_uuid=created_by_uuid,
+            types=frozenset(types),
+            origin_product=origin_product or None,
+            trigger=trigger,
+            broadcast_eligible=params.get("broadcast_eligible") == "true",
+            broadcast_statuses=frozenset(broadcast_statuses),
+            suggestions_first=params.get("suggestions_first") in ("true", "1"),
+            field_filters={name: params[name] for name in WORKFLOW_FIELD_FILTER_PARAMS if name in params},
+        )
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = self._list_query()
+        paginator = cast(HogFlowPagination, self.paginator)
+        # The default page size always applies, so there is always a limit.
+        limit = cast(int, paginator.get_limit(request))
+        offset = paginator.get_offset(request)
+        try:
+            page = list_workflows(
+                team_id=self.team_id,
+                query=query,
+                # Service credentials are synthetic users that UserAccessControl cannot evaluate.
+                user_access_control=None if is_service_auth(request) else self.user_access_control,
+                # Half implemented: admins may want to list workflows they cannot open.
+                include_all_if_admin=request.GET.get("admin_include_all") == "true",
+                offset=offset,
+                limit=limit,
+            )
+        except WorkflowListFiltersInvalid as invalid:
+            raise exceptions.ValidationError(
+                {
+                    name: [exceptions.ErrorDetail(error.message, code=error.code) for error in errors]
+                    for name, errors in invalid.errors.items()
+                }
+            )
+
+        # The MCP summary serializer has no last_run, so only the full list row pays for the lookup.
+        if self.get_serializer_class() is HogFlowMinimalSerializer:
+            # One lookup for every loop on the page, so each row does not query tasks on its own.
+            loop_ids = [flow.id for flow in page.results if flow.origin_product == HogFlow.OriginProduct.LOOPS]
+            self._workflow_last_runs = list_workflow_last_runs(self.team_id, request.user.id, loop_ids)
+
+        paginator.request = request
+        paginator.limit = limit
+        paginator.offset = offset
+        paginator.count = page.count
+        return paginator.get_paginated_response(self.get_serializer(page.results, many=True).data)
 
     def safely_get_object(self, queryset):
         # TODO(team-workflows): Somehow implement version lookups
