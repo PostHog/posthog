@@ -108,12 +108,14 @@ const ACCESS_DENIED_SELF_HANDLED = new Set(['saveFeatureFlag'])
 
 /*
 Load actions whose own UI renders the missing resource, so a 404 from them is a state the app
-expects rather than a defect worth filing. `shouldReportApiFailure` keeps a plain 404 reportable on
-purpose, so each caller that degrades has to name itself here, next to the toast allow list above.
+expects rather than a defect worth filing or toasting. `shouldReportApiFailure` keeps a plain 404
+reportable on purpose, so each caller that degrades has to name itself here, next to the toast allow
+list above.
 */
 const NOT_FOUND_SELF_HANDLED = new Set([
     'loadRecordingMeta', // The player renders RecordingNotFound off sessionRecordingMetaLogic's isNotFound
     'loadLineage', // A metric has no lineage node until the sync task runs; the panel says so and retries
+    'loadSpace', // SpaceScene renders NotFound off spaceSceneLogic's spaceMissing
 ])
 
 /*
@@ -206,12 +208,15 @@ export function initKea({
                 // when a click, an Enter key press, or a form submit started the request.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
+                const isSelfHandledNotFound =
+                    NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
                     ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic; 409 conflict flows surface their own UI
                     !(isLoadAction && error.status === 403) && // 403 access denied is handled by sceneLogic gates
-                    !isAccessDenied
+                    !isAccessDenied &&
+                    !isSelfHandledNotFound
                 ) {
                     let errorMessage = error.detail || error.statusText
                     const isTwoFactorError =
@@ -268,8 +273,6 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                const isSelfHandledNotFound =
-                    NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
                 const isSelfHandledExistingMember =
                     error?.code === 'existing_member' && EXISTING_MEMBER_SELF_HANDLED.has(String(actionKey))
                 if (shouldReportApiFailure(error) && !isSelfHandledNotFound && !isSelfHandledExistingMember) {
