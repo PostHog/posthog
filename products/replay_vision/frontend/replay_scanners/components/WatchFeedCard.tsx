@@ -396,14 +396,17 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
                         {title}
                     </h3>
                 </Link>
-                <p className="m-0 flex items-start gap-1.5 text-sm text-secondary" data-attr="vision-watch-feed-why">
+                <WatchFeedScannerLink observation={observation} scannerName={scannerName} scannerType={scannerType} />
+                <WatchCardPerson observation={observation} person={person} />
+                <p
+                    className="m-0 mt-1 flex items-start gap-1.5 border-t pt-2 text-sm text-secondary"
+                    data-attr="vision-watch-feed-why"
+                >
                     <IconFlag className="mt-0.5 shrink-0 text-accent" aria-hidden />
                     <span className="line-clamp-2">
                         <span className="font-medium text-default">Why this recording:</span> {watchFeedRowWhy(reason)}
                     </span>
                 </p>
-                <WatchFeedScannerLink observation={observation} scannerName={scannerName} scannerType={scannerType} />
-                <WatchCardPerson observation={observation} person={person} />
             </div>
         </article>
     )
