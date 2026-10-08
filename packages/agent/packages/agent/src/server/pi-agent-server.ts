@@ -36,6 +36,7 @@ import {
   type PermissionAnswer,
   PI_ACP_MCP_PERMISSION_OPTIONS,
   type PiExtensionDialog,
+  piAcpLogEntries,
   piAcpWireEntry,
   piExtensionDialogResponse,
   readPiExtensionDialog,
@@ -188,6 +189,7 @@ export class PiAgentServer {
   private logFlushQueue: Promise<void> = Promise.resolve();
   private logFlushActive = false;
   private logFlushRequested = false;
+  private logFlushFinalRequested = false;
   private readonly canceledSseControllers = new WeakSet<SseController>();
   private readonly pendingMcpPermissions = new Map<
     string,
@@ -327,7 +329,7 @@ export class PiAgentServer {
       }
     }
     this.pendingExtensionDialogs.clear();
-    await this.flushConversationLog().catch((error) =>
+    await this.flushConversationLog({ final: true }).catch((error) =>
       this.logger.error("Failed to persist Pi events during shutdown", error),
     );
     await this.emitRtkSavings();
@@ -357,7 +359,7 @@ export class PiAgentServer {
     await this.syncTaskSession().catch((syncError) =>
       this.logger.error("Failed to sync crashed Pi session", syncError),
     );
-    await this.flushConversationLog().catch((syncError) =>
+    await this.flushConversationLog({ final: true }).catch((syncError) =>
       this.logger.error("Failed to persist crashed Pi events", syncError),
     );
     await this.posthogAPI
@@ -1124,16 +1126,6 @@ export class PiAgentServer {
     if (configId === "model") {
       await this.refreshModelContextWindow(runtime.client);
     }
-    await this.posthogAPI
-      .updateTaskRun(this.config.taskId, this.config.runId, {
-        state:
-          configId === "model"
-            ? { model: value }
-            : { reasoning_effort: value as PiThinkingLevel },
-      })
-      .catch((error) =>
-        this.logger.warn("Failed to record the Pi session config", error),
-      );
     return {};
   }
 
@@ -1287,7 +1279,7 @@ export class PiAgentServer {
   }
 
   private async persistSettledTurn(): Promise<void> {
-    await Promise.all([this.syncTaskSession(), this.flushConversationLog()]);
+    await Promise.all([this.syncTaskSession(), this.flushConversationLog({ final: true })]);
   }
 
   private syncTaskSession(): Promise<void> {
@@ -1470,7 +1462,12 @@ export class PiAgentServer {
     }
   }
 
-  private flushConversationLog(): Promise<void> {
+  private flushConversationLog({
+    final = false,
+  }: { final?: boolean } = {}): Promise<void> {
+    if (final) {
+      this.logFlushFinalRequested = true;
+    }
     if (this.logFlushActive) {
       this.logFlushRequested = true;
       return this.logFlushQueue;
@@ -1483,18 +1480,28 @@ export class PiAgentServer {
     const flush = (async () => {
       do {
         this.logFlushRequested = false;
+        const final = this.logFlushFinalRequested;
+        this.logFlushFinalRequested = false;
         const entries = this.pendingLogEntries;
         this.pendingLogEntries = [];
         if (entries.length === 0) {
+          return;
+        }
+        const { wire, carry } = this.acpConversation
+          ? piAcpLogEntries(entries, { final })
+          : { wire: entries, carry: [] };
+        if (wire.length === 0) {
+          this.pendingLogEntries = [
+            ...(carry as StoredLogEntry[]),
+            ...this.pendingLogEntries,
+          ];
           return;
         }
         try {
           await this.posthogAPI.appendTaskRunLog(
             this.config.taskId,
             this.config.runId,
-            this.acpConversation
-              ? entries.flatMap((entry) => piAcpWireEntry(entry) ?? [])
-              : entries,
+            wire,
           );
         } catch (error) {
           this.pendingLogEntries = [
@@ -1503,6 +1510,10 @@ export class PiAgentServer {
           ].slice(-MAX_PENDING_LOG_ENTRIES);
           throw error;
         }
+        this.pendingLogEntries = [
+          ...(carry as StoredLogEntry[]),
+          ...this.pendingLogEntries,
+        ];
       } while (
         this.logFlushRequested ||
         this.pendingLogEntries.length >= LOG_FLUSH_ENTRY_COUNT

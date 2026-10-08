@@ -3480,6 +3480,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if task_runtime == tasks_facade.TaskRuntime.PI and method not in {
             "user_message",
             "cancel",
+            "permission_response",
+            "set_config_option",
             "pi/rpc",
             "queue_get",
             "queue_clear",

@@ -13555,15 +13555,37 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             self._command_url(task, run),
             {
                 "jsonrpc": "2.0",
-                "method": "permission_response",
-                "params": {"requestId": "request-1", "optionId": "allow"},
+                "method": "close",
                 "id": "req-1",
             },
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "permission_response is not supported for Pi tasks.")
+        self.assertEqual(response.json()["error"], "close is not supported for Pi tasks.")
+
+    @parameterized.expand(
+        [
+            ("permission_response", {"requestId": "request-1", "optionId": "allow"}),
+            ("set_config_option", {"configId": "effort", "value": "high"}),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_proxies_acp_session_commands_for_pi_task(self, method, params, mock_post):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-1", "result": {}})
+        task = self.create_task(runtime=Task.Runtime.PI)
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": method, "params": params, "id": "req-1"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_post.call_args.kwargs["json"]["method"], method)
 
     @parameterized.expand([("claude", True), ("claude", False), ("codex", True), ("codex", False)])
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
