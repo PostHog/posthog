@@ -26,7 +26,7 @@ async def eval_flag_creation(ctx: EvalContext) -> None:
                 name="boolean_flag_with_targeted_rollout",
                 prompt=(
                     f"Create an active boolean feature flag with the key '{FLAG_KEY}'. "
-                    "Roll it out to 25% of people whose plan is exactly 'business/standard'. "
+                    "Roll it out to 25% of account groups whose plan is exactly 'business/standard'. "
                     "Do not include any other audience or variants."
                 ),
                 setup=seed_flag_creation,
@@ -34,9 +34,11 @@ async def eval_flag_creation(ctx: EvalContext) -> None:
                     "created_flag_configuration": {
                         "key": FLAG_KEY,
                         "rollout_percentage": 25,
+                        "aggregation_group_type_index": 0,
                         "property": {
                             "key": "plan",
-                            "type": "person",
+                            "type": "group",
+                            "group_type_index": 0,
                             "operator": "exact",
                             "value": ["business/standard"],
                         },

@@ -4,16 +4,16 @@ import asyncio
 from copy import deepcopy
 from typing import Any
 
-import pytest
 from unittest.mock import patch
+
+from parameterized import parameterized
 
 from products.dashboards.evals.scorers import SavedDashboardContents
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.evals.creation_scorers import CreatedFlagConfiguration
 
 
-@pytest.mark.parametrize(
-    "change,expected_score",
+@parameterized.expand(
     [
         ({}, 1.0),
         ({"property_value": "business/standard"}, 1.0),
@@ -21,18 +21,36 @@ from products.feature_flags.evals.creation_scorers import CreatedFlagConfigurati
         ({"property_value": ["business/standard", "free"]}, 0.0),
         ({"extra_group": True}, 0.0),
         ({"super_groups": [{"properties": [], "rollout_percentage": 100}]}, 0.0),
-        ({"aggregation_group_type_index": 0}, 0.0),
+        ({"aggregation_group_type_index": None}, 0.0),
+        ({"aggregation_group_type_index": 1}, 0.0),
+        ({"property_type": "person"}, 0.0),
+        ({"property_group_type_index": 1}, 0.0),
         ({"holdout": {"id": 1, "exclusion_percentage": 10}}, 0.0),
+        ({"holdout_groups": [{"properties": [], "rollout_percentage": 10}]}, 0.0),
         ({"variants": [{"key": "control", "rollout_percentage": 100}]}, 0.0),
         ({"active": False}, 0.0),
         ({"archived": True}, 0.0),
         ({"missing_flag": True}, 0.0),
+        ({"version": 2}, 0.0),
     ],
 )
 def test_flag_creation_scores_saved_configuration(change: dict[str, Any], expected_score: float) -> None:
-    property_filter = {"key": "plan", "type": "person", "operator": "exact", "value": ["business/standard"]}
-    spec = {"key": "bulk-file-export-preview", "rollout_percentage": 25, "property": deepcopy(property_filter)}
+    property_filter = {
+        "key": "plan",
+        "type": "group",
+        "group_type_index": 0,
+        "operator": "exact",
+        "value": ["business/standard"],
+    }
+    spec = {
+        "key": "bulk-file-export-preview",
+        "rollout_percentage": 25,
+        "aggregation_group_type_index": 0,
+        "property": deepcopy(property_filter),
+    }
     property_filter["value"] = change.get("property_value", property_filter["value"])
+    property_filter["type"] = change.get("property_type", property_filter["type"])
+    property_filter["group_type_index"] = change.get("property_group_type_index", property_filter["group_type_index"])
     group = {"properties": [property_filter], "rollout_percentage": change.get("rollout_percentage", 25)}
     flag = FeatureFlag(
         active=change.get("active", True),
@@ -41,8 +59,10 @@ def test_flag_creation_scores_saved_configuration(change: dict[str, Any], expect
             "groups": [group, {"properties": [], "rollout_percentage": 100}] if change.get("extra_group") else [group],
             "multivariate": {"variants": change.get("variants", [])},
             "super_groups": change.get("super_groups", []),
-            "aggregation_group_type_index": change.get("aggregation_group_type_index"),
+            "aggregation_group_type_index": change.get("aggregation_group_type_index", 0),
             "holdout": change.get("holdout"),
+            "holdout_groups": change.get("holdout_groups", []),
+            "version": change.get("version", 1),
         },
     )
     with patch.object(
@@ -54,8 +74,7 @@ def test_flag_creation_scores_saved_configuration(change: dict[str, Any], expect
     assert score.score == expected_score
 
 
-@pytest.mark.parametrize(
-    "change,expected_score",
+@parameterized.expand(
     [
         ({}, 1.0),
         ({"creating": True}, 1.0),
