@@ -12,7 +12,7 @@ from rest_framework import status
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 
-from products.replay_vision.backend.facade.contracts import (
+from products.replay_vision.backend.facade.api import (
     ObservationRequestRejected,
     RejectionKind,
     StartedObservationRequest,

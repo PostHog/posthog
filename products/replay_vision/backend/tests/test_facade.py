@@ -15,10 +15,10 @@ from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.replay_vision.backend.facade.api import (
+    ObservationRequestRejected,
     fetch_page_session_observations,
     start_workflow_observation_request,
 )
-from products.replay_vision.backend.facade.contracts import ObservationRequestRejected
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -26,7 +26,7 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_request import ReplayObservationRequest
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.tests.helpers import snapshot_for
+from products.replay_vision.backend.tests.helpers import create_experiment, snapshot_for
 
 
 class TestFetchPageSessionObservations(APIBaseTest):
@@ -155,6 +155,39 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
         # The step never parks, so the sweep must not try to wake it.
         request = ReplayObservationRequest.objects.for_team(self.team.id).get(id=started.request_id)
         assert request.completed_at is not None
+
+    def test_leaves_out_a_cached_answer_recorded_under_an_experiment_the_owner_cannot_view(self) -> None:
+        experiment = create_experiment(self.team, "restricted-flag")
+        scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="checkout",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did the user check out?"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+            experiment_targeting={"experiment_id": experiment.id, "variant": "test"},
+        )
+        ReplayObservation.objects.create(
+            scanner=scanner,
+            team=self.team,
+            session_id="s1",
+            scanner_snapshot=snapshot_for(scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.SUCCEEDED,
+            scanner_result={"model_output": {"verdict": "yes"}},
+            completed_at=timezone.now(),
+        )
+        # Retargeting lets the scanner pass its own gate; the row's snapshot must still block it.
+        scanner.experiment_targeting = None
+        scanner.save(update_fields=["experiment_targeting"])
+
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is type(experiment) else qs,
+        ):
+            started = self._start(scanner_id=scanner.id, prompt=None)
+
+        assert started.result is not None
+        assert started.result["sessions"] == []
 
     @parameterized.expand(
         [

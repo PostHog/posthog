@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
 from django.db.models import Case, When
@@ -9,7 +10,6 @@ from posthog.models.team.team import Team as TeamModel
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.replay_vision.backend.facade.contracts import ObservationRequestRejected, StartedObservationRequest
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_request import (
     ObservationRequestSource,
@@ -27,6 +27,30 @@ from ee.hogai.utils.untrusted import as_untrusted_data
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
+
+RejectionKind = Literal["not_found", "consent", "invalid", "forbidden"]
+
+# The longest session recording id a scan accepts.
+MAX_SESSION_ID_LENGTH = 128
+
+
+@dataclass(frozen=True, kw_only=True)
+class StartedObservationRequest:
+    request_id: UUID
+    # "completed" when every session already settled, for example because each one was scanned before.
+    status: Literal["running", "completed"]
+    # False when the idempotency key matched an earlier request and nothing new started.
+    created: bool
+    # The per-session answers, set only when the request already settled, so the caller has nothing to wait for.
+    result: dict[str, Any] | None = None
+
+
+class ObservationRequestRejected(Exception):
+    def __init__(self, detail: str, kind: RejectionKind) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.kind = kind
+
 
 _MAX_PAGE_OBSERVATIONS = 30
 
@@ -141,7 +165,9 @@ def start_workflow_observation_request(
     team = TeamModel.objects.select_related("organization").get(id=team_id)
     owner = _workflow_owner(team, owner_id)
     access = UserAccessControl(user=owner, team=team, organization_id=str(team.organization_id))
-    if not access.check_access_level_for_resource("session_recording", required_level="viewer"):
+    if not access.has_project_access or not access.check_access_level_for_resource(
+        "session_recording", required_level="viewer"
+    ):
         raise ObservationRequestRejected("The workflow's owner can't view session recordings.", "forbidden")
     if not team.organization.is_ai_data_processing_approved:
         raise ObservationRequestRejected(

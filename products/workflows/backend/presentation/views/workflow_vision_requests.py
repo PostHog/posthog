@@ -11,11 +11,11 @@ from rest_framework.response import Response
 
 from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
 
-from products.replay_vision.backend.facade.api import start_workflow_observation_request
-from products.replay_vision.backend.facade.contracts import (
+from products.replay_vision.backend.facade.api import (
     MAX_SESSION_ID_LENGTH,
     ObservationRequestRejected,
     RejectionKind,
+    start_workflow_observation_request,
 )
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_owner_id
 from products.workflows.backend.facade.service_jwt import WORKFLOW_VISION_REQUEST_PURPOSE

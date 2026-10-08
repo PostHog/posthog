@@ -35,7 +35,7 @@ from products.replay_vision.backend.models.replay_observation_request import (
 )
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner, ScannerType
 from products.replay_vision.backend.queries.session_last_activity import fetch_session_last_activity
-from products.replay_vision.backend.scanner_access import can_read_targeted_experiment
+from products.replay_vision.backend.scanner_access import accessible_observations, can_read_targeted_experiment
 from products.replay_vision.backend.scanning import run_inline_scan, scan_existing_scanner
 from products.replay_vision.backend.temporal.constants import APPLY_SCANNER_EXECUTION_TIMEOUT
 
@@ -450,7 +450,9 @@ def _complete_page(page: list[ReplayObservationRequest], now: datetime) -> int:
 
 
 def step_result(request: ReplayObservationRequest, progress: RequestProgress) -> dict[str, Any]:
-    # Unlike the internal event, this stays inside the project's own workflow, so it carries the answers.
+    # Unlike the internal event, this stays inside the project's own workflow, so it carries the answers. Only
+    # rows the workflow's owner may read go in, judged like every other observation read.
+    progress = RequestProgress(sessions=_owner_readable_sessions(request, progress.sessions))
     return {
         "request_id": str(request.id),
         **_state_counts(progress),
@@ -465,6 +467,22 @@ def step_result(request: ReplayObservationRequest, progress: RequestProgress) ->
             for s in progress.sessions
         ],
     }
+
+
+def _owner_readable_sessions(request: ReplayObservationRequest, sessions: list[RequestSession]) -> list[RequestSession]:
+    owner = request.created_by
+    ids = [s.observation.id for s in sessions if s.observation is not None]
+    if owner is None:
+        readable: set[Any] = set()
+    else:
+        team = request.team
+        access = UserAccessControl(user=owner, team=team, organization_id=str(team.organization_id))
+        readable = set(
+            accessible_observations(
+                access, team.id, ReplayObservation.objects.filter(team_id=team.id, id__in=ids)
+            ).values_list("id", flat=True)
+        )
+    return [s for s in sessions if s.observation is None or s.observation.id in readable]
 
 
 def _state_counts(progress: RequestProgress) -> dict[str, int]:
