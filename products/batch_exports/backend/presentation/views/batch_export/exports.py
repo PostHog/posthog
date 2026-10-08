@@ -62,6 +62,7 @@ from products.batch_exports.backend.presentation.views.destination_tests import 
 from products.batch_exports.backend.presentation.views.utils import (
     HOGQL_MODIFIERS_HELP_TEXT,
     HogQLModifiersField,
+    check_high_frequency_batch_exports_enabled,
     check_hogql_batch_exports_enabled,
 )
 from products.batch_exports.backend.service import (
@@ -493,24 +494,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
     def validate_interval(self, interval: str) -> str:
         """Validate sub-hour frequency intervals are only available when feature flag is enabled."""
-        team_id = self.context["team_id"]
-
         if interval not in ("hour", "day", "week"):
-            team = Team.objects.get(id=team_id)
-
-            if not posthoganalytics.feature_enabled(
-                "high-frequency-batch-exports",
-                str(team.uuid),
-                groups={"organization": str(team.organization.id)},
-                group_properties={
-                    "organization": {
-                        "id": str(team.organization.id),
-                        "created_at": team.organization.created_at,
-                    }
-                },
-                send_feature_flag_events=False,
-            ):
-                raise PermissionDenied("Higher frequency batch exports are not enabled for this team.")
+            team = self.context["get_team"]()
+            check_high_frequency_batch_exports_enabled(team=team)
         return interval
 
     def validate_timezone(self, timezone: str | None) -> str | None:

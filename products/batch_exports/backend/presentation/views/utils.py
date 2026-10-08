@@ -35,6 +35,23 @@ def check_hogql_batch_exports_enabled(team: Team) -> None:
         raise PermissionDenied("HogQL batch exports are not enabled for this team.")
 
 
+def check_high_frequency_batch_exports_enabled(team: Team) -> None:
+    """Raise if high-frequency batch exports are not enabled for the team."""
+    if not posthoganalytics.feature_enabled(
+        "high-frequency-batch-exports",
+        str(team.uuid),
+        groups={"organization": str(team.organization.id)},
+        group_properties={
+            "organization": {
+                "id": str(team.organization.id),
+                "created_at": team.organization.created_at,
+            }
+        },
+        send_feature_flag_events=False,
+    ):
+        raise PermissionDenied("Higher frequency batch exports are not enabled for this team.")
+
+
 @extend_schema_field(HogQLQueryModifiers)  # type: ignore[arg-type]
 class HogQLModifiersField(serializers.JSONField):
     """HogQL modifiers, validated against `HogQLQueryModifiers` and stored as a plain dict."""
