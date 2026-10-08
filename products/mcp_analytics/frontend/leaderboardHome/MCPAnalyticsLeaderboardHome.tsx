@@ -34,6 +34,7 @@ const formatErrorRateTick = (value: number): string => formatPercentage(value, {
 
 export function MCPAnalyticsLeaderboardHome(): JSX.Element {
     const {
+        dashboardLoading,
         dateFilter,
         interval,
         queryFilters,
@@ -53,8 +54,6 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         toolRows,
         sessionRowsLoading,
         modelRowsLoading,
-        protocolVersionRowsLoading,
-        toolDailyRowsLoading,
         toolRowsLoading,
     } = useValues(mcpDashboardOverviewLogic)
     const { setDateFilter, reloadAll, markFilterInteraction, openToolReport } = useActions(mcpDashboardOverviewLogic)
@@ -105,18 +104,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 pageKey="mcp-dashboard-overview"
                 dataAttrPrefix="mcp-dashboard"
                 onRefresh={reloadAll}
-                refreshing={
-                    leaderboardLoading ||
-                    kpisLoading ||
-                    usersLoading ||
-                    sessionRowsLoading ||
-                    harnessRowsLoading ||
-                    modelRowsLoading ||
-                    protocolVersionRowsLoading ||
-                    activityRowsLoading ||
-                    toolDailyRowsLoading ||
-                    toolRowsLoading
-                }
+                refreshing={dashboardLoading || leaderboardLoading}
             >
                 <McpDateFilter
                     dateFrom={dateFilter.dateFrom}
