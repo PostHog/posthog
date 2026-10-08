@@ -43,6 +43,7 @@ _WAREHOUSE_STILL_EXISTS = (
 )
 
 _TEAM_PATH = re.compile(r"/teams/(?P<team_id>[^/]+)")
+_SERVICE_GRANT_PATH = re.compile(r"/service-grants/(?P<credential_id>[^/]+)")
 
 
 def is_configured() -> bool:
@@ -371,6 +372,25 @@ def _refresh_credential(call: _Call) -> TranslatedResponse:
     )
 
 
+def _revoke_credential(call: _Call, credential_id: str) -> TranslatedResponse:
+    """v1 DELETE /orgs/:id/service-grants/:cid -> v2 DELETE /warehouses/:id/service-credentials/:cid.
+
+    Both answer {"revoked": "<cid>"} on success, so the body passes through.
+    """
+    return call.send("DELETE", f"{call.warehouse}/service-credentials/{quote(credential_id, safe='')}")
+
+
+def _not_supported(method: str, path: str) -> TranslatedResponse:
+    """A v1 call this adapter has no v2 mapping for: 501, never forwarded to hogtower.
+
+    501 (not 500) because nothing failed: the hogtower control plane simply does not serve
+    this v1 operation, which is the same status ``_request`` uses when no control plane is
+    configured at all. Only the method and path are logged; bodies may carry secrets.
+    """
+    logger.warning("hogtower_adapter_unmapped_route", method=method, path=path or "/")
+    return TranslatedResponse(501, {"error": f"not supported by the hogtower control plane: {method} {path or '/'}"})
+
+
 # --- passthroughs -----------------------------------------------------------------------
 
 
@@ -437,9 +457,11 @@ def request(
                 return _update_team(call, team_id)
             if method == "DELETE":
                 return _delete_team(call, team_id)
+        grant = _SERVICE_GRANT_PATH.fullmatch(path)
+        if handler is None and grant is not None and method == "DELETE":
+            return _revoke_credential(call, grant.group("credential_id"))
     else:
         handler = _GLOBAL_ROUTES.get((method, path))
     if handler is None:
-        logger.error("hogtower_adapter_unmapped_route", method=method, path=path)
-        return TranslatedResponse(500, {"error": f"No hogtower mapping for {method} {path or '/'}"})
+        return _not_supported(method, path)
     return handler(call)
