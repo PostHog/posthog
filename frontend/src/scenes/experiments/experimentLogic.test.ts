@@ -2963,6 +2963,16 @@ describe('experimentLogic', () => {
 
             expect(logic.values.experimentWarning).toEqual({ key: 'running_but_flag_disabled' })
         })
+
+        it('keeps null health after a local flag write, so a reader without the flag still has no findings', () => {
+            logic.actions.setExperiment(
+                createExperiment({ ...running, feature_flag: flag(true, multivariantFilters), health: null })
+            )
+
+            logic.actions.setExperiment({ feature_flag: flag(false, multivariantFilters) })
+
+            expect(logic.values.experiment.health).toBeNull()
+        })
     })
 
     describe('health finding events', () => {
