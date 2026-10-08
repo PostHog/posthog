@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconChevronDown, IconCopy, IconLogomark, IconSparkles } from '@posthog/icons'
+import { IconChevronDown, IconCopy, IconLogomark } from '@posthog/icons'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -200,8 +201,8 @@ export function buildCodexDeepLink(prompt: string, repository?: string): string 
 const AGENTS: AgentDef[] = [
     {
         key: 'posthog-ai',
-        name: 'PostHog AI',
-        logo: <IconSparkles className="size-4 shrink-0 text-ai" />,
+        name: 'PostHog',
+        logo: <IconLogomark className="size-4 shrink-0" />,
         verb: 'Open',
         open: (prompt, { askSidePanelMax }) => askSidePanelMax(prompt),
     },
@@ -295,8 +296,12 @@ export function AgentPromptButton({
     const [open, setOpen] = useState(defaultOpen)
     const { askSidePanelMax } = useActions(maxGlobalLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
+    const showDesktopEntryPoints = useFeatureFlag('POSTHOG_DESKTOP_ENTRY_POINTS')
     const availableAgents = AGENTS.filter(
-        (agent) => (!agentKeys || agentKeys.includes(agent.key)) && !(todayRailEnabled && agent.key === 'posthog-ai')
+        (agent) =>
+            (!agentKeys || agentKeys.includes(agent.key)) &&
+            !(todayRailEnabled && agent.key === 'posthog-ai') &&
+            !(!showDesktopEntryPoints && agent.key === 'posthog-code')
     )
 
     if (actions.length === 0 || availableAgents.length === 0) {

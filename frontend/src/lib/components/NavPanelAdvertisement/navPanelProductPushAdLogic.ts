@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { isExternalLink } from 'lib/utils/url'
@@ -13,7 +14,7 @@ import type { ProductPushCampaignApi } from 'products/growth/frontend/generated/
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
 import { NAV_PANEL_CARD_TYPE, type ProductPushDisplay } from './navPanelAdShared'
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
-import { getProductPushDisplay } from './navPanelProductPushDisplay'
+import { POSTHOG_TASKS_PUSH_DISPLAY, getProductPushDisplay } from './navPanelProductPushDisplay'
 import { navPanelProductPushWelcomeLogic } from './navPanelProductPushWelcomeLogic'
 
 export type NavPanelProductPushAdLogicProps = {
@@ -57,7 +58,7 @@ export interface navPanelProductPushAdLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         productInfo: (arg: any) => FileSystemImport | undefined
-        display: (arg: any) => ProductPushDisplay
+        display: (arg: any, featureFlags: FeatureFlagsSet) => ProductPushDisplay
         flagGated: (productInfo: FileSystemImport | undefined, featureFlags: FeatureFlagsSet) => boolean
         destination: (display: ProductPushDisplay, productInfo: FileSystemImport | undefined) => string | null
         label: (display: ProductPushDisplay, productInfo: FileSystemImport | undefined) => string | null
@@ -97,8 +98,12 @@ export const navPanelProductPushAdLogic = kea<navPanelProductPushAdLogicType>([
                 getTreeItemsProducts().find((p: FileSystemImport) => p.path === campaign.product_path),
         ],
         display: [
-            () => [(_, props) => props.campaign],
-            (campaign: ProductPushCampaignApi): ProductPushDisplay => getProductPushDisplay(campaign.product_key),
+            (s) => [(_, props) => props.campaign, s.featureFlags],
+            (campaign: ProductPushCampaignApi, featureFlags: FeatureFlagsSet): ProductPushDisplay =>
+                campaign.product_key === ProductKey.POSTHOG_DESKTOP &&
+                !featureFlags[FEATURE_FLAGS.POSTHOG_DESKTOP_ENTRY_POINTS]
+                    ? POSTHOG_TASKS_PUSH_DISPLAY
+                    : getProductPushDisplay(campaign.product_key),
         ],
         // Never advertise a product this user can't open (mirrors the sidebar's flag filtering)
         flagGated: [

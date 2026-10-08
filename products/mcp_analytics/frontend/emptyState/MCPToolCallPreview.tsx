@@ -2,11 +2,13 @@ import './MCPToolCallPreview.scss'
 
 import { sparkPaths } from 'lib/components/ProductEmptyState/previewSparkline'
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { urls } from 'scenes/urls'
 
 import posthogCodeLogo from 'public/posthog-icon.svg'
 
@@ -57,6 +59,7 @@ const { line, area } = sparkPaths(SPARK)
  */
 export function MCPToolCallPreview({ mode }: { mode: ProductEmptyStateMode }): JSX.Element {
     const isStatic = inStorybook() || inStorybookTestRunner()
+    const showDesktopEntryPoints = useFeatureFlag('POSTHOG_DESKTOP_ENTRY_POINTS')
 
     return (
         <div className="flex flex-col gap-3">
@@ -135,14 +138,20 @@ export function MCPToolCallPreview({ mode }: { mode: ProductEmptyStateMode }): J
                 </div>
 
                 <div className="MCPSpark__clients">
-                    <Link
-                        className="MCPSpark__code"
-                        to="https://posthog.com/desktop?utm_medium=in-product&utm_campaign=mcp-analytics-empty-state"
-                        target="_blank"
-                        title="PostHog Desktop"
-                    >
-                        <img src={posthogCodeLogo} alt="PostHog Desktop" />
-                    </Link>
+                    {showDesktopEntryPoints ? (
+                        <Link
+                            className="MCPSpark__code"
+                            to="https://posthog.com/desktop?utm_medium=in-product&utm_campaign=mcp-analytics-empty-state"
+                            target="_blank"
+                            title="PostHog Desktop"
+                        >
+                            <img src={posthogCodeLogo} alt="PostHog Desktop" />
+                        </Link>
+                    ) : (
+                        <Link className="MCPSpark__code" to={urls.ai()} title="PostHog">
+                            <img src={posthogCodeLogo} alt="PostHog" />
+                        </Link>
+                    )}
                     {CLIENT_LOGOS.map((logo, i) => (
                         <img key={i} src={logo} alt="" />
                     ))}

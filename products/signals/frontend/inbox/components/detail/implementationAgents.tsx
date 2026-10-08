@@ -11,6 +11,8 @@ import {
 } from 'lib/components/AgentPromptButton'
 import type { AgentPromptDestination } from 'lib/components/AgentPromptButton'
 import { AgentLogo, claudeLogo, cursorLogo, openaiLogo } from 'lib/components/AgentPromptButton/AgentLogo'
+import { newInternalTab } from 'lib/utils/newInternalTab'
+import { urls } from 'scenes/urls'
 
 export interface ImplementationAgent {
     key: AgentPromptDestination
@@ -24,6 +26,12 @@ function openDeepLink(buildDeepLink: (prompt: string) => string): (prompt: strin
 }
 
 export const IMPLEMENTATION_AGENTS: ImplementationAgent[] = [
+    {
+        key: 'posthog-ai',
+        name: 'PostHog',
+        icon: <IconLogomark />,
+        open: (prompt) => newInternalTab(urls.ai(undefined, prompt)),
+    },
     {
         key: 'posthog-code',
         name: 'PostHog Desktop',

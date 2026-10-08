@@ -1,3 +1,5 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { AvailableSetupTaskIdsEnumApi as SetupTaskId } from '~/generated/core/api.schemas'
@@ -54,6 +56,7 @@ export const AI_TASKS: SetupTask[] = [
         taskType: 'ai',
         requiresManualCompletion: true,
         docsUrl: 'https://posthog.com/desktop',
+        featureFlag: FEATURE_FLAGS.POSTHOG_DESKTOP_ENTRY_POINTS,
     },
     {
         id: SetupTaskId.UsePosthogMcp,
@@ -713,14 +716,15 @@ export function getProductSetupConfig(productKey: ProductKey): ProductSetupConfi
 /** Get all tasks for a product, optionally filtered by type. AI tasks are appended to every product. */
 export function getTasksForProduct(
     productKey: ProductKey,
-    taskType?: 'setup' | 'onboarding' | 'explore' | 'ai' | 'all'
+    taskType?: 'setup' | 'onboarding' | 'explore' | 'ai' | 'all',
+    featureFlags: FeatureFlagsSet = {}
 ): SetupTask[] {
     const config = getProductSetupConfig(productKey)
     if (!config) {
         return []
     }
 
-    const tasks = [...config.tasks, ...AI_TASKS]
+    const tasks = [...config.tasks, ...AI_TASKS].filter((t) => !t.featureFlag || !!featureFlags[t.featureFlag])
     if (!taskType || taskType === 'all') {
         return tasks
     }
