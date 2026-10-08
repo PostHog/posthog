@@ -77,6 +77,9 @@ export const SelectedRowFields: Story = {
 
 export const Preview: Story = {
     ...Column,
+    // The preview request resolves after the play function returns, so the snapshot has to wait for
+    // the result itself. Loader detection cannot stand in for it: the button spinner has not mounted yet.
+    parameters: { testOptions: { waitForSelector: '[data-attr="data-quality-question-preview-summary"]' } },
     play: async (context) => {
         await Column.play?.(context)
         dataQualityCheckEditorLogic({ surface: 'subject' }).actions.requestQuestionPreview()

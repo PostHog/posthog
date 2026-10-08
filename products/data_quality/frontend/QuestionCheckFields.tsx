@@ -128,7 +128,7 @@ export function QuestionCheckFields(): JSX.Element {
                 {questionPreviewError && <LemonBanner type="error">{questionPreviewError}</LemonBanner>}
                 {preview && (
                     <>
-                        <p className="mb-0 text-sm">
+                        <p className="mb-0 text-sm" data-attr="data-quality-question-preview-summary">
                             {pluralize(preview.examined_row_count, 'row')} previewed.{' '}
                             {pluralize(preview.reused_decision_count, 'decision')} reused, {preview.new_decision_count}{' '}
                             new.
