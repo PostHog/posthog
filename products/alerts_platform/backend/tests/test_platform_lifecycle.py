@@ -11,10 +11,12 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.models.scoping import team_scope
 
+from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     disable_configurations,
     due_checks,
     record_outcomes,
+    slot_of,
     upsert_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -96,8 +98,40 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         with team_scope(self.team.id):
             self.configuration.refresh_from_db()
-        assert self.configuration.enabled is False
+        assert (self.configuration.enabled, self.configuration.check_status) == (False, "broken")
         assert due_checks(self.team.id, SourceKind.LOGS.value, self.slot, self.cutoff + timedelta(hours=1)) == ()
+
+    def _next_due(self) -> datetime:
+        with team_scope(self.team.id):
+            self.configuration.refresh_from_db()
+        assert self.configuration.next_check_at is not None
+        return self.configuration.next_check_at
+
+    def test_a_failed_check_marks_the_configuration_and_the_instance_keeps_its_firing(self) -> None:
+        self._record(firing_episode=FiringEpisode(started_at=self.cutoff, ended=False))
+        self._record(
+            at=self._next_due(),
+            kind=AlertEventKind.ERRORED,
+            new_state="errored",
+            notified=False,
+            consecutive_failures=1,
+            firing_episode=FiringEpisode(started_at=self.cutoff, ended=True),
+        )
+
+        due = self._next_due()
+        stored = self._alert()
+        with team_scope(self.team.id):
+            shown = platform_testing.alert_for(self.configuration.id)
+        assert self.configuration.check_status == "errored"
+        assert (stored.state, stored.firing_started_at) == ("firing", self.cutoff)
+        assert shown is not None and shown.state == "errored"
+        (check,) = due_checks(self.team.id, SourceKind.LOGS.value, slot_of(due, due), due)
+        assert check.state == "errored"
+
+        self._record(at=due, kind=AlertEventKind.CHECK, new_state="not_firing", notified=False)
+
+        self._next_due()
+        assert (self.configuration.check_status, self._alert().state) == ("ok", "not_firing")
 
     def test_recording_a_batch_twice_advances_the_schedule_once(self) -> None:
         self._record()

@@ -258,8 +258,8 @@ class PlatformAlertOutcome:
     # evaluation that cannot succeed.
     disable: bool = False
     def __post_init__(self) -> None:
-        # A failed or skipped check still sets an instance's state, so an outcome with no group
-        # would record a check that changed nothing and wrote no history.
+        # A check's ERRORED or BROKEN arrives as a group's verdict, so an outcome with no group
+        # would record a check that wrote no status and no history.
         if not self.groups:
             raise ValueError("an outcome needs at least one group")
         keys = [group.grouping_key for group in self.groups]
