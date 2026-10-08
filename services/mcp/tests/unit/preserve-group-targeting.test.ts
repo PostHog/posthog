@@ -39,13 +39,14 @@ function aggregationViolations(existing: FlagFilters, merged: FlagFilters | null
     return violations
 }
 
-/** The fields a refusal names, or none when the merge goes through. */
-function refusedFields(merge: () => unknown): string[] {
+/** The condition set paths a refusal names, or none when the merge goes through. */
+function refusedSets(merge: () => unknown): string[] {
     try {
         merge()
     } catch (error) {
         if (error instanceof ToolInputValidationError) {
-            return error.fields
+            expect(error.fields).toEqual(['filters.groups.N.aggregation_group_type_index:unresolved_aggregation'])
+            return [...error.message.matchAll(/filters\.groups\[\d+\]/g)].map((match) => match[0])
         }
         throw error
     }
@@ -374,7 +375,8 @@ describe('preserveGroupTargetingFilters', () => {
         expect(merged?.groups?.[0]?.properties?.[0]?.type).toBeUndefined()
     })
 
-    it('restores group type from the set it came from when condition groups collapse', () => {
+    // Collapsing two sets into one leaves every set without a source. The flag level decides the type.
+    it('types a collapsed set from the flag-level aggregation', () => {
         // Collapsing two sets into one leaves the surviving set at a position it did not hold.
         const existing = {
             aggregation_group_type_index: 0,
@@ -745,8 +747,8 @@ describe('preserveGroupTargetingFilters', () => {
             unresolved: [],
         },
     ])('names each condition set it cannot resolve when $name', ({ existing, incoming, unresolved }) => {
-        expect(refusedFields(() => preserveGroupTargetingFilters(existing, incoming))).toEqual(
-            unresolved.map((index) => `filters.groups[${index}].aggregation_group_type_index`)
+        expect(refusedSets(() => preserveGroupTargetingFilters(existing, incoming))).toEqual(
+            unresolved.map((index) => `filters.groups[${index}]`)
         )
     })
 
@@ -973,8 +975,8 @@ describe('preserveGroupTargetingFilters', () => {
         expect(preserveGroupTargetingFilters(existing as FlagFilters, incoming)).toEqual(incoming)
     })
 
-    // The claimed source set holds only one of the two keys. The merge can type the other
-    // property only from the set that still holds it.
+    // A collapse leaves every set without a source. Each property takes its type from the stored
+    // set that holds its key.
     it('restores a property type from another set when two sets collapse into one', () => {
         const existing = {
             aggregation_group_type_index: null,
@@ -1050,6 +1052,53 @@ describe('preserveGroupTargetingFilters', () => {
 
         expect(merged?.groups?.[0]?.properties?.[0]?.type).toBe('person')
         expect(aggregationViolations(existing, merged)).toEqual([])
+    })
+
+    it('restores a flag dependency in a group set when another set changes its keys', () => {
+        const existing = {
+            aggregation_group_type_index: 0,
+            groups: [
+                {
+                    aggregation_group_type_index: 0,
+                    properties: [
+                        { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
+                        { key: '42', type: 'flag', operator: 'flag_evaluates_to', value: true },
+                    ],
+                    rollout_percentage: 100,
+                },
+                {
+                    aggregation_group_type_index: 0,
+                    properties: [{ key: 'seats', type: 'group', group_type_index: 0, operator: 'gt', value: 10 }],
+                    rollout_percentage: 100,
+                },
+            ],
+        }
+
+        const merged = preserveGroupTargetingFilters(existing, {
+            groups: [
+                {
+                    properties: [
+                        { key: 'plan', operator: 'exact', value: 'enterprise' },
+                        { key: '42', operator: 'flag_evaluates_to', value: true },
+                    ],
+                    rollout_percentage: 100,
+                },
+                {
+                    properties: [
+                        { key: 'seats', operator: 'gt', value: 10 },
+                        { key: 'region', operator: 'exact', value: 'eu' },
+                    ],
+                    rollout_percentage: 100,
+                },
+            ],
+        })
+
+        expect(merged?.groups?.[0]?.properties?.[1]).toEqual({
+            key: '42',
+            type: 'flag',
+            operator: 'flag_evaluates_to',
+            value: true,
+        })
     })
 
     it('accepts group properties when both type and index are present (no strip)', () => {

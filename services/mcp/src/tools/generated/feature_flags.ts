@@ -983,7 +983,7 @@ const UpdateFeatureFlagSchema = () => {
             .extend({
                 id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams.shape['id']),
                 filters: FeatureFlagsPartialUpdateBody.shape['filters'].describe(
-                    'Full release-condition object (replaces filters at the API). For group flags set aggregation_group_type_index and property type "group" + group_type_index. Omitted type / group_type_index / aggregation_group_type_index are filled from the existing flag to prevent silent person demotion (see #46501). When conditions target different group types and you add, remove, reorder, or change the properties of conditions, set aggregation_group_type_index on each condition (null for persons), or the update is refused.'
+                    'Full release-condition object (replaces filters at the API). For group flags set aggregation_group_type_index and property type "group" + group_type_index. Omitted type / group_type_index / aggregation_group_type_index are filled from the existing flag to prevent silent person demotion (see #46501). When conditions don\'t all target the same thing (persons and a group type, or different group types) and you add, remove, reorder, or change the properties of conditions, set aggregation_group_type_index on each condition (null for persons), or the update is refused.'
                 ),
                 is_remote_configuration: FeatureFlagsPartialUpdateBody.shape['is_remote_configuration'].describe(
                     'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string. There is no dedicated payload parameter.'

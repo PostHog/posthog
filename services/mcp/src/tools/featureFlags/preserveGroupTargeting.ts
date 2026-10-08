@@ -7,16 +7,19 @@
  * An incoming condition set takes the stored set at its own index as its source when every stored
  * set keeps its property keys at its index. New sets may only follow the stored ones. On a flag
  * whose stored sets aggregate on different group types, nothing else tells a moved set from an
- * edited one. The merge therefore refuses any other edit to such a flag, unless each set without
- * a source states its own aggregation.
+ * edited one. The merge therefore refuses any other edit to such a flag, unless the payload changes
+ * the flag-level aggregation or each set without a source states, clears, or implies its own: it
+ * sends aggregation_group_type_index, carries an explicit person-aggregated property, or carries a
+ * group property with a group_type_index. On a flag whose sets all aggregate the same way, a set
+ * that keeps its keys at its index keeps its source even when other sets change.
  *
  * A set's aggregation then decides its property types. A group-aggregated set restores a
  * person-aggregated type that its source holds for the key. It types every other untyped
  * property as `group` against the set's own group type index. A person-aggregated set restores
  * every stored type except `group`. check_property_types_match_aggregation in
  * products/feature_flags/backend/filters_validation.py reports a person-aggregated property in a
- * group set. The flag evaluator reads each property by its own type, so a stored mixed set keeps
- * its types.
+ * group set. The flag evaluator reads each property by its own type, so a group set keeps the
+ * stored type of a person-aggregated property it holds.
  *
  * `aggregation_group_type_index: null` means person aggregation. Only a missing key is
  * filled from the existing flag.
@@ -128,7 +131,10 @@ function indexExistingSets(existing: FlagFilters | null | undefined): (ExistingS
     )
 }
 
-/** Spans every existing set. The merge can then type a property after its own set is gone. */
+/**
+ * Spans every existing set. A person-aggregated set takes a type from here when it has no source,
+ * or when its source holds the key only as a group property.
+ */
 function indexPropertiesAcrossSets(existingSets: (ExistingSet | undefined)[]): Map<string, FlagProperty[]> {
     return indexProperties(
         existingSets.flatMap((existingSet) =>
@@ -153,14 +159,20 @@ function storedAggregation(group: FlagConditionGroup, flagLevelGroupIndex: numbe
     return hasKey(group, 'aggregation_group_type_index') ? null : (flagLevelGroupIndex ?? null)
 }
 
+function keepsKeysAt(
+    incomingGroups: FlagConditionGroup[],
+    existingSets: (ExistingSet | undefined)[],
+    index: number
+): boolean {
+    const incoming = incomingGroups[index]
+    const incomingKeys = isRecord(incoming) ? indexProperties(incoming.properties) : new Map()
+    return hasSameKeySet(incomingKeys, existingSets[index]?.propsByKey ?? new Map())
+}
+
 function keepsStoredSets(incomingGroups: FlagConditionGroup[], existingSets: (ExistingSet | undefined)[]): boolean {
     return (
         incomingGroups.length >= existingSets.length &&
-        existingSets.every((existingSet, index) => {
-            const incoming = incomingGroups[index]
-            const incomingKeys = isRecord(incoming) ? indexProperties(incoming.properties) : new Map()
-            return hasSameKeySet(incomingKeys, existingSet?.propsByKey ?? new Map())
-        })
+        existingSets.every((_, index) => keepsKeysAt(incomingGroups, existingSets, index))
     )
 }
 
@@ -202,8 +214,11 @@ function mergeProperty(
     if (!isPresentType(out.type)) {
         if (isPresentGroupIndex(setGroupTypeIndex)) {
             // A source that also holds the key as a group property leaves the type ambiguous.
-            const sourceIsPersonOnly = !!sourceCandidates?.length && sourceCandidates.every((c) => c.type !== 'group')
-            out.type = (sourceIsPersonOnly && pickPersonAggregatedCandidate(sourceCandidates, out)?.type) || 'group'
+            const sourceHoldsGroupProperty = sourceCandidates?.some((candidate) => candidate.type === 'group') ?? false
+            const personType = sourceHoldsGroupProperty
+                ? undefined
+                : pickPersonAggregatedCandidate(sourceCandidates, out)?.type
+            out.type = personType ?? 'group'
         } else {
             // Leaving the type unset makes the API report the property the agent actually
             // sent. Restoring `group` here would name fields the agent never sent.
@@ -353,14 +368,23 @@ export function preserveGroupTargetingFilters(
         const pinnedToPerson = result.groups.map(
             (group) => isRecord(group) && isPinnedToPerson(group, incomingClearsAggregation)
         )
-        const sourceSets = keepsStoredSets(result.groups, existingSets) ? existingSets : []
-
         const storedAggregations = new Set(
             existingSets.flatMap((existingSet) =>
                 existingSet ? [storedAggregation(existingSet.group, existingFlagGroupIndex)] : []
             )
         )
-        if (storedAggregations.size > 1 && !payloadChangesFlagAggregation) {
+        const mixedAggregation = storedAggregations.size > 1
+        const incomingGroups = result.groups
+        // On a single-aggregation flag a positional source cannot carry the wrong aggregation.
+        const sourceSets = keepsStoredSets(incomingGroups, existingSets)
+            ? existingSets
+            : mixedAggregation
+              ? []
+              : existingSets.map((existingSet, index) =>
+                    keepsKeysAt(incomingGroups, existingSets, index) ? existingSet : undefined
+                )
+
+        if (mixedAggregation && !payloadChangesFlagAggregation) {
             const unresolved = result.groups.flatMap((group, index) =>
                 isRecord(group) &&
                 !sourceSets[index] &&
@@ -372,7 +396,7 @@ export function preserveGroupTargetingFilters(
             )
             if (unresolved.length > 0) {
                 throw new ToolInputValidationError(unresolvedAggregationMessage(unresolved), {
-                    fields: unresolved.map((index) => `filters.groups[${index}].aggregation_group_type_index`),
+                    fields: ['filters.groups.N.aggregation_group_type_index:unresolved_aggregation'],
                 })
             }
         }
