@@ -62,9 +62,11 @@ import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './ba
 import { ConversionGoalEditor } from './components/ConversionGoalEditor'
 import { EmailSendingRateLimitPicker } from './components/EmailSendingRateLimitPicker'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
+import { MissingRecipientEmailBanner } from './components/MissingRecipientEmailBanner'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
 import { TriggerVolumeEstimate } from './components/TriggerVolumeEstimate'
+import { recipientEmailProperties } from './recipientEmail'
 
 type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 type EventTriggerConfig = {
@@ -574,8 +576,14 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
     const isAccountAudience = filters?.audience_type === 'accounts'
     // Account audiences carry no person, so email dedup never applies to them.
     const dedupeKey = isAccountAudience ? undefined : getAudienceDedupeKey(workflow)
-    const logic = batchTriggerLogic({ id: actionId, filters, dedupeKey, sendsEmail: hogFlowSendsEmail(workflow) })
-    const { blastRadiusLoading, blastRadius, blastRadiusError } = useValues(logic)
+    const logic = batchTriggerLogic({
+        id: actionId,
+        filters,
+        dedupeKey,
+        sendsEmail: hogFlowSendsEmail(workflow),
+        recipientEmailProperties: isAccountAudience ? [] : recipientEmailProperties(workflow),
+    })
+    const { blastRadiusLoading, blastRadius, blastRadiusError, recipientsWithoutEmail } = useValues(logic)
 
     if (blastRadiusLoading) {
         return <Spinner className="mt-1" />
@@ -613,6 +621,14 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
                     approximately {humanFriendlyNumber(affected)} of {humanFriendlyNumber(total)}{' '}
                     {isAccountAudience ? 'accounts' : 'persons'}.
                 </div>
+                {Object.entries(recipientsWithoutEmail).map(([property, missing]) => (
+                    <MissingRecipientEmailBanner
+                        key={property}
+                        property={property}
+                        missing={missing}
+                        audienceSize={affected}
+                    />
+                ))}
                 {exceeded && limit != null && (
                     <div className="text-danger text-xs">
                         Your audience is above this project's batch limit of {humanFriendlyNumber(limit)}{' '}

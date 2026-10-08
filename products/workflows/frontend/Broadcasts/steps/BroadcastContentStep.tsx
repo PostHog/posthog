@@ -11,8 +11,8 @@ import { IntegrationType } from '~/types'
 
 import { EmailSetupModal } from '../../Channels/EmailSetup/EmailSetupModal'
 import { buildSampleGlobals } from '../../Workflows/hogflows/steps/components/HogFlowFunctionConfiguration'
+import { MissingRecipientEmailBanner } from '../../Workflows/hogflows/steps/components/MissingRecipientEmailBanner'
 import { UtmTagFields } from '../../Workflows/hogflows/steps/components/UtmTagFields'
-import { BroadcastMissingRecipientEmailBanner } from '../BroadcastMissingRecipientEmailBanner'
 import {
     BroadcastEmailValue,
     DEFAULT_BROADCAST_EMAIL,
@@ -22,7 +22,7 @@ import {
 } from '../broadcastWizardLogic'
 
 export function BroadcastContentStep(): JSX.Element {
-    const { broadcast, email, name, stepValidationErrors, selectedSender, emailSettings } =
+    const { broadcast, email, name, stepValidationErrors, selectedSender, emailSettings, missingRecipientEmail } =
         useValues(broadcastWizardLogic)
     const { setEmail, setEmailSettings } = useActions(broadcastWizardLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
@@ -136,7 +136,7 @@ export function BroadcastContentStep(): JSX.Element {
                     <code>{'{{ person.properties.email }}'}</code> to send each person their own email.
                 </span>
             ) : null}
-            <BroadcastMissingRecipientEmailBanner />
+            {missingRecipientEmail ? <MissingRecipientEmailBanner {...missingRecipientEmail} /> : null}
             <LemonSwitch
                 label="Track opens and link clicks"
                 checked={emailSettings.trackingEnabled}

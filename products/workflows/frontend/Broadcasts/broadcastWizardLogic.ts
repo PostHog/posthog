@@ -47,6 +47,7 @@ import type {
     HogFlowScheduleApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
+import type { MissingRecipientEmailBannerProps } from '../Workflows/hogflows/steps/components/MissingRecipientEmailBanner'
 import {
     DEFAULT_STATE,
     ONE_TIME_RRULE,
@@ -57,6 +58,7 @@ import {
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
 import type { UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
+import { recipientEmailProperty } from '../Workflows/hogflows/steps/recipientEmail'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
 import {
     AUDIENCE_PREFILL_PARAM,
@@ -66,7 +68,6 @@ import {
     SOURCE_PREFILL_PARAM,
 } from './broadcastAudiencePrefill'
 import { confirmArchiveBroadcast, confirmDeleteBroadcast, restoreBroadcast } from './broadcastLifecycle'
-import { recipientEmailProperty } from './broadcastRecipientEmail'
 import {
     BroadcastStatus,
     StoppableBroadcast,
@@ -248,6 +249,7 @@ export interface broadcastWizardLogicValues {
     isReadOnly: boolean
     launching: boolean
     linkAudienceRejected: boolean
+    missingRecipientEmail: MissingRecipientEmailBannerProps | null
     movingToDraft: boolean
     name: string
     rateLimitedSendDuration: string
@@ -512,6 +514,11 @@ export interface broadcastWizardLogicMeta {
         isReadOnly: (broadcast: HogFlowApi | null) => boolean
         effectiveTimezone: (scheduleTimezone: string | null, currentTeam: TeamPublicType | TeamType | null) => string
         recipientEmailProperty: (email: BroadcastEmailValue) => string | null
+        missingRecipientEmail: (
+            recipientEmailProperty: string | null,
+            recipientsWithoutEmail: number | null,
+            blastRadius: BlastRadiusApi | null
+        ) => MissingRecipientEmailBannerProps | null
         selectedSender: (email: BroadcastEmailValue, integrations: IntegrationType[] | null) => IntegrationType | null
         stepValidationErrors: (
             goalEnabled: boolean,
@@ -1024,6 +1031,15 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         recipientEmailProperty: [
             (s) => [s.email],
             (email: BroadcastEmailValue): string | null => recipientEmailProperty(email.to?.email),
+        ],
+        missingRecipientEmail: [
+            (s) => [s.recipientEmailProperty, s.recipientsWithoutEmail, s.blastRadius],
+            (
+                property: string | null,
+                missing: number | null,
+                blastRadius: BlastRadiusApi | null
+            ): MissingRecipientEmailBannerProps | null =>
+                property && missing ? { property, missing, audienceSize: blastRadius?.affected } : null,
         ],
         selectedSender: [
             (s) => [s.email, s.integrations],

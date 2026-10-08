@@ -8,10 +8,10 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
+import { MissingRecipientEmailBanner } from '../../Workflows/hogflows/steps/components/MissingRecipientEmailBanner'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from '../audience/broadcastAudienceCohortsLogic'
 import { BroadcastEmailPreview } from '../BroadcastEmailPreview'
-import { BroadcastMissingRecipientEmailBanner } from '../BroadcastMissingRecipientEmailBanner'
 import { BroadcastWizardStep, SENDERS_LOAD_FAILED_ERROR, broadcastWizardLogic } from '../broadcastWizardLogic'
 
 function ReviewRow({
@@ -71,6 +71,7 @@ export function BroadcastReviewStep(): JSX.Element {
         rateLimitedSendDuration,
         stepValidationErrors,
         emailSettings,
+        missingRecipientEmail,
     } = useValues(broadcastWizardLogic)
     const { categories } = useValues(optOutCategoriesLogic())
     const category = categories.find((item) => item.id === emailSettings.messageCategoryId)
@@ -113,7 +114,7 @@ export function BroadcastReviewStep(): JSX.Element {
                     ) : (
                         <span className="text-warning">Couldn't estimate the audience size</span>
                     )}
-                    <BroadcastMissingRecipientEmailBanner />
+                    {missingRecipientEmail ? <MissingRecipientEmailBanner {...missingRecipientEmail} /> : null}
                     {audienceProperties.length > 0 ? (
                         <div className="flex flex-col gap-2">
                             {nonCohortAudience.length > 0 ? (
