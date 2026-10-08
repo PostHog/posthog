@@ -303,9 +303,9 @@ class _MetricQueryResponseSerializer(serializers.Serializer):
 
 
 _NO_SERIES_HINT = (
-    "No series matched this metric name, type and filters in the time range. The same query will return the "
-    "same empty result. Look up the exact metric name and type with metric-names-list, remove or loosen "
-    "filters, or widen the time range."
+    "The query returned no points, and the same query will return the same result. Look up the exact metric "
+    "name and type with metric-names-list, remove or loosen filters, or widen the time range. With a formula, "
+    "check that the clauses group by the same labels: only series with matching labels combine."
 )
 
 

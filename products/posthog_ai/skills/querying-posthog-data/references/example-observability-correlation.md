@@ -8,7 +8,7 @@ The three observability tables — `posthog.metrics`, `posthog.trace_spans`, `lo
 
 **`trace_id` format:** All three tables store `trace_id` as base64-encoded 16 bytes. Joins are direct equality (no decoding needed). Use `hex(tryBase64Decode(trace_id))` to display in hex.
 
-> **Exemplars are sparse.** Only metric points whose SDK attached an exemplar carry a `trace_id`. If the query below returns nothing for the window, the service does not send exemplars; use the span-anchored alternative further down.
+> **Exemplars are sparse.** Only metric points whose SDK attached an exemplar carry a `trace_id`. An empty result from the query below means no spans or logs matched the chosen trace (the trace may not be exported or retained); it does not prove the metric has no exemplars. Count `trace_id != ''` rows in `posthog.metrics` for the same metric and window first, and use the span-anchored alternative further down when that count is zero.
 
 ## Pattern
 
