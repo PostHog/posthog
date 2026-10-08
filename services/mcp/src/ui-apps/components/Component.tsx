@@ -130,6 +130,8 @@ export function Component({ data }: ComponentProps): ReactElement {
             case 'retention':
                 return (
                     <RetentionVisualizer
+                        // The host updates `data` in place, so key on the query to re-seed state per result.
+                        key={JSON.stringify(payload.query)}
                         query={payload.query as RetentionQuery}
                         results={payload.results as RetentionResult}
                     />
