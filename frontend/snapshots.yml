@@ -10378,6 +10378,10 @@ snapshots:
         hash: v1.k794b7964.7c1812f3bae81f2ec5f88bdd8981269c9ab1db8de052f62261b6a526078e1db1.lLPRMvHcm3J30ZNs_Uv27aiYvPrYiEkQ9v9jzeGl4Rw
     scenes-app-feature-flags--edit-rules-v-2-feature-flag--light:
         hash: v1.k794b7964.6d2f9704f59bf6e3d61b811d92c7ecfc3d4a5263096d0e57181c2bce6dc4dc97.RTb3YQ69UQA3cySea7dGUkkZhOnIDrzoqgk7t0HpMXI
+    scenes-app-feature-flags--feature-flag-load-failed--dark:
+        hash: v1.k794b7964.78c0cc612dbea90f7040fdc919c91d37255bd3c1a5d149a26a7968e86bcd1649.ZSqbZArI-ot3gRLxJErCln6BkMjyS8my3F7ILlT9qX0
+    scenes-app-feature-flags--feature-flag-load-failed--light:
+        hash: v1.k794b7964.78afb799eb165b132bfb6310a7fd4356040e98955d6ee7a051d76b24a0eb290d.81OytD3WSL06BSsRwjMis1NVd27K8lL9FqZtwh5pn20
     scenes-app-feature-flags--feature-flag-not-found--dark:
         hash: v1.k794b7964.4f1e063fd0ea193507fc461100835138a210c677172cf02c4e6a1d3ca85053af.QLMBnXZd8GFY-ERfzWmRUW-eFybjMBVuSeT9PLkOnzI
     scenes-app-feature-flags--feature-flag-not-found--light:
