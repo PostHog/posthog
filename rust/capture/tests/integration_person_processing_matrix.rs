@@ -263,7 +263,6 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         None,
         None, // ai_byte_rate_limiter
         None,
-        false, // capture_v1_enabled
         8,
         None,
         false,

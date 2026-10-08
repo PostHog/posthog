@@ -14,9 +14,9 @@ v1 capture endpoints follow the naming scheme
 | Analytics events | `/i/v1/analytics/events/` | events, import |
 | AI events | `/i/v1/ai/events/` | ai |
 
-`CAPTURE_V1_ENABLED` registers them. v0 and v1 are different HTTP
-endpoints, not different pipelines, so both publish through the same
-outputs, producers and settings.
+The capture mode decides which of them a deployment serves. v0 and v1
+are different HTTP endpoints, not different pipelines, so both publish
+through the same outputs, producers and settings.
 
 ```text
                     ┌──────────────┐

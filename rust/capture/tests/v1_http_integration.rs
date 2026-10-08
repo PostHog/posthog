@@ -6,8 +6,8 @@
 //!
 //! Requires Docker Kafka (same rig as the other integration tests).
 //!
-//! Scope is deliberately narrow: route gating (404 while v1 is off) and the
-//! HTTP->Kafka round trip for a single event and a small batch. Payload shape,
+//! Scope is deliberately narrow: the HTTP->Kafka round trip for a single event
+//! and a small batch. Payload shape,
 //! header parity, partition keys, and destination routing are already covered
 //! at the outputs layer by `v1_sink_integration.rs` — we don't re-test them
 //! here.
@@ -44,26 +44,6 @@ fn named(distinct_id: &str, name: &str) -> Event {
 async fn parse_body(res: reqwest::Response) -> serde_json::Value {
     let bytes = res.bytes().await.expect("failed to read response body");
     serde_json::from_slice(&bytes).expect("response body must be JSON")
-}
-
-// ---------------------------------------------------------------------------
-// Route gating: the v1 endpoint is unregistered (404) while v1 is off
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn v1_route_unregistered_while_v1_is_off() {
-    setup_tracing();
-    // DEFAULT_CONFIG has capture_v1_enabled off, so the route is never merged.
-    let server = ServerHandle::for_config(DEFAULT_CONFIG.clone()).await;
-
-    let payload = batch_payload(&[pageview("user-404")]);
-    let res = server.capture_v1(TOKEN, payload).await;
-
-    assert_eq!(
-        res.status(),
-        reqwest::StatusCode::NOT_FOUND,
-        "v1 route must not be registered while v1 is off"
-    );
 }
 
 // ---------------------------------------------------------------------------

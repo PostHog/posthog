@@ -1066,27 +1066,16 @@ pub fn test_lifecycle_handlers() -> (
 }
 
 fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
-    build_router_for_mode_at(unit.mode, unit.fixed_time, false)
+    build_router_for_mode_at(unit.mode, unit.fixed_time)
 }
 
 // Builds a capture router for a given mode with test defaults, so route-registration
 // tests can assert which paths a mode serves without constructing a full TestCase.
 pub fn build_router_for_mode(mode: CaptureMode) -> Router {
-    build_router_for_mode_at(mode, DEFAULT_TEST_TIME, false).0
+    build_router_for_mode_at(mode, DEFAULT_TEST_TIME).0
 }
 
-// Same, with the v1 endpoints enabled. The v1 paths stay unregistered without
-// it, so a mode-gating assertion needs it to tell "this mode does not serve the
-// path" apart from "this deployment has v1 off".
-pub fn build_router_for_mode_with_v1(mode: CaptureMode) -> Router {
-    build_router_for_mode_at(mode, DEFAULT_TEST_TIME, true).0
-}
-
-fn build_router_for_mode_at(
-    mode: CaptureMode,
-    fixed_time: &str,
-    capture_v1_enabled: bool,
-) -> (Router, MemorySink) {
+fn build_router_for_mode_at(mode: CaptureMode, fixed_time: &str) -> (Router, MemorySink) {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
     let sink = MemorySink::default();
     let timesource = FixedTime {
@@ -1137,11 +1126,10 @@ fn build_router_for_mode_at(
             None,             // ai_events_overflow_limiter
             None,             // ai_byte_rate_limiter
             None,             // replay_overflow_limiter
-            capture_v1_enabled,
-            8,     // capture_v1_scatter_gather_min_batch
-            None,  // ai_gateway_signing_secret
-            false, // ai_events_overflow_enabled
-            None,  // ingestion_warning_emitter
+            8,                // capture_v1_scatter_gather_min_batch
+            None,             // ai_gateway_signing_secret
+            false,            // ai_events_overflow_enabled
+            None,             // ingestion_warning_emitter
         ),
         sink,
     )

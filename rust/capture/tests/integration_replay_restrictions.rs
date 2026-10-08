@@ -132,7 +132,6 @@ async fn setup_recordings_router_with_restriction(
         None,             // ai_events_overflow_limiter
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
-        false,            // capture_v1_enabled
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
         false,            // ai_events_overflow_enabled
@@ -505,7 +504,6 @@ async fn setup_recordings_router_with_redirect_to_topic(
         None,             // ai_events_overflow_limiter
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
-        false,            // capture_v1_enabled
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
         false,            // ai_events_overflow_enabled

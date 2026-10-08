@@ -386,7 +386,6 @@ services:
             REDIS_URL: 'redis://redis7:6379/'
             CAPTURE_MODE: events
             RUST_LOG: 'info,rdkafka=warn'
-            CAPTURE_V1_ENABLED: 'true'
 
     replay-capture:
         image: ghcr.io/posthog/posthog/capture:master
@@ -422,8 +421,6 @@ services:
             # matching the production capture-ai deployment.
             CAPTURE_MODE: ai
             RUST_LOG: 'info,rdkafka=warn'
-            # `/i/v1/ai/events` (Django's capture_ai_internal).
-            CAPTURE_V1_ENABLED: 'true'
 
     capture-logs:
         image: ghcr.io/posthog/posthog/capture-logs:master
