@@ -75583,7 +75583,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly applied_version: number | null;
-      /** Why the person who rejected this said no. The producer reads it before suggesting again. */
+      /** Why the person who rejected this suggestion rejected it, or empty when they gave no reason. */
       readonly rejection_reason: string;
     }
 
