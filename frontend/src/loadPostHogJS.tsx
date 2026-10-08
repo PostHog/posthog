@@ -1,9 +1,10 @@
-import posthog, { BeforeSendFn, BrowserMetricsConfig, SessionRecordingOptions } from 'posthog-js'
+import posthog, { BeforeSendFn, PostHogConfig } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
-import { getAppContext } from 'lib/utils/getAppContext'
+import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
+import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
 
@@ -43,13 +44,20 @@ export function withLastSeenFeatureFlags(
     bootstrap: UserIdentityWithFlags,
     lastSeen: LastSeenFeatureFlags | null,
     distinctId: string | undefined
-): UserIdentityWithFlags {
+): NonNullable<PostHogConfig['bootstrap']> {
+    if (!bootstrap.featureFlags) {
+        return { ...bootstrap, featureFlags: undefined }
+    }
     // An empty bootstrap makes posthog-js use its own persisted flags, which are already complete.
     if (!lastSeen || !distinctId || lastSeen.distinctId !== distinctId || !Object.keys(bootstrap.featureFlags).length) {
         return bootstrap
     }
     return { ...bootstrap, featureFlags: { ...lastSeen.featureFlags, ...bootstrap.featureFlags } }
 }
+
+// pinned: analytics property name. Insights filter the framed pages by it.
+const stampEmbeddedPageFrame: BeforeSendFn = (event) =>
+    event && { ...event, properties: { ...event.properties, embedded_page_frame: true } }
 
 function readLastSeenFeatureFlags(): LastSeenFeatureFlags | null {
     try {
@@ -68,34 +76,17 @@ function writeLastSeenFeatureFlags(lastSeen: LastSeenFeatureFlags): void {
     }
 }
 
-export interface LoadPostHogJSOptions {
-    /**
-     * Hook posthog-js's `before_send` so the caller can mutate or drop events before they leave
-     * the browser. Used by the exporter app to redact the SharingConfiguration access token from
-     * URL-shaped properties on the interview share page — see `frontend/src/exporter/index.tsx`.
-     */
-    beforeSend?: BeforeSendFn | BeforeSendFn[]
-    /**
-     * Extra `session_recording` config merged on top of the defaults — useful for overriding URL
-     * / network-payload masking when the page renders sensitive bearer tokens in its own URL.
-     */
-    sessionRecording?: Partial<SessionRecordingOptions>
-    /**
-     * Extra `metrics` config merged on top of the defaults. `before_send` and
-     * `maskCapturedNetworkRequestFn` do not cover the network metrics channel, so the exporter
-     * app uses this to override `network.attributes` and keep the SharingConfiguration access
-     * token out of the captured `path`. See `frontend/src/exporter/index.tsx`.
-     */
-    metrics?: Partial<BrowserMetricsConfig>
-}
-
-export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
+export function loadPostHogJS(): void {
     if (window.JS_POSTHOG_API_KEY) {
         posthog.init(window.JS_POSTHOG_API_KEY, {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
             api_host: window.JS_POSTHOG_HOST,
             ui_host: window.JS_POSTHOG_UI_HOST,
             defaults: SDK_DEFAULTS_DATE,
+            // Hobby static files use /static/<asset>.js, without a version directory.
+            ...(isHobbyDeployment() && window.JS_POSTHOG_SELF_CAPTURE
+                ? { strict_script_versioning: false as const }
+                : {}),
             persistence: 'localStorage+cookie',
             cookie_persisted_properties: [
                 'prod_interest', // posthog.com sets these based on what docs were browsed
@@ -115,8 +106,10 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            metrics: { network: true, serviceName: 'posthog-app', ...options.metrics },
-            before_send: options.beforeSend,
+            metrics: { network: true, serviceName: 'posthog-app' },
+            // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
+            // `register` would persist the property in storage the main window shares, so it is stamped per event.
+            before_send: isEmbeddedPageFrame() ? stampEmbeddedPageFrame : undefined,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
@@ -215,7 +208,6 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             session_recording: {
                 blockSelector: '.ph-replay-block',
                 streamNetworkBody: true,
-                ...options.sessionRecording,
             },
             person_profiles: 'always',
             // posthog-js patches fetch to add X-POSTHOG-* tracing headers to these hosts. In OAuth

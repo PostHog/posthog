@@ -1,12 +1,6 @@
 import json
 from collections.abc import Iterable
-from datetime import (
-    UTC,
-    date,
-    datetime,
-    timedelta,
-    timezone as fixed_timezone,
-)
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
@@ -99,8 +93,8 @@ def test_stats_limits_daily_rows_currency_and_dst(
     client: TwitterAdsClient, manager: MagicMock, table: str, incremental_since: date | None
 ) -> None:
     account_timezone = ZoneInfo("America/Los_Angeles")
-    timezone = fixed_timezone(timedelta(hours=-8))
     calls = []
+    offsets = set()
     campaigns = [{"id": f"campaign-{i:02}", "funding_instrument_id": "funding"} for i in range(21)]
     line_items = [{"id": f"line-{i:02}", "campaign_id": campaign["id"]} for i, campaign in enumerate(campaigns)]
 
@@ -116,15 +110,16 @@ def test_stats_limits_daily_rows_currency_and_dst(
             return response({"data": line_items})
         if "/stats/" not in path:
             return response({"data": {"timezone": account_timezone.key, "created_at": "2025-10-25T10:00:00Z"}})
-        start = datetime.fromisoformat(params["start_time"][0]).astimezone(timezone)
-        end = datetime.fromisoformat(params["end_time"][0]).astimezone(timezone)
+        start = datetime.fromisoformat(params["start_time"][0]).astimezone(account_timezone)
+        end = datetime.fromisoformat(params["end_time"][0]).astimezone(account_timezone)
         ids = params["entity_ids"][0].split(",")
         assert len(ids) <= 20
         assert end.astimezone(UTC) - start.astimezone(UTC) <= timedelta(days=7)
-        assert params["start_time"][0].endswith("T08:00:00Z")
-        assert params["end_time"][0].endswith("T08:00:00Z")
+        # X rejects a DAY window whose bounds are not midnight in the ad account's own timezone,
+        # which means the offset in force on each date rather than today's.
         assert start.hour == end.hour == 0
         assert start.minute == end.minute == 0
+        offsets.update({start.utcoffset(), end.utcoffset()})
         assert params["granularity"] == ["DAY"]
         assert params["metric_groups"] == ["ENGAGEMENT,BILLING"]
         assert params["entity"] == ["CAMPAIGN" if table == "campaign_stats" else "LINE_ITEM"]
@@ -167,6 +162,9 @@ def test_stats_limits_daily_rows_currency_and_dst(
     assert min(row["date"] for row in rows) == start
     assert max(row["date"] for row in rows) == date(2025, 11, 9)
     assert {call[2] for call in calls} == set(PLACEMENTS)
+    # The window walked across the November fall-back, so it must have used both offsets. Without
+    # this the midnight assertions above would still pass on a range that never changes offset.
+    assert offsets == {timedelta(hours=-7), timedelta(hours=-8)}
     assert resource.primary_keys == ["entity_id", "date", "placement"]
     assert resource.partition_keys == ["date"]
     assert resource.sort_mode is None
@@ -182,19 +180,41 @@ def test_stats_limits_daily_rows_currency_and_dst(
     assert max(row["date"] for row in resumed) == date(2025, 11, 9)
 
 
-def test_daily_null_metrics_are_not_shifted(client: TwitterAdsClient) -> None:
-    rows = client.stats_rows(
+def test_error_detail_rides_along_with_the_status(client: TwitterAdsClient) -> None:
+    failure = requests.Response()
+    failure.status_code = 400
+    failure.url = "https://ads-api.x.com/12/stats/accounts/account"
+    failure._content = json.dumps(
         {
-            "data": [
-                {"id": "id", "id_data": [{"segment": None, "metrics": {"impressions": [10, None, 30], "clicks": None}}]}
+            "errors": [
+                {
+                    "code": "INVALID_PARAMETER",
+                    "message": "Expected a time aligned to midnight",
+                    "parameter": "start_time",
+                }
             ]
-        },
-        date(2025, 1, 1),
-        date(2025, 1, 4),
-        "ALL_ON_TWITTER",
-        {"id": "USD"},
-        "account",
-    )
-    assert [row["impressions"] for row in rows] == [10, None, 30]
-    assert [row["date"] for row in rows] == [date(2025, 1, 1), date(2025, 1, 2), date(2025, 1, 3)]
-    assert all(row["clicks"] is None for row in rows)
+        }
+    ).encode()
+
+    with patch.object(client.session, "send", return_value=failure):
+        with pytest.raises(requests.HTTPError) as raised:
+            client.get("stats/accounts/account")
+
+    message = str(raised.value)
+    # The status prefix is what `get_non_retryable_errors` matches on, and the detail is the only
+    # place X says which parameter it rejected.
+    assert "400 Client Error" in message
+    assert "INVALID_PARAMETER (start_time): Expected a time aligned to midnight" in message
+
+
+def test_error_without_a_parsable_body_keeps_the_bare_status(client: TwitterAdsClient) -> None:
+    failure = requests.Response()
+    failure.status_code = 503
+    failure.url = "https://ads-api.x.com/12/accounts/account"
+    failure._content = b""
+
+    with patch.object(client.session, "send", return_value=failure):
+        with pytest.raises(requests.HTTPError) as raised:
+            client.get("accounts/account")
+
+    assert "503 Server Error" in str(raised.value)

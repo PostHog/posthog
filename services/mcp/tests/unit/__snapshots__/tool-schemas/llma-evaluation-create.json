@@ -180,7 +180,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Inclusive maximum numeric score. Omit for no upper bound."
+                    "description": "Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min."
                 },
                 "min": {
                     "anyOf": [
@@ -191,7 +191,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Inclusive minimum numeric score. Omit for no lower bound."
+                    "description": "Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models."
                 },
                 "options": {
                     "description": "Categorical output options. Keys identify stored results; labels are displayed to users.",

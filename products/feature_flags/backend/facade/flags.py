@@ -31,14 +31,15 @@ def get_organization_flag_evaluations_mode(organization_id: UUID) -> int:
     return FlagEvaluationsMode.EVENTS if mode is None else mode
 
 
-def get_usage_tab_flag_evaluations_mode(organization_id: UUID) -> int:
-    """The mode that decides which table the flag Usage tab reads. FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS makes
-    it EVENTS for an organization on READ_FLAG_EVALUATIONS and leaves the stored mode unchanged."""
+def get_flag_evaluations_read_mode(organization_id: UUID) -> int:
+    """The mode that picks the table for the flag-call readers that the READ_FLAG_EVALUATIONS comment lists.
+    FLAG_EVALUATIONS_READS_FORCE_EVENTS makes it EVENTS for an organization on READ_FLAG_EVALUATIONS and leaves
+    the stored mode unchanged."""
     mode = get_organization_flag_evaluations_mode(organization_id)
-    # The switch skips FLAG_EVALUATIONS_ONLY. Once ingestion supports that mode, events holds none of the
-    # organization's flag calls, so the Usage tab would show empty days instead of the flag_evaluations rows.
+    # The switch skips FLAG_EVALUATIONS_ONLY. For teams in the ingestion allowlist, events holds none of that
+    # organization's flag calls, so the readers would show no calls instead of the flag_evaluations rows.
     if mode == FlagEvaluationsMode.READ_FLAG_EVALUATIONS and get_instance_setting(
-        "FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS"
+        "FLAG_EVALUATIONS_READS_FORCE_EVENTS"
     ):
         return FlagEvaluationsMode.EVENTS
     return mode

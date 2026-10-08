@@ -8,10 +8,10 @@ vi.mock("@posthog/di/react", () => ({
   useService: () => ({ maybeRevertBypassMode: vi.fn() }),
 }));
 
-vi.mock("../sessions/components/ThreadView", async () => {
+vi.mock("../sessions/components/chat-thread/ChatThread", async () => {
   const { PlanContent } = await import("./PlanContent");
   return {
-    ThreadView: () => (
+    AcpChatThread: () => (
       <PlanContent id="test-plan" plan="# Test plan\n\nShip the fix." />
     ),
   };
@@ -62,7 +62,7 @@ vi.mock("../message-editor/useAutoFocusOnTyping", () => ({
 }));
 vi.mock("../settings/settingsStore", () => ({
   useSettingsStore: (selector?: (state: unknown) => unknown) => {
-    const state = { allowBypassPermissions: false, useNewChatThread: false };
+    const state = { allowBypassPermissions: false };
     return selector ? selector(state) : state;
   },
 }));

@@ -45,9 +45,9 @@ impl Pipeline {
     /// Pipelines a given capture deployment produces events to. The events
     /// deployment writes to `analytics` (normal events), `errortracking`
     /// (`$exception` events split off in `process_single_event`), and `ai`
-    /// (names the deployment's `AiLanePredicate` accepts), so its restriction service
-    /// must serve restrictions for all three pipelines. `Import` is an events
-    /// deployment restricted to backfills, so it serves the same three.
+    /// (`$ai_` names), so its restriction service must serve restrictions for
+    /// all three pipelines. `Import` is an events deployment restricted to
+    /// backfills, so it serves the same three.
     ///
     /// `Ai` serves only `ai`. That deployment registers no analytics route,
     /// and `process_events` rejects a batch carrying anything off the AI lane,

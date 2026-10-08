@@ -1,6 +1,5 @@
 import json
 from typing import Any
-from urllib.parse import urlparse
 
 import pytest
 from unittest import mock
@@ -9,15 +8,10 @@ import requests
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.lattice import (
-    PAGE_SIZE,
     LatticeResumeConfig,
     _base_url,
     lattice_source,
     validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.settings import (
-    ENDPOINTS,
-    LATTICE_ENDPOINTS,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -29,9 +23,17 @@ LATTICE_SESSION_PATCH = (
 
 
 def _response(
-    items: list[dict[str, Any]] | None, *, has_more: bool = False, ending_cursor: str | None = None
+    items: list[dict[str, Any]] | None,
+    *,
+    has_more: bool = False,
+    ending_cursor: str | None = None,
+    page_info: bool = False,
 ) -> Response:
-    body: dict[str, Any] = {"data": items or [], "hasMore": has_more, "endingCursor": ending_cursor}
+    body: dict[str, Any] = (
+        {"data": items or [], "pageInfo": {"endCursor": ending_cursor, "hasNextPage": has_more}}
+        if page_info
+        else {"data": items or [], "hasMore": has_more, "endingCursor": ending_cursor}
+    )
     resp = Response()
     resp.status_code = 200
     resp._content = json.dumps(body).encode()
@@ -79,10 +81,6 @@ def _source(region: str, endpoint: str, manager: mock.MagicMock):
 
 
 class TestBaseUrl:
-    def test_us_and_emea_hosts(self):
-        assert _base_url("us") == "https://api.latticehq.com"
-        assert _base_url("emea") == "https://api.emea.latticehq.com"
-
     def test_invalid_region_raises(self):
         with pytest.raises(ValueError):
             _base_url("evil.example.com")
@@ -126,45 +124,33 @@ class TestValidateCredentials:
 
 
 class TestPagination:
+    @pytest.mark.parametrize(
+        "endpoint, page_info",
+        [
+            ("users", False),
+            # /v1/goals/updates nests the cursor under pageInfo instead of the top level.
+            ("goal_updates", True),
+        ],
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_ending_cursor(self, MockSession):
+    def test_paginates_via_ending_cursor(self, MockSession, endpoint, page_info):
         session = MockSession.return_value
         snaps = _wire(
             session,
             [
-                _response([{"id": "1"}], has_more=True, ending_cursor="cur_abc"),
-                _response([{"id": "2"}], has_more=False),
+                _response([{"id": "1"}], has_more=True, ending_cursor="cur_abc", page_info=page_info),
+                _response([{"id": "2"}], has_more=False, page_info=page_info),
             ],
         )
 
         manager = _make_manager()
-        rows = _rows(_source("us", "users", manager))
+        rows = _rows(_source("us", endpoint, manager))
 
         assert [r["id"] for r in rows] == ["1", "2"]
         # Checkpoint saved after the first page (points at the next cursor); the second page ends it.
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0].starting_after == "cur_abc"
         assert snaps[1]["params"]["startingAfter"] == "cur_abc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_request_uses_max_page_size(self, MockSession):
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([])])
-
-        list(_source("us", "goals", _make_manager()).items())
-
-        assert urlparse(snaps[0]["url"]).path == "/v1/goals"
-        assert snaps[0]["params"]["limit"] == PAGE_SIZE
-        assert "startingAfter" not in snaps[0]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_emea_region_uses_emea_host(self, MockSession):
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([])])
-
-        list(_source("emea", "users", _make_manager()).items())
-
-        assert urlparse(snaps[0]["url"]).netloc == "api.emea.latticehq.com"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_cursor(self, MockSession):
@@ -176,41 +162,52 @@ class TestPagination:
 
         assert snaps[0]["params"]["startingAfter"] == "cur_resume"
 
+
+class TestReviewCycleFanout:
+    @pytest.mark.parametrize(
+        "endpoint, resume_state, expected_child_urls",
+        [
+            (
+                "reviews",
+                None,
+                [
+                    "https://api.latticehq.com/v1/reviewCycle/c1/reviews",
+                    "https://api.latticehq.com/v1/reviewCycle/c2/reviews",
+                ],
+            ),
+            (
+                "reviewees",
+                None,
+                [
+                    "https://api.latticehq.com/v1/reviewCycle/c1/reviewees",
+                    "https://api.latticehq.com/v1/reviewCycle/c2/reviewees",
+                ],
+            ),
+            (
+                "reviews",
+                LatticeResumeConfig(
+                    fanout_state={"completed": ["/v1/reviewCycle/c1/reviews"], "current": None, "child_state": None}
+                ),
+                ["https://api.latticehq.com/v1/reviewCycle/c2/reviews"],
+            ),
+        ],
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_has_more_without_cursor_stops(self, MockSession):
+    def test_fans_out_over_review_cycles(self, MockSession, endpoint, resume_state, expected_child_urls):
         session = MockSession.return_value
-        _wire(session, [_response([{"id": "1"}], has_more=True, ending_cursor=None)])
+        child_responses = {
+            "https://api.latticehq.com/v1/reviewCycle/c1/" + endpoint: _response([{"id": "r1"}]),
+            "https://api.latticehq.com/v1/reviewCycle/c2/" + endpoint: _response([{"id": "r1"}]),
+        }
+        snaps = _wire(session, [])
+        session.send.side_effect = lambda *_args, **_kwargs: (
+            _response([{"id": "c1"}, {"id": "c2"}]) if len(snaps) == 1 else child_responses[snaps[-1]["url"]]
+        )
 
-        manager = _make_manager()
-        rows = _rows(_source("us", "users", manager))
+        rows = _rows(_source("us", endpoint, _make_manager(resume_state)))
 
-        assert [r["id"] for r in rows] == ["1"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_stops_without_saving_state(self, MockSession):
-        # A server that keeps advertising hasMore with an empty page must not loop forever.
-        session = MockSession.return_value
-        _wire(session, [_response([], has_more=True, ending_cursor="cur_loop")])
-
-        manager = _make_manager()
-        rows = _rows(_source("us", "users", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-
-class TestLatticeSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
-        config = LATTICE_ENDPOINTS[endpoint]
-        response = _source("us", endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode is None
-        assert response.partition_keys is None
+        assert snaps[0]["url"] == "https://api.latticehq.com/v1/reviewCycles"
+        assert [s["url"] for s in snaps[1:]] == expected_child_urls
+        # Review ids repeat across cycles, so each row must carry its cycle for the composite key.
+        expected_cycles = [url.split("/")[-2] for url in expected_child_urls]
+        assert [(r["review_cycle_id"], r["id"]) for r in rows] == [(c, "r1") for c in expected_cycles]

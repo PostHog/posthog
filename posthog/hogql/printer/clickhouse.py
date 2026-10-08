@@ -7,7 +7,7 @@ from django.conf import settings as django_settings
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
-from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.constants import FEATURE_FLAG_PROPERTY_PREFIX, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
@@ -40,8 +40,13 @@ from posthog.hogql.functions.udfs import (
 )
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
+from posthog.hogql.printer.events_json_document import event_document_sql, json_member_pairs_sql
 from posthog.hogql.printer.hogql import HogQLPrinter
-from posthog.hogql.restricted_properties import RESTRICTABLE_JSON_BLOB_COLUMNS, restricted_property_keys_for_table_type
+from posthog.hogql.restricted_properties import (
+    RESTRICTABLE_JSON_BLOB_COLUMNS,
+    restricted_feature_flag_names,
+    restricted_property_keys_for_table_type,
+)
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
@@ -558,14 +563,10 @@ class ClickHousePrinter(BasePrinter):
                 field_sql = f"{prefix}properties.{self._print_identifier(path)}"
                 if name == "$session_id_uuid":
                     field_sql = f"toUInt128(toUUIDOrNull({field_sql}))"
-        field_sql = self._maybe_stringify_events_json_field(type, field_sql)
-        return self._maybe_apply_json_drop_keys(type, field_sql)
-
-    def _maybe_stringify_events_json_field(self, type: ast.FieldType, field_sql: str) -> str:
         serialized = self._serialize_events_json_field(type, field_sql)
         if serialized is not None:
-            return serialized
-        return field_sql
+            return self._maybe_apply_json_drop_keys(type, serialized)
+        return self._maybe_apply_json_drop_keys(type, field_sql, mask_feature_flags=True)
 
     def _serialize_events_json_field(self, type: ast.FieldType, field_sql: str) -> str | None:
         if not self.context.uses_new_events_schema():
@@ -584,11 +585,30 @@ class ClickHousePrinter(BasePrinter):
         if not isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES):
             return None
 
-        serialized = (
-            "concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), "
-            f"arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString({field_sql})))), ','), '}}')"
-        )
+        if resolved_field.name == "properties":
+            prefix = field_sql.removesuffix(self._print_identifier("properties"))
+            temporary_properties_sql = f"{prefix}{self._print_identifier(TEMPORARY_PROPERTIES_COLUMN)}"
+            serialized = event_document_sql(
+                field_sql, temporary_properties_sql, self._document_feature_flags_sql(type, field_sql)
+            )
+        else:
+            serialized = f"concat('{{', arrayStringConcat({json_member_pairs_sql(field_sql)}, ','), '}}')"
         return f"{JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME}({serialized})"
+
+    def _document_feature_flags_sql(self, type: ast.FieldType, field_sql: str) -> str | None:
+        """The `$feature_flags` map without restricted flags, or None when a restricted `$feature_flags` hides them all."""
+        keys_to_drop = restricted_property_keys_for_table_type(type.table_type, self.context)
+        if "$feature_flags" in keys_to_drop:
+            return None
+        return self._visible_feature_flags_sql(field_sql, restricted_feature_flag_names(keys_to_drop))
+
+    def _visible_feature_flags_sql(self, field_sql: str, restricted_flags: list[str]) -> str:
+        """The `$feature_flags` map of `field_sql` without the restricted flags."""
+        flags = f"{field_sql}.{escape_clickhouse_identifier('$feature_flags')}"
+        if not restricted_flags:
+            return flags
+        placeholder = self.context.add_sensitive_value(restricted_flags)
+        return f"mapFilter((key, value) -> not(has({placeholder}, key)), {flags})"
 
     def _serialize_to_json_string_call(self, node: ast.Call) -> str | None:
         if node.name != "toJSONString" or len(node.args) != 1:
@@ -613,10 +633,15 @@ class ClickHousePrinter(BasePrinter):
         finally:
             self._json_function_argument_depth = depth
 
-    def _maybe_apply_json_drop_keys(self, type: ast.FieldType, field_sql: str) -> str:
+    def _maybe_apply_json_drop_keys(self, type: ast.FieldType, field_sql: str, mask_feature_flags: bool = False) -> str:
         """
         Wraps a StringJSONDatabaseField in JSONDropKeys() to strip restricted property keys
         when the raw JSON blob is selected directly (e.g., `SELECT properties FROM events`).
+
+        `mask_feature_flags` is for an events_json `properties` column printed as stored rather than as the rebuilt
+        document, which happens under `toJSONString(if(..., properties, ...))`. That document holds the flags in the
+        `$feature_flags` map, where JSONDropKeys cannot reach a restricted `$feature/<key>`, so the map is dropped and
+        merged back without the restricted flags.
         """
         if not self.context.restricted_properties:
             return field_sql
@@ -645,33 +670,29 @@ class ClickHousePrinter(BasePrinter):
         if not keys_to_drop:
             return field_sql
 
-        restricted_feature_flags = sorted(
-            key.removeprefix("$feature/") for key in keys_to_drop if key.startswith("$feature/")
-        )
-        filter_native_feature_flags = (
-            self.context.uses_new_events_schema()
+        restricted_flags = restricted_feature_flag_names(keys_to_drop)
+        mask_stored_feature_flags = (
+            mask_feature_flags
+            and bool(restricted_flags)
+            and "$feature_flags" not in keys_to_drop
             and resolved_field.name == "properties"
+            and self.context.uses_new_events_schema()
             and isinstance(type.table_type, ast.BaseTableType)
             and isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES)
-            and bool(restricted_feature_flags)
-            and "$feature_flags" not in keys_to_drop
         )
-        if filter_native_feature_flags:
-            keys_to_drop = {key for key in keys_to_drop if not key.startswith("$feature/")} | {"$feature_flags"}
+        if mask_stored_feature_flags:
+            keys_to_drop = {key for key in keys_to_drop if not key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)} | {
+                "$feature_flags"
+            }
 
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
         stripped = f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
-        if not filter_native_feature_flags:
+        if not mask_stored_feature_flags:
             return stripped
 
-        feature_keys_placeholder = self.context.add_sensitive_value(restricted_feature_flags)
-        physical_field = super().visit_field_type(type)
-        feature_flags = f"{physical_field}.{escape_clickhouse_identifier('$feature_flags')}"
-        filtered_feature_flags = (
-            f"mapFilter((key, value) -> not(has({feature_keys_placeholder}, key)), {feature_flags})"
-        )
-        feature_flags_patch = f"concat('{{\"$feature_flags\":', toJSONString({filtered_feature_flags}), '}}')"
-        return f"if(empty({filtered_feature_flags}), {stripped}, JSONMergePatch({stripped}, {feature_flags_patch}))"
+        filtered_flags = self._visible_feature_flags_sql(field_sql, restricted_flags)
+        flags_patch = f"concat('{{\"$feature_flags\":', toJSONString({filtered_flags}), '}}')"
+        return f"if(empty({filtered_flags}), {stripped}, JSONMergePatch({stripped}, {flags_patch}))"
 
     def _get_optimized_session_id_compare_operation(self, node: ast.CompareOperation) -> str | None:
         """Rewrite $session_id comparisons against UUID constants to use the $session_id_uuid column."""

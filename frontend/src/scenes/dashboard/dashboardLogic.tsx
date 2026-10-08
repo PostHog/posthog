@@ -87,6 +87,7 @@ import {
     DashboardFilter,
     DataVisualizationNode,
     HogQLVariable,
+    MetricsQueryFilter,
     NodeKind,
     RefreshType,
 } from '~/queries/schema/schema-general'
@@ -141,6 +142,7 @@ import {
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
+import { DashboardControl, DashboardControlScope, getDashboardControlScopes } from './dashboardControls'
 import {
     BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
@@ -334,6 +336,7 @@ export interface dashboardLogicValues {
     currentDashboardVariables: Record<string, HogQLVariable>
     currentLayoutSize: 'sm' | 'xs'
     dashboard: DashboardType | null
+    dashboardControlScopes: Record<DashboardControl, DashboardControlScope>
     dashboardCustomizeMenuOpen: boolean
     dashboardEditing: DashboardEditing | null
     dashboardFailedToLoad: boolean
@@ -934,6 +937,9 @@ export interface dashboardLogicActions {
     setLoadLayoutFromServerOnPreview: (loadLayoutFromServerOnPreview: boolean) => {
         loadLayoutFromServerOnPreview: boolean
     }
+    setMetricFilters: (metricFilters: MetricsQueryFilter[] | null) => {
+        metricFilters: MetricsQueryFilter[] | null
+    }
     setPageVisibility: (visible: boolean) => {
         visible: boolean
     }
@@ -1243,6 +1249,7 @@ export interface dashboardLogicMeta {
         ) => boolean
         insightTiles: (tiles: DashboardTile[]) => DashboardTile[]
         textTiles: (tiles: DashboardTile[]) => DashboardTile[]
+        dashboardControlScopes: (insightTiles: DashboardTile[]) => Record<DashboardControl, DashboardControlScope>
         itemsLoading: (
             dashboardLoading: boolean,
             dashboardStreaming: boolean,
@@ -1387,7 +1394,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         logic: [dashboardsModel, insightsModel, eventUsageLogic, addInsightToDashboardLogic],
     })),
 
-    props({} as DashboardLogicProps),
+    props({ id: NaN } as DashboardLogicProps),
 
     key((props) => {
         if (!Number.isFinite(props.id)) {
@@ -1492,6 +1499,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
         setInterval: (interval: IntervalType | null) => ({ interval }),
         setFilterTestAccounts: (filterTestAccounts: boolean | null) => ({ filterTestAccounts }),
+        setMetricFilters: (metricFilters: MetricsQueryFilter[] | null) => ({ metricFilters }),
         setExternalFilters: (filters: DashboardFilter) => ({ filters }),
         setDashboardSettingsDraft: (settings: DashboardSettings | null) => ({ settings }),
         setPreviewedDashboardSettings: (settings: DashboardSettings | null) => ({ settings }),
@@ -2053,6 +2061,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setBreakdownFilter: () => false,
                 setInterval: () => false,
                 setFilterTestAccounts: () => false,
+                setMetricFilters: () => false,
                 overrideVariableValue: () => false,
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
@@ -3111,6 +3120,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (tiles: DashboardTile[]) => tiles.filter((t) => !!t.insight).filter((i) => !i.insight?.deleted),
         ],
         textTiles: [(s) => [s.tiles], (tiles: DashboardTile[]) => tiles.filter((t) => !!t.text)],
+        dashboardControlScopes: [
+            (s) => [s.insightTiles],
+            (insightTiles: DashboardTile[]): Record<DashboardControl, DashboardControlScope> =>
+                getDashboardControlScopes(insightTiles),
+        ],
         itemsLoading: [
             (s) => [s.dashboardLoading, s.dashboardStreaming, s.refreshStatus, s.initialVariablesLoaded],
             (
@@ -4949,6 +4963,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
+        setMetricFilters: ({ metricFilters }) => {
+            actions.setDashboardSettingsDraft({
+                ...values.currentDashboardSettings,
+                filters: { ...values.currentDashboardSettings.filters, metricFilters },
+            })
+            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'metric_labels', {
+                metric_filter_count: metricFilters?.length ?? 0,
+            })
+
+            if (values.canAutoPreview) {
+                actions.refreshDashboardItems({
+                    action: RefreshDashboardItemsAction.Preview,
+                    forceRefresh: false,
+                    previewUnsavedFilters: true,
+                })
+            }
+        },
         setExternalFilters: () => {
             if (values.tiles.length > 0) {
                 actions.refreshDashboardItems({
@@ -5200,6 +5231,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const newUrlFilters: DashboardFilter = {
                 ...urlFilters,
                 filterTestAccounts,
+            }
+
+            return [
+                currentLocation.pathname,
+                searchParamsWithUrlFilters(
+                    currentLocation.searchParams,
+                    newUrlFilters,
+                    combineDashboardFilters(values.dashboard?.persisted_filters || {}, values.externalFilters)
+                ),
+                currentLocation.hashParams,
+            ]
+        },
+        setMetricFilters: ({ metricFilters }) => {
+            const { currentLocation } = router.values
+
+            const urlFilters = parseURLFilters(currentLocation.searchParams)
+            const newUrlFilters: DashboardFilter = {
+                ...urlFilters,
+                metricFilters,
             }
 
             return [

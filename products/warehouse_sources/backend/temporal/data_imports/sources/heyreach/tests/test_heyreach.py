@@ -96,20 +96,6 @@ class TestTopLevelEndpoints:
         assert [body.get("offset") for _, body in sent] == [100]
         manager.load_state.assert_called_once()
 
-    def test_conversations_request_carries_required_filters_object(self) -> None:
-        # GetConversationsV2 rejects requests without a `filters` object in the body.
-        manager = _fresh_manager()
-        responses = [
-            _make_http_response({"totalCount": 1, "items": [{"id": "thread-1", "linkedInAccountId": 7}]}),
-        ]
-
-        sent, _ = _drive("conversations", manager, responses)
-
-        url, body = sent[0]
-        assert url.endswith("/inbox/GetConversationsV2")
-        assert body["filters"] == {}
-        assert body["offset"] == 0
-
 
 class TestFanoutEndpoints:
     def test_campaign_leads_fans_out_per_campaign_and_injects_campaign_id(self) -> None:

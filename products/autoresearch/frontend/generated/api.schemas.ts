@@ -84,6 +84,29 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface AutoresearchRealizedAucPointApi {
+    /** Validated prediction date. */
+    readonly prediction_date: string
+    /** Realized AUC on that date. */
+    readonly realized_auc: number
+}
+
+export interface AutoresearchLiveTrainingRunApi {
+    /** Unique UUID of the live training run. */
+    readonly id: string
+    /** Maximum experiments allowed for this run. */
+    readonly iteration_budget: number
+    /** Experiments the agent has recorded so far in this run. */
+    readonly experiment_count: number
+    /**
+     * Best holdout AUC so far in this run. Null before any is recorded.
+     * @nullable
+     */
+    readonly best_holdout_score: number | null
+    /** The agent's rationale for its newest experiment. */
+    readonly latest_agent_description: string
+}
+
 /**
  * Resolved target definition: {"type": "event"} or {"type": "action", "action_id": N}.
  */
@@ -200,6 +223,29 @@ export interface AutoresearchPipelineApi {
      * @nullable
      */
     readonly champion_realized_auc: number | null
+    /**
+     * Lift in the top 10% of scores for the current champion model, from its latest validated prediction date. 2.0 means the top 10% converts at twice the average rate.
+     * @nullable
+     */
+    readonly champion_lift_at_10: number | null
+    /**
+     * True while the current champion model has no realized AUC yet. Null when the pipeline has no champion.
+     * @nullable
+     */
+    readonly champion_is_preliminary: boolean | null
+    /** Realized AUC of the current champion on its newest 14 validated prediction dates, oldest first. */
+    readonly champion_realized_auc_trend: readonly AutoresearchRealizedAucPointApi[]
+    /**
+     * People scored by the most recent completed inference run. Null before the first scoring run.
+     * @nullable
+     */
+    readonly people_scored: number | null
+    /** Training runs started for this pipeline. */
+    readonly training_run_count: number
+    /** Experiments (iterations) recorded across every training run. */
+    readonly experiment_count: number
+    /** Progress of the pending or running training run. Null when no run is live. */
+    readonly live_training_run: AutoresearchLiveTrainingRunApi | null
 }
 
 export interface PaginatedAutoresearchPipelineListApi {
@@ -315,14 +361,59 @@ export const AutoresearchModelRoleEnumApi = {
 } as const
 
 /**
+ * * `positive` - Positive
+ * * `negative` - Negative
+ */
+export type FeatureDirectionEnumApi = (typeof FeatureDirectionEnumApi)[keyof typeof FeatureDirectionEnumApi]
+
+export const FeatureDirectionEnumApi = {
+    Positive: 'positive',
+    Negative: 'negative',
+} as const
+
+export interface FeatureImportanceApi {
+    /**
+     * Feature column name, as returned by the feature SQL.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * Non-negative importance, for example the mean holdout AUC drop when the feature is shuffled.
+     * @minimum 0
+     */
+    importance: number
+    /** 'positive' if a higher value raises the predicted probability, 'negative' if it lowers it.
+     *
+     * * `positive` - Positive
+     * * `negative` - Negative */
+    direction: FeatureDirectionEnumApi
+}
+
+/**
+ * Global feature importances for the model card.
+ */
+export interface ModelExplanationFieldApi {
+    /**
+     * At most 30 features, strongest first.
+     * @maxItems 30
+     */
+    top_features?: FeatureImportanceApi[]
+    /**
+     * Short description of how the importances were computed, e.g. 'permutation importance on holdout'.
+     * @maxLength 500
+     */
+    method?: string
+    /**
+     * Optional caveat shown under the chart.
+     * @maxLength 500
+     */
+    note?: string
+}
+
+/**
  * Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata.
  */
 export type AutoresearchModelApiModelRecipe = { [key: string]: unknown }
-
-/**
- * Global feature importance and directionality. Used to explain top drivers on the model card.
- */
-export type AutoresearchModelApiModelExplanation = { [key: string]: unknown }
 
 /**
  * Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts.
@@ -345,7 +436,7 @@ export interface AutoresearchModelApi {
     /** Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata. */
     model_recipe: AutoresearchModelApiModelRecipe
     /** Global feature importance and directionality. Used to explain top drivers on the model card. */
-    model_explanation: AutoresearchModelApiModelExplanation
+    model_explanation: ModelExplanationFieldApi
     /**
      * AUC on the held-out test split at training time. Preliminary signal before online labels mature.
      * @nullable
@@ -394,6 +485,8 @@ export interface AutoresearchModelApi {
     archived_at?: string | null
     readonly created_at: string
     readonly updated_at: string
+    /** True if this model is in the pipeline's shadow set: the champion, the previous champion, and up to 3 recent fitted challengers with distinct recipes. */
+    readonly in_shadow_set: boolean
 }
 
 export interface PaginatedAutoresearchModelListApi {
@@ -434,7 +527,7 @@ export const ZendeskImportJobStatusEnumApi = {
 } as const
 
 /**
- * Run metrics: rows scored, score distribution summary, validation AUC, etc.
+ * Run metrics: score distribution summary, validation AUC, etc. An inference run records 'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run scored a rolling part of the population: users never scored first, then users whose last score was oldest.
  */
 export type AutoresearchRunApiMetrics = { [key: string]: unknown }
 
@@ -467,7 +560,7 @@ export interface AutoresearchRunApi {
      * @nullable
      */
     rows_scored?: number | null
-    /** Run metrics: rows scored, score distribution summary, validation AUC, etc. */
+    /** Run metrics: score distribution summary, validation AUC, etc. An inference run records 'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run scored a rolling part of the population: users never scored first, then users whose last score was oldest. */
     metrics: AutoresearchRunApiMetrics
     /** Error message if the run failed. */
     error?: string
@@ -674,6 +767,8 @@ export interface TrainingRunSummaryApi {
     recommended_next: string
     /** Agent's 1–2 sentence distillation of what this run learned. Empty if not provided. */
     distillation: string
+    /** Short id of the report notebook the agent built for this run. Empty if there is none. */
+    report_notebook_short_id?: string
 }
 
 /**
@@ -892,11 +987,6 @@ export interface StoredArtifactApi {
 }
 
 /**
- * Global feature importance / directionality bundle for the champion model card.
- */
-export type CompleteTrainingRunApiModelExplanation = { [key: string]: unknown }
-
-/**
  * Input for finalizing a training run. The backend selects/promotes the champion.
  */
 export interface CompleteTrainingRunApi {
@@ -906,7 +996,7 @@ export interface CompleteTrainingRunApi {
      */
     best_iteration_id?: string | null
     /** Global feature importance / directionality bundle for the champion model card. */
-    model_explanation?: CompleteTrainingRunApiModelExplanation
+    model_explanation?: ModelExplanationFieldApi
     /**
      * What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete; max 2000 characters.
      * @maxLength 2000
@@ -917,6 +1007,8 @@ export interface CompleteTrainingRunApi {
      * @maxLength 2000
      */
     distillation?: string
+    /** Short id of the report notebook you built for this run. Stored in the run summary only if the notebook exists in this project; an unknown id is dropped and does not fail the completion. */
+    report_notebook_short_id?: string
 }
 
 export type RecordIterationApiRecipeSnapshotFeatureTransformsItem = { [key: string]: unknown }
@@ -1116,6 +1208,12 @@ export interface MaterializeFeaturesResponseApi {
     n_features: number
     /** The numeric feature column names (excludes distinct_id, __label, __fold). */
     feature_cols: string[]
+    /** Seconds the server spent on the queries that materialized the matrix. Scoring runs features_sql over the whole inference population on every cadence, so a slow query here is slow there too. */
+    elapsed_s: number
+    /** Rows ClickHouse read to materialize the matrix. */
+    rows_read: number
+    /** Advice on the cost of features_sql. A hint does not block the materialization or the upload, but a champion whose features.sql cannot score today's population in time is not promoted. */
+    hints: string[]
 }
 
 /**
@@ -1315,6 +1413,98 @@ export interface PatchedAutoresearchPipelineCreateApi {
     output_person_property?: string
 }
 
+export interface CalibrationBinApi {
+    /** Number of scored users in this bin. */
+    n: number
+    /** Mean predicted probability of the users in this bin. */
+    mean_p_y: number
+    /** Fraction of the users in this bin who did the target event within the horizon. */
+    positive_rate: number
+}
+
+export interface OnlinePerformanceRowApi {
+    /** UUID of the validation run that recorded these metrics. */
+    validation_run_id: string
+    /** Date the predictions were made for (UTC). */
+    prediction_date: string
+    /** Prediction horizon, in days, the predictions were made under. */
+    horizon_days: number
+    /** ISO weekday of the prediction date: 1 is Monday and 7 is Sunday. Use it to find weekday effects. */
+    weekday: number
+    /** UUID of the model that emitted the predictions. */
+    model_id: string
+    /** Role the model had when it emitted the predictions: 'champion' or 'challenger'. */
+    emitted_role: string
+    /** Role the model has now: 'champion', 'challenger', 'archived', or 'deleted'. A former champion that a promotion archived keeps its rows. */
+    current_role: string
+    /** Number of users the model scored on this date. */
+    n_scored: number
+    /** Number of scored users who did the target event in the horizon. */
+    n_positive: number
+    /** Fraction of scored users who did the target event (n_positive / n_scored). */
+    base_rate: number
+    /**
+     * Mean predicted probability. Compare it with base_rate: a higher value means the model over-predicts. Null for dates validated before this metric existed.
+     * @nullable
+     */
+    mean_p_y: number | null
+    /**
+     * Realized ROC AUC against actual outcomes. Null when the date has one class only.
+     * @nullable
+     */
+    realized_auc: number | null
+    /**
+     * Lower bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.
+     * @nullable
+     */
+    realized_auc_ci_low: number | null
+    /**
+     * Upper bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.
+     * @nullable
+     */
+    realized_auc_ci_high: number | null
+    /**
+     * Brier score. Lower is better.
+     * @nullable
+     */
+    brier_score: number | null
+    /**
+     * Expected calibration error over 10 equal-width bins. Lower is better.
+     * @nullable
+     */
+    calibration_error: number | null
+    /**
+     * Positives in the top 10% by score, relative to a random 10%.
+     * @nullable
+     */
+    lift_at_10: number | null
+    /**
+     * Positives in the top 20% by score, relative to a random 20%.
+     * @nullable
+     */
+    lift_at_20: number | null
+    /**
+     * Calibration table with up to 10 bins cut at score quantiles, lowest scores first. Users with equal scores share a bin, so heavy ties give fewer bins. Null for dates validated before this metric existed.
+     * @nullable
+     */
+    calibration_bins: CalibrationBinApi[] | null
+    /**
+     * 'single_class_no_auc' when every scored user had the same outcome, otherwise null.
+     * @nullable
+     */
+    warning: string | null
+    /**
+     * When the validation run completed.
+     * @nullable
+     */
+    validated_at: string | null
+}
+
+export interface OnlinePerformanceApi {
+    /** One row per model per validated prediction date, newest date first. Empty until a prediction horizon has elapsed and online validation has run. */
+    rows: OnlinePerformanceRowApi[]
+}
+
 export interface StartTrainingRequestApi {
     /**
      * Override the pipeline iteration budget for this training run.
@@ -1495,7 +1685,7 @@ export const ValidationWarningSeverityEnumApi = {
 } as const
 
 export interface ValidationWarningApi {
-    /** Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity 'error', mean a run would fail: fix the definition before creating. 'population_too_large' with severity 'info' means training uses a sample of the population. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
+    /** Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity 'error', mean a run would fail: fix the definition before creating. 'population_too_large' with severity 'info' means training uses a sample of the population, or each scoring run scores a rolling part of it: users never scored first, then users whose last score was oldest. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
     code: string
     /** Human-readable warning description. */
     message: string
@@ -1508,7 +1698,7 @@ export interface ValidationWarningApi {
 }
 
 export interface ValidatePipelineResponseApi {
-    /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train or score. */
+    /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train. */
     can_proceed: boolean
     /** True if there are non-blocking warnings the user should acknowledge before proceeding. */
     requires_acknowledgement: boolean
@@ -1606,6 +1796,15 @@ export type AutoresearchTrainingRunsHistoryRetrieveParams = {
      * Maximum number of prior runs to return (default 5, at most 20).
      * @minimum 1
      * @maximum 20
+     */
+    limit?: number
+}
+
+export type AutoresearchOnlinePerformanceRetrieveParams = {
+    /**
+     * Maximum number of validated prediction dates to return, newest first (default 60, at most 180). Each date returns one row per model that emitted predictions on it.
+     * @minimum 1
+     * @maximum 180
      */
     limit?: number
 }

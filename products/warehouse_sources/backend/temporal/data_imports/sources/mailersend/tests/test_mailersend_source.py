@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MailerSendSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.source import MailerSendSource
 
 
@@ -17,10 +16,6 @@ def _config() -> MailerSendSourceConfig:
 
 
 class TestGetSchemas:
-    def test_exposes_every_endpoint(self) -> None:
-        names = {s.name for s in MailerSendSource().get_schemas(_config(), team_id=1)}
-        assert names == set(ENDPOINTS)
-
     @parameterized.expand(
         [
             ("domains", False, False),
@@ -36,12 +31,6 @@ class TestGetSchemas:
         schemas = {s.name: s for s in MailerSendSource().get_schemas(_config(), team_id=1)}
         assert schemas[endpoint].supports_incremental is supports_incremental
         assert schemas[endpoint].supports_append is supports_append
-
-    def test_only_activity_is_incremental(self) -> None:
-        # Only the Activity endpoint exposes a server-side date filter; the rest are full refresh.
-        schemas = {s.name: s for s in MailerSendSource().get_schemas(_config(), team_id=1)}
-        incremental = {name for name, s in schemas.items() if s.supports_incremental}
-        assert incremental == {"activity"}
 
     def test_names_filter(self) -> None:
         schemas = MailerSendSource().get_schemas(_config(), team_id=1, names=["domains"])

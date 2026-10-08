@@ -1,5 +1,5 @@
 import hashlib
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from typing import Any, Optional
@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ApiKeyAuthConfig,
     ClientConfig,
@@ -815,7 +816,7 @@ def anthropic_source(
         # schema and pauses its schedule instead of retrying a KeyError forever.
         raise ValueError(f"{ENDPOINT_RETIRED_ERROR}: {endpoint}")
     # Set only where the rows come from something other than iterating `resource` once.
-    items: Optional[Callable[[], Iterator[list[dict[str, Any]]]]] = None
+    items: Optional[Callable[[], Iterable[list[dict[str, Any]]]]] = None
 
     # The report endpoints page the rate-limited Admin API; the entity lists do not. Give the reports
     # a wider retry budget so it can outlast the organization rate-limit window.
@@ -1014,9 +1015,8 @@ def anthropic_source(
             initial_paginator_state = {"cursor": resume.cursor}
 
         def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-            # Persist only while a next page remains; the checkpoint is saved AFTER a page is
-            # yielded, pointing at the next page, so a crash resumes from a page whose predecessors
-            # were all yielded — the overlap merge dedupes on the primary key.
+            # Persist only while a next page remains. The checkpoint points at the next page, so a
+            # crash resumes from a page whose predecessors were all yielded.
             if state and state.get("cursor"):
                 resumable_source_manager.save_state(AnthropicResumeConfig(cursor=state["cursor"]))
 
@@ -1068,7 +1068,18 @@ def anthropic_source(
 
         if endpoint == "usage_report":
             resource = build_resource(USAGE_GROUP_BY_FALLBACKS[0], initial_paginator_state)
-            items = partial(_iter_narrowing_group_by, build_resource, USAGE_GROUP_BY_FALLBACKS, initial_paginator_state)
+            # The fallback loop hands each page on unchanged and holds no rows. As a `Resource` it
+            # keeps the framework's checkpoints, so a run that waits on a rate limit can hand off.
+            narrowing = Resource(
+                partial(_iter_narrowing_group_by, build_resource, USAGE_GROUP_BY_FALLBACKS, initial_paginator_state),
+                name=endpoint,
+                hints=resource._hints,
+            )
+
+            def narrowed_items() -> Iterable[list[dict[str, Any]]]:
+                return narrowing
+
+            items = narrowed_items
         else:
             resource = build_resource(config.group_by, initial_paginator_state)
 
