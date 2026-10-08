@@ -11,6 +11,7 @@ from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.persistence import load_review_arm
+from products.review_hog.backend.reviewer.tools.github_meta import FetchedPR
 from products.review_hog.backend.temporal.activities import FetchPRDataInput, _fetch_and_persist
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_UI
 from products.signals.backend.models import SignalReport
@@ -45,7 +46,9 @@ class TestFetchDecidesTheTier(BaseTest):
         self, automatic_head: str | None, state: str, complete: bool, mock_fetcher: MagicMock, _auth: MagicMock
     ) -> None:
         metadata = _pr_metadata().model_copy(update={"state": state})
-        mock_fetcher.return_value.fetch_pr_data.return_value = (metadata, [], [], "")
+        mock_fetcher.return_value.fetch_pr_data.return_value = FetchedPR(
+            pr_metadata=metadata, pr_comments=[], pr_files=[], diff=""
+        )
         request = FetchPRDataInput(
             team_id=self.team.id,
             user_id=self.user.id,
@@ -87,7 +90,9 @@ class TestFetchDecidesTheTier(BaseTest):
         # default runs every Flash turn without its lenses and no error shows it. Only the
         # single-agent design fetches test and `.txt` files, so the design must be known first.
         pr_file = PRFile(filename="a.py", status="modified", additions=10, deletions=0)
-        mock_fetcher.return_value.fetch_pr_data.return_value = (_pr_metadata(), [], [pr_file], "")
+        mock_fetcher.return_value.fetch_pr_data.return_value = FetchedPR(
+            pr_metadata=_pr_metadata(), pr_comments=[], pr_files=[pr_file], diff=""
+        )
         meta = _fetch_and_persist(
             FetchPRDataInput(
                 team_id=self.team.id,
@@ -115,7 +120,9 @@ class TestFetchDecidesTheTier(BaseTest):
         signal_report = SignalReport.objects.create(
             team=self.team, status=SignalReport.Status.IN_PROGRESS, signal_count=1, total_weight=1.0
         )
-        mock_fetcher.return_value.fetch_pr_data.return_value = (_pr_metadata(), [], [], "")
+        mock_fetcher.return_value.fetch_pr_data.return_value = FetchedPR(
+            pr_metadata=_pr_metadata(), pr_comments=[], pr_files=[], diff=""
+        )
 
         with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
             fetch_input = FetchPRDataInput(

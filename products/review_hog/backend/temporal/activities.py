@@ -399,7 +399,7 @@ class LoadedBlindSpotsSkillDTO:
     version: int
 
 
-@dataclass
+@dataclass(frozen=True)
 class DedupResult:
     # The persisted survivors' issue ids — the by-reference handle validate and body-build use to
     # reload issue content from the finding rows (unbounded issue JSON would foreseeably hit
@@ -662,29 +662,29 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
             pr_number, pr_url = discovered
             logger.info("Branch %s has open PR #%s; reviewing via the PR path", input.head_branch, pr_number)
     if pr_number is not None:
-        pr_metadata, pr_comments, pr_files, diff = PRFetcher(
+        fetched = PRFetcher(
             owner=input.owner, repo=input.repo, pr_number=pr_number, token=token, installation_id=installation_id
         ).fetch_pr_data(review_tests_and_text=review_tests_and_text)
-        if pr_metadata.is_fork:
+        if fetched.pr_metadata.is_fork:
             raise ApplicationError(
                 f"Refusing to review fork PR #{pr_number} in {input.repository}: a fork's head ref is "
                 "attacker-influenced and its branch isn't on the base origin (the sandbox checkout would fail).",
                 non_retryable=True,
             )
     else:
-        pr_metadata, pr_comments, pr_files, diff = fetch_branch_compare(
+        fetched = fetch_branch_compare(
             token=token,
             repository=input.repository,
             head_branch=input.head_branch or "",
             installation_id=installation_id,
             review_tests_and_text=review_tests_and_text,
         )
-    head_sha = pr_metadata.head_sha or ""
+    head_sha = fetched.pr_metadata.head_sha or ""
     report_id = upsert_review_report(
         team_id=input.team_id,
         repository=input.repository,
         pr_url=pr_url or "",
-        pr_metadata=pr_metadata,
+        pr_metadata=fetched.pr_metadata,
         signal_report_id=input.signal_report_id,
         trigger_source=input.trigger_source,
         # Only the creating turn routes on it: the upsert is what knows whether the row exists.
@@ -702,16 +702,16 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     # This turn's index. run_count (completed turns) only bumps at finalize, so a turn that fails and
     # resumes reuses the same index while a fresh turn gets a new one.
     run_index = report.run_count + 1
-    max_comment_id = max((c.id for c in pr_comments if c.id is not None), default=None)
+    max_comment_id = max((c.id for c in fetched.pr_comments if c.id is not None), default=None)
     new_comment_count = sum(
         1
-        for c in pr_comments
+        for c in fetched.pr_comments
         if c.id is not None and (report.last_seen_comment_id is None or c.id > report.last_seen_comment_id)
     )
     if new_comment_count:
         logger.info(
             "PR #%s: %s new inline comment(s) since the last turn (watermark %s, latest %s)",
-            pr_metadata.number,
+            fetched.pr_metadata.number,
             new_comment_count,
             report.last_seen_comment_id,
             max_comment_id,
@@ -720,25 +720,25 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         team_id=input.team_id,
         report_id=report_id,
         repository=input.repository,
-        pr_metadata=pr_metadata,
-        pr_comments=pr_comments,
-        diff=diff,
+        pr_metadata=fetched.pr_metadata,
+        pr_comments=fetched.pr_comments,
+        diff=fetched.diff,
     )
     persist_pr_snapshot(
         team_id=input.team_id,
         report_id=report_id,
         head_sha=head_sha,
-        pr_metadata=pr_metadata,
-        pr_comments=pr_comments,
-        pr_files=pr_files,
+        pr_metadata=fetched.pr_metadata,
+        pr_comments=fetched.pr_comments,
+        pr_files=fetched.pr_files,
         review_design=design_choice.design,
     )
-    lens_plan = plan_lens_chunks(pr_files) if design_choice.design == REVIEW_DESIGN_SINGLE_AGENT else None
+    lens_plan = plan_lens_chunks(fetched.pr_files) if design_choice.design == REVIEW_DESIGN_SINGLE_AGENT else None
     if already_published or (
-        input.trigger_source == TRIGGER_AUTOMATIC and (already_completed or pr_metadata.state != "open")
+        input.trigger_source == TRIGGER_AUTOMATIC and (already_completed or fetched.pr_metadata.state != "open")
     ):
         ReviewReport.objects.for_team(input.team_id).filter(id=report_id).update(
-            status=ReviewReport.Status.IDLE if pr_metadata.state == "open" else ReviewReport.Status.CLOSED
+            status=ReviewReport.Status.IDLE if fetched.pr_metadata.state == "open" else ReviewReport.Status.CLOSED
         )
     return ReviewMeta(
         report_id=report_id,
@@ -746,18 +746,18 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         # Sandboxes check out this branch by name. The Tasks checkout only resolves refs/heads/<name>;
         # a pull ref like `pull/N/head` falls through to a fresh branch on the base tip, so every
         # sandbox would review the base branch instead of the PR.
-        branch=pr_metadata.head_branch,
+        branch=fetched.pr_metadata.head_branch,
         repository=input.repository,
         run_index=run_index,
         snapshotted=snapshotted,
         already_published=already_published,
         new_comment_count=new_comment_count,
-        author_login=pr_metadata.author,
+        author_login=fetched.pr_metadata.author,
         pr_number=pr_number,
         pr_url=pr_url,
-        empty_diff=pr_number is None and not pr_files,
+        empty_diff=pr_number is None and not fetched.pr_files,
         already_completed=already_completed,
-        pr_open=pr_metadata.state == "open",
+        pr_open=fetched.pr_metadata.state == "open",
         review_design=design_choice.design,
         review_design_reason=design_choice.reason,
         lens_chunk_count=len(lens_plan.chunks) if lens_plan is not None else 0,

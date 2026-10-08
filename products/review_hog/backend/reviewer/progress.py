@@ -66,7 +66,7 @@ RESOLUTION_STOPPED = "stopped"
 RESOLUTION_RUN_NOTE_AUTHOR = "review_hog_resolution"
 
 
-@dataclass
+@dataclass(frozen=True)
 class SnapshotStats:
     """PR facts from the report's latest `pr_snapshot` artefact (metadata only, never `pr_files`)."""
 
@@ -78,7 +78,7 @@ class SnapshotStats:
     review_design: str | None = None
 
 
-@dataclass
+@dataclass(frozen=False)
 class TurnStats:
     """Pipeline shape of the latest turn, from `chunk_set` / `perspective_result` working state."""
 

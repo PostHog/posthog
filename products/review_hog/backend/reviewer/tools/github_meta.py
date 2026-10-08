@@ -2,6 +2,7 @@ import re
 import logging
 from typing import Any
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRFileUpdate, PRMetadata
@@ -244,6 +245,17 @@ class PRParser:
         return changes
 
 
+@frozen
+class FetchedPR:
+    """Everything the review pipeline needs from one fetched review target."""
+
+    pr_metadata: PRMetadata
+    pr_comments: list[PRComment]
+    pr_files: list[PRFile]
+    # The reviewed files' point-in-time unified patch.
+    diff: str
+
+
 def find_open_pr_for_branch(
     *, token: str, repository: str, owner: str, head_branch: str, installation_id: str | None = None
 ) -> tuple[int, str] | None:
@@ -272,10 +284,10 @@ def fetch_branch_compare(
     head_branch: str,
     installation_id: str | None = None,
     review_tests_and_text: bool = False,
-) -> tuple[PRMetadata, list[PRComment], list[PRFile], str]:
+) -> FetchedPR:
     """Fetch a PR-less branch target as a compare diff against the repo's default branch.
 
-    Returns the same ``(pr_metadata, pr_comments, pr_files, diff)`` shape as `PRFetcher.fetch_pr_data`
+    Returns the same `FetchedPR` as `PRFetcher.fetch_pr_data`
     — the pipeline middle (chunk → review → dedup → validate) consumes files + diff and doesn't care
     where they came from. The metadata is synthesized with ``number=0`` ("no PR"); comments are empty
     (there is no PR to carry them). Files are filtered exactly like the PR path.
@@ -354,7 +366,7 @@ def fetch_branch_compare(
         deletions=deletions,
         changed_files=len(files),
     )
-    return metadata, [], pr_files, "\n\n".join(diff_sections)
+    return FetchedPR(pr_metadata=metadata, pr_comments=[], pr_files=pr_files, diff="\n\n".join(diff_sections))
 
 
 class PRFetcher:
@@ -462,12 +474,10 @@ class PRFetcher:
             raise ValueError(f"Failed to fetch PR files: {e}") from e
         return pr_files, "\n\n".join(diff_sections)
 
-    def fetch_pr_data(
-        self, *, review_tests_and_text: bool = False
-    ) -> tuple[PRMetadata, list[PRComment], list[PRFile], str]:
+    def fetch_pr_data(self, *, review_tests_and_text: bool = False) -> FetchedPR:
         """Fetch PR data from the GitHub API, returning everything in-process (no files).
 
-        Returns ``(pr_metadata, pr_comments, pr_files, diff)`` where ``diff`` is the reviewed files'
+        Returns a `FetchedPR` where ``diff`` is the reviewed files'
         point-in-time unified patch. ``review_tests_and_text`` keeps test and ``.txt`` files (`PRFilter`).
         """
         pr = github_api_request(
@@ -483,4 +493,4 @@ class PRFetcher:
         pr_comments = self.fetch_pr_comments(pr_filter)
         pr_files, diff = self.fetch_pr_files(pr_filter, pr_parser)
         logger.info("PR data fetched successfully")
-        return pr_metadata, pr_comments, pr_files, diff
+        return FetchedPR(pr_metadata=pr_metadata, pr_comments=pr_comments, pr_files=pr_files, diff=diff)

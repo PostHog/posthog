@@ -7,6 +7,7 @@ from parameterized import parameterized
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
+from products.review_hog.backend.reviewer.tools.github_meta import FetchedPR
 from products.review_hog.backend.temporal.activities import FetchPRDataInput, ReviewMeta, _fetch_and_persist
 from products.review_hog.backend.temporal.client import _build_inputs
 
@@ -100,7 +101,7 @@ class TestFetchBranchTarget(BaseTest):
     def test_branch_with_no_pr_stores_branch_keyed_and_flags_an_empty_diff(self, _find, mock_compare, _auth) -> None:
         # No open PR and nothing reviewable in the compare: the report row is branch-keyed
         # (pr_number NULL) and the meta tells the workflow to self-skip before any sandbox spend.
-        mock_compare.return_value = (_pr_metadata(0), [], [], "")
+        mock_compare.return_value = FetchedPR(pr_metadata=_pr_metadata(0), pr_comments=[], pr_files=[], diff="")
 
         meta = self._fetch()
 
@@ -128,7 +129,9 @@ class TestFetchBranchTarget(BaseTest):
         # branch-keyed report (watermarks and prior findings carry over), backfill its number/url,
         # and hand the workflow a publish destination.
         pr_files = [PRFile(filename="a.py", status="modified", additions=1, deletions=0)]
-        mock_fetcher.return_value.fetch_pr_data.return_value = (_pr_metadata(9), [], pr_files, "diff")
+        mock_fetcher.return_value.fetch_pr_data.return_value = FetchedPR(
+            pr_metadata=_pr_metadata(9), pr_comments=[], pr_files=pr_files, diff="diff"
+        )
         stored_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="", pr_metadata=_pr_metadata(0))
 
         meta = self._fetch()

@@ -416,9 +416,7 @@ class TestFetchPrData:
         fetcher = PRFetcher("owner", "repo", 456, token="test-token")
         result = fetcher.fetch_pr_data()
 
-        # 4-tuple contract: metadata, comments, files, diff
-        assert len(result) == 4
-        metadata, comments, files, diff = result
+        metadata, comments, files, diff = result.pr_metadata, result.pr_comments, result.pr_files, result.diff
 
         assert metadata.number == 456
         assert metadata.head_sha == "abc123"
@@ -475,7 +473,8 @@ class TestFetchPrData:
         )
 
         fetcher = PRFetcher("owner", "repo", 789, token="test-token")
-        _, comments, files, diff = fetcher.fetch_pr_data(review_tests_and_text=review_tests_and_text)
+        fetched = fetcher.fetch_pr_data(review_tests_and_text=review_tests_and_text)
+        comments, files, diff = fetched.pr_comments, fetched.pr_files, fetched.diff
 
         assert [f.filename for f in files] == expected
         assert [comment.path for comment in comments] == (["tests/test_module.py"] if review_tests_and_text else [])
@@ -494,7 +493,8 @@ class TestFetchPrData:
         )
 
         fetcher = PRFetcher("owner", "repo", 999, token="test-token")
-        _, _, files, diff = fetcher.fetch_pr_data()
+        fetched = fetcher.fetch_pr_data()
+        files, diff = fetched.pr_files, fetched.diff
 
         assert files[0].filename == "old_module.py"
         assert files[0].changes == []
@@ -513,7 +513,7 @@ class TestFetchPrData:
         )
 
         fetcher = PRFetcher("owner", "repo", 123, token="test-token")
-        metadata, _, _, _ = fetcher.fetch_pr_data()
+        metadata = fetcher.fetch_pr_data().pr_metadata
 
         assert metadata.assignee == "assignee-user"
         assert metadata.labels == ["bug"]
@@ -527,7 +527,7 @@ class TestFetchPrData:
         _wire(mock_request, mock_paginated, _pr_json(is_fork=is_fork))
 
         fetcher = PRFetcher("owner", "repo", 123, token="test-token")
-        metadata, _, _, _ = fetcher.fetch_pr_data()
+        metadata = fetcher.fetch_pr_data().pr_metadata
 
         assert metadata.is_fork is is_fork
 
