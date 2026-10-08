@@ -54,6 +54,7 @@ from posthog.test.persons import add_distinct_id, create_person
 
 PG_PROPERTIES = {"email": "postgres@example.com"}
 CH_PROPERTIES = {"email": "clickhouse@example.com"}
+CH_ONLY_PROPERTIES = {"plan": "free", "company": "Acme"}
 
 _PERSON_COLUMNS = (
     "id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version, last_seen_at"
@@ -87,13 +88,14 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         deleted: bool = False,
         hours_ago: float = 0,
         team_id: int | None = None,
+        properties: dict[str, Any] | None = None,
     ) -> None:
         create_person_in_ch(
             team_id=team_id or self.team.pk,
             uuid=str(person_uuid),
             version=version,
             is_deleted=deleted,
-            properties=CH_PROPERTIES,
+            properties=CH_PROPERTIES if properties is None else properties,
             timestamp=now() - timedelta(hours=hours_ago),
         )
 
@@ -858,6 +860,97 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         assert self._ch_person(person.uuid) == (0, 104, PG_PROPERTIES)
         assert self._ch_mapping("target") == (str(person.uuid), *target_deleted_and_version)
         assert self._ch_mapping("other") == (str(person.uuid), 1, 100)
+
+    def _stale_person_with_target(self, ch_properties: dict[str, Any]) -> Person:
+        person = self._pg_person(version=5, distinct_ids={"target": 2})
+        self._ch_person_row(person.uuid, 10, properties=ch_properties)
+        self._ch_mapping_row("target", person.uuid, 100, deleted=True)
+        return person
+
+    @parameterized.expand(
+        [
+            (
+                "merge_not_applied_before_the_reread",
+                False,
+                "merge_queued",
+                (0, 10, {**CH_PROPERTIES, **CH_ONLY_PROPERTIES}),
+            ),
+            ("merge_applied_before_the_reread", True, "repaired", (0, 11, {**CH_ONLY_PROPERTIES, **PG_PROPERTIES})),
+        ]
+    )
+    def test_reset_sends_a_stale_persons_clickhouse_only_properties_before_raising_postgres(
+        self, _name: str, merge_applied: bool, person_outcome: str, ch_person: tuple[int, int, dict[str, Any]]
+    ) -> None:
+        person = self._stale_person_with_target({**CH_PROPERTIES, **CH_ONLY_PROPERTIES})
+        stored = get_active_fake().stored_person(self.team.pk, str(person.uuid))
+        assert stored is not None
+
+        def ingest(**_: Any) -> MagicMock:
+            if merge_applied:
+                stored.properties = json.dumps({**CH_ONLY_PROPERTIES, **PG_PROPERTIES}).encode()
+            return MagicMock()
+
+        with patch("posthog.models.person.divergence.capture_internal", side_effect=ingest) as capture:
+            summary = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
+
+        assert summary is not None
+        assert (summary.person_outcomes, summary.mapping_outcomes, summary.undelivered) == (
+            {person_outcome: 1},
+            {"repaired": 1},
+            0,
+        )
+        capture.assert_called_once()
+        sent = dict(capture.call_args.kwargs)
+        sent.pop("timestamp")
+        assert sent == {
+            "token": self.team.api_token,
+            "event_name": "$set",
+            "event_source": "person_divergence_reset",
+            "distinct_id": "target",
+            "properties": {"$set_once": CH_ONLY_PROPERTIES},
+            "process_person_profile": True,
+        }
+        assert self._pg_version(person) == 11
+        assert self._ch_person(person.uuid) == ch_person
+        assert self._ch_mapping("target") == (str(person.uuid), 0, 101)
+
+    def test_reset_republishes_a_stale_person_whose_clickhouse_properties_postgres_already_holds(self) -> None:
+        person = self._stale_person_with_target(CH_PROPERTIES)
+
+        with patch("posthog.models.person.divergence.capture_internal") as capture:
+            summary = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
+
+        assert summary is not None
+        assert (summary.person_outcomes, summary.mapping_outcomes) == ({"repaired": 1}, {"repaired": 1})
+        capture.assert_not_called()
+        assert self._ch_person(person.uuid) == (0, 11, PG_PROPERTIES)
+
+    @parameterized.expand(
+        [
+            ("capture_fails", 256 * 1024, "skipped_stale_merge_failed", True),
+            ("merge_too_large", 10, "skipped_stale_merge_too_large", False),
+        ]
+    )
+    def test_reset_leaves_a_stale_person_alone_when_its_merge_cannot_be_sent(
+        self, _name: str, max_bytes: int, person_outcome: str, capture_called: bool
+    ) -> None:
+        person = self._stale_person_with_target({**CH_PROPERTIES, **CH_ONLY_PROPERTIES})
+        failing = MagicMock()
+        failing.raise_for_status.side_effect = RuntimeError("capture rejected the event")
+
+        with (
+            patch("posthog.models.person.divergence._STALE_MERGE_MAX_BYTES", max_bytes),
+            patch("posthog.models.person.divergence.capture_internal", return_value=failing) as capture,
+        ):
+            summary = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
+
+        assert summary is not None
+        assert (summary.person_outcomes, summary.mapping_outcomes) == ({person_outcome: 1}, {"skipped_stale": 1})
+        assert capture.called == capture_called
+        get_active_fake().assert_not_called("set_person_version_floor")
+        get_active_fake().assert_not_called("set_person_distinct_id_version_floor")
+        assert self._pg_version(person) == 5
+        assert self._ch_person(person.uuid) == (0, 10, {**CH_PROPERTIES, **CH_ONLY_PROPERTIES})
 
     def test_repairs_the_person_but_reports_its_mappings_when_it_has_too_many_distinct_ids(self) -> None:
         person = self._pg_person(version=3, distinct_ids={"a": 0, "b": 0, "c": 0})
