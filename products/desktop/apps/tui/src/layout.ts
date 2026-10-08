@@ -302,7 +302,7 @@ export function optimizeWorkspace(
   };
 }
 
-// Shows a split pane's task full width in the main view, the way All tasks opens it, and leaves the split as it is.
+// Shows a split pane's task full width in the main view, the way Chats opens it, and leaves the split as it is.
 export function expandPane(state: LayoutState, paneId: string): LayoutState {
   const pane = findPane(state, paneId);
   if (!pane?.taskId) return state;
