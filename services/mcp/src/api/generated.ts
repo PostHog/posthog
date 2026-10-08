@@ -55904,8 +55904,17 @@ export namespace Schemas {
       Summary: 'summary',
     } as const;
 
+    export type MetricsRangeFunction = typeof MetricsRangeFunction[keyof typeof MetricsRangeFunction];
+
+
+    export const MetricsRangeFunction = {
+      Rate: 'rate',
+      Increase: 'increase',
+    } as const;
+
     export interface MetricsQueryClause {
-      aggregation: MetricsAggregation;
+      /** Omit to get one line per series (at most 100), without combining them */
+      aggregation?: MetricsAggregation | null;
       filters?: MetricsQueryFilter[] | null;
       groupBy?: MetricsQueryGroupBy[] | null;
       metricName: string;
@@ -55915,6 +55924,8 @@ export namespace Schemas {
       name: string;
       /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
       quantile?: number | null;
+      /** Applied to each series before `aggregation`, like `rate()` in PromQL */
+      rangeFunction?: MetricsRangeFunction | null;
     }
 
     export type MetricsReducer = typeof MetricsReducer[keyof typeof MetricsReducer];
@@ -65089,6 +65100,34 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `none` - none
+     * * `sum` - sum
+     * * `avg` - avg
+     * * `count` - count
+     * * `min` - min
+     * * `max` - max
+     * * `p95` - p95
+     * * `rate` - rate
+     * * `increase` - increase
+     * * `histogram_quantile` - histogram_quantile
+     */
+    export type MetricQueryAggregationEnum = typeof MetricQueryAggregationEnum[keyof typeof MetricQueryAggregationEnum];
+
+
+    export const MetricQueryAggregationEnum = {
+      None: 'none',
+      Sum: 'sum',
+      Avg: 'avg',
+      Count: 'count',
+      Min: 'min',
+      Max: 'max',
+      P95: 'p95',
+      Rate: 'rate',
+      Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
+    } as const;
+
+    /**
      * * `second_15` - second_15
      * * `second_30` - second_30
      * * `minute` - minute
@@ -65114,6 +65153,18 @@ export namespace Schemas {
       Hour6: 'hour_6',
       Day: 'day',
       Week: 'week',
+    } as const;
+
+    /**
+     * * `rate` - rate
+     * * `increase` - increase
+     */
+    export type MetricRangeFunctionEnum = typeof MetricRangeFunctionEnum[keyof typeof MetricRangeFunctionEnum];
+
+
+    export const MetricRangeFunctionEnum = {
+      Rate: 'rate',
+      Increase: 'increase',
     } as const;
 
     /**
@@ -112529,6 +112580,7 @@ export namespace Schemas {
       metricType?: OtelMetricTypeEnum | null;
       /** Aggregation applied per time bucket; same semantics as the top-level aggregation.
        *
+       * * `none` - none
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
@@ -112538,7 +112590,12 @@ export namespace Schemas {
        * * `rate` - rate
        * * `increase` - increase
        * * `histogram_quantile` - histogram_quantile */
-      aggregation?: AggregationEnum;
+      aggregation?: MetricQueryAggregationEnum;
+      /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
+       *
+       * * `rate` - rate
+       * * `increase` - increase */
+      rangeFunction?: MetricRangeFunctionEnum | null;
       /**
          * Quantile in (0, 1) for 'histogram_quantile'.
          * @minimum 0
@@ -112655,8 +112712,9 @@ export namespace Schemas {
        * * `exponential_histogram` - exponential_histogram
        * * `summary` - summary */
       metricType?: OtelMetricTypeEnum | null;
-      /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
+      /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
        *
+       * * `none` - none
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
@@ -112666,7 +112724,12 @@ export namespace Schemas {
        * * `rate` - rate
        * * `increase` - increase
        * * `histogram_quantile` - histogram_quantile */
-      aggregation?: AggregationEnum;
+      aggregation?: MetricQueryAggregationEnum;
+      /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
+       *
+       * * `rate` - rate
+       * * `increase` - increase */
+      rangeFunction?: MetricRangeFunctionEnum | null;
       /**
          * Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations.
          * @minimum 0
