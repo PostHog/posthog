@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -12,6 +12,7 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
@@ -29,10 +30,13 @@ import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { alertsToThresholdGoalLines, insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { getBIChartDateAxis } from 'products/business_intelligence/frontend/biChartDateAxis'
+import { BIChartYearLabels } from 'products/business_intelligence/frontend/BIChartYearLabels'
 import { BIComparisonSummary } from 'products/business_intelligence/frontend/BIComparisonSummary'
 import { getBIChartRecord } from 'products/business_intelligence/frontend/biDrilldown'
 import { biDrilldownLogic } from 'products/business_intelligence/frontend/biDrilldownLogic'
 import { BIDrilldownModal } from 'products/business_intelligence/frontend/BIDrilldownModal'
+import { getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
 import { BIPivotTable } from 'products/business_intelligence/frontend/BIPivotTable'
 import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
 import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
@@ -250,6 +254,26 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         [props.setQuery, props.query] // oxlint-disable-line react-hooks/exhaustive-deps
     )
 
+    const { timezone } = useValues(teamLogic)
+    const dateBucket =
+        query.kind === NodeKind.BIVisualizationNode
+            ? getBIResultDimensions(query.config).find(({ column }) => column === xData?.column.name)?.field.dateBucket
+            : undefined
+    const showYearLabels =
+        query.kind === NodeKind.BIVisualizationNode &&
+        (xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME') &&
+        dateBucket !== 'year' &&
+        effectiveVisualizationType !== ChartDisplayType.ActionsBarValue &&
+        chartSettings.showXAxisTicks !== false
+    const dateAxis = useMemo(
+        () => (showYearLabels && xData ? getBIChartDateAxis(xData.data, timezone, dateBucket) : undefined),
+        [showYearLabels, xData, timezone, dateBucket]
+    )
+    const dateMargins = useMemo(
+        () => (showYearLabels ? { bottom: chartSettings.xAxisLabel ? 76 : 54 } : undefined),
+        [showYearLabels, chartSettings.xAxisLabel]
+    )
+
     const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
 
     let component: JSX.Element | null = null
@@ -329,6 +353,9 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     showAnnotations={!props.inSharedMode && isDateXAxis && chartSettings.showAnnotations === true}
                     presetChartHeight={presetChartHeight}
                     embedded={props.embedded}
+                    directPointClick={canDrill}
+                    xAxis={dateAxis}
+                    margins={dateMargins}
                     onPointClick={
                         canDrill
                             ? (seriesKey, dataIndex) => {
@@ -348,8 +375,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                               }
                             : undefined
                     }
-                    pointClickHint={canDrill ? 'Click a series to explore this result' : undefined}
-                />
+                    pointClickHint={canDrill ? 'Click to explore this result' : undefined}
+                >
+                    {showYearLabels && <BIChartYearLabels timezone={timezone} />}
+                </SqlChart>
             </BindLogic>
         )
     } else if (PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
@@ -443,73 +472,71 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     return (
         <div
-            className={clsx('DataVisualization flex flex-1 gap-2', {
+            className={clsx('DataVisualization flex min-h-0 min-w-0 flex-1 gap-2', {
                 'h-full': effectiveVisualizationType !== ChartDisplayType.ActionsTable,
             })}
         >
-            <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
+            <div className="relative min-h-0 min-w-0 w-full flex flex-col gap-2 flex-1 overflow-hidden">
                 {!readOnly && showResultControls && (
                     <>
                         <LemonDivider className="my-0" />
-                        <div className="flex gap-4 justify-between flex-wrap px-px">
-                            <div className="flex gap-4 items-center">
+                        <div className="flex items-center gap-2 flex-wrap px-2">
+                            <div className="flex gap-2 items-center">
                                 <Reload />
                                 <ElapsedTime />
                             </div>
-                            <div className="flex gap-4 items-center">
-                                <div className="flex gap-4 items-center flex-wrap">
-                                    <AddVariableButton />
+                            <AddVariableButton />
 
-                                    {sourceFeatures.has(QueryFeature.dateRangePicker) &&
-                                        !router.values.location.pathname.includes(urls.sqlEditor()) && ( // decouple this component from insights tab and datawarehouse scene
-                                            <DateRange
-                                                key="date-range"
-                                                query={query.source}
-                                                setQuery={(query) => {
-                                                    if (query.kind === NodeKind.HogQLQuery) {
-                                                        setQuerySource(query)
-                                                    }
-                                                }}
-                                            />
-                                        )}
-
-                                    <TableDisplay />
-
-                                    <LemonButton
-                                        icon={<IconGear />}
-                                        type={isChartSettingsPanelOpen ? 'primary' : 'secondary'}
-                                        onClick={() => toggleChartSettingsPanel()}
-                                        tooltip="Visualization settings"
-                                    />
-
-                                    {props.exportContext && (
-                                        <ExportButton
-                                            disabledReason={
-                                                effectiveVisualizationType !== ChartDisplayType.ActionsTable &&
-                                                'Only table results are exportable'
+                            {sourceFeatures.has(QueryFeature.dateRangePicker) &&
+                                !router.values.location.pathname.includes(urls.sqlEditor()) && ( // decouple this component from insights tab and datawarehouse scene
+                                    <DateRange
+                                        key="date-range"
+                                        query={query.source}
+                                        setQuery={(query) => {
+                                            if (query.kind === NodeKind.HogQLQuery) {
+                                                setQuerySource(query)
                                             }
-                                            type="secondary"
-                                            items={[
-                                                {
-                                                    export_format: ExporterFormat.CSV,
-                                                    export_context: props.exportContext,
-                                                },
-                                                {
-                                                    export_format: ExporterFormat.XLSX,
-                                                    export_context: props.exportContext,
-                                                },
-                                            ]}
-                                        />
-                                    )}
-                                </div>
+                                        }}
+                                    />
+                                )}
+
+                            <div className={props.context?.chartTypeSelectorClassName}>
+                                <TableDisplay />
                             </div>
+
+                            <LemonButton
+                                icon={<IconGear />}
+                                type={isChartSettingsPanelOpen ? 'primary' : 'secondary'}
+                                onClick={() => toggleChartSettingsPanel()}
+                                tooltip="Visualization settings"
+                            />
+
+                            {props.exportContext && (
+                                <ExportButton
+                                    disabledReason={
+                                        effectiveVisualizationType !== ChartDisplayType.ActionsTable &&
+                                        'Only table results are exportable'
+                                    }
+                                    type="secondary"
+                                    items={[
+                                        {
+                                            export_format: ExporterFormat.CSV,
+                                            export_context: props.exportContext,
+                                        },
+                                        {
+                                            export_format: ExporterFormat.XLSX,
+                                            export_context: props.exportContext,
+                                        },
+                                    ]}
+                                />
+                            )}
                         </div>
                     </>
                 )}
 
                 {!props.embedded && <VariablesForInsight />}
 
-                <div className="flex flex-1 flex-row gap-4">
+                <div className="flex min-h-0 min-w-0 flex-1 flex-row gap-2">
                     {/* The gear above toggles this panel (Series/Display tabs) — same layout the
                         SQL editor's OutputPane builds around its own visualization fork. */}
                     {!readOnly && showResultControls && isChartSettingsPanelOpen && (
@@ -518,7 +545,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                             <LemonDivider vertical className="h-full" />
                         </>
                     )}
-                    <div className="w-full h-full flex-1 overflow-auto">{component}</div>
+                    <div className="min-h-0 min-w-0 w-full h-full flex-1 overflow-auto pb-3">{component}</div>
                 </div>
             </div>
         </div>

@@ -2,9 +2,10 @@ import '@testing-library/jest-dom'
 
 import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library/react'
 
-import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { clickAtIndex, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { ChartSettings } from '~/queries/schema/schema-general'
+import { BIConfig } from '~/queries/schema/schema-business-intelligence'
+import { NodeKind, ChartSettings } from '~/queries/schema/schema-general'
 import {
     type DataVizFixture,
     buildDataVisualizationQuery,
@@ -15,6 +16,8 @@ import {
     sqlChart,
 } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
+
+import { buildBIQuery } from 'products/business_intelligence/frontend/biEditorTypes'
 
 // Neither timeout is set globally (jest.setup leaves asyncUtilTimeout at 1s, jest.config has no
 // testTimeout → 5s): this heavy ~7-logic mount needs findBy* headroom beyond 1s on CI, and
@@ -64,6 +67,56 @@ const renderBar = (
     })
 
 describe('SqlBarGraph', () => {
+    it.each([ChartDisplayType.ActionsBar, ChartDisplayType.ActionsStackedBar, ChartDisplayType.ActionsBarValue])(
+        'opens the BI drilldown on the first click with multiple series in %s',
+        async (chartType) => {
+            const config: BIConfig = {
+                source: { table: 'events' },
+                rows: [
+                    {
+                        id: 'month',
+                        name: 'month',
+                        expression: 'timestamp',
+                        type: 'datetime',
+                        source: { table: 'events' },
+                        dateBucket: 'month',
+                    },
+                ],
+                columns: [],
+                values: [
+                    {
+                        field: { id: 'a', name: 'a', expression: 'a', type: 'integer', source: { table: 'events' } },
+                        aggregation: 'sum',
+                    },
+                    {
+                        field: { id: 'b', name: 'b', expression: 'b', type: 'integer', source: { table: 'events' } },
+                        aggregation: 'sum',
+                    },
+                ],
+                filters: [],
+                chartType,
+                limit: 100,
+            }
+            const node = buildBIQuery(config)!.node
+            renderDataVisualization({
+                query: { ...node, kind: NodeKind.BIVisualizationNode, config },
+                response: {
+                    columns: ['bi_row_month', 'sum_a', 'sum_b_2'],
+                    types: [
+                        ['bi_row_month', 'DateTime'],
+                        ['sum_a', 'UInt64'],
+                        ['sum_b_2', 'UInt64'],
+                    ],
+                    results: MONTHS.map((month, index) => [month, (index + 1) * 100, (index + 1) * 10]),
+                },
+            })
+            const canvas = await screen.findByLabelText(/chart with 2 data series/i)
+            await clickAtIndex(canvas.parentElement!, HOVER, MONTHS.length)
+            expect(await screen.findByText('Explore this result')).toBeVisible()
+            expect(screen.getByText('View underlying rows')).toBeVisible()
+        }
+    )
+
     describe('bar layouts', () => {
         it.each([
             { name: 'grouped', display: ChartDisplayType.ActionsBar, extra: {} },

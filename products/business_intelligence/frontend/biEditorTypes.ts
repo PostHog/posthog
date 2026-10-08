@@ -351,7 +351,7 @@ export interface BIChartFit {
     requirement: string
 }
 
-/** Mirrors the "Show me" panel of desktop BI tools: which chart types suit the fields on the shelves. */
+/** Describes the chart types panel: which chart types suit the fields on the shelves. */
 export function getBIChartFit(config: BIConfig, chartType: ChartDisplayType): BIChartFit {
     const rowCount = config.rows.length
     const columnCount = config.columns.length
@@ -1226,11 +1226,10 @@ function buildOrderByExpression(
         return `${selectedOption.expression} ${sort.direction === 'asc' ? 'ASC' : 'DESC'}`
     }
 
-    // Auto sort keeps the most relevant rows inside the LIMIT: newest first for date
-    // dimensions, largest first otherwise
+    // Date dimensions follow chronological order; other dimensions keep the largest values first.
     const firstDimension = dimensions[0]
     if (isDateTimeBIField(firstDimension.field)) {
-        return `${fieldExpression(firstDimension.field)} DESC`
+        return `${fieldExpression(firstDimension.field)} ASC`
     }
 
     const firstValueAlias =
