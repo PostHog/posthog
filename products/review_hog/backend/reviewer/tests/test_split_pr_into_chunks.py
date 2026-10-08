@@ -172,8 +172,8 @@ class TestPlanLensChunks:
         "pr_files,expected_chunks,expected_capped",
         [
             pytest.param(
-                [_file("a/x.py", 300), _file("a/data.json", 2000)],
-                [["a/x.py", "a/data.json"]],
+                [_file("a/x.py", 300), _file("a/yarn.lock", 2000)],
+                [["a/x.py", "a/yarn.lock"]],
                 False,
                 id="small_pr_is_one_part_with_every_file",
             ),
@@ -182,14 +182,28 @@ class TestPlanLensChunks:
                     _file("a/1.py", 300),
                     _file("a/2.py", 200),
                     _file("b/1.py", 400),
-                    _file("c/1.py", 100),
-                    _file("ee/hogai/tools/search.py", 100),
-                    _file("tests/test_a.py", 900),
-                    _file("tools/script.py", 50),
+                    _file("prompts/core.md", 300),
+                    _file("tests/test_a.py", 100),
+                    _file("tools/script.py", 100),
                 ],
-                [["a/1.py", "a/2.py"], ["b/1.py", "c/1.py", "ee/hogai/tools/search.py"]],
+                [["a/1.py", "a/2.py"], ["b/1.py"], ["prompts/core.md", "tests/test_a.py", "tools/script.py"]],
                 False,
-                id="directories_stay_together_and_nested_tools_count",
+                id="directories_stay_together_and_markdown_tests_and_tools_count",
+            ),
+            pytest.param(
+                [
+                    _file("a/1.py", 400),
+                    _file("b/1.py", 400),
+                    _file("pnpm-lock.yaml", 5000),
+                    _file("uv.lock", 900),
+                    _file("frontend/src/generated/api.ts", 3000),
+                    _file("a/__snapshots__/view.ambr", 900),
+                    _file("img/logo.png", 10),
+                    _file("posthog/migrations/max_migration.txt", 2),
+                ],
+                [["a/1.py"], ["b/1.py"]],
+                False,
+                id="lockfiles_generated_snapshots_and_assets_stay_out",
             ),
             pytest.param(
                 [_file("a/big.py", 900), _file("a/small.py", 100), _file("b/x.py", 100)],
@@ -209,7 +223,8 @@ class TestPlanLensChunks:
         self, pr_files: list[PRFile], expected_chunks: list[list[str]], expected_capped: bool
     ) -> None:
         # A file missing from every part, or split across two, escapes the lens sessions or costs
-        # one twice, and a capped plan above four parts opens more sessions than a turn allows.
+        # one twice, and a capped plan above four parts opens more sessions than a turn allows. A
+        # filter that drops authored files, such as a Markdown prompt file, hides them from every part.
         plan = plan_lens_chunks(pr_files)
 
         assert plan.chunks == expected_chunks

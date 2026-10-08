@@ -209,8 +209,10 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   pipeline perspective skills with the pipeline's review framing in front, and `lens_priority.md` follows the finding
   format: it maps the severity guide onto P0-P3 and limits findings to issues the change causes. The text matches the
   version the design was measured with. Skill edits do not reach the copies.
-- **Lens parts.** `plan_lens_chunks` counts reviewable lines only (no tests, generated code, lockfiles, snapshots, docs,
-  JSON, CI config, or root `tools/`). Up to 600 lines: one part with every file. Above: parts over the reviewable files,
+- **Lens parts.** `plan_lens_chunks` counts reviewable lines only: everything except lockfiles, snapshots, generated
+  code, binary and image assets, and `max_migration.txt`. Markdown, JSON, tests, docs, CI config, and `tools/` count,
+  because a general reviewer cannot assume what a repository's other files are: Markdown can be the product (prompt
+  files), and `tools/` can hold real code. Up to 600 lines: one part with every file. Above: parts over the reviewable files,
   directories kept together, at most 4, growing to about equal size past that. The plan is deterministic, recomputed
   from the PR snapshot, and never persisted as a chunk set (`split_chunks_activity` reuses any chunk set for a head).
   Fetch records the part count on `ReviewMeta`, and the fan-out sits behind the `flash-lens-sessions-2026-10` patch.

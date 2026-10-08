@@ -82,17 +82,18 @@ def reconcile_chunks(chunks: ChunksList, pr_files: list[PRFile]) -> ChunksList:
     return ChunksList(chunks=kept_chunks)
 
 
-# `tools/` matches only at the repository root, because nested `tools/` directories hold product code.
+# Only files nobody authors by hand. A general reviewer cannot assume what a repository's other files
+# are: Markdown can be the product (prompt files), and `tools/` or `tests/` can hold real code.
 _NOT_REVIEWABLE_PATH = re.compile(
     "|".join(
         [
-            r"(^|/)(tests?|__tests__|__snapshots__|fixtures|snapshots|generated|docs)/",
-            r"(^|/)test_[^/]*$",
-            r"_test\.(py|go|rs)$",
-            r"\.(test|spec|stories)\.[jt]sx?$",
-            r"\.(md|mdx|txt|snap|svg|png|jpg|lock|csv|json)$",
-            r"(^|/)pnpm-lock\.yaml$",
-            r"^(tools|\.github|\.depot)/",
+            r"\.lock$",
+            r"(^|/)(pnpm-lock\.yaml|package-lock\.json|go\.sum)$",
+            r"(^|/)__snapshots__/",
+            r"\.snap$",
+            r"(^|/)generated/",
+            r"\.(png|jpe?g|gif|webp|ico|svg|pdf|woff2?|ttf|otf|eot|zip|gz|mp4|webm)$",
+            r"(^|/)migrations/max_migration\.txt$",
         ]
     )
 )

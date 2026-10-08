@@ -269,8 +269,8 @@ sessions, all on `SINGLE_AGENT_FLASH_ARM` (`gpt-6.1-sol` @ medium) and all retur
   `FLASH_LENS_CHUNK_MAX_LINES` (600) reviewable changed lines is one lens part with every file. A larger PR splits
   into parts over its reviewable files (`plan_lens_chunks`, `tools/split_pr_into_chunks.py`: no LLM call, directories
   kept together, files never split), at most `FLASH_LENS_MAX_CHUNKS` (4); above that the parts grow to about equal
-  size. Reviewable lines leave out tests, generated code, lockfiles, snapshots, docs, JSON, CI config, and root
-  `tools/`. One session runs per lens and part, so a turn opens at most 9 sessions, under one
+  size. Reviewable lines leave out only files nobody authors by hand: lockfiles, snapshots, generated code, binary
+  and image assets, and `max_migration.txt`. One session runs per lens and part, so a turn opens at most 9 sessions, under one
   `MAX_CONCURRENT_SANDBOXES` semaphore. A lens session gets `FLASH_LENS_SESSION_TIMEOUT` (10 minutes, retry
   included) instead of the sandbox timeout. A failed or timed-out lens session costs only its own findings.
 

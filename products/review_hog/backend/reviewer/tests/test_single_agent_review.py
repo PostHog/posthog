@@ -43,10 +43,10 @@ class TestSingleAgentPrompt:
     @pytest.mark.parametrize(
         "scope_files,diff_budget,shown,not_shown",
         [
-            pytest.param(None, 10_000, {"a.py", "data.json"}, set(), id="whole_pr_fits"),
+            pytest.param(None, 10_000, {"a.py", "yarn.lock"}, set(), id="whole_pr_fits"),
             pytest.param(["a.py"], 10_000, {"a.py"}, set(), id="lens_part_shows_only_its_files"),
-            pytest.param(None, 100, {"a.py"}, {"data.json"}, id="too_large_keeps_the_reviewable_files"),
-            pytest.param(None, 10, set(), {"a.py", "data.json"}, id="still_too_large_keeps_only_the_file_list"),
+            pytest.param(None, 100, {"a.py"}, {"yarn.lock"}, id="too_large_keeps_the_reviewable_files"),
+            pytest.param(None, 10, set(), {"a.py", "yarn.lock"}, id="still_too_large_keeps_only_the_file_list"),
         ],
     )
     def test_diff_shows_only_what_fits_and_marks_the_rest(
@@ -59,7 +59,7 @@ class TestSingleAgentPrompt:
     ) -> None:
         # A diff past the model's context fails the session, and a lens part that shows another
         # part's files reviews them twice, so each session must see only what it owns and what fits.
-        pr_files = [_file("a.py", "x = 1"), _file("data.json", "y" * 500)]
+        pr_files = [_file("a.py", "x = 1"), _file("yarn.lock", "y" * 500)]
         with patch(f"{_MODULE}.FLASH_PROMPT_DIFF_MAX_CHARS", diff_budget):
             prompt = SingleAgentPrompt(
                 repository="o/r",
