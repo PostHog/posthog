@@ -79,6 +79,7 @@ const DATA_DOMAIN_TOOL_PREFIXES = ['billing-', 'web-analytics-', 'usage-metrics-
 
 const METRIC_RUN_TOOL_NAME = 'data-catalog-metric-run'
 const APPROVED_METRIC_STATUS = 'approved'
+const PROPOSED_METRIC_STATUS = 'proposed'
 
 export function markNoncanonicalMetricRun(toolName: string, result: unknown): unknown {
     if (toolName !== METRIC_RUN_TOOL_NAME || result === null || typeof result !== 'object') {
@@ -89,6 +90,12 @@ export function markNoncanonicalMetricRun(toolName: string, result: unknown): un
     const isDrifted = envelope.is_drifted === true
     if (status === APPROVED_METRIC_STATUS && !isDrifted) {
         return result
+    }
+    if (status === PROPOSED_METRIC_STATUS && !isDrifted) {
+        return {
+            NONCANONICAL: `status=proposed is_drifted=false. Not approved: use it only if its definition fits the question. If you use it, open the answer with '📝 **Proposed definition in your data catalog**: [<display_name>](<url>), not yet approved. Review it and approve it if it fits.', with the url from generate-app-url for '/data-catalog/metrics/{name}', and say in one sentence why you used it.`,
+            ...envelope,
+        }
     }
     return {
         NONCANONICAL: `status=${String(status)} is_drifted=${String(isDrifted)}. Do not present this as the answer; derive from an approved metric, label the result noncanonical in \`context\`, and tell the reader plainly that the number is a one-off calculation rather than a saved definition.`,
