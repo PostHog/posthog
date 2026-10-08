@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { IconChevronDown, IconCopy, IconLogomark, IconSparkles } from '@posthog/icons'
 
 import { MCP_INSTALL_COMMAND } from 'lib/components/MCPHint/constants'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -258,11 +259,13 @@ const AGENTS: AgentDef[] = [
 export function buildAgentPrompt(
     action: AgentPromptAction,
     agentKey: AgentPromptDestination,
-    projectId: number | null
+    projectId: number | null,
+    isCloudOrDev: boolean
 ): string {
     const prompt = action.buildPrompt()
     // PostHog AI reads PostHog data directly, so it has no use for the MCP server.
-    if (action.raw || agentKey === 'posthog-ai') {
+    // Self-hosted instances have no PostHog MCP server to connect to.
+    if (action.raw || agentKey === 'posthog-ai' || !isCloudOrDev) {
         return prompt
     }
     const project = projectId ? ` in PostHog project ${projectId}` : ''
@@ -292,6 +295,7 @@ export function AgentPromptButton({
     const { askSidePanelMax } = useActions(maxGlobalLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
     const { currentProjectId } = useValues(projectLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
     const availableAgents = AGENTS.filter((agent) => !(todayRailEnabled && agent.key === 'posthog-ai'))
 
     if (actions.length === 0 || availableAgents.length === 0) {
@@ -312,7 +316,7 @@ export function AgentPromptButton({
 
     const runCombo = (actionKey: string, agentKey: AgentPromptDestination): void => {
         const action = actions.find((a) => a.key === actionKey) ?? actions[0]
-        const prompt = buildAgentPrompt(action, agentKey, currentProjectId)
+        const prompt = buildAgentPrompt(action, agentKey, currentProjectId, !!isCloudOrDev)
         onRun?.({ actionKey, agentKey })
         const agent = availableAgents.find((a) => a.key === agentKey)
         if (!agent) {
