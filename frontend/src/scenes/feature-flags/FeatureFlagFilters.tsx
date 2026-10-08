@@ -1,5 +1,6 @@
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import { CommandKListSearch } from 'lib/components/CommandKSearch/CommandKListSearch'
 import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
 import { TagSelect } from 'lib/components/TagSelect'
 
@@ -46,14 +47,21 @@ export function FeatureFlagFiltersSection({
         <div className="flex justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2">
                 {config.search && (
-                    <LemonInput
+                    <CommandKListSearch
+                        type="feature_flag"
                         className="w-[335px] !max-w-[335px]"
-                        type="search"
                         placeholder={searchPlaceholder}
-                        maxLength={FEATURE_FLAG_SEARCH_MAX_LENGTH}
-                        onChange={(search) => setFeatureFlagsFilters({ search, page: 1 })}
-                        value={filters.search || ''}
-                        data-attr="feature-flag-search"
+                        fallback={
+                            <LemonInput
+                                className="w-[335px] !max-w-[335px]"
+                                type="search"
+                                placeholder={searchPlaceholder}
+                                maxLength={FEATURE_FLAG_SEARCH_MAX_LENGTH}
+                                onChange={(search) => setFeatureFlagsFilters({ search, page: 1 })}
+                                value={filters.search || ''}
+                                data-attr="feature-flag-search"
+                            />
+                        }
                     />
                 )}
                 {countText}

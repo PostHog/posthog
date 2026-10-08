@@ -8,6 +8,7 @@ import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
+import { CommandKListSearch } from 'lib/components/CommandKSearch/CommandKListSearch'
 import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
 import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -136,11 +137,17 @@ const ExperimentsTableFilters = ({
                     interaction="click"
                     scope={Scene.Experiments}
                 >
-                    <LemonInput
-                        type="search"
-                        placeholder="Search by name or flag"
-                        onChange={(search) => onFiltersChange({ search, page: 1 })}
-                        value={filters.search || ''}
+                    <CommandKListSearch
+                        type="experiment"
+                        placeholder="Search for experiments"
+                        fallback={
+                            <LemonInput
+                                type="search"
+                                placeholder="Search by name or flag"
+                                onChange={(search) => onFiltersChange({ search, page: 1 })}
+                                value={filters.search || ''}
+                            />
+                        }
                     />
                 </Shortcut>
                 <div className="flex items-center gap-2">

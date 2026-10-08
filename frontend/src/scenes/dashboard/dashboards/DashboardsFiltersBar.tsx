@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown, IconFolder, IconPin, IconPinFilled, IconShare, IconX } from '@posthog/icons'
 import { LemonInput, Popover } from '@posthog/lemon-ui'
 
+import { CommandKListSearch } from 'lib/components/CommandKSearch/CommandKListSearch'
 import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
 import { useScrollObserver } from 'lib/hooks/useScrollObserver'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -30,7 +31,18 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
     }
     return (
         <div className="flex justify-between gap-2 flex-wrap mb-4">
-            <LemonInput type="search" placeholder="Search for dashboards" onChange={setSearch} value={filters.search} />
+            <CommandKListSearch
+                type="dashboard"
+                placeholder="Search for dashboards"
+                fallback={
+                    <LemonInput
+                        type="search"
+                        placeholder="Search for dashboards"
+                        onChange={setSearch}
+                        value={filters.search}
+                    />
+                }
+            />
             <div className="flex items-center gap-2 flex-wrap">
                 <div className="flex items-center gap-2 flex-wrap">
                     <span>Filter to:</span>

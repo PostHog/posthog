@@ -1,3 +1,4 @@
+import { CommandKListSearch } from 'lib/components/CommandKSearch/CommandKListSearch'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { cn } from 'lib/utils/css-classes'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
@@ -23,13 +24,19 @@ export function SavedInsightsFilters({
 
     return (
         <div className={cn('flex justify-between gap-2 items-center flex-wrap')}>
-            <LemonInput
-                type="search"
+            <CommandKListSearch
+                type="insight"
                 placeholder="Search for insights"
-                onChange={(value) => setFilters({ search: value })}
-                value={search || ''}
-                autoFocus
-                data-attr="insight-dashboard-modal-search"
+                fallback={
+                    <LemonInput
+                        type="search"
+                        placeholder="Search for insights"
+                        onChange={(value) => setFilters({ search: value })}
+                        value={search || ''}
+                        autoFocus
+                        data-attr="insight-dashboard-modal-search"
+                    />
+                }
             />
             {quickFilters.length > 0 && (
                 <SavedInsightsQuickFilters

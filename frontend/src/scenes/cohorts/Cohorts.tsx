@@ -5,6 +5,7 @@ import { combineUrl, router } from 'kea-router'
 
 import { LemonBanner, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import { CommandKListSearch } from 'lib/components/CommandKSearch/CommandKListSearch'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
@@ -215,14 +216,21 @@ export function Cohorts(): JSX.Element {
                 interaction="click"
                 scope={Scene.Cohorts}
             >
-                <LemonInput
+                <CommandKListSearch
+                    type="cohort"
                     className="w-60"
-                    type="search"
                     placeholder="Search for cohorts"
-                    onChange={(search) => {
-                        setCohortFilters({ search: search || undefined, page: 1 })
-                    }}
-                    value={cohortFilters.search}
+                    fallback={
+                        <LemonInput
+                            className="w-60"
+                            type="search"
+                            placeholder="Search for cohorts"
+                            onChange={(search) => {
+                                setCohortFilters({ search: search || undefined, page: 1 })
+                            }}
+                            value={cohortFilters.search}
+                        />
+                    }
                 />
             </Shortcut>
 

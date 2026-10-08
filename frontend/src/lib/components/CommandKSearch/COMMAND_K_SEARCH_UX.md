@@ -186,11 +186,20 @@ These are the rules reviewers check. Breaking one is a bug.
 - `OR` of any kind, within a key or across keys, and parentheses.
 - Natural-language filter inference ("dashboards I made last week" → chips). Good v2 candidate.
 
+## List search entry
+
+When `today-rail-nav` and `new-command-k-search` are both on, the search field on a list scene opens Command K with that list's type already set as an `is:` chip.
+`CommandKListSearch` renders the field, and the list keeps its own search input when either flag is off.
+A click or Enter opens the palette.
+A typed or pasted character opens the palette and continues in it.
+`openCommand(source, initialQuery)` carries the query, and the logic turns it into chips and text on mount.
+Lists without a Command K type (for example data pipelines) keep their own search.
+
 ## Analytics
 
 Every step emits an event so we can see adoption and drop-off:
 
-- `command k search opened` (source: shortcut, button)
+- `command k search opened` (source: shortcut, button, list search)
 - `command k filter suggested` / `command k filter committed` (key, value kind, via: tab, enter, space, paste)
 - `command k result opened` (section, position, has_filters, filter_keys, query_length)
 - `command k search abandoned` (closed with no result opened; last mode, had_filters)
