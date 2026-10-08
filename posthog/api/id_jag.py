@@ -24,6 +24,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.jwt import ASYMMETRIC_SIGNING_ALGORITHMS
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.user import User
 from posthog.scopes import get_oauth_scopes_supported
@@ -322,11 +323,11 @@ def _verify_and_extract_id_jag_token(assertion: str) -> _VerifiedIdJag:
             jwt.decode(
                 assertion,
                 signing_key.key,
-                algorithms=["RS256", "RS384", "RS512"],
+                algorithms=ASYMMETRIC_SIGNING_ALGORITHMS,
                 audience=allowed_audiences,
                 leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                 options={
-                    "require": ["iss", "sub", "aud", "exp", "iat", "client_id"],
+                    "require": ["iss", "sub", "aud", "exp", "iat", "client_id", "jti"],
                     "verify_signature": True,
                     "verify_exp": True,
                     "verify_nbf": True,
@@ -382,19 +383,24 @@ def _verify_and_extract_id_jag_token(assertion: str) -> _VerifiedIdJag:
     if idp_config.id_jag_allowed_clients and client_id not in idp_config.id_jag_allowed_clients:
         raise InvalidClientError(f"client_id {client_id!r} is not allowed for this domain")
 
+    expires_at = claims.get("exp")
+    issued_at = claims.get("iat")
+    # PyJWT validates timestamps after int() coercion but returns the original claim values,
+    # so a numeric-string exp or iat would make the arithmetic below raise a TypeError.
+    if not isinstance(expires_at, (int, float)) or not isinstance(issued_at, (int, float)):
+        raise InvalidGrantError("ID-JAG exp and iat must be numeric")
+    # The cap bounds how long a captured ID-JAG stays usable, and how long its jti stays in the cache.
+    if expires_at - issued_at > settings.ID_JAG_MAX_ASSERTION_LIFETIME_SECONDS:
+        raise InvalidGrantError(f"ID-JAG lifetime exceeds {settings.ID_JAG_MAX_ASSERTION_LIFETIME_SECONDS} seconds")
+
     # prevent replayed tokens from being used again
-    jti = claims.get("jti")
-    if jti:
-        cache_key = f"id_jag:jti:{expected_issuer}:{jti}"
-        exp = int(claims.get("exp") or 0)
-        now = int(datetime.now(tz=UTC).timestamp())
-        ttl = max(1, exp - now + settings.ID_JAG_CLOCK_SKEW_SECONDS)
-        # `cache.add` is SETNX semantics: returns True only if the key was
-        # newly created. A False return means we've already seen this jti.
-        if not cache.add(cache_key, "1", ttl):
-            raise InvalidGrantError("ID-JAG assertion has already been used (jti replay)")
-    else:
-        logger.info("id_jag_assertion_missing_jti", issuer=expected_issuer)
+    cache_key = f"id_jag:jti:{expected_issuer}:{claims['jti']}"
+    now = int(datetime.now(tz=UTC).timestamp())
+    ttl = max(1, int(expires_at) - now + settings.ID_JAG_CLOCK_SKEW_SECONDS)
+    # `cache.add` is SETNX semantics: returns True only if the key was
+    # newly created. A False return means we've already seen this jti.
+    if not cache.add(cache_key, "1", ttl):
+        raise InvalidGrantError("ID-JAG assertion has already been used (jti replay)")
 
     # Some IdPs let a user set an arbitrary `email` with `email_verified: false`
     if claims.get("email") is not None and claims.get("email_verified") is False:
