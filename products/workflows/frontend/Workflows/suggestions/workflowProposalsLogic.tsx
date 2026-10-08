@@ -572,6 +572,8 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                         <LemonTextArea
                             placeholder="For example: this is the last email in the series, so clicks are not its goal"
                             maxLength={2000}
+                            // The dialog form submits on Enter, which would reject before the reason is finished.
+                            onKeyDown={(e) => e.key === 'Enter' && e.stopPropagation()}
                             data-attr="workflow-suggestion-reject-reason"
                         />
                     </LemonField>
