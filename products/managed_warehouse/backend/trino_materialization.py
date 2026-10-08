@@ -128,6 +128,7 @@ def _name_unnamed_columns(
     """Give each unnamed output expression the name ClickHouse gives it, such as ``count()``.
 
     Trino rejects a CREATE TABLE AS statement with an unnamed column. A plain field keeps its column name.
+    A ``COLUMNS(...)`` projection stays as is, because only the resolver can expand it.
     """
     from posthog.hogql import ast  # noqa: PLC0415 -- keeps HogQL imports off Django startup
     from posthog.hogql.context import HogQLContext  # noqa: PLC0415
@@ -138,7 +139,7 @@ def _name_unnamed_columns(
     for select in extract_select_queries(node):
         select.select = [
             column
-            if isinstance(column, ast.Alias | ast.Field)
+            if isinstance(column, ast.Alias | ast.Field | ast.ColumnsExpr)
             else ast.Alias(alias=safe_identifier(printer.visit(column)), expr=column)
             for column in select.select
         ]

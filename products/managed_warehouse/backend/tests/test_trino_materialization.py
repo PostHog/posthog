@@ -167,11 +167,20 @@ class TestTrinoShadowMaterialization(BaseTest):
         assert writes[1][0].endswith("LIMIT 75000")
         assert writes[1][1] == ["purchase"]
 
-    @parameterized.expand([("full_build", None), ("merge_stage", dt.datetime(2026, 10, 1, tzinfo=dt.UTC))])
-    def test_names_unaliased_columns_in_create_table_as(self, _name: str, since: dt.datetime | None) -> None:
+    @parameterized.expand(
+        [
+            ("full_build", "event", None),
+            ("merge_stage", "event", dt.datetime(2026, 10, 1, tzinfo=dt.UTC)),
+            ("columns_regex", "COLUMNS('^event$')", None),
+            ("columns_list", "COLUMNS(event)", dt.datetime(2026, 10, 1, tzinfo=dt.UTC)),
+        ]
+    )
+    def test_names_unaliased_columns_in_create_table_as(
+        self, _name: str, event_column: str, since: dt.datetime | None
+    ) -> None:
         self.query = {
             "kind": "HogQLQuery",
-            "query": "SELECT event, count(), max(timestamp) AS ts FROM events GROUP BY event",
+            "query": f"SELECT {event_column}, count(), max(timestamp) AS ts FROM events GROUP BY event",
         }
         membership = ManagedWarehouseTeamMembership(
             team_id=self.team.pk,
