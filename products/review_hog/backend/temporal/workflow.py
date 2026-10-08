@@ -28,6 +28,7 @@ from temporalio.workflow import ParentClosePolicy
 from products.review_hog.backend.reviewer.constants import (
     BLIND_SPOT_PASS_NUMBER,
     FAN_OUT_FAILURE_FLOOR,
+    FLASH_LENS_SESSION_TIMEOUT,
     FLASH_LENSES,
     MAX_CONCURRENT_SANDBOXES,
     REVIEW_DESIGN_PIPELINE,
@@ -918,7 +919,8 @@ class ReviewPRWorkflow:
                         lens=lens,
                         chunk_id=chunk_id,
                     ),
-                    start_to_close_timeout=_SANDBOX_TIMEOUT,
+                    # Schedule-to-close bounds the retry too, so a timed-out lens session gets no second full window.
+                    schedule_to_close_timeout=FLASH_LENS_SESSION_TIMEOUT,
                     heartbeat_timeout=_SANDBOX_HEARTBEAT,
                     retry_policy=_RETRY,
                 )
@@ -929,9 +931,11 @@ class ReviewPRWorkflow:
         )
         if isinstance(main_result, BaseException):
             raise main_result
-        failed = sum(1 for result in lens_results if isinstance(result, BaseException))
-        if failed:
-            workflow.logger.warning(f"{failed}/{len(lens_units)} lens session(s) failed; their findings are missing")
+        for (lens, chunk_id), result in zip(lens_units, lens_results):
+            if isinstance(result, BaseException):
+                workflow.logger.warning(
+                    f"Lens session {lens} part {chunk_id} failed or timed out; its findings are missing: {result!r}"
+                )
 
     @staticmethod
     async def _review_with_pipeline(stage: SandboxStageInput, acting_user_id: int) -> None:

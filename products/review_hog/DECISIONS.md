@@ -215,6 +215,8 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   from the PR snapshot, and never persisted as a chunk set (`split_chunks_activity` reuses any chunk set for a head).
   Fetch records the part count on `ReviewMeta`, and the fan-out sits behind the `flash-lens-sessions-2026-10` patch.
 - **Failures.** A failed or timed-out lens session costs only its findings; a failed main session fails the turn.
+  A lens session has its own `FLASH_LENS_SESSION_TIMEOUT` (10 minutes) as a schedule-to-close timeout, so the retry
+  falls inside the same window and a slow lens cannot hold the turn for the full sandbox timeout.
 - **Dedup and merge.** Two dedup calls run in parallel, both one-shot OpenAI calls on `FLASH_DEDUP_MODEL` (`gpt-6-luna`
   at medium, `run_oneshot_openai_review`; the pipeline's dedup pins are unchanged). The main findings dedup as before.
   The lens findings also dedup against the main findings as anchors: an anchor makes a colliding lens finding a
@@ -232,8 +234,7 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   the lens prompt files, `lens_priority.md`, the Flash dedup pins, and the Flash limits.
 - **Known gaps.** Storage folds P0 and P1 into `must_fix`, so across sessions a lens P0 ties a main P1 and the main
   finding wins; within one session P0 still ranks first. "At most four" holds per turn, so a later push can post more.
-  A slow lens session holds the turn until it finishes or hits the sandbox timeout. The contracts skill has no severity
-  guide, so `lens_priority.md`'s mapping only shapes the performance lens, as measured. A clean large PR posts no
+  The contracts skill has no severity guide, so `lens_priority.md`'s mapping only shapes the performance lens, as measured. A clean large PR posts no
   review, so its parts note stays in the stored body. The Python LLM gateway's `review_hog` product does not list
   `gpt-6-luna`, so check that the gateway serving ReviewHog allows it before rollout.
 

@@ -271,7 +271,8 @@ sessions, all on `SINGLE_AGENT_FLASH_ARM` (`gpt-6.1-sol` @ medium) and all retur
   kept together, files never split), at most `FLASH_LENS_MAX_CHUNKS` (4); above that the parts grow to about equal
   size. Reviewable lines leave out tests, generated code, lockfiles, snapshots, docs, JSON, CI config, and root
   `tools/`. One session runs per lens and part, so a turn opens at most 9 sessions, under one
-  `MAX_CONCURRENT_SANDBOXES` semaphore. A failed lens session costs only its own findings.
+  `MAX_CONCURRENT_SANDBOXES` semaphore. A lens session gets `FLASH_LENS_SESSION_TIMEOUT` (10 minutes, retry
+  included) instead of the sandbox timeout. A failed or timed-out lens session costs only its own findings.
 
 The fetch activity records the number of lens parts on `ReviewMeta.lens_chunk_count`; each lens activity rebuilds its
 part from the PR snapshot. The task prompt (`prompt.jinja`) carries the title, description, numbered diff, earlier

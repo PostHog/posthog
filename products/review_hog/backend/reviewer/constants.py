@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from enum import StrEnum
 from typing import Final
 
@@ -164,6 +165,8 @@ FLASH_MAX_FINDINGS = 4
 # Above FLASH_LENS_MAX_CHUNKS parts, the parts grow instead, so one turn never opens more sessions.
 FLASH_LENS_CHUNK_MAX_LINES = 600
 FLASH_LENS_MAX_CHUNKS = 4
+# Shorter than the sandbox timeout, so a slow lens session cannot hold the main findings back for long.
+FLASH_LENS_SESSION_TIMEOUT = timedelta(minutes=10)
 
 # About 200K tokens at 4 characters per token.
 FLASH_PROMPT_DIFF_MAX_CHARS = 800_000

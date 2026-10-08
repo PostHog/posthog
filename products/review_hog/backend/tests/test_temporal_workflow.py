@@ -6,6 +6,7 @@ exercise the real orchestration + the real fan-out children without touching the
 
 import json
 import uuid
+from datetime import timedelta
 from typing import ClassVar
 
 import pytest
@@ -20,7 +21,11 @@ from temporalio.service import RPCError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
-from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER, VALIDATION_MAX_ATTEMPTS
+from products.review_hog.backend.reviewer.constants import (
+    BLIND_SPOT_PASS_NUMBER,
+    FLASH_LENS_SESSION_TIMEOUT,
+    VALIDATION_MAX_ATTEMPTS,
+)
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import ChunkSelectionDTO, PerspectiveSelectionDTO
@@ -172,6 +177,7 @@ async def _run_full_review_pr_workflow(
     design_calls: dict[str, set[str]] = {}
     single_agent_calls: list[str] = []
     lens_calls: list[tuple[str, int]] = []
+    lens_timeouts: list[timedelta | None] = []
 
     def _saw_design(stage: str, design: str) -> None:
         design_calls.setdefault(stage, set()).add(design)
@@ -285,6 +291,7 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="lens_review_activity")
     async def lens_review(input: LensReviewInput) -> None:
         lens_calls.append((input.lens, input.chunk_id))
+        lens_timeouts.append(activity.info().schedule_to_close_timeout)
         if (input.lens, input.chunk_id) in fail_lens_units:
             raise ApplicationError("lens session died", non_retryable=True)
 
@@ -477,6 +484,7 @@ async def _run_full_review_pr_workflow(
         "designs": design_calls,
         "single_agent": single_agent_calls,
         "lens": lens_calls,
+        "lens_timeouts": lens_timeouts,
     }
 
 
@@ -656,6 +664,8 @@ async def test_review_pr_workflow_single_agent_design_replaces_chunking_review_a
         ("performance-reliability", 1),
         ("performance-reliability", 2),
     ]
+    # A lens session on the sandbox timeout would hold the main findings back for up to an hour.
+    assert set(recorded["lens_timeouts"]) == {FLASH_LENS_SESSION_TIMEOUT}
     assert recorded["split"] == []
     assert recorded["review"] == []
     assert recorded["validate"] == []
