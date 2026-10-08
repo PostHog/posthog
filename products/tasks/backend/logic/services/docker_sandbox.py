@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import json
 import time
 import uuid
@@ -65,7 +64,9 @@ from .sandbox import (
     SandboxStatus,
     SandboxTemplate,
     build_agent_runtime_env_prefix,
+    build_subscription_flags,
     parse_sandbox_repo_mount_map,
+    read_pinned_agent_version,
     redact_sandbox_command,
     wait_for_health_check,
 )
@@ -78,6 +79,7 @@ PI_IMAGE_NAME = "posthog-sandbox-pi"
 AUTORESEARCH_IMAGE_NAME = "posthog-sandbox-autoresearch"
 STREAMLIT_IMAGE_NAME = "posthog-sandbox-streamlit"
 SLIM_IMAGE_NAME = "posthog-sandbox-slim"
+STAMPHOG_REVIEW_IMAGE_NAME = "posthog-sandbox-stamphog-review"
 
 # Stamped on the base image so a later run can tell whether it must rebuild: the sha of
 # the Dockerfile that produced it, and the @posthog/agent version baked into the npm layer.
@@ -94,6 +96,7 @@ STREAMLIT_AUTH_PROXY_PORT = 8080
 # host.docker.internal at `docker run` time (non-localhost hosts pass through).
 _DOCKER_URL_ENV_KEYS = frozenset(
     {
+        "LLM_GATEWAY_URL",
         "POSTHOG_API_URL",
         "POSTHOG_SITE_URL",
         "POSTHOG_AGENT_OTEL_LOGS_URL",
@@ -263,11 +266,10 @@ class DockerSandbox(AgentServerLaunchMixin):
             os.path.join(monorepo_root, "package.json"),
             os.path.join(monorepo_root, "pnpm-workspace.yaml"),
             os.path.join(monorepo_root, "pnpm-lock.yaml"),
-            os.path.join(monorepo_root, "patches"),
             os.path.join(monorepo_root, "scripts", "rimraf.mjs"),
             *[
                 os.path.join(monorepo_root, "packages", package_name, "package.json")
-                for package_name in ("agent", "harness", "shared", "git", "enricher")
+                for package_name in ("agent", "harness", "agent-contracts", "git", "enricher")
             ],
         ]
         missing = [path for path in required_paths if not os.path.exists(path)]
@@ -347,10 +349,9 @@ class DockerSandbox(AgentServerLaunchMixin):
 
             for file_name in (".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"):
                 shutil.copy2(os.path.join(monorepo_root, file_name), workspace_path)
-            shutil.copytree(os.path.join(monorepo_root, "patches"), os.path.join(workspace_path, "patches"))
             shutil.copy2(os.path.join(monorepo_root, "scripts", "rimraf.mjs"), scripts_path)
 
-            for package_name in ("agent", "harness", "shared", "git", "enricher"):
+            for package_name in ("agent", "harness", "agent-contracts", "git", "enricher"):
                 shutil.copytree(
                     os.path.join(monorepo_root, "packages", package_name),
                     os.path.join(packages_path, package_name),
@@ -389,6 +390,19 @@ class DockerSandbox(AgentServerLaunchMixin):
             )
             DockerSandbox._build_image_if_needed(SLIM_IMAGE_NAME, dockerfile_path, needs_skills=False)
             return SLIM_IMAGE_NAME
+
+        if template == SandboxTemplate.STAMPHOG_REVIEW:
+            DockerSandbox._ensure_image_exists(SandboxTemplate.SLIM_BASE)
+            dockerfile_path = os.path.join(
+                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-stamphog-review"
+            )
+            DockerSandbox._build_image_if_needed(
+                STAMPHOG_REVIEW_IMAGE_NAME,
+                dockerfile_path,
+                build_args={"BASE_IMAGE": SLIM_IMAGE_NAME},
+                needs_skills=False,
+            )
+            return STAMPHOG_REVIEW_IMAGE_NAME
 
         # Streamlit ships its own standalone image (FROM python:3.11-slim with a `streamlit`
         # user + auth proxy), so it doesn't build on top of the base image like PI does.
@@ -966,6 +980,9 @@ class DockerSandbox(AgentServerLaunchMixin):
         peer_messaging: bool = False,
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
+        codex_model_access: str | None = None,
+        codex_run_token_file: str | None = None,
+        sandbox_runtime: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
         # rewrite it the same way POSTHOG_API_URL is for Docker sandboxes.
@@ -975,6 +992,7 @@ class DockerSandbox(AgentServerLaunchMixin):
             interaction_origin=interaction_origin,
             agent_runtime=agent_runtime,
             sandbox_id=self.id,
+            sandbox_runtime=sandbox_runtime,
             runtime_adapter=runtime_adapter,
             provider=provider,
             model=model,
@@ -991,7 +1009,7 @@ class DockerSandbox(AgentServerLaunchMixin):
             benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
         )
-        subscription_flag = " --claudeSubscription" if claude_model_access == "own-subscription" else ""
+        subscription_flag = build_subscription_flags(claude_model_access, codex_model_access)
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
         # flags, so default runs (and resumes of old snapshots) must not see it.
@@ -1017,6 +1035,8 @@ class DockerSandbox(AgentServerLaunchMixin):
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
             f"{domains_flag}{repo_ready_flag}{exec_permission_flag}{subscription_flag}"
         )
+        if codex_run_token_file:
+            server_cmd = self._with_codex_run_token_fd(server_cmd, codex_run_token_file)
 
         # agentsh injects HTTP_PROXY pointing at a per-session egress proxy port; undici
         # (Node fetch) honors it for local-host traffic unless NO_PROXY says otherwise. The
@@ -1066,6 +1086,9 @@ class DockerSandbox(AgentServerLaunchMixin):
 
     def _agent_server_reuse_enabled(self) -> bool:
         return False
+
+    def _sandbox_runtime(self) -> str | None:
+        return "docker"
 
     def _install_agent_server_launch_files(self) -> tuple[str, ...]:
         return ()
@@ -1137,18 +1160,35 @@ class DockerSandbox(AgentServerLaunchMixin):
     def wait_for_agent_server_ready(
         self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
     ) -> None:
-        if self._wait_for_health_check(max_attempts=300 if claude_model_access == "own-subscription" else 240):
+        try:
+            healthy = self._wait_for_health_check(
+                max_attempts=300 if claude_model_access == "own-subscription" else 240
+            )
+        except SandboxTimeoutError:
+            credential_error = self._credential_unavailable_error(
+                self._read_agent_server_log(), context={"sandbox_id": self.id}
+            )
+            if credential_error is not None:
+                raise credential_error from None
+            raise
+        if healthy:
             logger.info(f"Agent-server ready on port {self._host_port}")
             return
-        log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
-        logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_result.stdout}")
+        log_output = self._read_agent_server_log()
+        logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_output}")
+        credential_error = self._credential_unavailable_error(log_output, context={"sandbox_id": self.id})
+        if credential_error is not None:
+            raise credential_error
         # Transient timeout Temporal retries — skip error-tracking capture to avoid noisy issues.
         raise SandboxExecutionError(
             "Agent-server failed to start",
-            {"sandbox_id": self.id, "log": log_result.stdout},
+            {"sandbox_id": self.id, "log": log_output},
             cause=RuntimeError("Health check failed after retries"),
             capture=False,
         )
+
+    def _read_agent_server_log(self) -> str:
+        return self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5).stdout
 
     def mark_repo_ready(self, repo_ready_file: str) -> None:
         self.execute(f"touch {shlex.quote(repo_ready_file)}", timeout_seconds=10)
@@ -1301,7 +1341,7 @@ def _base_image_source_sha(dockerfile_path: str) -> str:
     digest = hashlib.sha256()
     for path in [
         Path(dockerfile_path),
-        *sorted(Path(settings.BASE_DIR, "products/desktop/packages/agent-shadow").rglob("*")),
+        *sorted(Path(settings.BASE_DIR, "packages/agent/agent-shadow").rglob("*")),
     ]:
         if path.is_file():
             digest.update(path.read_bytes())
@@ -1317,12 +1357,7 @@ def _none_if_blank(value: str) -> str | None:
 
 
 def _pinned_agent_version(dockerfile_path: str) -> str | None:
-    try:
-        source = Path(dockerfile_path).read_text(encoding="utf-8")
-    except OSError:
-        return None
-    match = re.search(r"^ARG AGENT_VERSION=(\S+)", source, re.MULTILINE)
-    return match.group(1) if match else None
+    return read_pinned_agent_version(Path(dockerfile_path))
 
 
 def ensure_fresh_base_image(*, force: bool = False) -> None:

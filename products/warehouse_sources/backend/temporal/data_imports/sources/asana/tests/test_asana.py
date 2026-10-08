@@ -97,29 +97,6 @@ class TestTopLevelPagination:
         assert manager.save_state.call_args.args[0] == AsanaResumeConfig(paginator_state={"next_url": next_uri})
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls = _wire(session, [("/workspaces", _page([{"gid": "1"}]))])
-
-        manager = _make_manager()
-        rows = _rows(_source("workspaces", manager))
-
-        assert [r["gid"] for r in rows] == ["1"]
-        assert len(urls) == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_yields_nothing_and_saves_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [("/workspaces", _page([]))])
-
-        manager = _make_manager()
-        rows = _rows(_source("workspaces", manager))
-
-        assert rows == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_next_url(self, MockSession) -> None:
         session = MockSession.return_value
         resume_url = f"{ASANA_BASE_URL}/workspaces?offset=resume"
@@ -129,21 +106,6 @@ class TestTopLevelPagination:
         _rows(_source("workspaces", manager))
 
         assert urls[0] == resume_url
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_legacy_saved_state_starts_from_base_path(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls = _wire(session, [("/workspaces", _page([{"gid": "1"}]))])
-
-        # State written by the previous hand-rolled implementation deserializes (compat) but carries
-        # no framework paginator snapshot, so the sync restarts from the base path (a re-fetch).
-        legacy = AsanaResumeConfig(remaining_urls=[f"{ASANA_BASE_URL}/x"], current_url=f"{ASANA_BASE_URL}/y")
-        assert legacy.paginator_state is None
-        manager = _make_manager(legacy)
-        _rows(_source("workspaces", manager))
-
-        assert "offset=" not in urls[0]
-        assert "/workspaces" in urls[0]
 
 
 class TestFanOut:
@@ -166,18 +128,6 @@ class TestFanOut:
         # Single-hop fan-out keeps resume: the dependent resource checkpoints per-parent progress.
         assert manager.save_state.called
         assert "completed" in manager.save_state.call_args.args[0].paginator_state
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_parents_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls = _wire(session, [("/workspaces", _page([]))])
-
-        manager = _make_manager()
-        rows = _rows(_source("projects", manager))
-
-        assert rows == []
-        assert len(urls) == 1  # only the (empty) parent list is fetched
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_organization_fan_out_skips_non_org_workspaces(self, MockSession) -> None:
@@ -311,49 +261,25 @@ class TestFanOut:
         assert [(r["portfolio_gid"], r["gid"]) for r in rows] == [("PF1", "PR1"), ("PF2", "PR1")]
         assert not any(r for r in rows if "_portfolios_gid" in r)
         assert all("limit=" in url for url in sent if "/items" in url)
+        # Asana 400s GET /portfolios for a non-service-account token without an explicit owner.
+        assert all("owner=me" in url for url in sent if "/portfolios?" in url)
 
-    @pytest.mark.parametrize(
-        "endpoint, parent_gid",
-        [
-            ("project_status_updates", "P1"),
-            ("goal_status_updates", "G1"),
-            ("portfolio_status_updates", "PF1"),
-        ],
-    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_status_updates_bind_their_parent_gid(self, MockSession, endpoint, parent_gid) -> None:
+    def test_portfolios_scope_to_the_tokens_own_user(self, MockSession) -> None:
         session = MockSession.return_value
         sent = _wire(
             session,
             [
                 ("/workspaces?", _page([{"gid": "W1"}])),
-                ("workspace=W1", _page([{"gid": parent_gid}])),
-                (f"parent={parent_gid}", _page([{"gid": "su1"}])),
+                ("workspace=W1", _page([{"gid": "PF1"}])),
             ],
         )
 
-        rows = _rows(_source(endpoint, _make_manager()))
+        rows = _rows(_source("portfolios", _make_manager()))
 
-        assert [r["gid"] for r in rows] == ["su1"]
-        # /status_updates rejects a request without `parent`, and the gid must ride that one param.
-        assert all("parent=" in url for url in sent if "/status_updates" in url)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_custom_field_settings_fan_out_per_project(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                ("/workspaces?", _page([{"gid": "W1"}])),
-                ("workspace=W1", _page([{"gid": "P1"}, {"gid": "P2"}])),
-                ("/projects/P1/custom_field_settings", _page([{"gid": "cfs1"}])),
-                ("/projects/P2/custom_field_settings", _page([{"gid": "cfs2"}])),
-            ],
-        )
-
-        rows = _rows(_source("custom_field_settings", _make_manager()))
-
-        assert [r["gid"] for r in rows] == ["cfs1", "cfs2"]
+        assert [r["gid"] for r in rows] == ["PF1"]
+        # Asana 400s GET /portfolios for a non-service-account token without an explicit owner.
+        assert all("owner=me" in url for url in sent if "/portfolios?" in url)
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_project_level_chain_yields_grandchild_rows(self, MockSession) -> None:
@@ -385,11 +311,6 @@ class TestValidateCredentials:
         response.status_code = status_code
         mock_session.return_value.get.return_value = response
         assert validate_credentials("token") is expected
-
-    @mock.patch(ASANA_SESSION_PATCH)
-    def test_swallows_exceptions(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("token") is False
 
 
 class TestAsanaSourceResponse:

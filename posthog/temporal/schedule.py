@@ -21,6 +21,7 @@ from temporalio.client import (
 )
 
 from posthog.cloud_utils import is_cloud
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.ai.checkpoint_compaction.schedule import (
     create_checkpoint_compaction_schedule,
@@ -78,7 +79,8 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
-from products.alerts.backend.facade.temporal import create_alerts_platform_tick_schedule
+from products.alerts_platform.backend.facade.temporal import create_alerts_platform_tick_schedule
+from products.autoresearch.backend.facade.temporal import create_autoresearch_daily_schedule
 from products.billing_alerts.backend.temporal.schedule import create_schedule_due_billing_alert_checks_schedule
 from products.business_knowledge.backend.temporal.schedule import (
     create_business_knowledge_learning_coordinator_schedule,
@@ -92,6 +94,7 @@ from products.customer_analytics.backend.facade.temporal import (
     create_calendar_sync_coordinator_schedule,
     create_ownership_claims_coordinator_schedule,
 )
+from products.data_catalog.backend.facade.temporal import create_data_catalog_weekly_digest_schedule
 from products.data_quality.backend.facade.temporal import (
     create_cleanup_data_quality_check_runs_schedule,
     create_reconcile_metric_schedules_schedule,
@@ -109,6 +112,7 @@ from products.error_tracking.backend.facade.temporal import (
 from products.experiments.backend.temporal.schedule import (
     create_experiment_precompute_canary_schedule,
     create_experiment_precompute_enrollment_census_schedule,
+    create_experiment_scheduled_recalculation_schedules,
 )
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from products.growth.backend.temporal.signup_enrichment.schedule import (
@@ -122,6 +126,8 @@ from products.replay_vision.backend.temporal.estimates import create_replay_visi
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
+from products.replay_vision.backend.temporal.jev_watch_rank import create_replay_vision_jev_watch_rank_schedule
+from products.replay_vision.backend.temporal.learned_rules import create_replay_vision_learned_rules_schedule
 from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.replay_vision.backend.temporal.search_suggestions import create_replay_vision_search_suggestions_schedule
@@ -129,10 +135,12 @@ from products.replay_vision.backend.temporal.vision_alerts.schedule import creat
 from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
 from products.security.backend.facade.temporal import create_sync_access_rules_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
+from products.signals.backend.ranking.schedule import create_inbox_ranking_scoring_schedule
 from products.signals.backend.temporal.agentic.schedule import (
     create_scout_suggestions_coordinator_schedule,
     create_signals_scout_coordinator_schedule,
 )
+from products.today.backend.facade.temporal import create_today_briefing_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
@@ -148,12 +156,6 @@ async def cleanup_sync_vectors_schedule(client: Client):
     """Disabled: delete the actions embedding sync schedule. Any in-flight runs die on their own execution_timeout."""
     if await a_schedule_exists(client, "ai-sync-vectors-schedule"):
         await a_delete_schedule(client, "ai-sync-vectors-schedule")
-
-
-async def cleanup_replay_vision_media_backfill_schedule(client: Client):
-    """Retired: delete the Replay Vision poster backfill schedule, whose workflow no worker registers anymore."""
-    if await a_schedule_exists(client, "replay-vision-media-backfill-schedule"):
-        await a_delete_schedule(client, "replay-vision-media-backfill-schedule")
 
 
 async def create_run_quota_limiting_schedule(client: Client):
@@ -220,7 +222,10 @@ async def create_upgrade_queries_schedule(client: Client):
             id="upgrade-queries-schedule",
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=6))]),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=6), offset=timedelta(minutes=2))],
+            jitter=timedelta(minutes=30),
+        ),
     )
 
     if await a_schedule_exists(client, "upgrade-queries-schedule"):
@@ -579,7 +584,10 @@ async def create_ducklake_compaction_schedule(client: Client):
                 initial_interval=timedelta(minutes=5),
             ),
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=2))],
+            jitter=timedelta(minutes=10),
+        ),
     )
 
     if await a_schedule_exists(client, "ducklake-compaction-schedule"):
@@ -633,10 +641,10 @@ async def create_purge_deleted_recording_metadata_schedule(client: Client):
         )
 
 
-async def create_replay_count_metrics_schedule(client: Client):
+async def create_replay_count_metrics_schedule(client: Client) -> None:
     """Create or update the schedule for the replay count metrics workflow.
 
-    This schedule runs hourly at minute 0, matching the previous Celery schedule.
+    This schedule runs hourly at minute zero to preserve adjacent one-hour metric windows.
     """
     replay_count_metrics_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -649,6 +657,7 @@ async def create_replay_count_metrics_schedule(client: Client):
             ),
         ),
         spec=ScheduleSpec(
+            # nosemgrep: schedule-must-avoid-minute-zero -- the metric query reads a rolling hour with no cursor, so shifting the schedule skips data
             intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))],
         ),
     )
@@ -760,7 +769,14 @@ async def create_run_usage_reports_schedule(client: Client):
             task_queue=settings.BILLING_TASK_QUEUE,
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=30))]),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(
+                    every=timedelta(minutes=30),
+                    offset=deterministic_offset("run-usage-reports-schedule", timedelta(minutes=30)),
+                )
+            ]
+        ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
@@ -783,7 +799,7 @@ async def create_finalize_usage_reports_schedule(client: Client):
     the numbers are final for that date.
     02:45 leaves ~2.75 hours for ingestion lag after midnight and stays ahead
     of the legacy Celery run at 03:45 UTC. The intraday schedule now runs
-    every 30 minutes, so this slot sits between the 02:30 and 03:00 intraday
+    every 30 minutes, so this slot sits between two intraday
     runs rather than clearing them by an hour, and the two schedules' SKIP
     policies don't see each other. A brief overlap is harmless: every run
     writes under its own `{date}/{run_id}` S3 prefix, and the finalizer
@@ -882,7 +898,10 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
             task_queue=settings.ERROR_TRACKING_TASK_QUEUE,
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=2))],
+            jitter=timedelta(minutes=10),
+        ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
@@ -903,7 +922,6 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
 
 schedules = [
     cleanup_sync_vectors_schedule,
-    cleanup_replay_vision_media_backfill_schedule,
     create_run_quota_limiting_schedule,
     create_schedule_due_billing_alert_checks_schedule,
     create_context_layer_dream_schedule,
@@ -928,6 +946,7 @@ schedules = [
     create_experiment_saved_metrics_schedules,
     create_experiment_precompute_canary_schedule,
     create_experiment_precompute_enrollment_census_schedule,
+    create_experiment_scheduled_recalculation_schedules,
     cleanup_cohort_calculation_schedules,
     cleanup_non_cloud_ai_observability_schedules,
     create_ingestion_acceptance_test_schedule,
@@ -941,13 +960,17 @@ schedules = [
     create_error_tracking_weekly_digest_schedule,
     create_wa_weekly_digest_schedule,
     create_wa_digest_notification_schedule,
+    create_data_catalog_weekly_digest_schedule,
     create_alerts_platform_tick_schedule,
     create_logs_alert_check_schedule,
     create_logs_volume_tick_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
+    create_autoresearch_daily_schedule,
+    create_today_briefing_schedule,
     create_signals_scout_coordinator_schedule,
+    create_inbox_ranking_scoring_schedule,
     create_scout_suggestions_coordinator_schedule,
     create_support_reply_coordinator_schedule,
     create_channel_summary_coordinator_schedule,
@@ -957,8 +980,10 @@ schedules = [
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
     create_replay_vision_search_suggestions_schedule,
+    create_replay_vision_learned_rules_schedule,
     create_vision_alert_check_schedule,
     create_replay_vision_read_meter_schedule,
+    create_replay_vision_jev_watch_rank_schedule,
     create_github_job_logs_coordinator_schedule,
     create_review_hog_finding_outcomes_schedule,
     create_ci_signals_coordinator_schedule,

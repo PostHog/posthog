@@ -21,11 +21,11 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import TypedRequest, validated_request
+from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import is_mcp_request
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
@@ -38,29 +38,35 @@ from ..facade.contracts import (
     CreateRepoInput,
     CreateRunInput,
     FinalizeRunRequestInput,
+    LiftOnMergeInput,
     QuarantineInput,
     UpdateRepoInput,
     UpdateRepoRequestInput,
 )
-from ..facade.enums import ActorType
+from ..facade.enums import ActorType, RunReviewFilter
 from .serializers import (
     AddSnapshotsInputSerializer,
     AddSnapshotsResultSerializer,
     ApproveRunInputSerializer,
     BaselineOverviewSerializer,
+    CompleteRunInputSerializer,
     CreateRepoInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
+    ErrorDetailSerializer,
     FinalizeResultSerializer,
     FinalizeRunInputSerializer,
     FlakinessOverviewSerializer,
+    LiftOnMergeInputSerializer,
     MarkToleratedInputSerializer,
     QuarantinedIdentifierEntrySerializer,
     QuarantineInputSerializer,
+    QuarantineLiftEntrySerializer,
     RecomputeResultSerializer,
     RepoSerializer,
     ReviewStateCountsSerializer,
     RunSerializer,
+    RunSnapshotsQuerySerializer,
     SnapshotHistoryEntrySerializer,
     SnapshotSerializer,
     ToleratedHashEntrySerializer,
@@ -91,6 +97,31 @@ def _parse_uuid(value: str, field: str = "id") -> UUID:
         return UUID(value)
     except ValueError:
         raise ValidationError({field: "Must be a valid UUID."})
+
+
+REVIEW_STATE_PARAMETER = OpenApiParameter(
+    "review_state",
+    str,
+    required=False,
+    enum=[state.value for state in RunReviewFilter],
+    description=(
+        "Filter by where the run stands in review. `needs_review`: a completed pull request run with "
+        "changes nobody approved yet. `clean`: no changes, or approved. `processing`: diffs still computing. "
+        "`stale`: superseded by a newer run while its changes were unapproved."
+    ),
+)
+
+
+def _parse_review_state(request: Request) -> RunReviewFilter | None:
+    """Reject an unknown review state, so a typo returns a 400 instead of every run."""
+    value = request.query_params.get("review_state")
+    if value is None:
+        return None
+    try:
+        return RunReviewFilter(value)
+    except ValueError:
+        allowed = ", ".join(state.value for state in RunReviewFilter)
+        raise ValidationError({"review_state": f"Must be one of: {allowed}."})
 
 
 # Both run-scoped snapshot lookups need a run id AND a snapshot identifier. Clients that
@@ -125,10 +156,11 @@ _MISSING_IDENTIFIER_DETAIL = (
 )
 
 
-class SnapshotsPagination(LimitOffsetPagination):
+class SnapshotsPagination(PrecountedLimitOffsetPagination):
     """Adds quarantined_count to the paginated snapshots envelope so a client can
-    show "N quarantined hidden" without a second request. The action sets
-    `quarantined_count` on the paginator instance before rendering the response."""
+    show "N quarantined hidden" without a second request. The action pages in SQL
+    through the facade, then sets the total and `quarantined_count` on the paginator
+    instance before rendering the response."""
 
     quarantined_count = 0
 
@@ -142,8 +174,9 @@ class SnapshotsPagination(LimitOffsetPagination):
         schema["properties"]["quarantined_count"] = {
             "type": "integer",
             "description": (
-                "Count of this run's snapshots whose identifier is currently quarantined. "
-                "Excluded from results unless include_quarantined=true is passed."
+                "Count of this run's snapshots that match the other filters and whose identifier "
+                "is quarantined now. Excluded from results unless include_quarantined=true is passed. "
+                "This can differ from the run's own counts, which use the quarantines at gating time."
             ),
         }
         return schema
@@ -328,7 +361,15 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @validated_request(
         request_serializer=UnquarantineQuerySerializer,
-        responses={204: None},
+        responses={
+            204: None,
+            400: OpenApiResponse(response=ErrorDetailSerializer, description="No GitHub integration."),
+            429: OpenApiResponse(response=ErrorDetailSerializer, description="GitHub rate limit. See Retry-After."),
+            503: OpenApiResponse(
+                response=ErrorDetailSerializer,
+                description="GitHub cannot name the default branch head. The quarantine stays.",
+            ),
+        },
     )
     @action(detail=True, methods=["post"], url_path=r"quarantine/(?P<run_type>[^/]+)/expire")
     def unquarantine(self, request: TypedRequest, pk: str, run_type: str, **kwargs) -> Response:
@@ -342,6 +383,23 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.GitHubIntegrationNotFoundError:
+            return Response(
+                {"detail": "No GitHub integration configured. Please install the GitHub App for this team."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except api.GitHubRateLimitError as e:
+            response = Response(
+                {"detail": "GitHub API rate limit exceeded. Please retry later.", "code": "rate_limited"},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+            if e.retry_after:
+                response["Retry-After"] = str(e.retry_after)
+            return response
+        except api.LiftCommitUnknownError as e:
+            return Response(
+                {"detail": str(e), "code": "lift_commit_unknown"}, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
@@ -370,9 +428,10 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
         responses={200: FlakinessOverviewSerializer},
         description=(
-            "Snapshots in a repo whose rendering cannot be trusted: those that failed the gate or "
-            "were absorbed by a toleration on a recent default-branch run, and those under an "
-            "active quarantine. Everything else is omitted, so this is far smaller than the "
+            "Snapshots in a repo whose rendering cannot be trusted: those that failed the gate on a "
+            "recent default-branch run, those whose absorbed diff is close to the threshold, and those "
+            "under an active quarantine. Small absorbed diffs well under the threshold are omitted, as is "
+            "everything else, so this is far smaller than the "
             "baselines universe; `totals.tracked` gives the full denominator. Each entry carries "
             f"the share of the last {contracts.FLAKINESS_RATE_DAYS} days of default-branch runs "
             "that failed the gate (`hard_rate`) and the share a toleration absorbed "
@@ -489,7 +548,7 @@ class RepoRunsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         parameters=[
-            OpenApiParameter("review_state", str, required=False, description="Filter by review state"),
+            REVIEW_STATE_PARAMETER,
             OpenApiParameter(
                 "search",
                 str,
@@ -501,7 +560,7 @@ class RepoRunsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def list(self, request: Request, **kwargs) -> Response:
         """List runs in this repo, optionally filtered by review state and free-text search."""
-        review_state = request.query_params.get("review_state")
+        review_state = _parse_review_state(request)
         search = request.query_params.get("search")
         if search and len(search) > MAX_SEARCH_LENGTH:
             return Response(
@@ -541,13 +600,23 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "recompute",
         "mark_tolerated",
         "finalize",
+        "lift_on_merge",
+        "cancel_quarantine_lift",
     ]
-    scope_object_read_actions = ["list", "retrieve", "snapshots", "counts", "snapshot_history", "tolerated_hashes"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "snapshots",
+        "counts",
+        "snapshot_history",
+        "tolerated_hashes",
+        "quarantine_lifts",
+    ]
     serializer_class = RunSerializer
 
     @extend_schema(
         parameters=[
-            OpenApiParameter("review_state", str, required=False, description="Filter by review state"),
+            REVIEW_STATE_PARAMETER,
             OpenApiParameter("pr_number", int, required=False, description="Filter by GitHub PR number"),
             OpenApiParameter("commit_sha", str, required=False, description="Filter by full commit SHA"),
             OpenApiParameter("branch", str, required=False, description="Filter by branch name"),
@@ -575,7 +644,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         runs = api.list_runs(
             self.team_id,
-            review_state=request.query_params.get("review_state"),
+            review_state=_parse_review_state(request),
             pr_number=pr_number,
             commit_sha=request.query_params.get("commit_sha"),
             branch=request.query_params.get("branch"),
@@ -614,33 +683,32 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(RunSerializer(instance=run).data)
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "include_quarantined",
-                OpenApiTypes.BOOL,
-                description=(
-                    "Whether to include snapshots whose identifier is currently quarantined. "
-                    "Defaults to false: quarantined snapshots are excluded from results and reported "
-                    "in quarantined_count instead, since they are noise when reviewing real changes."
-                ),
-            ),
-        ],
+    @validated_request(
+        query_serializer=RunSnapshotsQuerySerializer,
         responses={200: SnapshotSerializer(many=True)},
     )
     @action(detail=True, methods=["get"], pagination_class=SnapshotsPagination)
-    def snapshots(self, request: Request, pk: str, **kwargs) -> Response:
+    def snapshots(self, request: TypedRequest, pk: str, **kwargs) -> Response:
         """Get a run's snapshots with diff results, excluding quarantined ones by default."""
-        include_quarantined = request.query_params.get("include_quarantined", "").lower() in ("1", "true")
+        query = request.validated_query_data
+        paginator = cast(SnapshotsPagination, self.paginator)
         try:
             result = api.get_run_snapshots(
-                _parse_uuid(pk), team_id=self.team_id, include_quarantined=include_quarantined
+                _parse_uuid(pk),
+                team_id=self.team_id,
+                include_quarantined=query["include_quarantined"],
+                exclude_unchanged=query["exclude_unchanged"],
+                snapshot_id=query.get("snapshot_id"),
+                quarantined_only=query["quarantined_only"],
+                limit=paginator.get_limit(request),
+                offset=paginator.get_offset(request),
             )
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        paginator.set_count(result.total_count)
+        paginator.quarantined_count = result.quarantined_count
         page = self.paginate_queryset(result.snapshots)
         if page is not None:
-            cast(SnapshotsPagination, self.paginator).quarantined_count = result.quarantined_count
             serializer = SnapshotSerializer(instance=page, many=True)
             return self.get_paginated_response(serializer.data)
         return Response(SnapshotSerializer(instance=result.snapshots, many=True).data)
@@ -734,12 +802,19 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self.get_paginated_response(SnapshotHistoryEntrySerializer(instance=page, many=True).data)
         return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
 
-    @extend_schema(request=None, responses={200: RunSerializer})
+    @validated_request(
+        request_serializer=CompleteRunInputSerializer,
+        responses={200: OpenApiResponse(response=RunSerializer)},
+    )
     @action(detail=True, methods=["post"])
-    def complete(self, request: Request, pk: str, **kwargs) -> Response:
+    def complete(self, request: TypedRequest, pk: str, **kwargs) -> Response:
         """Complete a run: detect removals, verify uploads, trigger diff processing."""
         try:
-            run = api.complete_run(_parse_uuid(pk), team_id=self.team_id)
+            run = api.complete_run(
+                _parse_uuid(pk),
+                team_id=self.team_id,
+                check_run_id=request.validated_data.get("check_run_id"),
+            )
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         except api.GitHubRateLimitError as e:
@@ -855,3 +930,74 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 {"detail": "Run must be completed and not yet approved"}, status=status.HTTP_400_BAD_REQUEST
             )
         return Response(RecomputeResultSerializer(instance=result).data)
+
+    @validated_request(
+        request_serializer=LiftOnMergeInputSerializer,
+        responses={201: OpenApiResponse(response=QuarantineLiftEntrySerializer)},
+        description=(
+            "Lift a quarantined snapshot's quarantine once this run's pull request merges. The lift applies "
+            "only after a default-branch run that contains the merge renders the expected picture, and the "
+            "baseline entry holds that same picture. Requesting a lift never approves a picture: approve a "
+            "changed or new snapshot by identifier first. Requesting again from the same pull request "
+            "replaces the pending request."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="lift_on_merge")
+    def lift_on_merge(self, request: TypedRequest[LiftOnMergeInput], pk: str, **kwargs) -> Response:
+        try:
+            entry = api.request_quarantine_lift_on_merge(
+                run_id=_parse_uuid(pk),
+                input=request.validated_data,
+                user_id=cast(int, request.user.id),
+                team_id=self.team_id,
+                source=_actor(request),
+            )
+        except api.RunNotFoundError:
+            return Response({"detail": "Snapshot or run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.StaleRunError as e:
+            return Response({"detail": str(e), "code": "stale_run"}, status=status.HTTP_409_CONFLICT)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(QuarantineLiftEntrySerializer(instance=entry).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.UUID, OpenApiParameter.PATH)],
+        responses={200: QuarantineLiftEntrySerializer(many=True)},
+        description=(
+            "Every request to lift a quarantine when this run's pull request merges, newest first, in any "
+            "state. Empty for a run without a pull request."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="quarantine_lifts", pagination_class=None)
+    def quarantine_lifts(self, request: Request, pk: str, **kwargs) -> Response:
+        try:
+            entries = api.list_quarantine_lifts_for_run(_parse_uuid(pk), team_id=self.team_id)
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(QuarantineLiftEntrySerializer(instance=entries, many=True).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("id", OpenApiTypes.UUID, OpenApiParameter.PATH),
+            OpenApiParameter(
+                "request_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.PATH,
+                description="UUID of a pending lift request for this run's pull request.",
+            ),
+        ],
+        request=None,
+        responses={204: None},
+        description="Withdraw a pending request to lift a quarantine when this run's pull request merges.",
+    )
+    @action(detail=True, methods=["post"], url_path=r"quarantine_lifts/(?P<request_id>[^/]+)/cancel")
+    def cancel_quarantine_lift(self, request: Request, pk: str, request_id: str, **kwargs) -> Response:
+        try:
+            api.cancel_quarantine_lift(
+                run_id=_parse_uuid(pk),
+                request_id=_parse_uuid(request_id, field="request_id"),
+                team_id=self.team_id,
+            )
+        except (api.RunNotFoundError, api.QuarantineLiftRequestNotFoundError):
+            return Response({"detail": "Pending lift request not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)

@@ -14,6 +14,7 @@ export type ChartDisplayIcon =
     | 'metric'
     | 'number'
     | 'pie'
+    | 'proportionBar'
     | 'table'
     | 'worldMap'
 
@@ -34,11 +35,19 @@ export interface ChartDisplayOptionGroup {
 export interface ChartDisplayOptionEligibility {
     boxPlotMissingProperty: boolean
     hasMetricInsight: boolean
+    hasProportionBarChart: boolean
     hasSingleSeriesOutput: boolean
     hasTrendsFormula: boolean
     isTrends: boolean
     breakdown?: BreakdownFilter['breakdown']
     breakdowns?: BreakdownFilter['breakdowns']
+    currentDisplay?: ChartDisplayType
+    isComparing?: boolean
+}
+
+/** A chart saved as a proportion bar keeps its own label and icon in the picker while the flag is off. */
+export function offersProportionBar(hasProportionBarChart: boolean, currentDisplay?: ChartDisplayType | null): boolean {
+    return hasProportionBarChart || currentDisplay === ChartDisplayType.ActionsProportionBar
 }
 
 const COUNTRY_PROPERTIES = new Set(['$geoip_country_code', '$geoip_country_name'])
@@ -88,11 +97,14 @@ export function applyChartDisplay(query: TrendsQuery, display: ChartDisplayType)
 export function getChartDisplayOptions({
     boxPlotMissingProperty,
     hasMetricInsight,
+    hasProportionBarChart,
     hasSingleSeriesOutput,
     hasTrendsFormula,
     isTrends,
     breakdown,
     breakdowns,
+    currentDisplay,
+    isComparing,
 }: ChartDisplayOptionEligibility): ChartDisplayOptionGroup[] {
     const breakdownProps = breakdownProperties({ breakdown, breakdowns })
     const worldMapBreakdownDisabled =
@@ -101,9 +113,16 @@ export function getChartDisplayOptions({
     const singleSeriesOnlyDisabledReason = !hasSingleSeriesOutput
         ? 'This type currently only supports insights with one series, and this insight has multiple series.'
         : undefined
+    const breakdownDisabledReason = breakdownProps.length > 0 ? "This type doesn't support breakdowns." : undefined
     const boxPlotDisabledReason =
         trendsOnlyDisabledReason ||
+        breakdownDisabledReason ||
         (boxPlotMissingProperty ? 'Select a numeric property to use a box plot.' : undefined)
+    // One bar has one total, so a second period's parts would share it.
+    const proportionBarDisabledReason =
+        trendsOnlyDisabledReason ||
+        (isComparing ? "This type doesn't support comparing to a previous period." : undefined) ||
+        (hasProportionBarChart ? undefined : "This type isn't available yet.")
 
     return [
         {
@@ -169,7 +188,8 @@ export function getChartDisplayOptions({
                     icon: 'number',
                     label: 'Number',
                     description: 'A big number showing the total value.',
-                    disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
+                    disabledReason:
+                        trendsOnlyDisabledReason || breakdownDisabledReason || singleSeriesOnlyDisabledReason,
                 },
                 ...(hasMetricInsight
                     ? [
@@ -178,7 +198,8 @@ export function getChartDisplayOptions({
                               icon: 'metric' as const,
                               label: 'Metric',
                               description: 'A headline value with a sparkline and period-over-period change.',
-                              disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
+                              disabledReason:
+                                  trendsOnlyDisabledReason || breakdownDisabledReason || singleSeriesOnlyDisabledReason,
                           },
                       ]
                     : []),
@@ -196,6 +217,17 @@ export function getChartDisplayOptions({
                     description: 'Proportions of a whole as a ring.',
                     disabledReason: trendsOnlyDisabledReason,
                 },
+                ...(offersProportionBar(hasProportionBarChart, currentDisplay)
+                    ? [
+                          {
+                              display: ChartDisplayType.ActionsProportionBar,
+                              icon: 'proportionBar' as const,
+                              label: 'Proportion bar',
+                              description: 'Proportions of a whole as one flat bar.',
+                              disabledReason: proportionBarDisabledReason,
+                          },
+                      ]
+                    : []),
                 {
                     display: ChartDisplayType.ActionsBarValue,
                     icon: 'horizontalBar',
@@ -233,7 +265,8 @@ export function getChartDisplayOptions({
                     icon: 'calendarHeatmap',
                     label: 'Calendar heatmap',
                     description: 'Values per day and hour.',
-                    disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
+                    disabledReason:
+                        trendsOnlyDisabledReason || breakdownDisabledReason || singleSeriesOnlyDisabledReason,
                 },
             ],
         },

@@ -149,6 +149,9 @@
         justify-content: center;
         width: 0.875rem;
         height: 0.875rem;
+
+        /* Centers the box on the label's first line, whose height is the row's 1.375 line height. */
+        margin-block-start: calc((1.375em - 0.875rem) / 2);
         pointer-events: none;
         border: 1px solid var(--input);
         border-radius: 3px;

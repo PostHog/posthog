@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product stamphog
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product stamphog
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Stamphog
 feature: stamphog
 url_prefix: /stamphog
@@ -23,12 +21,14 @@ tools:
         description: >
             List posted (or attempted) daily digest runs, newest first. Each run reports the audience it drained (a team
             slug, or `repo:owner/name`), the Slack channel it went to and why routing chose that channel, its status,
-            how many merged PRs it summarized, and the Slack message timestamp. Filter by `slack_channel_id` to see one
-            channel's history. The rendered summary text lives only in the Slack post.
+            how many merged PRs it summarized, the Slack message timestamp, and the digest content (`summary`: the
+            headline and each listed PR's number, title, URL, author, repository and one-line summary). Filter by
+            `slack_channel_id` to see one channel's history.
         feature_flag: stamphog
     stamphog-digest-runs-retrieve:
         operation: stamphog_digest_runs_retrieve
         enabled: false
+        disabled_reason: stamphog-digest-runs-list returns the same serializer fields for every run
         feature_flag: stamphog
     stamphog-pull-requests-get:
         operation: stamphog_pull_requests_retrieve
@@ -63,9 +63,6 @@ tools:
             or by `merged` (true/false) to separate open work from merged history. Each entry includes the repository,
             author, head branch, merge state, and diff size (additions/deletions/changed_files) once merged.
         feature_flag: stamphog
-    stamphog-repo-configs-create:
-        operation: stamphog_repo_configs_create
-        enabled: false
     stamphog-repo-configs-delete:
         operation: stamphog_repo_configs_destroy
         enabled: true
@@ -94,9 +91,6 @@ tools:
             Get a single repo config by id. Returns the provider, repository full name, installation id, and the enabled
             / digest_enabled flags.
         feature_flag: stamphog
-    stamphog-repo-configs-install-info-retrieve:
-        operation: stamphog_repo_configs_install_info_retrieve
-        enabled: false
     stamphog-repo-configs-list:
         operation: stamphog_repo_configs_list
         enabled: true
@@ -114,15 +108,6 @@ tools:
             GitHub App installation authorizes the calls. Use this to check whether a repo is already onboarded before
             creating a new config.
         feature_flag: stamphog
-    stamphog-repo-configs-partial-update:
-        operation: stamphog_repo_configs_partial_update
-        enabled: false
-    stamphog-repo-configs-sync-installation-create:
-        operation: stamphog_repo_configs_sync_installation_create
-        enabled: false
-    stamphog-repo-configs-update:
-        operation: stamphog_repo_configs_update
-        enabled: false
     stamphog-review-runs-create:
         operation: stamphog_review_runs_create
         enabled: true

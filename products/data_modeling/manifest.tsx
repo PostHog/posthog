@@ -1,3 +1,4 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '~/types'
@@ -13,7 +14,7 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/ModelsScene'),
             projectBased: true,
             description: 'Create and manage views and materialized views for transforming and organizing your data.',
-            iconType: 'sql_editor',
+            iconType: 'data_modeling',
         },
         NodeDetail: {
             name: 'Model detail',
@@ -33,11 +34,21 @@ export const manifest: ProductManifest = {
     treeItemsMetadata: [
         {
             path: 'Models',
-            category: 'Tools',
+            category: 'Data',
             type: 'sql',
-            iconType: 'sql_editor',
-            iconColor: ['var(--color-product-data-warehouse-light)'],
+            iconType: 'data_modeling',
+            iconColor: ['var(--color-product-models-light)', 'var(--color-product-models-dark)'],
             href: urls.models(),
+            searchKeywords: ['materialized views', 'materialization', 'data modeling'],
+            searchTabs: [
+                { name: 'Lineage', href: urls.models('lineage') },
+                {
+                    name: 'Data quality',
+                    href: urls.models('data-quality'),
+                    flag: FEATURE_FLAGS.DATA_QUALITY_CHECKS,
+                    searchKeywords: ['tests'],
+                },
+            ],
             sceneKey: 'Models',
             sceneKeys: ['Models'],
         },

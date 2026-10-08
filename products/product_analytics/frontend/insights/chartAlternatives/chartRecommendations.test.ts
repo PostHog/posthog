@@ -22,13 +22,15 @@ function makeTrendsQuery(overrides: Partial<TrendsQuery> = {}): TrendsQuery {
     }
 }
 
-const compatibleOptions = getChartDisplayOptions({
-    isTrends: true,
-    hasSingleSeriesOutput: true,
-    hasTrendsFormula: false,
-    boxPlotMissingProperty: false,
-    hasMetricInsight: true,
-})
+const compatibleOptions = (hasProportionBarChart: boolean): ReturnType<typeof getChartDisplayOptions> =>
+    getChartDisplayOptions({
+        isTrends: true,
+        hasSingleSeriesOutput: true,
+        hasTrendsFormula: false,
+        boxPlotMissingProperty: false,
+        hasMetricInsight: true,
+        hasProportionBarChart,
+    })
 
 describe('getChartAlternatives', () => {
     it.each([
@@ -42,11 +44,24 @@ describe('getChartAlternatives', () => {
             ],
         },
         {
-            name: 'puts the world map first for a country breakdown, skips breakdown-dropping types and demotes vertical bars',
+            name: 'puts the world map first for a country breakdown, then the parts-of-a-whole charts',
             query: makeTrendsQuery({
                 breakdownFilter: { breakdowns: [{ property: '$geoip_country_code', type: 'event' }] },
             }),
-            expected: [ChartDisplayType.WorldMap, ChartDisplayType.ActionsAreaGraph, ChartDisplayType.ActionsBarValue],
+            expected: [ChartDisplayType.WorldMap, ChartDisplayType.ActionsBar, ChartDisplayType.ActionsPie],
+        },
+        {
+            name: 'prefers stacked bars and proportions for a breakdown, skipping types that drop it',
+            query: makeTrendsQuery({ breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] } }),
+            expected: [ChartDisplayType.ActionsBar, ChartDisplayType.ActionsPie, ChartDisplayType.ActionsDonut],
+        },
+        {
+            name: 'demotes lines and side-by-side bars for a breakdown even from a stacked bar chart',
+            query: makeTrendsQuery({
+                trendsFilter: { display: ChartDisplayType.ActionsBar },
+                breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
+            }),
+            expected: [ChartDisplayType.ActionsPie, ChartDisplayType.ActionsDonut, ChartDisplayType.ActionsBarValue],
         },
         {
             name: 'puts the world map first for a country filter',
@@ -84,11 +99,63 @@ describe('getChartAlternatives', () => {
             expected: [ChartDisplayType.BoxPlot, ChartDisplayType.Metric, ChartDisplayType.ActionsUnstackedBar],
         },
         {
-            name: 'prefers other total value charts when viewing a pie chart',
-            query: makeTrendsQuery({ trendsFilter: { display: ChartDisplayType.ActionsPie } }),
+            name: 'prefers other total value charts when viewing a pie chart of several series',
+            query: makeTrendsQuery({
+                series: [
+                    { kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount },
+                    { kind: NodeKind.EventsNode, event: '$autocapture', math: BaseMathType.TotalCount },
+                ],
+                trendsFilter: { display: ChartDisplayType.ActionsPie },
+            }),
             expected: [ChartDisplayType.ActionsDonut, ChartDisplayType.ActionsBarValue, ChartDisplayType.Metric],
         },
-    ])('$name', ({ query, expected }) => {
-        expect(getChartAlternatives(compatibleOptions, query).map((option) => option.display)).toEqual(expected)
+        {
+            name: 'suggests the proportion bar with the other parts-of-a-whole charts when its flag is on',
+            hasProportionBarChart: true,
+            query: makeTrendsQuery({
+                series: [
+                    { kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount },
+                    { kind: NodeKind.EventsNode, event: '$autocapture', math: BaseMathType.TotalCount },
+                ],
+                trendsFilter: { display: ChartDisplayType.ActionsPie },
+            }),
+            expected: [
+                ChartDisplayType.ActionsDonut,
+                ChartDisplayType.ActionsProportionBar,
+                ChartDisplayType.ActionsBarValue,
+            ],
+        },
+        {
+            name: 'does not suggest proportion charts for a pie chart of one series',
+            query: makeTrendsQuery({ trendsFilter: { display: ChartDisplayType.ActionsPie } }),
+            expected: [
+                ChartDisplayType.Metric,
+                ChartDisplayType.ActionsUnstackedBar,
+                ChartDisplayType.ActionsLineGraph,
+            ],
+        },
+        {
+            name: 'does not suggest proportion charts for a pie chart of one rendered formula',
+            query: makeTrendsQuery({
+                series: [
+                    { kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount },
+                    { kind: NodeKind.EventsNode, event: '$autocapture', math: BaseMathType.TotalCount },
+                ],
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsPie,
+                    formulas: ['A', 'B'],
+                    formulaNodes: [{ formula: 'A / B' }],
+                },
+            }),
+            expected: [
+                ChartDisplayType.Metric,
+                ChartDisplayType.ActionsUnstackedBar,
+                ChartDisplayType.ActionsLineGraph,
+            ],
+        },
+    ])('$name', ({ query, expected, hasProportionBarChart = false }) => {
+        expect(
+            getChartAlternatives(compatibleOptions(hasProportionBarChart), query).map((option) => option.display)
+        ).toEqual(expected)
     })
 })

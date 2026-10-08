@@ -14,14 +14,6 @@ export interface WorkflowResource {
     nextStepUri?: string
 }
 
-export interface ExampleResource {
-    id: string
-    name: string
-    description: string
-    file: string
-    uri: string
-}
-
 export interface DocResource {
     id: string
     name: string

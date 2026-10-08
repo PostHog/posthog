@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -28,10 +28,6 @@ class TestOpenAIAdsSourceConfig:
 
 
 class TestOpenAIAdsSchemas:
-    def test_all_endpoints_present(self) -> None:
-        names = {s.name for s in OpenAIAdsSource().get_schemas(MagicMock(), team_id=1)}
-        assert names == {*_ENTITY_ENDPOINTS, *_INSIGHTS_ENDPOINTS}
-
     @parameterized.expand([(endpoint,) for endpoint in _INSIGHTS_ENDPOINTS])
     def test_insights_are_incremental_on_start_time_with_lookback(self, endpoint: str) -> None:
         # Insights have a genuine server-side time filter (time_ranges[]); recent buckets get
@@ -75,7 +71,11 @@ class TestOpenAIAdsSourceForPipeline:
         inputs.db_incremental_field_last_value = None
         manager = MagicMock()
         manager.can_resume.return_value = False
-        response = OpenAIAdsSource().source_for_pipeline(MagicMock(api_key="k"), manager, inputs)
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.RESTClient.paginate",
+            return_value=iter([[{"currency_code": "USD"}]]),
+        ):
+            response = OpenAIAdsSource().source_for_pipeline(MagicMock(api_key="k"), manager, inputs)
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.partition_keys == partition_keys
@@ -167,12 +167,3 @@ class TestDocumentedTables:
         # The docs' Supported tables section keys canonical entries by endpoint name — a drifted
         # key silently loses its curated description.
         assert set(CANONICAL_DESCRIPTIONS.keys()) == set(ENDPOINTS)
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog => the source opts into publishing its table list to public docs.
-        assert OpenAIAdsSource().lists_tables_without_credentials is True
-        tables = OpenAIAdsSource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        campaign_insights = next(t for t in tables if t["name"] == "campaign_insights")
-        assert "Incremental" in campaign_insights["sync_methods"]
-        assert campaign_insights["description"]

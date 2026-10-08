@@ -5,7 +5,7 @@ import pytest
 import pyarrow as pa
 from parameterized import parameterized
 
-from products.batch_exports.backend.temporal.destinations.databricks_batch_export import DatabricksClient
+from products.batch_exports.backend.facade.destinations.databricks import DatabricksClient
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     DestinationBatchContext,
     DestinationRunContext,

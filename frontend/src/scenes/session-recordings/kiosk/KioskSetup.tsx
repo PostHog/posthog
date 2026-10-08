@@ -67,6 +67,7 @@ export function KioskSetup(): JSX.Element {
                 <div className="KioskSetup__field">
                     <label htmlFor="kiosk-date-range">Date range</label>
                     <LemonSelect
+                        data-attr="kiosk-setup-select"
                         id="kiosk-date-range"
                         value={dateFrom}
                         onChange={(value) => setDateFrom(value)}
@@ -114,6 +115,7 @@ export function KioskSetup(): JSX.Element {
                 </div>
 
                 <LemonButton
+                    data-attr="kiosk-start"
                     type="primary"
                     fullWidth
                     size="large"

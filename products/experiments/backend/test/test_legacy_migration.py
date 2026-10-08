@@ -68,15 +68,15 @@ class TestExperimentMigrateEndpoint(APILicensedTest):
         assert self.shared_metric.metadata is not None
         assert self.shared_metric.metadata["migrated_to"] == link.saved_metric_id
 
-    def test_migrated_metrics_are_reachable_through_the_ordering_arrays(self) -> None:
-        # The UI renders only what the ordering arrays list, so a metric missing from them is invisible.
+    def test_migrated_metrics_get_uuids_and_fingerprints(self) -> None:
         migrated = Experiment.objects.get(pk=self._migrate().json()["id"])
-        link = ExperimentToSavedMetric.objects.get(experiment=migrated)
 
         assert migrated.metrics is not None
-        assert migrated.primary_metrics_ordered_uuids == [migrated.metrics[0]["uuid"]]
-        assert migrated.secondary_metrics_ordered_uuids == [link.saved_metric.query["uuid"]]
+        assert migrated.metrics[0]["uuid"]
         assert migrated.metrics[0]["fingerprint"]
+        # No ordering is written: the results page renders stored order until someone reorders.
+        assert migrated.primary_metrics_ordered_uuids is None
+        assert migrated.secondary_metrics_ordered_uuids is None
 
     def test_the_copy_starts_unlinked_from_the_source_flag_rule(self) -> None:
         rule_id = uuid4()
@@ -112,6 +112,24 @@ class TestExperimentMigrateEndpoint(APILicensedTest):
         assert second.json()["id"] == first
         assert Experiment.objects.filter(team=self.team).count() == 2
         assert ExperimentSavedMetric.objects.filter(team=self.team).count() == 2
+
+    def test_names_the_shared_metric_that_converts_to_an_invalid_metric(self) -> None:
+        ExperimentSavedMetric.objects.filter(pk=self.shared_metric.pk).update(
+            query={"kind": "ExperimentFunnelsQuery", "funnels_query": {"series": []}}
+        )
+
+        response = self._migrate()
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            "Couldn't migrate this experiment: "
+            f'The shared metric "Legacy shared metric" (id {self.shared_metric.id}) is not valid: '
+            "funnel metrics require at least one step. "
+            "The experiment exposure event is added as the initial step automatically. "
+            "Contact support if it keeps happening."
+        )
+        assert Experiment.objects.filter(team=self.team).count() == 1
+        assert ExperimentSavedMetric.objects.filter(team=self.team).count() == 1
 
     def test_rejects_an_experiment_that_is_already_on_the_new_engine(self) -> None:
         Experiment.objects.filter(pk=self.experiment.pk).update(metrics=[])

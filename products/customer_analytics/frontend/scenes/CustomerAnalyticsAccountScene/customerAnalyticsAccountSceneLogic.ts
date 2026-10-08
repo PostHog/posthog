@@ -12,6 +12,8 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import { forms } from 'kea-forms'
+import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -19,17 +21,24 @@ import { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, UserType } from '~/types'
 
 import {
+    cleanDomains,
+    cleanEmails,
+} from 'products/customer_analytics/frontend/components/Accounts/accountEmailMatching'
+import {
     AccountExpansionTab,
-    DEFAULT_ACCOUNT_TAB,
     getVisibleAccountExpansionTab,
 } from 'products/customer_analytics/frontend/components/Accounts/accountsExpansionLogic'
+import { getAccountsBackUrl } from 'products/customer_analytics/frontend/components/Accounts/accountsViewSessionLogic'
 import { AccountsEvents } from 'products/customer_analytics/frontend/components/Accounts/constants'
 import {
     accountsByExternalIdRetrieve,
@@ -39,9 +48,34 @@ import {
 } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi, AccountPresenceViewerApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { ACCOUNT_ID_FIELDS, updateAccountNativeProperties, AccountNativePropertyPatch } from './accountNativeProperties'
+import { accountPropertyUpdatesLogic } from './accountPropertyUpdatesLogic'
 import { EXTERNAL_ACCOUNT_ROUTE_PATTERN, parseExternalAccountPath } from './customerAnalyticsAccountSceneUtils'
 
 const ACCOUNT_PRESENCE_POLL_INTERVAL_MS = 30_000
+
+type AccountIdFieldKey = (typeof ACCOUNT_ID_FIELDS)[number]['key']
+
+export type AccountEditFormValues = Record<AccountIdFieldKey, string> & {
+    name: string
+    email_domains: string[]
+    known_emails: string[]
+}
+
+function getAccountEditFormValues(account: AccountApi | null): AccountEditFormValues {
+    return {
+        name: account?.name ?? '',
+        website_domain: account?.properties?.website_domain ?? '',
+        billing_id: account?.properties?.billing_id ?? '',
+        slack_channel_id: account?.properties?.slack_channel_id ?? '',
+        sfdc_id: account?.properties?.sfdc_id ?? '',
+        stripe_customer_id: account?.properties?.stripe_customer_id ?? '',
+        email_domains: account?.properties?.email_domains ?? [],
+        known_emails: account?.properties?.known_emails ?? [],
+    }
+}
+
+const EMPTY_ACCOUNT_EDIT_FORM = getAccountEditFormValues(null)
 
 export interface CustomerAnalyticsAccountSceneLogicProps {
     accountId?: string
@@ -56,6 +90,17 @@ function accountDetailUrl(props: CustomerAnalyticsAccountSceneLogicProps, tab?: 
         : urls.customerAnalyticsAccount(props.accountId ?? '', tab)
 }
 
+function parseAccountTabRoute(tab: string | undefined): string | undefined {
+    if (!tab) {
+        return undefined
+    }
+    try {
+        return decodeURIComponent(tab)
+    } catch {
+        return tab
+    }
+}
+
 function isAccountNotFound(error: unknown): boolean {
     return error instanceof ApiError && error.status === 404
 }
@@ -64,15 +109,32 @@ function isAccountNotFound(error: unknown): boolean {
 export interface customerAnalyticsAccountSceneLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
+    currentTeamId: number | null // teamLogic
+    user: UserType | null // userLogic
     account: AccountApi | null
+    accountEditorOpen: boolean
+    accountEditorOpenedValues: AccountEditFormValues
+    accountForm: AccountEditFormValues
+    accountFormAllErrors: Record<string, any>
+    accountFormChanged: boolean
+    accountFormErrors: DeepPartialMap<AccountEditFormValues, ValidationErrorType>
+    accountFormHasErrors: boolean
+    accountFormManualErrors: Record<string, any>
+    accountFormTouched: boolean
+    accountFormTouches: Record<string, boolean>
+    accountFormValidationErrors: DeepPartialMap<AccountEditFormValues, ValidationErrorType>
     accountLoadError: unknown
     accountLoading: boolean
     accountPresenceError: unknown
     accountPresenceViewers: AccountPresenceViewerApi[]
     activeTab: AccountExpansionTab
     breadcrumbs: Breadcrumb[]
+    eventStreamModalOpen: boolean
+    isAccountFormSubmitting: boolean
+    isAccountFormValid: boolean
     isAccountMissing: boolean
     requestedTab: string
+    showAccountFormErrors: boolean
     tagsSaving: boolean
 }
 
@@ -85,6 +147,12 @@ export interface customerAnalyticsAccountSceneLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
+    closeAccountEditor: () => {
+        value: true
+    }
+    closeEventStreamModal: () => {
+        value: true
+    }
     loadAccount: () => {
         value: true
     }
@@ -103,14 +171,55 @@ export interface customerAnalyticsAccountSceneLogicActions {
     loadAccountSuccess: (account: AccountApi) => {
         account: AccountApi
     }
+    openAccountEditor: () => {
+        value: true
+    }
+    openEventStreamModal: () => {
+        value: true
+    }
+    resetAccountForm: (values?: AccountEditFormValues) => {
+        values?: AccountEditFormValues
+    }
     restoreActiveTab: (tab: string | undefined) => {
         tab: string
     }
-    setActiveTab: (tab: AccountExpansionTab) => {
-        tab: AccountExpansionTab
+    setAccountFormManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setAccountFormValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setAccountFormValues: (values: DeepPartial<AccountEditFormValues>) => {
+        values: DeepPartial<AccountEditFormValues>
+    }
+    setActiveTab: (tab: string) => {
+        tab: string
     }
     startAccountPresencePolling: (accountId: string) => {
         accountId: string
+    }
+    submitAccountForm: () => {
+        value: boolean
+    }
+    submitAccountFormFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitAccountFormRequest: (accountForm: AccountEditFormValues) => {
+        accountForm: AccountEditFormValues
+    }
+    submitAccountFormSuccess: (accountForm: AccountEditFormValues) => {
+        accountForm: AccountEditFormValues
+    }
+    touchAccountFormField: (key: string) => {
+        key: string
     }
     updateTags: (tags: string[]) => {
         tags: string[]
@@ -131,7 +240,12 @@ export interface customerAnalyticsAccountSceneLogicMeta {
             accountLoadError: unknown,
             arg: boolean
         ) => boolean
-        breadcrumbs: (account: AccountApi | null) => Breadcrumb[]
+        breadcrumbs: (
+            account: AccountApi | null,
+            user: UserType | null,
+            currentTeamId: number | null,
+            arg: any
+        ) => Breadcrumb[]
     }
 }
 
@@ -158,8 +272,16 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             `${props.projectId ?? 'unknown'}:${props.externalId ? 'external' : 'id'}:${props.externalId ?? props.accountId ?? 'invalid'}`
     ),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags', 'receivedFeatureFlags']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags', 'receivedFeatureFlags'],
+            teamLogic,
+            ['currentTeamId'],
+            userLogic,
+            ['user'],
+        ],
         actions: [featureFlagLogic, ['setFeatureFlags']],
+        logic: [accountPropertyUpdatesLogic],
     })),
     actions({
         loadAccount: true,
@@ -169,16 +291,73 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         loadAccountPresenceSuccess: (viewers: AccountPresenceViewerApi[]) => ({ viewers }),
         startAccountPresencePolling: (accountId: string) => ({ accountId }),
         loadAccountPresenceFailure: (error: unknown) => ({ error }),
-        setActiveTab: (tab: AccountExpansionTab) => ({ tab }),
-        restoreActiveTab: (tab: string | undefined) => ({ tab: tab ?? DEFAULT_ACCOUNT_TAB }),
+        setActiveTab: (tab: string) => ({ tab }),
+        restoreActiveTab: (tab: string | undefined) => ({ tab: tab ?? '' }),
         updateTags: (tags: string[]) => ({ tags }),
         updateTagsDone: (account: AccountApi | null) => ({ account }),
+        openAccountEditor: true,
+        closeAccountEditor: true,
+        openEventStreamModal: true,
+        closeEventStreamModal: true,
     }),
-    reducers({
+    forms(({ actions, props, values }) => ({
+        accountForm: {
+            defaults: EMPTY_ACCOUNT_EDIT_FORM,
+            errors: ({ name }: AccountEditFormValues) => ({
+                name: !name.trim()
+                    ? 'Enter an account name'
+                    : name.length > 400
+                      ? 'Use 400 characters or fewer'
+                      : undefined,
+            }),
+            submit: async (formValues: AccountEditFormValues) => {
+                if (!props.projectId || !values.account) {
+                    throw new Error('Could not determine the current project or account.')
+                }
+                const openedValues = values.accountEditorOpenedValues
+                const changedPropertyKeys = ACCOUNT_ID_FIELDS.map(({ key }) => key).filter(
+                    (key) => formValues[key] !== openedValues[key]
+                )
+                const name = formValues.name.trim()
+                // Sending only edited fields keeps concurrent edits to the other fields.
+                const listCleaners = { email_domains: cleanDomains, known_emails: cleanEmails }
+                const cleanedLists = {
+                    email_domains: cleanDomains(formValues.email_domains),
+                    known_emails: cleanEmails(formValues.known_emails),
+                }
+                const changedListKeys = (['email_domains', 'known_emails'] as const).filter(
+                    (key) => !objectsEqual(cleanedLists[key], listCleaners[key](openedValues[key]))
+                )
+                const changedProperties = {
+                    ...Object.fromEntries(changedPropertyKeys.map((key) => [key, formValues[key].trim() || null])),
+                    ...Object.fromEntries(changedListKeys.map((key) => [key, cleanedLists[key]])),
+                }
+                const updatedAccount = await updateAccountNativeProperties(
+                    props.projectId,
+                    values.account.id,
+                    changedProperties as AccountNativePropertyPatch,
+                    name !== openedValues.name ? name : undefined
+                )
+                accountPropertyUpdatesLogic.actions.accountUpdated(props.projectId, updatedAccount)
+                actions.loadAccountSuccess(updatedAccount)
+                posthog.capture(AccountsEvents.AccountEdited, {
+                    name_changed: name !== openedValues.name,
+                    changed_fields: [...changedPropertyKeys, ...changedListKeys],
+                })
+            },
+        },
+    })),
+    reducers(({ props }) => ({
         account: [
             null as AccountApi | null,
             {
                 loadAccountSuccess: (_, { account }) => account,
+                [accountPropertyUpdatesLogic.actionTypes.accountUpdated]: (state, { projectId, account }) =>
+                    projectId === props.projectId &&
+                    (account.id === (state?.id ?? props.accountId) ||
+                        (!state && !!props.externalId && account.external_id === props.externalId))
+                        ? account
+                        : state,
                 updateTags: (state, { tags }) => (state ? { ...state, tags } : state),
                 updateTagsDone: (state, { account }) => account ?? state,
             },
@@ -215,7 +394,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             },
         ],
         requestedTab: [
-            DEFAULT_ACCOUNT_TAB as string,
+            '',
             {
                 setActiveTab: (_, { tab }) => tab,
                 restoreActiveTab: (_, { tab }) => tab,
@@ -228,7 +407,13 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                 updateTagsDone: () => false,
             },
         ],
-    }),
+        accountEditorOpen: [false, { openAccountEditor: () => true, closeAccountEditor: () => false }],
+        accountEditorOpenedValues: [
+            EMPTY_ACCOUNT_EDIT_FORM,
+            { resetAccountForm: (_, { values }) => values ?? EMPTY_ACCOUNT_EDIT_FORM },
+        ],
+        eventStreamModalOpen: [false, { openEventStreamModal: () => true, closeEventStreamModal: () => false }],
+    })),
     selectors({
         activeTab: [
             (s) => [s.requestedTab, s.featureFlags],
@@ -245,12 +430,17 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             ): boolean => invalidRoute || (!account && !accountLoading && isAccountNotFound(accountLoadError)),
         ],
         breadcrumbs: [
-            (s) => [s.account],
-            (account: AccountApi | null): Breadcrumb[] => [
+            (s) => [s.account, s.user, s.currentTeamId, (_, props) => props.projectId],
+            (
+                account: AccountApi | null,
+                user: UserType | null,
+                currentTeamId: number | null,
+                projectId: number | undefined
+            ): Breadcrumb[] => [
                 {
                     key: Scene.CustomerAnalytics,
                     name: 'Accounts',
-                    path: urls.customerAnalyticsAccounts(),
+                    path: getAccountsBackUrl(currentTeamId === projectId ? currentTeamId : null, user?.uuid ?? null),
                     iconType: 'cohort',
                 },
                 {
@@ -262,6 +452,22 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         ],
     }),
     listeners(({ actions, cache, props, values }) => ({
+        openAccountEditor: () => {
+            actions.resetAccountForm(getAccountEditFormValues(values.account))
+            posthog.capture(AccountsEvents.AccountEditorOpened)
+        },
+        openEventStreamModal: () => {
+            posthog.capture(AccountsEvents.EventStreamModalOpened)
+        },
+        submitAccountFormSuccess: () => {
+            actions.closeAccountEditor()
+        },
+        submitAccountFormFailure: ({ error }) => {
+            lemonToast.error("Couldn't save the account. Try again.")
+            posthog.captureException(error instanceof Error ? error : new Error('Could not update account'), {
+                scope: 'customerAnalyticsAccountSceneLogic.submitAccountForm',
+            })
+        },
         setFeatureFlags: (_, __, ___, previousState) => {
             const previousFeatureFlags = featureFlagLogic.selectors.featureFlags(previousState)
             const previouslyReceivedFlags = featureFlagLogic.selectors.receivedFeatureFlags(previousState)
@@ -275,7 +481,13 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                 actions.loadAccount()
             }
         },
+        [accountPropertyUpdatesLogic.actionTypes.accountUpdated]: ({ projectId, account }) => {
+            if (projectId === props.projectId && account.id === values.account?.id) {
+                cache.accountRevision = (cache.accountRevision ?? 0) + 1
+            }
+        },
         loadAccount: async (_, breakpoint) => {
+            const revision = cache.accountRevision ?? 0
             try {
                 const projectId = props.projectId
                 const identifier = props.externalId ?? props.accountId
@@ -291,13 +503,19 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                     ? await accountsByExternalIdRetrieve(String(projectId), { external_id: identifier })
                     : await accountsRetrieve(String(projectId), identifier)
                 await breakpoint()
-                actions.loadAccountSuccess(account)
+                actions.loadAccountSuccess(
+                    revision === (cache.accountRevision ?? 0) ? account : (values.account ?? account)
+                )
             } catch (error) {
                 if (error instanceof Error && isBreakpoint(error)) {
                     throw error
                 }
                 await breakpoint()
-                actions.loadAccountFailure(error)
+                if (revision !== (cache.accountRevision ?? 0) && values.account) {
+                    actions.loadAccountSuccess(values.account)
+                } else {
+                    actions.loadAccountFailure(error)
+                }
             }
         },
         loadAccountSuccess: ({ account }) => {
@@ -350,6 +568,11 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                 }
             }
         },
+        updateTagsDone: ({ account }) => {
+            if (account && props.projectId) {
+                accountPropertyUpdatesLogic.actions.accountUpdated(props.projectId, account)
+            }
+        },
         setActiveTab: ({ tab }) => {
             posthog.capture(AccountsEvents.TabViewed, { tab })
         },
@@ -383,7 +606,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
     })),
     actionToUrl(({ props }) => ({
         setActiveTab: ({ tab }) => [
-            accountDetailUrl(props, tab === DEFAULT_ACCOUNT_TAB ? undefined : tab),
+            accountDetailUrl(props, tab),
             router.values.currentLocation.searchParams,
             router.values.currentLocation.hashParams,
         ],
@@ -398,10 +621,10 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         }
         return {
             [`${accountDetailUrl(props)}/:tab`]: ({ tab }) => {
-                actions.restoreActiveTab(tab)
+                actions.restoreActiveTab(parseAccountTabRoute(tab))
             },
             [accountDetailUrl(props)]: () => {
-                actions.restoreActiveTab(DEFAULT_ACCOUNT_TAB)
+                actions.restoreActiveTab(undefined)
             },
         }
     }),

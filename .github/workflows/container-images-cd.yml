@@ -62,7 +62,6 @@ jobs:
             contents: read
         outputs:
             image: ${{ steps.filter.outputs.image }}
-            agent_shadow: ${{ steps.filter.outputs.agent_shadow }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -78,15 +77,11 @@ jobs:
               continue-on-error: true
               with:
                   # `.dockerignore` strips every desktop path from the image build
-                  # context except agent-shadow, so a change anywhere else under
-                  # products/desktop cannot alter the image. An exclude cannot be
-                  # reversed inside one filter, so agent-shadow needs its own.
+                  # context, so a change under products/desktop cannot alter the image.
                   filters: |
                       image:
                         - '**'
                         - '!products/desktop/**'
-                      agent_shadow:
-                        - 'products/desktop/packages/agent-shadow/**'
 
     posthog_build:
         name: Build and push PostHog
@@ -102,10 +97,8 @@ jobs:
         # `needs`, which skips this job whenever `changes` did not succeed. Cancelling
         # the run still stops the build, which `always()` would not.
         if: |
-            !cancelled() && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && (
-                needs.changes.outputs.image != 'false' ||
-                needs.changes.outputs.agent_shadow == 'true'
-            )
+            !cancelled() && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' &&
+            needs.changes.outputs.image != 'false'
         runs-on: depot-ubuntu-24.04
         # Covers two bounded build attempts plus the post-build image-boot verification before
         # dispatch.
@@ -518,6 +511,17 @@ jobs:
                         - 'nodejs/src/scripts/record-replay*'
                         - 'nodejs/src/scripts/record-replay*/**'
 
+                      selfDriving:
+                        - 'products/signals/backend/**'
+                        - 'products/signals/skills/**'
+                        - 'products/autoresearch/backend/**'
+                        - 'posthog/settings/temporal.py'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
+
                       sessionReplay:
                         - 'posthog/temporal/session_replay/**'
                         - 'products/signals/backend/**'
@@ -555,6 +559,9 @@ jobs:
 
                       weeklyDigest:
                         - 'posthog/temporal/weekly_digest/**'
+                        - 'products/data_catalog/backend/**'
+                        - 'posthog/tasks/email.py'
+                        - 'posthog/models/organization_notification_lock.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - pyproject.toml
@@ -606,9 +613,40 @@ jobs:
                       # this replaces matched as one prefix.
                       dataWarehouse:
                         - 'posthog/hogql*/**'
+                        - 'products/warehouse_sources_queue/**'
+                        - 'posthog/temporal/data_modeling/**'
+                        - 'products/customer_analytics/backend/**'
+                        # The extract worker imports the whole warehouse_sources backend
+                        # (models, facade, scheduling, tasks) and the data_warehouse facade.
+                        - 'products/warehouse_sources/backend/**'
+                        - 'products/data_warehouse/backend/**'
+                        - 'posthog/warehouse/**'
+                        - Dockerfile
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
+
+                      # The CDP producer worker serves one task queue, and only the
+                      # dwh-cdp-producer-job workflow starts on that queue. That workflow
+                      # reads Delta tables and writes to Kafka. It never calls a source
+                      # implementation, so a change to one vendor directory, to the import
+                      # list of the vendors, or to the docs in sources/ cannot change this
+                      # worker. Every other path matches dataWarehouse, and sources/common
+                      # stays included because the pipeline code imports it.
+                      # A workflow that starts on this queue and calls source code must
+                      # remove these excludes in the same change.
+                      dataWarehouseCdpProducer:
+                        - 'posthog/hogql*/**'
+                        - 'products/warehouse_sources_queue/**'
                         - 'posthog/temporal/data_modeling/**'
                         - 'products/customer_analytics/backend/**'
                         - 'products/warehouse_sources/backend/temporal/data_imports/**'
+                        - '!products/warehouse_sources/backend/temporal/data_imports/sources/!(common)/*'
+                        - '!products/warehouse_sources/backend/temporal/data_imports/sources/!(common)/*/**'
+                        - '!products/warehouse_sources/backend/temporal/data_imports/sources/_load_all.py'
+                        - '!products/warehouse_sources/backend/temporal/data_imports/sources/*.md'
                         - 'posthog/warehouse/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
@@ -618,8 +656,11 @@ jobs:
 
                       warehouseSourcesLoad:
                         - 'products/warehouse_sources/backend/**'
+                        - 'products/warehouse_sources_queue/**'
                         - 'posthog/warehouse/**'
                         - 'products/data_warehouse/backend/**'
+                        # The loader imports the Temporal logger.
+                        - 'posthog/temporal/common/**'
                         - pyproject.toml
                         - Dockerfile
                         - 'posthog/clickhouse/migrations/**'
@@ -683,9 +724,12 @@ jobs:
                         - pyproject.toml
                         - bin/temporal-django-worker
                       # posthog/egress is included because the stamphog worker routes its
-                      # GitHub calls through the egress transport.
+                      # GitHub calls through the egress transport. products/stamphog/packages is
+                      # included because the worker copies the review engine from its own image
+                      # into every review sandbox, so an engine change ships only on a redeploy.
                       stamphog:
                         - 'products/stamphog/backend/**'
+                        - 'products/stamphog/packages/**'
                         - 'posthog/egress/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
@@ -731,27 +775,6 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ toJson(steps.labels.outputs.labels) }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Trigger Batch Exports Sync Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.batchExports == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
@@ -908,6 +931,27 @@ jobs:
                           }
                         },
                         "release": "temporal-worker-video-export",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+            - name: Trigger Self-Driving Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.selfDriving == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-self-driving",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},
@@ -1339,7 +1383,7 @@ jobs:
                       }
 
             - name: Trigger Data Warehouse CDP Producer Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.dataWarehouse == 'true'
+              if: steps.check_temporal_worker_changes.outputs.dataWarehouseCdpProducer == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}

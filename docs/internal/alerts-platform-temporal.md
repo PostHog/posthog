@@ -1,6 +1,6 @@
 # Alerts noop workers
 
-The Alerts product registers three queues through `products/alerts/backend/facade/temporal.py` and the shared `start_temporal_worker` command:
+The alerts platform registers three queues through `products/alerts_platform/backend/facade/temporal.py` and the shared `start_temporal_worker` command:
 
 | Setting in `posthog/settings/temporal.py`         | Queue                                             | Workflow                      |
 | ------------------------------------------------- | ------------------------------------------------- | ----------------------------- |
@@ -10,7 +10,7 @@ The Alerts product registers three queues through `products/alerts/backend/facad
 
 These queue names are hardcoded and stay separate even with `DEBUG=True`.
 Shared orchestration registers the orchestration workflow, the source dispatcher and a synthetic demand-discovery activity.
-The evaluation queue registers the evaluation workflow (`alerts-platform-evaluate`), each bound source evaluation, and the probe activity.
+The evaluation queue registers the evaluation workflow (`alerts-platform-evaluate`), the logs and insight source evaluations, the probe activity and the record-outcomes activity.
 Each schedule tick starts orchestration, which discovers demand once and then pages source dispatchers until the demand is exhausted or its dispatch budget is spent.
 Each dispatcher starts one evaluation child for its source. Evaluation runs the probe and starts its independent delivery child on the delivery queue.
 Start one worker for each queue:
@@ -26,12 +26,14 @@ The option defaults to 8001, which the shared development worker already binds, 
 The shared development worker does not poll these queues.
 See [Temporal development guidance](../../posthog/temporal/README.md) for worker setup.
 
-## Dev schedule
+## Tick schedule
 
 `python manage.py schedule_temporal_workflows` creates or updates `alerts-platform-check-due-schedule`
-only when `CLOUD_DEPLOYMENT=DEV`. The normal deployment migration step runs this command.
-Registration does nothing in production, local development, or other environments, even with `DEBUG=True`.
-It does not delete schedules created manually in those environments.
+in every deployment that runs it. The normal deployment migration step runs this command, and `bin/migrate`
+skips that step on hobby deploys and on local development. Only the `posthog-web-django` chart app enables
+that migration job, and it has dev, US and EU values files, so registration reaches those three and nowhere
+else. A new deployment that enables the job registers the schedule too. There is no per-region gate: the schedule is the same everywhere, and what differs between
+deployments is which configurations have been backfilled.
 
 The schedule starts `alerts-platform-orchestrate` with `{}` on the orchestration queue every minute (UTC).
 There is no routing flag: the flow is tick → orchestration → evaluation → delivery.
@@ -39,12 +41,35 @@ It uses SKIP overlap, a one-minute catchup window, a 50-second workflow executio
 and one workflow attempt. Creation does not trigger an immediate run; the next minute starts it.
 Delivery has no schedule: evaluation starts its delivery child.
 New schedules start unpaused. Registration updates existing schedules to this policy while retaining their state from Temporal, including manual pauses.
-To stop future smoke-test ticks, pause the schedule in Temporal; resume it there when ready. Pausing does not stop workflows already running.
-Disabling registration alone does not remove an existing Temporal schedule.
+To stop future ticks, pause the schedule in Temporal; resume it there when ready. Pausing does not stop workflows already running.
+Reverting the code that registers a schedule does not remove one already registered.
 
 Verify the Postgres activity result and the delivery child's completion separately.
 Parent completion does not prove either succeeded. Schedule creation also does not prove worker availability.
-Enable production only in a separate rollout after dev verification.
+
+### Turning a production deployment on
+
+A production tick is a shadow run. Delivery stops at `alerts-platform-deliver-preview`, which records what
+would have been sent and contacts no destination, so a production tick never notifies anybody and never
+writes a source product's rows. What it does cost is the evaluation queries its sources run, on top of the
+ones the source's own production fleet is already running for the same alerts.
+
+The tick's work is whatever `PlatformAlertConfiguration` rows exist, and nothing creates those on its own:
+`python manage.py backfill_platform_alert_configurations [--team-id N]` for logs and `python manage.py backfill_platform_insight_alert_configurations [--team-id N]` for insight are the only writers, and both are manual.
+So the order below puts the schedule in place while there is no demand, and load arrives when the backfill
+is run, one cohort at a time.
+
+1. Bring up that deployment's three `alerts-platform-*` workers and confirm all three are ready and
+   polling. Do this before the code that registers the schedule reaches the deployment. They cost nothing
+   while they idle, because no schedule is starting work for them yet.
+2. Let the deploy carry the code in. Migration-time reconciliation registers the schedule unpaused, and
+   with no configurations backfilled each tick discovers empty demand and exits.
+3. Backfill one team at a time with `--team-id` and watch that team's evaluation and preview metrics
+   before widening.
+
+Registering the schedule before the workers poll is untidy rather than dangerous: each tick is created,
+nothing picks up its workflow task, and the 50-second execution timeout closes it. That repeats every
+minute until the workers are ready, then stops on its own.
 
 ### Shared orchestration rollout and rollback
 
@@ -61,7 +86,7 @@ Schedule reconciliation routes directly to orchestration; merging the code alone
    Record the current image, queue configuration, and schedule action for rollback.
 2. Pause `alerts-product-check-due-schedule` if it exists, and stop manual starts and delivery-preview requests during the cutover.
    Before migration-time reconciliation runs with the new code, create `alerts-platform-check-due-schedule` in Temporal with its state explicitly paused.
-   Use the action and policy from [Dev schedule](#dev-schedule). If the new schedule already exists, pause it instead.
+   Use the action and policy from [Tick schedule](#tick-schedule). If the new schedule already exists, pause it instead.
    Pause state is preserved only for the same schedule ID; pausing the old ID does not pause a newly created schedule.
 3. Keep the old images polling all three `alerts-product-*` queues until queued and running orchestration, source-dispatch, evaluation, and delivery work drains.
    Verify this in Temporal rather than waiting a fixed interval. Delivery can outlive its parent, and manual runs can have different timeouts.
@@ -106,7 +131,7 @@ The empty `--input '{}'` becomes an `OrchestrateInputs` with every field default
 Watch orchestration, its source dispatcher children, their evaluation children, and the delivery great-grandchildren in the Temporal UI at <http://localhost:8081>.
 
 Evaluation and delivery accept an empty `AlertsPlatformInputs` dataclass; orchestration accepts `OrchestrateInputs` with all fields defaulted.
-Orchestration pages source dispatchers, which start evaluation children with a 75-second execution timeout and one workflow attempt.
+Orchestration pages source dispatchers, which start evaluation children with one workflow attempt, on the queue and under the execution timeout of the source's binding.
 Evaluation child IDs carry the tick ID, source and page, so each tick starts distinct evaluations.
 Evaluation runs a Postgres connectivity probe; delivery runs an empty activity with no I/O.
 Evaluation and delivery activities each have a 10-second start-to-close timeout and a 30-second schedule-to-close timeout.
@@ -121,7 +146,7 @@ Real notification delivery guarantees remain undecided.
 
 The evaluation workflow is `alerts-platform-evaluate` (class `AlertsPlatformEvaluateWorkflow`), the probe activity is `alerts_platform_probe_postgres_activity`, and the schedule is registered by `create_alerts_platform_tick_schedule`.
 These replace `alerts-product-check-due`, `alerts_product_check_due_activity` and `create_alerts_product_check_due_schedule`: discovery finds what is due and dispatchers hand it out, so this workflow only evaluates.
-A workflow type rename breaks runs of the old type that are in flight at deploy time: no worker knows the old name, so they fail. Dev evaluations live under their execution timeout, and production is off.
+A workflow type rename breaks runs of the old type that are in flight at deploy time: no worker knows the old name, so they fail. Dev evaluations live under their execution timeout, and no production deployment was registering the schedule when this rename landed. A later rename has to account for whichever deployments have since opted in.
 The schedule ID is `alerts-platform-check-due-schedule`, renamed from `alerts-product-check-due-schedule`.
 Registration never deletes a schedule, so the rollout above deletes the old ID by hand.
 
@@ -141,7 +166,10 @@ The hard stop is the run's own execution timeout when it has one, and the budget
 The orchestrator passes a dispatcher every remaining ID for its source. The dispatcher decides how much to take and returns the rest.
 Today it takes everything: no adapter has said yet how many alerts one evaluation can hold, so nothing remains and a tick is one page.
 The limit that will matter is the evaluation workflow's own history, which depends on the adapter's query shape; it arrives with the first real adapter.
-It starts one `alerts-platform-evaluate` child, ID `{dispatcher_id}-eval`, with `ParentClosePolicy.ABANDON`, a 75-second execution timeout (`SOURCE_EVALUATION_TIMEOUT`) and one attempt.
+It starts one evaluation child per key with `ParentClosePolicy.ABANDON` and one attempt.
+A source with an entry in `SOURCE_BINDINGS` (`temporal/sources.py`) starts the binding's workflow on the binding's `task_queue`, under its `evaluation_timeout`.
+A source with no binding starts `alerts-platform-evaluate` on the evaluation queue, under the 75-second `NOOP_EVALUATION_TIMEOUT`.
+Each source has its own timeout, so no source adopts the logs ceiling. Sources share the evaluation queue while their checks finish in seconds. A source whose checks hold a worker slot for minutes needs its own queue, so that it does not hold the slots the other sources need.
 The timeout has to hold every attempt a source's activities allow, because an attempt cut off here is a batch that decided something and recorded nothing.
 Evaluations are abandoned rather than awaited, so it does not have to fit inside the tick.
 It waits for the child to start, never for it to finish, then returns the dispatched count and the remaining IDs.
@@ -170,7 +198,8 @@ Scheduled runs use `TemporalScheduledStartTime`; manual runs use the workflow st
 Activity retries retain the same cutoff rather than reading the activity's clock.
 The activity returns an `AlertDemand` containing configuration IDs grouped by the shared `SourceKind` enum (`logs` and `insight`).
 Only nonempty groups are returned. Discovery does not reserve or claim IDs.
-Each source is bounded to `DISCOVERY_LIMIT_PER_SOURCE` IDs (1,000) so the manifest stays near 40 KB per source, under the repository's 256 KB rule for Temporal payload fields.
+Each source is bounded to its binding's `discovery_limit`, or to `DISCOVERY_LIMIT_PER_SOURCE` (1,000) without a binding, so the manifest stays near 40 KB per source, under the repository's 256 KB rule for Temporal payload fields.
+A source that admits fewer checks per tick sets a lower limit, because every key starts a workflow.
 `omitted_by_source` counts the due IDs left out. The tick adds that count to its `remaining` result, and the next tick discovers that work again.
 
 For now, `logic/demand.py` supplies deterministic synthetic configurations relative to that cutoff:
@@ -203,7 +232,7 @@ than within one.
 
 ## Source evaluation bindings
 
-`products/alerts/backend/temporal/sources.py` maps a `SourceKind` to the workflow name that evaluates it.
+`products/alerts_platform/backend/temporal/sources.py` maps a `SourceKind` to the workflow name that evaluates it.
 A source in that map gets its own workflow started by name, carrying one batch key and the tick cutoff.
 A source absent from it keeps the noop `alerts-platform-evaluate` path, which receives no key.
 The alerts product imports nothing from a source: the binding holds a name, and `test_every_source_evaluation_binding_names_a_registered_workflow` fails if that name is not registered on the evaluation queue.
@@ -212,7 +241,7 @@ The alerts product imports nothing from a source: the binding holds a name, and 
 
 ## Logs source evaluation
 
-`logs-alert-evaluate` evaluates one batch key, a team's alerts due in one minute, and previews one delivery per notification.
+`logs-alert-evaluate` evaluates one batch key, a team's alerts due in one minute, and previews one delivery per notification or incident edge.
 The evaluation is a plain function in `products/logs/backend/alert_source_cycle.py`, so a test calls it without Temporal.
 
 It writes its own state and never the logs product's rows.
@@ -221,14 +250,139 @@ so a write to those rows, a `LogsAlertEvent` row or a Kafka message here would t
 State transitions land on `PlatformAlert` and schedule advancement on `PlatformAlertConfiguration`, which the logs fleet never reads.
 Delivery stops at `alerts-platform-deliver-preview`, which records what would have been sent and contacts no destination.
 
-The lifecycle decision comes from `products/alerts/backend/facade/lifecycle.py` configured with `LOGS_ALERT_POLICY`,
+The lifecycle decision comes from `products/alerts_platform/backend/facade/lifecycle.py` configured with `LOGS_ALERT_POLICY`,
 which is the shared machine the logs product's own state machine is a thin adapter over.
 Going to the shared machine directly keeps the platform's lifecycle out of a source product's import path.
 
 It evaluates against the tick cutoff rather than the clock, so a retried attempt selects the same alerts,
 resolves the same windows and derives the same evaluation keys as the attempt it replaced.
 The due predicate is applied a second time here, because discovery ran earlier in the tick and a configuration
-can have been disabled, snoozed or broken since.
+can have been disabled or broken since.
+
+### Every check produces an outcome
+
+A check the source cannot evaluate still records what it decided, and the two cases decide differently.
+
+| Case                            | State                                   | Schedule                                                   |
+| ------------------------------- | --------------------------------------- | ---------------------------------------------------------- |
+| Filter config no data satisfies | BROKEN                                  | The next cadence step, though discovery stops selecting it |
+| Query failed                    | The shared machine's error path decides | The next cadence step                                      |
+
+A skip that records nothing leaves its due time where it was, so discovery hands the same check back every tick.
+That is the whole reason these exist: the work is not lost, it is repeated, and a permanently broken alert repeats it forever.
+The source reports the skip; the platform stays the only writer of `next_check_at`.
+
+The failure case goes through `evaluate_alert_check` with an errored `CheckInput`, so the shared machine raises
+`consecutive_failures` and escalates to BROKEN at five, and `classify_alert_error` decides whether the error is
+transient. A transient error advances the schedule but holds the counter, because a cluster outage must not
+disable every alert that ran during it.
+
+`suppressed` is the single definition of what holds a configuration back, and it is BROKEN alone.
+Both `discover_demand` and `due_checks` exclude on it. Discovery has to, because a broken alert that still mints
+a batch key spends the manifest bound on work its own evaluation then drops.
+It is one correlated `Exists` rather than a lookup across the relation: Django splits an excluded multi-valued
+lookup into a subquery per leaf, which would let the conditions match different alert rows once a source writes
+a real grouping key, and would bury them where Postgres cannot lift them into an anti-join.
+
+`alerts_platform_checks_skipped_total{source,reason}` counts these by reason.
+
+### What a check leaves behind
+
+Every check writes one row to `platform_alert_events` in ClickHouse, including a check that
+confirmed the alert.
+Postgres could not take that volume without a per-check retention flag, and a TTL'd ClickHouse
+table needs no such flag, so nothing has to decide which checks are worth keeping.
+
+The row is self-sufficient.
+`alert_name`, `condition_snapshot` and `source_config_snapshot` are read when the outcome is
+recorded, so a threshold edited between a check and a retried send cannot change what a message
+claims was breached, and a rename cannot make one thread contradict itself.
+The snapshots are taken at write time rather than shipped with the outcome, because a source's copy
+of `source_config` is a filter tree and shipping one per outcome would cost Temporal payload on
+every batch.
+
+The write happens after the Postgres transaction commits, not inside it.
+`insert_events` never raises: the alert's state and schedule are already written by then, so a
+ClickHouse outage costs a gap in history rather than an alert left due with its state unwritten.
+`alerts_platform_history_rows_dropped_total` counts that gap.
+
+`platform_alert_events` is a plain `ReplicatedMergeTree`, because every row is a distinct check
+and nothing supersedes anything.
+A `ReplacingMergeTree` would have made every count over the table wrong on any part a merge had
+not reached, and ClickHouse never promises a merge will run.
+
+ClickHouse has no unique constraint, so the insert carries an `insert_deduplication_token` naming
+the batch by its contents.
+A retried batch arrives under a token the engine has already seen and is dropped.
+A reader still deduplicates on `(alert_id, evaluation_key)`, because the token only covers a retry
+of the same batch and the engine only remembers a bounded window of them.
+
+`labels` lands empty and stays empty until a source groups its results.
+It is the group's identity, not the alert's filter scope; service and severity live in
+`source_config_snapshot`, which is where a message should read them.
+
+### A mute holds the announcement, not the check
+
+A snooze and a schedule restriction both mute. Neither stops a check.
+The alert evaluates on its cadence, transitions as its data says, and records what happened; only the
+announcement is held. `enabled=False` and BROKEN are the only states that stop a check.
+
+This is how a muted alert keeps telling the truth. Under the older behavior an incident that started and ended
+inside a quiet-hours window left no trace at all, and the alert's state stayed at whatever the last check before
+the window decided.
+
+The semantics arrive as `AlertPolicy.mute_gates_notification_only`, which the platform's
+`PLATFORM_LOGS_ALERT_POLICY` sets and production logs does not. The two stacks therefore disagree about a muted
+alert on purpose, and a comparison against the logs stack has to expect it.
+
+Three consequences worth stating:
+
+- `update_last_notified_at` is held with the announcement, so the cooldown keeps measuring real notifications.
+  An alert is never gated by a send that did not happen.
+- A mute holds FIRE and RESOLVE only. ERROR and BROKEN describe the alert's health rather than its condition,
+  and BROKEN stops future checks, so an announcement held there would never be released.
+- `next_check_at` stays on the cadence through a blocked window. Parking it at the end of the window is what the
+  older skip behavior did, and it also made every restricted alert for a team come due in the same minute.
+
+`AlertCheckOutcome.muted_notification` carries what was held, and
+`alerts_platform_notifications_muted_total{source,reason}` counts it by `snooze` or `quiet_hours`.
+
+### Incident edges ignore cooldown and mute
+
+A paging destination such as PagerDuty holds an incident open until it receives a resolve, so it needs one
+resolve for every trigger. Cooldown and mute hold back announcements while the state still moves, so a paging
+destination cannot follow announcements.
+
+`decide_incident_action` in `facade/lifecycle.py` reads the state before and after a transition: entering a
+firing is a trigger, leaving it for any reason is a resolve. It shares its firing rule with
+`decide_firing_episode`, so a policy that parks a firing alert in SNOOZED keeps its incident open there, and
+a snooze under any other policy ends the firing and resolves the incident.
+The legacy logs stack's `incident_edge` wraps the same rule.
+
+- The source decides the action under its own policy and puts it on `AlertDeliveryRequest.incident_actions`,
+  keyed by grouping key, because the history row does not record the policy.
+- The source sets an action only when the alert has a destination subscribed to its incident events, so an
+  alert without a paging destination starts no extra delivery.
+- A source sends a delivery whenever a check announces or moves a firing. A delivery that exists only for its
+  incident actions has `sends_messages=False`, and none of its rows reach a message destination.
+- `announcement()` also returns the held CHECK row of a group in `incident_grouping_keys`.
+- A mute never holds an incident edge: a fire inside quiet hours or a snooze triggers the incident.
+- Delivery routes each action to the event id in `event_ids_by_incident_action`, which only an incident
+  manager destination subscribes to. A message destination never sees an incident action.
+- The PagerDuty transport sends a trigger or a resolve with the `dedup_key`
+  `<configuration_id>:<grouping_key>:<episode_started_at>`, so a resolve closes the incident of its own
+  firing episode. It names the platform in `source`, because a team on the pilot also gets the HogFunction
+  path's incident.
+
+A fire a mute swallowed is still owed an announcement.
+`_firing_is_unannounced` in `facade/lifecycle.py` decides that, and its docstring holds the rule.
+Without it an alert reaches the end of its quiet hours already FIRING, and `renotify_while_firing`
+is false, so nobody is ever told.
+A recovery that happened entirely inside a mute is not announced when the mute lifts, which is what
+Datadog does and what a person muting an alert expects.
+Production logs gets the same reset on snooze expiry, by way of the SNOOZED branch in
+`evaluate_alert_check`; under mute semantics the state is never SNOOZED, so the reset needs its own
+signal.
 
 ### Evaluating and writing are separate activities
 
@@ -245,7 +399,7 @@ The write is safe to run twice. An attempt that commits leaves every configurati
 and a replay skips those rows rather than advancing them again and skipping a cycle.
 It runs in one transaction, so no alert is marked as notified while its schedule still says the check is due.
 
-`MAX_PREVIEWS_PER_CYCLE` bounds an outcome together with the delivery it belongs to.
+`MAX_DELIVERIES_PER_CYCLE` bounds an outcome together with the delivery it belongs to.
 Recording an outcome whose preview the batch cannot carry would leave an alert firing with nothing announcing it,
 and a firing alert does not fire again. Dropping the pair leaves it due, the way a truncated cohort already behaves.
 `alerts_platform_deliveries_deferred_total` counts them.
@@ -255,7 +409,7 @@ all come from the existing logs code, so a preview says what production would ha
 
 ### The query budget sits under the activity timeout
 
-Four bounds, largest first: `SOURCE_EVALUATION_TIMEOUT` (75s) over the source's `EVALUATION_BUDGET` (62s) over `EVALUATE_START_TO_CLOSE` (30s) over `BATCH_QUERY_BUDGET_SECONDS` (25s) over `MAX_QUERY_SECONDS` (20s).
+Four bounds, largest first: the logs binding's `evaluation_timeout` (75s) over the source's `EVALUATION_BUDGET` (62s) over `EVALUATE_START_TO_CLOSE` (30s) over `BATCH_QUERY_BUDGET_SECONDS` (25s) over `MAX_QUERY_SECONDS` (20s).
 Temporal bounds an attempt by whichever of start-to-close and schedule-to-close expires first, so schedule-to-close is derived as start-to-close plus a queue tolerance rather than written as a literal.
 A literal close to start-to-close lets queue time shorten the run below the query budget, which is the same inversion arriving by another route, on exactly the load that causes queueing.
 `test_the_evaluation_timeout_ladder_holds` asserts the whole ladder in one place.
@@ -276,7 +430,7 @@ Logs does not group yet; the list is the shape that lets fan-out change the eval
 ### Metrics
 
 The path emits through Temporal's own meter, so every series carries the worker, queue and activity attributes
-the runtime attaches. `products/alerts/backend/temporal/metrics.py` holds them and a source reaches them through
+the runtime attaches. `products/alerts_platform/backend/temporal/metrics.py` holds them and a source reaches them through
 `facade/platform_metrics.py`.
 
 | Metric                                                    | What it answers                                             |
@@ -305,6 +459,34 @@ python manage.py backfill_platform_alert_configurations
 Pass `--team-id` to copy one team's configurations only.
 It is a seed, not a sync: the logs product keeps the control plane, and a later change to a logs alert reaches these tables only on the next run.
 A second run updates rather than duplicates, because `legacy_configuration_id` carries the row each copy came from.
+A second run of either backfill, logs or insight, leaves an enabled copy's `next_check_at` alone unless it has none yet or its cadence changed, because the platform owns its schedule once the row exists. The logs product parks its own next check at the end of quiet hours, while the platform checks through them and only mutes. A new or re-enabled copy still takes the source's due time, which spreads a large copy's first checks the way the source spreads them.
+Each run also copies the logs alert's snooze onto its platform alert row, so a snoozed alert stays silent, and an alert unsnoozed since the last run is unsnoozed here too.
+
+Insight alerts are copied the same way:
+
+```bash
+python manage.py backfill_platform_insight_alert_configurations
+```
+
+It copies threshold alerts on an hourly or slower cadence only, and skips detector alerts and the real-time and 15-minute cadences.
+Run it only after the evaluation worker's chart sets `CLICKHOUSE_ALERTS_PLATFORM_INSIGHT_USER` and its token file.
+Insight checks tag their queries with `ClickHouseUser.ALERTS_PLATFORM_INSIGHT`, a user of their own, so the parallel run never takes from the per-user budget of the user that production insight alerts query as.
+Without that env the tag resolves to the worker's default user, which other workloads on the same servers already push against its concurrent query limit.
+Logs checks use their own user, `alerts_platform_logs`, on the logs cluster.
+
+Every copy adds ClickHouse load beside production's, so roll it out in steps.
+A full logs backfill hit ClickHouse's per-user concurrent query limit and had to be removed.
+
+1. Copy one internal team with `--team-id`, then a small sample with `--sample-percent`, for example 5. The sample is chosen by alert id, so a rerun copies the same alerts and a larger percentage only adds alerts.
+2. Watch the parallel run's ClickHouse cost in `query_log`: its `client_query_id` starts with `alerts-platform-insight:`.
+3. Watch scheduler lag for `source=insight`, and the `capacity` skip reason on the platform's skipped-check counter. Capacity skips mean ClickHouse refused the query for load.
+4. Widen the sample only while both stay flat. `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the concurrent checks whatever the sample size.
+5. Raise that cap from its default of 10 only while the daily count of refused queries, `exception_code = 202` in `query_log`, stays flat for both `alerts_platform_insight` and the user that production insight alerts query as. The first shows the parallel run's own contention. The second shows whether it reaches production through the server-wide limit. Do not size it from per-second concurrency, which overcounts because short queries that run back to back inside one second read as concurrent. Code 202 also covers the server-wide limit, so a rise is a reason to look rather than proof that the cap caused it.
+
+To stop the parallel run, pass `--disable`, with `--team-id` to stop one team.
+It switches the copies off and keeps their rows, state and history. Checks already running finish.
+Running the backfill again turns them back on at the production alert's next due time.
+An hourly alert on the platform checks on a UTC grid, while production checks it at the alert's creation minute, so the two stacks check an hourly alert at different minutes.
 
 ## Postgres connectivity probe
 

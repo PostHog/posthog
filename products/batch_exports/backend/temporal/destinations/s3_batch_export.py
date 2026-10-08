@@ -109,6 +109,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "S3IntegrationNotFoundError",
     # The linked Integration is the wrong kind or has invalid/missing credentials
     "IntegrationError",
+    # This environment has no external role configured to assume a customer's role with
+    "ExternalRoleArnNotConfiguredError",
 )
 
 LOGGER = get_write_only_logger(__name__)
@@ -282,6 +284,18 @@ class InvalidCredentialsError(Exception):
         super().__init__(message)
 
 
+class ExternalRoleArnNotConfiguredError(Exception):
+    """Raised when this environment has no role of ours to assume a customer's role with.
+
+    Role-based AWS access always goes through our own external role first. Without it every
+    attempt fails identically, regardless of how the customer's own role ARN is set up, so
+    retrying never helps.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("Role-based AWS access is not available: BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN is not set.")
+
+
 def s3_default_fields() -> list[BatchExportField]:
     """Default fields for an S3 batch export.
 
@@ -302,11 +316,11 @@ def s3_default_fields() -> list[BatchExportField]:
 class S3BatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into S3 or any S3-compatible bucket.
 
-    This Workflow is shared across every S3-family destination — `AwsS3`, `S3Compatible`,
-    and the legacy `S3` alias. The API surface validates per-destination input dataclasses
-    (`AwsS3BatchExportInputs`, `S3CompatibleBatchExportInputs`); Temporal's data converter
-    serializes them to JSON, and on deserialization fields not present on the narrower
-    input class fall through to their `S3BatchExportInputs` defaults.
+    This Workflow is shared by the `AwsS3` and `S3Compatible` destinations. The API surface
+    validates per-destination input dataclasses (`AwsS3BatchExportInputs`,
+    `S3CompatibleBatchExportInputs`); Temporal's data converter serializes them to JSON, and on
+    deserialization fields not present on the narrower input class fall through to their
+    `S3BatchExportInputs` defaults.
 
     This Workflow is intended to be executed both manually and by a Temporal Schedule.
     When ran by a schedule, `data_interval_end` should be set to `None` so that we will fetch the
@@ -430,6 +444,9 @@ async def get_credentials_using_user_aws_role(
             roles and/or policies may not be immediately available.
         delay: Initial delay in between connection attempts.
     """
+    if not settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN:
+        raise ExternalRoleArnNotConfiguredError()
+
     for attempt in range(1, max_attempts + 1):
         try:
             async with SESSION.client("sts") as sts:

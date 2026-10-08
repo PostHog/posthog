@@ -14,9 +14,10 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.web import SlackResponse, WebClient
 
 from posthog.dataclasses import frozen
-from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.redis import get_client
+from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.slack_charts import (
@@ -29,10 +30,8 @@ from products.signals.backend.scout_harness.slack_charts import (
 from products.signals.backend.slack_formatting import (
     chunk_slack_text,
     defuse_slack_tokens,
-    escape_slack_mrkdwn,
     group_segments_to_limit,
     prepare_slack_markdown,
-    slack_channel_id_from_target,
     split_markdown_by_headings,
     strip_chart_references,
 )
@@ -210,7 +209,7 @@ def _ensure_dm_recipient_eligible(slack: SlackIntegration, target_id: str) -> No
 
 
 def _slack_channel_id(channel: str) -> str:
-    channel_id = slack_channel_id_from_target(channel)
+    channel_id = channel_id_from_target(channel)
     if not channel_id:
         raise ScoutSlackPermanentDeliveryError(
             "The configured Slack channel is empty",
@@ -280,7 +279,7 @@ def post_scout_emission_to_slack(
 
     blocks, fallback = build_scout_slack_message(emission)
     blocks.extend(_scout_invite_footer(integration, scout_team_id=emission.team_id, channel_id=channel_id))
-    slack = SlackIntegration(integration)
+    slack = SlackIntegration(integration, source="signals_scout")
     client = slack.client
     try:
         _ensure_dm_recipient_eligible(slack, channel_id)
@@ -386,7 +385,7 @@ _LATEST_REPORT_DELIVERY_TTL_SECONDS = 24 * 60 * 60
 
 def _latest_report_delivery_key(report_id: str, integration_id: int, channel: str) -> str:
     # The resolved channel id, so two configs naming one channel differently share a marker.
-    channel_id = slack_channel_id_from_target(channel)
+    channel_id = channel_id_from_target(channel)
     return f"signals_scout:slack_report_latest_delivery:{report_id}:{integration_id}:{channel_id}"
 
 
@@ -715,7 +714,7 @@ def post_scout_report_to_slack(
         integration_id=integration_id,
         project_id=report.team.project_id,
     )
-    slack = SlackIntegration(integration)
+    slack = SlackIntegration(integration, source="signals_scout")
     client = slack.client
     lead_blocks = [
         *messages.lead_blocks,

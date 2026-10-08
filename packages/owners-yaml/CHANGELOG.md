@@ -11,6 +11,20 @@ the GitHub Release body, so add the entry here before you cut the tag.
 
 ### Added
 
+- The resolution of a path that the resolver's tree does not hold carries `added`: the first part of the path, from the root, that the tree does not hold as a directory, and the owners of additions there. Resolved against the tree before a change, this names the new directory for every file a change adds, so a consumer can use `additions` without its own tree walk. `null` when the tree holds the path, or when the resolver reads only ownership files. SPEC sections 4 and 7.2 define it.
+- An optional `sensitive` field, at file level and in rules, marks paths where a small change can change behavior far outside the change. The nearest value wins, as for `status`. The format only states the fact; a consumer decides what to do with it, for example a review assigner that requests the owners for each change. It never makes a review required. An alias file such as `product.yaml` can set it too, so a manifest that already used a `sensitive` key for another purpose now marks its paths as sensitive. `SPEC.md` section 3.7 defines it.
+- The resolver response carries a `sensitive` member, and `Resolution` a `sensitive` field. A consumer treats a missing member as `false`.
+- `lint` warns about a sensitive path that has no owners, because a consumer has no owner to request a review from.
+
+### Changed
+
+- A field that a tool does not know is a warning, not an error, at the top level, in a rule, in `teams`, and in `codeowners`. A file that uses a field from a newer release then still passes an older `lint`. `parse_owners_file` takes an optional `warnings` list that collects them. SPEC section 3 adds the rule that an amendment only adds a field that a tool can safely ignore.
+
+## 0.3.0
+
+### Added
+
+- `--producer NAME` on `owners resolve` and on `python -m owners_yaml`, and a `producer` argument on `OwnersResolver`. Without it, a team that maps `notifications` per producer was never matched, so every bot fell back to the team's `slack` channel. A name the root file's `producers` list does not declare is an error, because it would silently route to the people channel. SPEC section 7.1 now defines the producer as part of a resolver request.
 - An optional `additions` field, at file level and in rules, names the owners of additions below a directory, separate from the owners of the files in it. The format only names them; a consumer decides what counts as an addition and what to do with the list. Unlike `owners`, the owners of additions from every file on the walk and every matching rule add up, and `inherit: false` still cuts them. `SPEC.md` section 3.6 defines it.
 - The resolver response carries an `additions` member, and `Resolution` an `additions` field. Consumers that ignore unknown members, as SPEC section 7.4 requires, are unaffected. SPEC section 7.4 requires a consumer to treat a missing member as an empty array.
 - `lint` fails on a rule that names a tracked directory without the trailing `/`, such as `docs` for `docs/`. A literal last segment also matches a file of that name, so the slash says which one is meant.
@@ -21,14 +35,9 @@ the GitHub Release body, so add the entry here before you cut the tag.
 - Path normalization removes a trailing `/`. `products/new/` and `products/new` now resolve alike; before, the slash put the directory's own ownership file on the walk.
 - Every matching rule in a file now applies, and each replaces only the fields it sets. Before, the last matching rule replaced the earlier ones entirely, so a rule that set only `status` dropped the `owners` an earlier rule had set. `SPEC.md` section 3.4 records the amendment.
 
-## 0.2.1
-
-### Added
-
-- `--producer NAME` on `owners resolve` and on `python -m owners_yaml`, and a `producer` argument on `OwnersResolver`. Without it, a team that maps `notifications` per producer was never matched, so every bot fell back to the team's `slack` channel. A name the root file's `producers` list does not declare is an error, because it would silently route to the people channel. SPEC section 7.1 now defines the producer as part of a resolver request.
-
 ### Docs
 
+- The PyPI project page links to the new website, [owners-yaml.posthog.dev](https://owners-yaml.posthog.dev), as its homepage. The README links to it too.
 - The `notifications` example in the README and the command next to it now agree: a per-producer mapping needs `--purpose notifications --producer review-bot`. A plain channel string covers all automation.
 - The install section warns that the PyPI project named `owners` is a different package. Always write `owners-yaml`.
 - "Lint in CI" says what plain `lint` does not check: it does not know which teams exist, `lint --live` asks GitHub through the `gh` CLI, and `who` and `resolve` answer from the parent directory when a file does not parse.

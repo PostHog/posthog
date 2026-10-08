@@ -12,7 +12,7 @@
 
 - Environment:
   - This is a full dev environment with `node`, `pnpm`, a package mirror and `apt`. A missing `node_modules`, browser binary or flox means setup has not run yet (`pnpm install`, `npx playwright install --with-deps chromium`), not that running things is impossible — install it and continue. Report "can't run" only for a specific, nameable failure (no network, no `apt`, out of memory), alongside whatever fallback you took.
-  - Visual and UX work is not confirmed by reading the code. Render the affected surface (Storybook via a headless browser) and compare before and after. Worth the setup cost.
+  - Visual and UX work is not confirmed by reading the code. Render the affected surface (the running app, or Storybook via a headless browser) and compare before and after. Worth the setup cost. A story written only for this check is scratch: keep it out of the commit.
   - Use flox when available — prefer `flox activate -- bash -c "<command>"` if commands fail
     - Never use `flox activate` in interactive sessions (it hangs if you try)
 - Tests:
@@ -36,7 +36,7 @@
 ## Commits and Pull Requests
 
 - Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for all commit messages and PR titles.
-- When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update a relevant existing doc under `docs/` **in the same PR**. If none exists, make no docs change.
+- When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update an existing doc under `docs/` **whose scope covers that behavior** in the same PR. If none exists, make no docs change and put PR-specific context in the PR description. `project-structure.md` is a high-level directory map; feature behavior, UI controls, command usage, and worktree notes do not belong there.
 - A new `docs/**` file requires a person to request that specific document in the current conversation. Existing related docs, PR checklists, and general docs requirements do not authorize one. Put PR-specific context in the PR description.
 
 ### Commit types
@@ -66,7 +66,7 @@ Invoke `/writing-pr-descriptions` before writing the body — it carries the sha
 Always fill the `## 🤖 Agent context` section, including the exact model that wrote the code.
 NEVER put sensitive information in a PR description or comment. A user may share sensitive data in an agent session; none of it belongs on the PR.
 
-**Screenshots:** Upload frontend/visual changes with `hogli pr:upload-image <file>` and embed the printed markdown. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
+**Screenshots:** Show frontend/visual changes with a screenshot, or with a feature reel when `/writing-pr-descriptions` calls for one. Upload with `hogli pr:upload-image <file>` and embed the printed markdown. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
 
 ### Rules
 
@@ -137,6 +137,7 @@ Examples:
 - CI uploads test results to Trunk Flaky Tests; the `trunk` MCP server in `.mcp.json` queries per-test flakiness on a PR or `master` (authenticate via `/mcp`, or a `TRUNK_API_TOKEN` bearer header when headless) — see `/debugging-ci-failures` and `/fixing-flaky-tests`
 - **A workflow edit reaches every open PR before those branches rebase.** It runs against the PR merged with master, but a companion change — a new dependency, file, or config — only arrives when the branch rebases. A workflow that starts requiring something unrebased branches lack fails every in-flight PR before its tests run. Make the new behavior degrade gracefully, or gate it. This has broken CI repeatedly.
 - Mechanical workflow rules (`timeout-minutes`, concurrency, dispatch budget, path filters, gate hygiene) are enforced by `hogli lint:workflows` and actionlint, which are the source of truth. `/authoring-ci-workflows` explains the reasoning behind each.
+- **A directory of tests that read event properties belongs in `.github/new-events-schema-targets.txt`.** Backend CI reruns the listed paths against the native-JSON events table. A test outside the list runs on the legacy table only. Add the `test-new-events-schema` label when a diff needs the whole backend suite on both tables, such as an event ingestion change or event reads tested outside the list. Label while the PR is a draft, or push again after labeling, because label events do not start Backend CI.
 - **A pull request never publishes a package or release.** `[lint: github-actions-publish-on-pull-request]` A published version is public forever, and a pull request run executes code its author controls. Publish only from a `push` to `master`, a release tag, or a `workflow_dispatch` on `master`. A pull request run only builds and validates, for example with `--dry-run`. The semgrep rule cannot see a publisher inside a reusable workflow, so gate that job in the called workflow too. Never run a publish command by hand from a pull request branch. [`build-hogql-parser-npm.yml`](.github/workflows/build-hogql-parser-npm.yml) is the reference shape.
 
 ## Security
@@ -184,7 +185,7 @@ Each rule is tagged with what catches a violation.
 ### API schemas and generated types
 
 - **API views declare request/response schemas.** `[review]` Prefer `@validated_request` from `posthog.api.mixins`, or `@extend_schema` from drf-spectacular. A plain `ViewSet` method that validates manually needs `@extend_schema(request=YourSerializer)`; without it drf-spectacular cannot discover the request body and generated code gets an empty schema. Serializer fields need `help_text`. These flow into both frontend types and MCP tool schemas.
-- **Django serializers are the source of truth for frontend API types.** `[lint: build:openapi CI gate, prefer-codegen-api]` `hogli build:openapi` generates TypeScript via drf-spectacular and Orval into `frontend/src/generated/core/` and `products/{product}/frontend/generated/`. Never hand-edit `api.schemas.ts`, `api.ts` or `api.zod.ts` — change the serializer and regenerate. [Type system guide](docs/published/handbook/engineering/type-system.md) has the full pipeline.
+- **Django serializers are the source of truth for frontend API types.** `[lint: build:openapi CI gate, prefer-codegen-api, test_generated_files_are_registered.py]` `hogli build:openapi` generates TypeScript via drf-spectacular and Orval into `frontend/src/generated/core/` and `products/{product}/frontend/generated/`. Never hand-edit `api.schemas.ts`, `api.ts` or `api.zod.ts` — change the serializer and regenerate. A value list the frontend needs comes from a typed serializer field, not from a side script; other checked-in projections are entries in `tools/hogli-commands/hogli_commands/projections.py`. [Type system guide](docs/published/handbook/engineering/type-system.md) has the full pipeline.
 - MCP tools and MCP UI apps are generated from the same OpenAPI spec. `[review]` See [implementing MCP tools](docs/published/handbook/engineering/ai/implementing-mcp-tools.md) covers the YAML config and codegen. MCP UI apps live in `products/*/mcp/tools.yaml` under `ui_apps` — see [services/mcp/CONTRIBUTING.md](services/mcp/CONTRIBUTING.md) or `/implementing-mcp-ui-apps`.
 
 ### Async, storage and outbound calls
@@ -192,7 +193,7 @@ Each rule is tagged with what catches a violation.
 - **Do not use `posthoganalytics.capture()` in a Celery task** — events are silently lost. `[review]` Use `ph_scoped_capture` from `posthog.ph_client`; its docstring explains why.
 - **Temporal activity payloads cap at ~2 MiB — pass large data by reference.** `[review]` Activity inputs and outputs cross a gRPC boundary the server rejects above that (`blobSizeLimitError`). As a field-level rule: if a field could exceed ~256 KB serialized (query results, exported file contents, LLM context, rendered HTML, image bytes, unbounded `list[dict[str, Any]]`), write it to Postgres or object storage from inside the activity and return only the row ID or S3 key. The workflow already has any ID created earlier in the run. Shuttling large data through the workflow produces `PayloadSizeError` (`TMPRL1103`) as soon as the data crosses the limit.
 - **A Python `requests` call to GitHub or Slack under `common/`, `ee/`, `posthog/` or `products/` goes through `posthog/egress/`.** `[lint: github-api-calls-go-through-egress, slack-api-calls-go-through-egress]` Route it through the gated, recorded transport.
-- **Every other call to those hosts is on review.** `[review]` The rules match an inline URL in a Python `requests` call inside those four directories. A URL bound to a variable first, another transport such as `httpx`, another language, or a caller under `tools/` all pass CI.
+- **Every other call to those hosts goes through `posthog/egress/` too.** `[lint: github-api-calls-go-through-egress-wide, slack-api-calls-go-through-egress-wide]` The wide rules catch a URL bound to a variable or constant, `requests.Session`, `httpx`, `aiohttp`, `urllib.request`, and an aliased Slack SDK client. Another language, another vendor SDK, or a caller under `tools/` still passes CI, so a reader is the only control there.
 - **Any other third-party API that needs rate-limiting or egress telemetry belongs there too.** `[review]` Add a `<domain>/` incarnation (GitHub is the reference). No semgrep rule covers a new domain, so a raw client for one reaches master unless a reader catches it. `/routing-outbound-api-calls` decides the route and names the reference domain to copy.
 - **Object storage is SeaweedFS — do not add new MinIO dependencies.** `[review]` Both S3-compatible stores are SeaweedFS: `objectstorage` (`:19000`, `OBJECT_STORAGE_*`) for general storage, `seaweedfs` (`:8333`, `SESSION_RECORDING_V2_S3_*`) for session replay v2. MinIO survives only as one-off salvage tooling: `bin/migrate-storage-hobby` starts a temporary container to read an old hobby MinIO volume. Do not add compose services, scripts, tests or docs that stand up a `minio/minio` container. Talk to storage through the existing config and a standard S3 client, never a hardcoded endpoint. Note `objectstorage` registers credentials at runtime and returns `InvalidAccessKeyId` until that finishes, so wait for its readiness sentinel rather than the container start.
 
@@ -202,7 +203,7 @@ Each rule is tagged with what catches a violation.
 
 ### LLM gateway
 
-- **`services/llm-gateway` is under an unofficial code freeze** while callers move to [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway). `[review]` New callers and features belong on the Go gateway. A Python gateway change needs a documented parity blocker for an active caller and stays limited to it — read [`services/llm-gateway/PARITY.md`](services/llm-gateway/PARITY.md). Its Postgres role reads only allowlisted tables: a new table read needs the SELECT grant landed in posthog-cloud-infra for every environment first, then a declaration in `required_tables.py`. The readiness probe checks every declared grant on every probe, so a missing grant holds a rollout instead of serving 500s. Use `/auditing-llm-gateway-parity` for contract changes, `/finding-llm-gateway-migration-candidates` to pick the next caller, `/migrating-llm-gateway-callers` to move one.
+- **`services/llm-gateway` is under an unofficial code freeze** while callers move to [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway). `[review]` If a task asks you to change it, tell the user about the freeze in your reply. New callers and features belong on the Go gateway. A Python gateway change needs a documented parity blocker for an active caller and stays limited to it — read [`services/llm-gateway/PARITY.md`](services/llm-gateway/PARITY.md). Its Postgres role reads only allowlisted tables: a new table read needs the SELECT grant landed in posthog-cloud-infra for every environment first, then a declaration in `required_tables.py`. The readiness probe checks every declared grant on every probe, so a missing grant holds a rollout instead of serving 500s. Use `/auditing-llm-gateway-parity` for contract changes, `/finding-llm-gateway-migration-candidates` to pick the next caller, `/migrating-llm-gateway-callers` to move one.
 
 ## Code Style
 
@@ -224,7 +225,7 @@ Same tags as above: `[lint: <id>]` is machine-enforced, `[review]` is not.
 - **TypeScript with explicit return types. Business logic goes in the kea logic file, not a React hook.** `[review]`
 - **Guard every network-triggering button against double submission.** `[review]` Disable it and show a loading state (`loading` / `disabledReason` on `LemonButton`, or equivalent) while the request is in flight, and reset in both the success and error paths. Applies to `<form onSubmit>`, any `onClick` that calls `api.*`, and any kea `listener` that issues a request. Wire in the in-flight state from a loader `*Loading` selector, a reducer, or local `useState`.
 - **Every surface must hold up narrow.** `[review]` The nav sidebar plus an open side panel leave a 1280px window about 520px of scene. Break on container queries, not `md:`/`lg:`/`xl:`. Wrap or truncate rather than clip, and stack halves that no longer fit. Render at a few widths before calling it done. We do not support mobile — no phone-width layouts, no touch-sized targets. See "Rule 6" in [frontend/src/AGENTS.md](frontend/src/AGENTS.md).
-- **quill is for MCP apps and the desktop app; LemonUI is for everything else.** `[review]` quill is deliberately more compact, so it looks out of place in the main app, and there is no migration of the main app onto it. In `frontend/src/` and `products/*/frontend/` use LemonUI, including menus — `LemonMenu` with a `LemonButton` trigger. `lib/ui/DropdownMenu` (Radix) is legacy; do not add new ones. Where quill is right, do not mix the two inside one component, and remember quill uses Base UI's `render` prop, not Radix's `asChild`. Read [primitives/AGENTS.md](packages/quill/packages/primitives/AGENTS.md) before importing quill — it covers component choice and spacing. Charts: [/working-with-charts](.agents/skills/working-with-charts/SKILL.md) for consumers, [charts/AGENTS.md](packages/quill/packages/charts/AGENTS.md) for library changes. DataTable and DateTimePicker: [components/AGENTS.md](packages/quill/packages/components/AGENTS.md).
+- **quill is for MCP apps, the desktop app, and the web app UI behind the `today-rail-nav` feature flag; LemonUI is for the rest of the web app.** `[review]` `today-rail-nav` gates a quill redesign of the whole web app UI, built alongside the current UI and kept behind the flag for months. Build or change UI on that path with quill, and read [frontend/src/design.md](frontend/src/design.md) first: it holds the components, tokens and decision rules. The current UI stays on LemonUI while the flag exists: do not add quill to it or convert it in place. On that flag-off path in `frontend/src/` and `products/*/frontend/` use LemonUI, including menus — `LemonMenu` with a `LemonButton` trigger. `lib/ui/DropdownMenu` (Radix) is legacy; do not add new ones. Where quill is right, do not mix the two inside one component, and remember quill uses Base UI's `render` prop, not Radix's `asChild`. Read [primitives/AGENTS.md](packages/quill/packages/primitives/AGENTS.md) before importing quill — it covers component choice and spacing. Charts: [/working-with-charts](.agents/skills/working-with-charts/SKILL.md) for consumers, [charts/AGENTS.md](packages/quill/packages/charts/AGENTS.md) for library changes. DataTable and DateTimePicker: [components/AGENTS.md](packages/quill/packages/components/AGENTS.md).
 - Use tailwind utility classes over inline styles, and `lib/dayjs` over a direct dayjs import. `[review]` oxlint warns on a `style` prop through `react/forbid-dom-props`, but a warning does not block.
 
 ### Comments
@@ -253,6 +254,15 @@ For any text a person reads (UI labels, tooltips, empty/error states, notificati
 - Plain language, no jargon. Use the labels users see, not internal names (`surveyPopupDelaySeconds` becomes "Delay the survey popup").
 - Be direct and friendly: short sentences, consistent tone across surfaces.
 - Errors and empty states guide, don't dead-end: say what happened and the next action.
+
+## Feature usage tracking
+
+- **Every feature is tracked end to end.** A user's path through a feature, from entry to outcome, emits events that show whether people start it, finish it, and where they drop off.
+- **Features adjacent to your work get tracking too.** A feature is adjacent when it shares a scene or a user flow with your change. When an adjacent feature has no tracking, add it in the same change.
+- **Check usage of tracked adjacent features.** Run a subagent that queries each tracked adjacent feature's usage over the last 6 months.
+  - Fewer than 100 interactions a week counts as low usage. Zero events in 6 months is the extreme case of low usage.
+  - Before you act on low usage, confirm the tracking fires: trigger the feature locally and check that the events arrive. Missing events can mean broken tracking, not an unused feature.
+  - Post each low-usage feature and its usage numbers in the platform UX Slack channel (Channel ID: `C08499A7REU`). The decision to keep or remove the feature is made there. Do not remove a feature before that decision.
 
 ## Agent automation
 
@@ -284,7 +294,6 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 - `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
 - `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
 - `/writing-pr-descriptions` — writing or editing any PR body, before `gh pr create` or `gh pr edit --body`
-- `/reviewing-with-coderabbit` — before `gh pr create`, and whenever a review of a branch is asked for; when the CLI is unavailable the PR opens without a local pass, never with `/code-review` or review subagents in its place
 
 **Invoke when in the area:**
 

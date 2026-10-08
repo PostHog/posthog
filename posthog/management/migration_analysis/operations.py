@@ -943,8 +943,9 @@ Use RunSQL wrapped in SeparateDatabaseAndState:
 class _SafeConcurrentIndexAnalyzer(OperationAnalyzer):
     """Base for the PostHog concurrent-index helpers.
 
-    All four (the raw-SQL CreateIndexConcurrently / DropIndexConcurrently and
-    the state-aware SafeAddIndexConcurrently / SafeRemoveIndexConcurrently)
+    All of them (the raw-SQL CreateIndexConcurrently / DropIndexConcurrently and
+    the state-aware SafeAddIndexConcurrently / SafeRemoveIndexConcurrently /
+    DropFieldIndexesConcurrently)
     encode the guarantees ConcurrentIndexIdempotencyPolicy enforces - timeout
     disabling, invalid-leftover recovery, and skip-if-already-applied - so they
     are safe by construction. Scoring them SAFE (vs the default "unknown
@@ -975,6 +976,19 @@ class CreateIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
 
 class DropIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
     operation_type = "DropIndexConcurrently"
+
+
+class DropFieldIndexesConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
+    operation_type = "DropFieldIndexesConcurrently"
+
+    def analyze(self, op) -> OperationRisk:
+        # The op takes a field, and derives the index names from it only when the migration applies.
+        return OperationRisk(
+            type=self.operation_type,
+            score=self.default_score,
+            reason=self.safe_reason,
+            details={"model": op.model_name, "field": op.name},
+        )
 
 
 class SafeAddIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
@@ -1013,6 +1027,32 @@ class DropForeignKeyAnalyzer(OperationAnalyzer):
 The transaction holds the parent locks until COMMIT. Keep this op alone in its migration, next to state-only operations at most, and pass every key on the table to one op with `column=[...]`.
 
 Irreversible. Add the constraint back with `AddForeignKeyNotValid` in a new migration rather than by unapplying this one.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
+        )
+
+
+class DropColumnConstraintsAnalyzer(OperationAnalyzer):
+    """The check and unique rules that go with a retiring column.
+
+    Every drop is a catalog change on one table, taken under one bounded lock phase, so it
+    scores with DropForeignKey. LockPhaseTransactionPolicy checks the rest of the transaction.
+    """
+
+    operation_type = "DropColumnConstraints"
+    default_score = 1
+
+    def analyze(self, op) -> OperationRisk:
+        return OperationRisk(
+            type=self.operation_type,
+            score=1,
+            reason="DROP CONSTRAINT and DROP INDEX for retiring columns are catalog changes (bounded lock phase, no table scan)",
+            details={"table": getattr(op, "table", None), "columns": getattr(op, "columns", None)},
+            guidance=f"""Finds every check and unique rule on the columns in the catalog, so it also drops rules no migration file names any more. Run it before the release that stops writing the columns, because a check that requires them then rejects every insert.
+
+The transaction holds the table lock until COMMIT. Keep this op alone in its migration, next to state-only operations at most.
+
+Irreversible. Add a rule back in a new migration rather than by unapplying this one.
 
 [See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
         )

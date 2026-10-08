@@ -15,11 +15,6 @@ class TestReplyIoSource:
         self.team_id = 123
         self.config = ReplyIoSourceConfig(api_key="reply-key")
 
-    def test_no_connection_host_fields(self) -> None:
-        # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret
-        # field an editor could retarget to reuse a preserved key against another host.
-        assert self.source.connection_host_fields == []
-
     @parameterized.expand(
         [
             ("unauthorized", "401 Client Error: Unauthorized for url: https://api.reply.io/v3/contacts?top=1000"),

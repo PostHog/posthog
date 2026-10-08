@@ -24,6 +24,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.project_secret_api_key import delete_project_secret_api_keys_for_token
 from posthog.models.signals import mutable_receiver, secret_api_token_rotated
 from posthog.models.utils import (
     UUIDTClassicModel,
@@ -43,8 +44,6 @@ from posthog.settings.utils import get_list
 # without booting Django; re-exported here for existing callers.
 from posthog.week_start_day import WeekStartDay  # noqa: F401
 
-from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
-
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema_enums import CurrencyCode, PersonsOnEventsMode
 from .extensions import get_or_create_team_extension
@@ -56,6 +55,8 @@ if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
 
     from posthog.models.user import User
+
+    from products.dashboards.backend.models.dashboard import Dashboard
 
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
@@ -633,6 +634,25 @@ class Team(UUIDTClassicModel):
         blank=True,
     )  # Dashboard shown on project homepage
 
+    # Exposed as a field on TeamSerializer/ProjectSerializer, so this descriptor is required per
+    # posthog/models/team/README.md ("An extension exposed as a nested field on the team or
+    # project serializer is the exception, and does need the descriptor.").
+    @property
+    def home_tab_dashboard(self) -> "Dashboard | None":
+        from products.dashboards.backend.models import TeamHomeTabDashboardConfig
+
+        config = TeamHomeTabDashboardConfig.objects.for_team(self.pk).select_related("dashboard").first()
+        dashboard = config.dashboard if config else None
+        return dashboard if dashboard and not dashboard.deleted and dashboard.team_id == self.pk else None
+
+    @home_tab_dashboard.setter
+    def home_tab_dashboard(self, dashboard: "Dashboard | None") -> None:
+        from products.dashboards.backend.models import TeamHomeTabDashboardConfig
+
+        config, _ = TeamHomeTabDashboardConfig.objects.for_team(self.pk).get_or_create(team_id=self.pk)
+        config.dashboard = dashboard
+        config.save(update_fields=["dashboard"])
+
     default_data_theme = field_access_control(models.IntegerField(null=True, blank=True), "project", "admin")
 
     # Generic field for storing any team-specific context
@@ -745,13 +765,11 @@ class Team(UUIDTClassicModel):
     def customer_analytics_config(self):
         from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 
-        return get_or_create_team_extension(
-            self, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
-        )
+        return get_or_create_team_extension(self, TeamCustomerAnalyticsConfig)
 
     @cached_property
     def workflows_config(self):
-        from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+        from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
         return get_or_create_team_extension(self, TeamWorkflowsConfig)
 
@@ -987,9 +1005,24 @@ class Team(UUIDTClassicModel):
         old_primary_token = self.secret_api_token
         new_token = generate_random_token_secret()
         expired_token = self.secret_api_token_backup
-        self.secret_api_token = new_token
-        self.secret_api_token_backup = old_primary_token
-        self.save()
+        # One transaction with the signal receivers: the conversations signing secret must
+        # never diverge from the column, so a failed copy rolls the rotation back whole.
+        try:
+            with transaction.atomic():
+                self.secret_api_token = new_token
+                self.secret_api_token_backup = old_primary_token
+                self.save()
+                if expired_token:
+                    # The migrated PSAK row holding this exact token (#63111 backfill) must
+                    # retire with it, or the dropped token keeps authenticating via PSAK.
+                    delete_project_secret_api_keys_for_token(self.id, expired_token)
+                secret_api_token_rotated.send(sender=self.__class__, team=self)
+        except Exception:
+            # save() already cached this team (post_save) with the new tokens, which the
+            # rollback discarded. Rewrite that entry from the committed row.
+            self.refresh_from_db(fields=["secret_api_token", "secret_api_token_backup"])
+            set_team_in_cache(self.api_token, self)
+            raise
 
         set_team_in_cache(new_token, self)
         # Old token needs to continue to work until it's deleted.
@@ -998,8 +1031,6 @@ class Team(UUIDTClassicModel):
         if expired_token:
             # Clear the previous backup token from cache since it's being replaced
             set_team_in_cache(expired_token, None)
-
-        secret_api_token_rotated.send(sender=self.__class__, team=self)
 
         # Build up the changes.
 
@@ -1115,7 +1146,6 @@ class Team(UUIDTClassicModel):
 
     def delete_secret_token_backup_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-        from posthog.models.utils import mask_key_value
 
         old_backup_token = self.secret_api_token_backup
         if not old_backup_token:
@@ -1123,8 +1153,17 @@ class Team(UUIDTClassicModel):
             return
 
         masked_old_backup_token = mask_key_value(old_backup_token)
-        self.secret_api_token_backup = None
-        self.save()
+        try:
+            with transaction.atomic():
+                self.secret_api_token_backup = None
+                self.save()
+                delete_project_secret_api_keys_for_token(self.id, old_backup_token)
+        except Exception:
+            # save() already cached this team (post_save) with the cleared backup, which
+            # the rollback discarded. Rewrite that entry from the committed row.
+            self.refresh_from_db(fields=["secret_api_token_backup"])
+            set_team_in_cache(self.api_token, self)
+            raise
         set_team_in_cache(old_backup_token, None)
 
         log_activity(

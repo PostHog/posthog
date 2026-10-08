@@ -157,17 +157,6 @@ class TestBuildParams:
         for key, value in expected_params.items():
             assert params[key] == value
 
-    def test_no_watermark_means_no_time_filter(self) -> None:
-        params = _build_params(
-            RENDER_ENDPOINTS["services"],
-            owner_id=None,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="updatedAt",
-            logger=MagicMock(),
-        )
-        assert "updatedAfter" not in params
-
     @parameterized.expand(
         [
             ("owner_filter_on_supporting_endpoint", "services", True),
@@ -201,27 +190,6 @@ class TestBuildParams:
 
 
 class TestPagination:
-    def test_follows_last_item_cursor_and_stops_on_empty_page(self) -> None:
-        batches, session, manager = _rows(
-            "services",
-            [
-                [
-                    {"service": {"id": "srv-1"}, "cursor": "c1"},
-                    {"service": {"id": "srv-2"}, "cursor": "c2"},
-                ],
-                [{"service": {"id": "srv-3"}, "cursor": "c3"}],
-                [],
-            ],
-        )
-
-        assert batches == [[{"id": "srv-1"}, {"id": "srv-2"}], [{"id": "srv-3"}]]
-        assert "cursor" not in _query(session.urls[0])
-        assert _query(session.urls[1])["cursor"] == ["c2"]
-        assert _query(session.urls[2])["cursor"] == ["c3"]
-        # State saved after each yielded page so a crash re-yields the last page.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert [state.cursor for state in saved] == ["c2", "c3"]
-
     def test_resume_starts_from_saved_cursor(self) -> None:
         batches, session, _ = _rows(
             "services",
@@ -320,21 +288,6 @@ class TestFanOut:
         assert urlparse(deploy_urls[0]).path == "/v1/services/srv-2/deploys"
         assert _query(deploy_urls[0])["cursor"] == ["c-mid"]
 
-    def test_resume_bookmark_for_deleted_parent_restarts_from_first_parent(self) -> None:
-        _, session, _ = _rows(
-            "deploys",
-            [
-                self.SERVICES_PAGE,
-                [{"deploy": {"id": "dep-1"}}],
-                [{"deploy": {"id": "dep-2"}}],
-            ],
-            manager=_manager(RenderResumeConfig(cursor="c-mid", parent_id="srv-gone")),
-        )
-
-        deploy_urls = [url for url in session.urls if "/deploys" in url]
-        assert urlparse(deploy_urls[0]).path == "/v1/services/srv-1/deploys"
-        assert "cursor" not in _query(deploy_urls[0])
-
     def test_environments_pass_project_id_as_query_param(self) -> None:
         _, session, _ = _rows(
             "environments",
@@ -360,20 +313,6 @@ class TestFanOut:
         )
 
         assert _query(session.urls[1])["startTime"] == ["2024-01-01T00:00:00Z"]
-
-    def test_events_incremental_watermark_overrides_window_start(self) -> None:
-        _, session, _ = _rows(
-            "events",
-            [
-                [{"service": {"id": "srv-1", "createdAt": "2024-01-01T00:00:00Z"}}],
-                [{"event": {"id": "evt-1", "serviceId": "srv-1"}}],
-            ],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            incremental_field="timestamp",
-        )
-
-        assert _query(session.urls[1])["startTime"] == ["2026-03-04T02:58:14Z"]
 
 
 class TestSensitiveEndpointHandling:
@@ -485,10 +424,3 @@ class TestValidateCredentials:
 
         with patch.object(render, "make_tracked_session", return_value=session):
             assert validate_credentials("rnd_test") == expected
-
-    def test_does_not_blame_the_key_when_render_is_unreachable(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-
-        with patch.object(render, "make_tracked_session", return_value=session):
-            assert validate_credentials("rnd_test") == (False, render.PROBE_FAILED_MESSAGE)

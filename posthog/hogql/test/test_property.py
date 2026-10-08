@@ -6,7 +6,7 @@ from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_mate
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -30,6 +30,7 @@ from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property import (
     BEHAVIORAL_PROPERTY_FILTER_FLAG,
     action_to_expr,
+    element_property_key_to_breakdown_expr,
     entity_to_expr,
     has_aggregation,
     map_virtual_properties,
@@ -45,6 +46,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
 from posthog.models import Property, PropertyDefinition, Team
+from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import get_property_string_expr
 from posthog.utils import relative_date_parse
@@ -76,6 +78,19 @@ def field_parts_read_by(expr: ast.Expr) -> set[str]:
     return collector.parts
 
 
+class TestElementBreakdownExpression(SimpleTestCase):
+    def test_tag_name_breakdown_matches_bare_inner_tag(self):
+        self.assertEqual(
+            clear_locations(element_property_key_to_breakdown_expr("tag_name")),
+            clear_locations(parse_expr("extract(elements_chain, '(?:^|;)([A-Za-z][A-Za-z0-9_-]*)(?:[.]|$|:|;)')")),
+        )
+
+    @parameterized.expand(["selector", "id", "garbage"])
+    def test_unsupported_key_raises_query_error(self, key: str):
+        with self.assertRaises(QueryError):
+            element_property_key_to_breakdown_expr(key)
+
+
 class TestProperty(BaseTest):
     maxDiff = None
 
@@ -96,9 +111,16 @@ class TestProperty(BaseTest):
             Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"]
         ] = None,
         strict: bool = True,
+        cohort_via_distinct_id: bool = False,
     ):
         return clear_locations(
-            property_to_expr(property, team=team or self.team, scope=scope or "event", strict=strict)
+            property_to_expr(
+                property,
+                team=team or self.team,
+                scope=scope or "event",
+                strict=strict,
+                cohort_via_distinct_id=cohort_via_distinct_id,
+            )
         )
 
     def _selector_to_expr(self, selector: str):
@@ -169,8 +191,54 @@ class TestProperty(BaseTest):
             self._property_to_expr(
                 Property(type="group", group_type_index=0, key="arr", operator="gt", value=100), scope="group"
             ),
-            self._parse_expr("properties.arr > 100"),
+            self._parse_expr("toFloat(properties.arr) > 100"),
         )
+
+    @parameterized.expand(
+        [
+            # `$group_key` is the group's key column, not an entry in its property JSON
+            ("event_scope", {"group_type_index": 0, "value": "org_123"}, None, "group_0.key = 'org_123'"),
+            ("group_scope", {"group_type_index": 2, "value": "org_123"}, "group", "key = 'org_123'"),
+            # groups.key is a String column, so a numeric key has to reach it as a string
+            ("numeric_value", {"group_type_index": 0, "value": 13}, None, "group_0.key = '13'"),
+            (
+                "multiple_values",
+                {"group_type_index": 0, "value": ["org_1", "org_2"]},
+                None,
+                "group_0.key in ('org_1', 'org_2')",
+            ),
+            # Multi-value starts_with expands per value by recursing with the original key, so the
+            # column has to survive that round trip
+            (
+                "multi_value_starts_with",
+                {"group_type_index": 0, "operator": "starts_with", "value": ["org_1", "org_2"]},
+                None,
+                "toString(group_0.key) ilike 'org_1%' or toString(group_0.key) ilike 'org_2%'",
+            ),
+        ]
+    )
+    def test_property_to_expr_group_key(
+        self, _name: str, filter_fields: dict[str, Any], scope: Optional[Literal["group"]], expected: str
+    ) -> None:
+        self.assertEqual(
+            self._property_to_expr({"type": "group", "key": "$group_key", **filter_fields}, scope=scope),
+            self._parse_expr(expected),
+        )
+
+    def test_property_to_expr_group_key_prints_the_group_join(self) -> None:
+        # The AST tests above stop at `group_0.key`; this proves the resolver reaches the groups table's
+        # key column through the events lazy join and does not fall back to a JSON extract.
+        where = self._property_to_expr({"type": "group", "group_type_index": 0, "key": "$group_key", "value": "org_1"})
+        query = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=where,
+        )
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql, _ = prepare_and_print_ast(query, context=context, dialect="clickhouse")
+        assert "groups" in sql
+        assert "group_key" in sql
+        assert "group_properties" not in sql
 
     def test_property_to_expr_group_booleans(self):
         PropertyDefinition.objects.create(
@@ -212,19 +280,19 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gt"}),
-            self._parse_expr("properties.a > '3'"),
+            self._parse_expr("toFloat(properties.a) > 3.0"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lt"}),
-            self._parse_expr("properties.a < '3'"),
+            self._parse_expr("toFloat(properties.a) < 3.0"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gte"}),
-            self._parse_expr("properties.a >= '3'"),
+            self._parse_expr("toFloat(properties.a) >= 3.0"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lte"}),
-            self._parse_expr("properties.a <= '3'"),
+            self._parse_expr("toFloat(properties.a) <= 3.0"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "icontains"}),
@@ -401,16 +469,6 @@ class TestProperty(BaseTest):
             ),
         )
 
-    def test_property_to_expr_generic_lt_gt_unchanged(self):
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lt"}),
-            self._parse_expr("properties.a < '3'"),
-        )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gt"}),
-            self._parse_expr("properties.a > '3'"),
-        )
-
     @parameterized.expand(
         [
             ("is_date_before_relative", "-10m", "is_date_before", ast.CompareOperationOp.Lt, "2025-06-09 12:00:00"),
@@ -428,6 +486,38 @@ class TestProperty(BaseTest):
         assert len(result.right.args) == 1
         assert isinstance(result.right.args[0], ast.Constant)
         assert result.right.args[0].value == expected_rhs
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_property_to_expr_event_dotted_key_reads_one_flat_path(self):
+        # A filter key is one property name however many dots it holds, so the native read must bind the escaped
+        # path name rather than descend into `properties.a.b`.
+        expr = self._property_to_expr({"type": "event", "key": "a.b", "value": "x"})
+        self.assertEqual(expr, self._parse_expr("properties.`a.b` = 'x'"))
+
+        query = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=expr,
+        )
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql, _ = prepare_and_print_ast(query, context=context, dialect="clickhouse")
+        self.assertIn("getSubcolumn(events.properties, %(hogql_val_", sql)
+        self.assertNotIn("events.properties.a", sql)
+        self.assertEqual(set(context.values.values()) - {"x"}, {"a%2Eb", "^`a%2Eb`"})
+
+    def test_property_string_expr_reads_dotted_key_as_one_flat_path_on_native_table(self):
+        # Raw-SQL readers must bind the escaped path name like the printer does, and stay safe for callers that
+        # run the SQL through `%` parameter substitution.
+        expr, _ = get_property_string_expr("events", "a.b", "'a.b'", "properties", use_new_events_schema=True)
+        self.assertNotIn("%", expr)
+
+        document = '{"a.b": "flat", "a": {"b": "nested"}}'
+        [(value,)] = sync_execute(
+            f"SELECT {expr} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties) AS events",
+            {"raw": document, "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
+            settings={"json_type_escape_dots_in_keys": 1, "type_json_skip_duplicated_paths": 1},
+        )
+        self.assertEqual(value, "flat")
 
     def test_property_to_expr_event_list(self):
         # positive
@@ -752,19 +842,20 @@ class TestProperty(BaseTest):
             ),
             self._parse_expr("toString(elements_chain_href) ilike '%href-text.%'"),
         )
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "element",
-                    "key": "text",
-                    "value": "text-text.",
-                    "operator": "regex",
-                }
-            ),
-            self._parse_expr(
-                "arrayExists(text -> ifNull(match(toString(text), 'text-text.'), 0), elements_chain_texts)"
-            ),
-        )
+        for text_key in ("text", "$el_text"):
+            self.assertEqual(
+                self._property_to_expr(
+                    {
+                        "type": "element",
+                        "key": text_key,
+                        "value": "text-text.",
+                        "operator": "regex",
+                    }
+                ),
+                self._parse_expr(
+                    "arrayExists(text -> ifNull(match(toString(text), 'text-text.'), 0), elements_chain_texts)"
+                ),
+            )
 
     def test_property_groups(self):
         self.assertEqual(
@@ -868,12 +959,16 @@ class TestProperty(BaseTest):
     def test_selector_to_expr(self):
         self.assertEqual(
             self._selector_to_expr("div"),
-            clear_locations(elements_chain_match("(^|;)div[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
+            clear_locations(
+                elements_chain_match('(^|;)div(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))')
+            ),
         )
         self.assertEqual(
             self._selector_to_expr("div > div"),
             clear_locations(
-                elements_chain_match("(^|;)div[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))div[^;]*?($|;|:([^;^\\s]*(;|$|\\s))).*")
+                elements_chain_match(
+                    '(^|;)div(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))div(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s))).*'
+                )
             ),
         )
         self.assertEqual(
@@ -881,20 +976,32 @@ class TestProperty(BaseTest):
             clear_locations(
                 parse_expr(
                     "{regex} and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0",
-                    {"regex": elements_chain_match('(^|;)a.*?href="boo".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))')},
+                    {
+                        "regex": elements_chain_match(
+                            '(^|;)a(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?href="boo"(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                        )
+                    },
                 )
             ),
         )
         self.assertEqual(
             self._selector_to_expr(".class"),
-            clear_locations(elements_chain_match("(^|;).*?\\.class[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
+            clear_locations(
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.class(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
         )
         self.assertEqual(
             self._selector_to_expr("a#withid"),
             clear_locations(
                 parse_expr(
                     """{regex} and indexOf(elements_chain_ids, 'withid') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
-                    {"regex": elements_chain_match('(^|;)a.*?attr_id="withid".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))')},
+                    {
+                        "regex": elements_chain_match(
+                            '(^|;)a(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?attr_id="withid"(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                        )
+                    },
                 )
             ),
         )
@@ -906,7 +1013,7 @@ class TestProperty(BaseTest):
                     """{regex} and indexOf(elements_chain_ids, 'with-dashed-id') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
                     {
                         "regex": elements_chain_match(
-                            '(^|;)a.*?attr_id="with\\-dashed\\-id".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                            '(^|;)a(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?attr_id="with\\-dashed\\-id"(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
                         )
                     },
                 )
@@ -921,6 +1028,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr("#with-dashed-id"),
             self._selector_to_expr("[id='with-dashed-id']"),
         )
+        self.assertEqual(self._selector_to_expr("#a[id='b']"), ast.Constant(value=False))
         self.assertEqual(
             self._selector_to_expr("#with\\slashed\\id"),
             clear_locations(
@@ -936,7 +1044,9 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._selector_to_expr(".sm:[max-width:640px]"),
             clear_locations(
-                elements_chain_match("(^|;).*?\\.sm:\\[max\\-width:640px\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.sm:\\[max\\-width:640px\\](?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
             ),
         )
 
@@ -944,7 +1054,9 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._selector_to_expr(".w-[calc(100%-2rem)]"),
             clear_locations(
-                elements_chain_match("(^|;).*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\](?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
             ),
         )
 
@@ -953,7 +1065,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr(".shadow-[0_4px_6px_rgba(0,0,0,0.1)]"),
             clear_locations(
                 elements_chain_match(
-                    "(^|;).*?\\.shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))"
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\](?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
                 )
             ),
         )
@@ -961,7 +1073,11 @@ class TestProperty(BaseTest):
         # Test Tailwind fraction/opacity class with a slash
         self.assertEqual(
             self._selector_to_expr(".bg-yellow/50"),
-            clear_locations(elements_chain_match("(^|;).*?\\.bg\\-yellow/50[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
+            clear_locations(
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.bg\\-yellow/50(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
         )
 
     def test_cohort_filter_static(self):
@@ -983,6 +1099,30 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
             self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
+        )
+
+    @parameterized.expand(
+        [
+            ("in", {}, "IN"),
+            ("negation", {"negation": True}, "NOT IN"),
+            ("not_in_operator", {"operator": "not_in"}, "NOT IN"),
+        ]
+    )
+    def test_cohort_filter_via_distinct_id(self, _name: str, extra: dict, expected_op: str):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "cohort", "key": "id", "value": cohort.pk, **extra},
+                self.team,
+                cohort_via_distinct_id=True,
+            ),
+            self._parse_expr(
+                f"distinct_id {expected_op} "
+                f"(SELECT distinct_id FROM person_distinct_ids WHERE person_id IN COHORT {cohort.pk})"
+            ),
         )
 
     def test_cohort_filter_missing_cohort(self):
@@ -1355,6 +1495,67 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "event", "key": "count", "value": [5, 6], "operator": "exact"}),
             self._parse_expr("properties.count in (5, 6)"),
         )
+        # ordered operators leave a Numeric-typed LHS alone too, with no toFloat wrap
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "count", "value": 5, "operator": "gt"}),
+            self._parse_expr("properties.count > 5"),
+        )
+
+    @parameterized.expand(
+        [
+            ("person", "person", None),
+            ("event", "event", None),
+            ("group", "group", 0),
+        ]
+    )
+    def test_property_to_expr_ordered_numeric_filter_on_string_property(self, _name, property_type, group_type_index):
+        # An ordered numeric filter on a string-typed (or as-yet-undefined) property compiles to
+        # <String> > <number>, which ClickHouse rejects at read time with NO_COMMON_TYPE (386), so
+        # the LHS needs a toFloat (accurateCastOrNull) cast that drops non-numeric values instead.
+        base: dict = {"type": property_type, "key": "prop", "value": 200, "operator": "gt"}
+        if group_type_index is not None:
+            base["group_type_index"] = group_type_index
+        prefix = {"person": "person.properties", "event": "properties", "group": "group_0.properties"}[property_type]
+
+        for operator, symbol in [("gt", ">"), ("lt", "<"), ("gte", ">="), ("lte", "<=")]:
+            self.assertEqual(
+                self._property_to_expr({**base, "operator": operator}),
+                self._parse_expr(f"toFloat({prefix}.prop) {symbol} 200"),
+            )
+        self.assertEqual(
+            self._property_to_expr({**base, "operator": "between", "value": [5, 10]}),
+            self._parse_expr(f"toFloat({prefix}.prop) >= 5 and toFloat({prefix}.prop) <= 10"),
+        )
+        self.assertEqual(
+            self._property_to_expr({**base, "operator": "not_between", "value": [5, 10]}),
+            self._parse_expr(
+                f"toFloat({prefix}.prop) < 5 or toFloat({prefix}.prop) > 10 or isNull(toFloat({prefix}.prop))"
+            ),
+        )
+        # a non-numeric string value keeps the uncoerced String comparison
+        self.assertEqual(
+            self._property_to_expr({**base, "value": "abc"}),
+            self._parse_expr(f"{prefix}.prop > 'abc'"),
+        )
+
+    def test_property_to_expr_numeric_text_bound_parses_against_coerced_lhs(self):
+        # The filter UI submits a typed-in bound as text, so "200" must coerce like 200 does.
+        # Left uncoerced it compares lexicographically: "9" > "200" matches even though 9 < 200.
+        expr = self._property_to_expr({"type": "event", "key": "prop", "value": "200", "operator": "gt"})
+        assert isinstance(expr, ast.CompareOperation)
+        self.assertEqual(expr.left, ast.Call(name="toFloat", args=[ast.Field(chain=["properties", "prop"])]))
+        assert isinstance(expr.right, ast.Constant)
+        self.assertIsInstance(expr.right.value, float)
+        self.assertEqual(expr.right.value, 200.0)
+
+        # between bounds are validated numeric, so text bounds coerce there too
+        expr = self._property_to_expr({"type": "event", "key": "prop", "value": ["5", "10"], "operator": "between"})
+        assert isinstance(expr, ast.And)
+        upper = expr.exprs[1]
+        assert isinstance(upper, ast.CompareOperation)
+        assert isinstance(upper.right, ast.Constant)
+        self.assertIsInstance(upper.right.value, float)
+        self.assertEqual(upper.right.value, 10.0)
 
     def test_property_to_expr_event_metadata_invalid_scope(self):
         with self.assertRaises(Exception) as e:
@@ -1615,17 +1816,19 @@ class TestProperty(BaseTest):
     def test_property_to_expr_between_operator(self):
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18, 65]}),
-            self._parse_expr("(properties.age >= 18 AND properties.age <= 65)"),
+            self._parse_expr("(toFloat(properties.age) >= 18 AND toFloat(properties.age) <= 65)"),
         )
 
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "age", "operator": "between", "value": [25, 50]}),
-            self._parse_expr("(person.properties.age >= 25 AND person.properties.age <= 50)"),
+            self._parse_expr("(toFloat(person.properties.age) >= 25 AND toFloat(person.properties.age) <= 50)"),
         )
 
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "score", "operator": "not_between", "value": [0, 100]}),
-            self._parse_expr("(properties.score < 0 OR properties.score > 100 OR isNull(properties.score))"),
+            self._parse_expr(
+                "(toFloat(properties.score) < 0 OR toFloat(properties.score) > 100 OR isNull(toFloat(properties.score)))"
+            ),
         )
 
     def test_property_to_expr_between_operator_validation(self):
@@ -1688,25 +1891,25 @@ class TestProperty(BaseTest):
         # Test MIN operator (alias for GTE)
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "age", "operator": "min", "value": 18}),
-            self._parse_expr("properties.age >= 18"),
+            self._parse_expr("toFloat(properties.age) >= 18"),
         )
 
         # Test MAX operator (alias for LTE)
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "age", "operator": "max", "value": 65}),
-            self._parse_expr("properties.age <= 65"),
+            self._parse_expr("toFloat(properties.age) <= 65"),
         )
 
         # Test MIN with person properties
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "age", "operator": "min", "value": 25}),
-            self._parse_expr("person.properties.age >= 25"),
+            self._parse_expr("toFloat(person.properties.age) >= 25"),
         )
 
         # Test MAX with person properties
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "score", "operator": "max", "value": 100}),
-            self._parse_expr("person.properties.score <= 100"),
+            self._parse_expr("toFloat(person.properties.score) <= 100"),
         )
 
     def test_property_to_expr_semver_operators(self):
@@ -2012,6 +2215,14 @@ class TestProperty(BaseTest):
             assert self._property_to_expr({"type": "event", "key": key, "value": [], "operator": operator}) == (
                 ast.Constant(value=1)
             )
+
+    # Filters created via the API can carry a single scalar for IN/NOT IN. Rejecting the scalar
+    # fails every query that uses the stored filter, so it must compile like a one-element list.
+    @parameterized.expand([("in",), ("not_in",)])
+    def test_scalar_value_for_in_operator_compiles_as_single_element_list(self, operator: str):
+        assert self._property_to_expr(
+            {"type": "event", "key": "action", "value": "edit_video", "operator": operator}
+        ) == self._property_to_expr({"type": "event", "key": "action", "value": ["edit_video"], "operator": operator})
 
     def test_every_negative_operator_is_known(self):
         # A negative operator missing from operator_is_negative silently negates per element on
@@ -2519,9 +2730,9 @@ class TestPropertyDateOperatorsWithData(APIBaseTest):
 
     @parameterized.expand(
         [
-            # The native table infers DateTime for these values at ingest, and a non-UTC ClickHouse
-            # session renders a DateTime as local wall clock. Read back as UTC, u1 stays 10:00Z and
-            # u2 stays 18:00Z; read back as Los Angeles wall clock marked Z, both would fall before 14:00Z.
+            # A non-UTC ClickHouse session must not shift the stored value. Read back as UTC, u1 stays
+            # 10:00Z and u2 stays 18:00Z; read back as Los Angeles wall clock marked Z, both would fall
+            # before 14:00Z.
             ("la_session_is_date_before_iso_z", "2026-03-19T14:00:00Z", "is_date_before", 1),
             ("la_session_is_date_after_iso_z", "2026-03-19T14:00:00Z", "is_date_after", 1),
         ]

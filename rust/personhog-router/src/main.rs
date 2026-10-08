@@ -296,6 +296,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             LeaderBackendConfig {
                 num_partitions,
                 timeout: config.backend_timeout(),
+                num_channels: config.leader_channels,
+                http2_windows: config.backend_http2_windows(),
             },
             StashTable::with_bounds(
                 config.stash_max_messages_per_partition,
@@ -392,6 +394,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
     let keepalive_timeout = config.grpc_keepalive_timeout();
+    let http2_windows = config.grpc_http2_windows();
     let max_recv = config.grpc_max_recv_message_size;
     let retry_config = config.retry_config();
     tracing::info!("Starting gRPC server on {}", grpc_addr);
@@ -415,9 +418,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             max_recv,
             config.response_size_warn_bytes,
         );
-        let result = Server::builder()
+        let server = Server::builder()
             .http2_keepalive_interval(keepalive_interval)
-            .http2_keepalive_timeout(keepalive_timeout)
+            .http2_keepalive_timeout(keepalive_timeout);
+        let result = http2_windows
+            .apply_to_server(server)
             .layer(GrpcMetricsLayer::default())
             .add_service(proxy.clone())
             .add_service(IdentityProxyService(proxy.clone()))
@@ -466,6 +471,7 @@ async fn build_channel_backend(
                     retry_config: config.retry_config(),
                     keepalive_interval: config.backend_keepalive_interval(),
                     keepalive_timeout: config.backend_keepalive_timeout(),
+                    http2_windows: config.backend_http2_windows(),
                     num_channels: spec.num_channels,
                 },
             )),
@@ -491,6 +497,7 @@ async fn build_channel_backend(
                     connect_timeout: config.backend_connect_timeout(),
                     keepalive_interval: config.backend_keepalive_interval(),
                     keepalive_timeout: config.backend_keepalive_timeout(),
+                    http2_windows: config.backend_http2_windows(),
                 },
                 discovery_handle.shutdown_token(),
             );

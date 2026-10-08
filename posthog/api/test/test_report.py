@@ -158,6 +158,8 @@ class TestCspReport(BaseTest):
         assert event["properties"]["$browser_crash_reason"] == "oom"
         assert event["properties"]["$browser_crash_is_top_level"] is True
         assert event["properties"]["$current_url"] == "https://app.example.com/dashboard/1"
+        assert event["options"] == {"process_person_profile": False}
+        assert "$process_person_profile" not in event["properties"]
         # the report's `age` (42s here) recovers the crash time; delivery happens on a later visit
         assert event["timestamp"] == "2026-08-12T09:59:18+00:00"
 
@@ -399,6 +401,38 @@ class TestCspReport(BaseTest):
 
         assert status.HTTP_204_NO_CONTENT == response.status_code
         assert mock_capture.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("report_uri", "application/csp-report", SINGLE_VIOLATION_REPORT_URI, "$csp_violation"),
+            ("report_to", "application/reports+json", [SINGLE_VIOLATION_REPORT_TO], "$csp_violation"),
+            ("crash", "application/reports+json", [CRASH_REPORT], "$browser_crash_report"),
+        ]
+    )
+    @patch("posthog.api.report.capture_batch_internal")
+    @patch("posthog.api.report.capture_internal")
+    def test_report_events_carry_the_reporting_client_ip(
+        self, _name, content_type, payload, event_name, mock_capture, mock_batch_capture
+    ):
+        mock_capture.return_value = MagicMock(raise_for_status=MagicMock())
+        mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps(payload),
+            content_type=content_type,
+            HTTP_X_FORWARDED_FOR="203.0.113.7, 10.0.0.1",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        if mock_capture.called:
+            assert mock_capture.call_args.kwargs["event_name"] == event_name
+            properties = mock_capture.call_args.kwargs["properties"]
+        else:
+            (event,) = mock_batch_capture.call_args.kwargs["events"]
+            assert event["event"] == event_name
+            properties = event["properties"]
+        assert properties["$ip"] == "203.0.113.7"
 
     @patch("posthog.api.report.capture_internal")
     def test_capture_csp_no_trailing_slash(self, mock_capture):

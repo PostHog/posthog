@@ -11,10 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_e
     aws_cost_explorer as transport_module,
     source as source_module,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer.settings import (
-    AWS_COST_EXPLORER_ENDPOINTS,
-    ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer.source import (
     AwsCostExplorerSource,
 )
@@ -58,37 +54,15 @@ class TestAwsCostExplorerSource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "AWS Cost Explorer request failed: AccessDeniedException - User is not authorized to perform ce:GetCostAndUsage",
-            "AWS Cost Explorer request failed: UnrecognizedClientException - The security token included in the request is invalid",
-            "AWS Cost Explorer request failed: ExpiredTokenException - The security token included in the request is expired",
-            "AWS Cost Explorer request failed: SignatureDoesNotMatch - Signature expired",
-        ],
-    )
-    def test_permanent_aws_failures_stop_the_sync_instead_of_retrying(self, observed_error: str) -> None:
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
             "AWS Cost Explorer request failed: LimitExceededException - Rate exceeded",
             "AWS Cost Explorer request failed: HTTP 503 - ",
+            "AWS Cost Explorer request failed: InternalFailure - ",
+            "AWS Cost Explorer request failed: ServiceUnavailableException - ",
         ],
     )
     def test_transient_aws_failures_keep_retrying(self, observed_error: str) -> None:
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_source_for_pipeline_uses_the_endpoints_primary_key_and_a_stable_partition_key(self, endpoint: str) -> None:
-        inputs = make_inputs(endpoint)
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        response = self.source.source_for_pipeline(self.config, manager, inputs)
-
-        assert response.name == endpoint
-        assert response.primary_keys == AWS_COST_EXPLORER_ENDPOINTS[endpoint].primary_key
-        assert response.partition_keys == ["period_start"]
-        assert response.partition_mode == "datetime"
-        assert response.sort_mode == "asc"
+        assert any(key in observed_error for key in self.source.get_retryable_errors())
 
     def test_source_for_pipeline_forwards_the_watermark_only_on_an_incremental_run(self) -> None:
         watermark = dt.datetime(2024, 5, 1, tzinfo=dt.UTC)

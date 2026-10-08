@@ -6257,6 +6257,34 @@ Second`)
         }
     })
 
+    it.each(['keydown', 'beforeinput'])('splits multiline text at the visible caret via %s', (input) => {
+        const onChange = jest.fn()
+        const value = withNotebookTitle('Red\n**Green**\nBlue ribbon')
+        const { container } = render(createElement(MarkdownNotebook, { value, onChange }))
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const textBlock = getBodyTextBlock(container)
+        const range = document.createRange()
+        range.setStart(textBlock.lastChild!, 'Blue'.length)
+        range.collapse(true)
+        window.getSelection()!.removeAllRanges()
+        window.getSelection()!.addRange(range)
+
+        if (input === 'keydown') {
+            fireEvent.keyDown(canvas, { key: 'Enter' })
+        } else {
+            fireBeforeInput(canvas, 'insertParagraph')
+        }
+
+        expect(onChange).toHaveBeenLastCalledWith(withNotebookTitle('Red\n**Green**\nBlue\n\n ribbon'))
+        expect(window.getSelection()?.anchorOffset).toBe(0)
+
+        fireBeforeInput(canvas, 'deleteContentBackward')
+
+        expect(onChange).toHaveBeenLastCalledWith(value)
+        expect(window.getSelection()?.anchorNode?.textContent).toBe('Blue ribbon')
+        expect(window.getSelection()?.anchorOffset).toBe('Blue'.length)
+    })
+
     it('deletes selected text when pressing Enter and splits at the selection', () => {
         const onChange = jest.fn()
         const { container } = render(
@@ -9450,7 +9478,7 @@ After component`,
         )
     })
 
-    it('toggles both component panels from the title button', () => {
+    it('collapses and restores component panels from the cell-type label', () => {
         const markdown = `<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
         const onChange = jest.fn()
         const { container, rerender } = render(createElement(MarkdownNotebook, { value: markdown, onChange }))
@@ -9505,7 +9533,7 @@ After component`,
         )
     })
 
-    it('opens the default component panels from the title button without remembered panel state', () => {
+    it('opens the default component panels from the cell-type label without remembered panel state', () => {
         const markdown = `<Query hideFilters hideResults query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: markdown, onChange }))
@@ -9653,9 +9681,7 @@ After component`,
                 onChange,
             })
         )
-        fireEvent.doubleClick(
-            container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
-        )
+        fireEvent.click(container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement)
         const titleInput = container.querySelector(
             'input.MarkdownNotebook__component-toolbar-title--input'
         ) as HTMLInputElement
@@ -9677,9 +9703,7 @@ After component`,
                 onChange,
             })
         )
-        fireEvent.doubleClick(
-            container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
-        )
+        fireEvent.click(container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement)
         const titleInput = container.querySelector(
             'input.MarkdownNotebook__component-toolbar-title--input'
         ) as HTMLInputElement
@@ -9721,9 +9745,7 @@ After component`,
         const { container } = render(
             createElement(MarkdownNotebook, { value: '<SummaryCard id="summary-id" />', registry })
         )
-        fireEvent.doubleClick(
-            container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
-        )
+        fireEvent.click(container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement)
         const titleInput = container.querySelector(
             'input.MarkdownNotebook__component-toolbar-title--input'
         ) as HTMLInputElement
@@ -9737,7 +9759,7 @@ After component`,
     it('does not suggest the query body or schema kinds as the title placeholder', () => {
         const getPlaceholder = (): string => {
             if (!container.querySelector('input.MarkdownNotebook__component-toolbar-title--input')) {
-                fireEvent.doubleClick(
+                fireEvent.click(
                     container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
                 )
             }
@@ -9765,7 +9787,7 @@ After component`,
         expect(placeholder).toEqual('Add a title')
     })
 
-    it('collapses single-mode component tags locally from the title button', () => {
+    it('collapses single-mode component tags locally from the cell-type label', () => {
         const registry = createMarkdownNotebookRegistry([
             {
                 tagName: 'SummaryCard',
@@ -9839,7 +9861,7 @@ After component`,
         ])
         const getTitleInput = (): HTMLInputElement => {
             if (!container.querySelector('input.MarkdownNotebook__component-toolbar-title--input')) {
-                fireEvent.doubleClick(
+                fireEvent.click(
                     container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
                 )
             }
@@ -9943,7 +9965,7 @@ After component`,
         expect(fallback?.querySelector('pre')).toBeNull()
     })
 
-    it('collapses unknown component tags locally from the title button', () => {
+    it('collapses unknown component tags locally from the cell-type label', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: `<Tag foo="bar" />`, onChange }))
         const getTitleButton = (): HTMLButtonElement =>

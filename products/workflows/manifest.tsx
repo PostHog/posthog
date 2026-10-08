@@ -3,6 +3,7 @@ import { urls } from 'scenes/urls'
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import type { MessagingNavTabKey } from './frontend/messagingTabs'
 import type { WorkflowsSceneTab } from './frontend/WorkflowsScene'
 
 export const manifest: ProductManifest = {
@@ -55,6 +56,12 @@ export const manifest: ProductManifest = {
             'workflowsLibraryTemplateFromMessage',
         ],
         '/broadcasts': ['Broadcasts', 'broadcasts'],
+        // Literal tab paths, listed before '/broadcasts/:id' so a tab never opens as a broadcast id.
+        '/broadcasts/library': ['Broadcasts', 'broadcasts'],
+        '/broadcasts/channels': ['Broadcasts', 'broadcasts'],
+        '/broadcasts/opt-outs': ['Broadcasts', 'broadcasts'],
+        '/broadcasts/suppression': ['Broadcasts', 'broadcasts'],
+        '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
         // kea-router matches in declaration order, so the literal 'new' comes before ':id'.
         '/broadcasts/new': ['Broadcast', 'broadcast'],
         '/broadcasts/:id': ['Broadcast', 'broadcast'],
@@ -68,7 +75,7 @@ export const manifest: ProductManifest = {
         workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
         workflowsLibraryTemplateFromMessage: (id?: string): string =>
             `/workflows/library/templates/new?messageId=${id}`,
-        broadcasts: (): string => '/broadcasts',
+        broadcasts: (tab?: MessagingNavTabKey): string => `/broadcasts${tab ? `/${tab}` : ''}`,
         broadcast: (id: string): string => `/broadcasts/${id}`,
         broadcastNew: (): string => '/broadcasts/new',
     },
@@ -78,6 +85,7 @@ export const manifest: ProductManifest = {
             iconType: 'workflows',
             iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
             href: (ref: string) => urls.workflow(ref, 'workflow'),
+            listHref: () => urls.workflows(),
             filterKey: 'workflows',
         },
     },
@@ -99,7 +107,7 @@ export const manifest: ProductManifest = {
             type: 'broadcasts',
             category: ProductItemCategory.MESSAGING,
             iconType: 'broadcasts',
-            iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+            iconColor: ['var(--color-product-broadcasts-light)', 'var(--color-product-broadcasts-dark)'],
             sceneKey: 'Broadcasts',
         },
     ],

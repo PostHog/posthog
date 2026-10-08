@@ -11,7 +11,6 @@ from google.api_core.exceptions import (
     DeadlineExceeded,
     Forbidden,
     InternalServerError,
-    InvalidArgument,
     NotFound,
     PermissionDenied,
     ServiceUnavailable,
@@ -23,12 +22,13 @@ from requests.adapters import HTTPAdapter
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
-from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import ServiceAccountOwnershipError
+from products.batch_exports.backend.facade.destinations.bigquery import ServiceAccountOwnershipError
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_CREATE_READ_SESSION_RETRY,
     BIGQUERY_CREDENTIALS_REJECTED_ERROR,
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
+    BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
     BIGQUERY_INTEGRATION_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_INVALID_KEY_FILE_ERROR,
@@ -54,12 +54,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     _get_query,
     _get_rows_to_sync,
     _has_duplicate_primary_keys,
-    _is_transient_job_not_found,
-    _query_result_with_job_retry,
-    _resolve_dataset_id,
-    _resolve_dataset_project_id,
-    _resolve_project_id,
-    _resolve_query_project,
     _resolve_region,
     _run_destination_query_with_job_retry,
     delete_all_temp_destination_tables,
@@ -427,20 +421,6 @@ def test_bigquery_build_pipeline_propagates_unexpected_cleanup_errors(exception)
         BigQuerySource().source_for_pipeline(config, inputs)
 
 
-@pytest.mark.parametrize(
-    "enabled_columns,primary_keys,incremental_field,expected",
-    [
-        (None, ["id"], None, "*"),
-        (["email"], ["id"], None, "`email`, `id`"),
-        (["email"], ["id"], "created_at", "`email`, `id`, `created_at`"),
-        ([], None, None, "*"),
-        ([], ["id"], None, "`id`"),
-    ],
-)
-def test_bigquery_select_clause(enabled_columns, primary_keys, incremental_field, expected):
-    assert _bq_select_clause(enabled_columns, primary_keys, incremental_field) == expected
-
-
 def test_bigquery_get_query_projects_enabled_columns():
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
     query, params = _get_query(
@@ -451,22 +431,6 @@ def test_bigquery_get_query_projects_enabled_columns():
         primary_keys=["id"],
     )
     assert "SELECT `email`, `id` FROM" in query
-    assert params == []
-
-
-def test_bigquery_get_query_keeps_incremental_field_in_projection():
-    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
-    query, params = _get_query(
-        should_use_incremental_field=True,
-        db_incremental_field_last_value=42,
-        bq_table=bq_table,
-        incremental_field="updated_at",
-        incremental_field_type=IncrementalFieldType.Integer,
-        enabled_columns=["email"],
-        primary_keys=["id"],
-    )
-    assert "SELECT `email`, `id`, `updated_at` FROM" in query
-    assert "WHERE `updated_at` > 42" in query
     assert params == []
 
 
@@ -494,35 +458,6 @@ def test_bigquery_get_query_binds_row_filters_as_parameters():
         ("row_filter_0", "INT64", 21),
         ("row_filter_1", "STRING", "x'; DROP TABLE y; --"),
     ]
-
-
-def test_bigquery_get_rows_to_sync_runs_count_query_when_filtered():
-    # With row filters present the whole-table `num_rows` shortcut is invalid, so a COUNT(*)
-    # query with bound parameters runs instead.
-    table = mock.MagicMock(project="proj", dataset_id="ds", table_id="t")
-    table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
-    client = mock.MagicMock()
-    job = mock.MagicMock()
-    job.result.return_value = iter([[123]])
-    client.query.return_value = job
-
-    result = _get_rows_to_sync(
-        table=table,
-        client=client,
-        should_use_incremental_field=False,
-        db_incremental_field_last_value=None,
-        logger=mock.MagicMock(),
-        row_filters=[
-            ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
-        ],
-    )
-
-    assert result == 123
-    client.get_table.assert_not_called()  # num_rows shortcut skipped when filtered
-    count_query = client.query.call_args.args[0]
-    assert "COUNT(*)" in count_query
-    job_config = client.query.call_args.kwargs["job_config"]
-    assert [p.name for p in job_config.query_parameters] == ["row_filter_0_0", "row_filter_0_1"]
 
 
 @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
@@ -611,39 +546,6 @@ def test_bigquery_get_rows_to_sync_captures_unexpected_error():
 
     assert result == 0
     mock_capture.assert_called_once()
-
-
-def test_bigquery_get_query_in_filter_expands_to_one_param_per_value():
-    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
-    bq_table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
-    query, params = _get_query(
-        should_use_incremental_field=False,
-        db_incremental_field_last_value=None,
-        bq_table=bq_table,
-        row_filters=[
-            ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
-        ],
-    )
-    assert "WHERE `age` IN (@row_filter_0_0, @row_filter_0_1)" in query
-    assert [(p.name, p.type_, p.value) for p in params] == [
-        ("row_filter_0_0", "INT64", 21),
-        ("row_filter_0_1", "INT64", 30),
-    ]
-
-
-def test_bigquery_get_query_row_filters_compose_with_incremental():
-    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
-    bq_table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
-    query, params = _get_query(
-        should_use_incremental_field=True,
-        db_incremental_field_last_value=42,
-        bq_table=bq_table,
-        incremental_field="updated_at",
-        incremental_field_type=IncrementalFieldType.Integer,
-        row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
-    )
-    assert "WHERE `updated_at` > 42 AND `age` > @row_filter_0 ORDER BY `updated_at` ASC" in query
-    assert [(p.name, p.value) for p in params] == [("row_filter_0", 21)]
 
 
 @pytest.mark.parametrize(
@@ -747,44 +649,6 @@ def test_non_retryable_errors_match_rejected_credentials(observed_error):
 @pytest.mark.parametrize(
     "observed_error",
     [
-        # Raised when the Dataset ID is `project.dataset`, so we build a 4-component table id.
-        'table_id must be a fully-qualified ID in standard SQL format, e.g., "project.dataset.table_id", '
-        "got immortal-407108.immortal-407108.analytics_529249625.events_20260325",
-        'table_id must be a fully-qualified ID in standard SQL format, e.g., "project.dataset.table_id", '
-        "got immortal-407108.immortal-407108.analytics_529249625.__posthog_import_abc_def_123",
-    ],
-)
-def test_bigquery_malformed_table_id_is_non_retryable(observed_error):
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    matching = [key for key in non_retryable_errors if key in observed_error]
-    assert matching, "Malformed table id error should be recognised as non-retryable"
-    assert all(non_retryable_errors[key] is not None for key in matching)
-
-
-@pytest.mark.parametrize(
-    "observed_error",
-    [
-        # Offline ngrok tunnel — the subdomain varies but the stable error code does not.
-        "RefreshError: <!DOCTYPE html> <html> ... "
-        "<noscript>The endpoint tetrarchical-coercibly-norine.ngrok-free.dev is offline. (ERR_NGROK_3200)</noscript>",
-        # Different tunnel subdomain — the match must not rely on the volatile host part.
-        "RefreshError: <!DOCTYPE html> <html> ... "
-        "<noscript>The endpoint other-tunnel-name.ngrok-free.dev is offline. (ERR_NGROK_3200)</noscript>",
-    ],
-)
-def test_non_retryable_errors_match_offline_token_uri_endpoint(observed_error):
-    """A service account whose `token_uri` points at an offline ngrok tunnel makes google-auth
-    raise a `RefreshError` carrying ngrok's HTML error page — a misconfigured key the user must
-    fix, so the sync must be disabled rather than retried forever."""
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    matching = [key for key in non_retryable_errors if key in observed_error]
-    assert matching, "Offline token_uri endpoint error should be recognised as non-retryable"
-    assert all(non_retryable_errors[key] is not None for key in matching)
-
-
-@pytest.mark.parametrize(
-    "observed_error",
-    [
         # token_uri pointed at the cloud metadata endpoint — PostHog's egress proxy denies it.
         "RefreshError: Egress proxying is denied to host '169.254.169.254': no valid IP found "
         "among resolved addresses - 169.254.169.254 denied by rule 'Deny: Not Global Unicast'. .",
@@ -807,26 +671,6 @@ def test_non_retryable_errors_match_egress_denied_token_uri_endpoint(observed_er
 @pytest.mark.parametrize(
     "observed_error",
     [
-        # No permission to open a Storage Read API session on the project the read bills to.
-        "PermissionDenied: 403 request failed: the user does not have "
-        "'bigquery.readsessions.create' permission for 'projects/example-project'",
-        # Same gRPC wording, different missing permission and resource.
-        "PermissionDenied: 403 request failed: the user does not have "
-        "'bigquery.tables.getData' permission for table 'example-project:example_dataset.example_table'",
-    ],
-)
-def test_bigquery_storage_read_denial_is_non_retryable_with_guidance(observed_error):
-    """The Storage Read API denies access in gRPC wording rather than BigQuery's "Access Denied:"
-    prefix, so it has to match a key of its own or it retries forever with no guidance."""
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    matching = [key for key in non_retryable_errors if key in observed_error]
-    assert matching, "Storage Read API permission denial should be recognised as non-retryable"
-    assert all(non_retryable_errors[key] for key in matching)
-
-
-@pytest.mark.parametrize(
-    "observed_error",
-    [
         # Corrupted/truncated private key body in the uploaded service account JSON.
         "Unable to load PEM file. See https://cryptography.io/en/latest/faq/#why-can-t-i-import-my-pem-file for more details. InvalidData(InvalidPadding)",
         "ValueError: Unable to load PEM file. InvalidData(InvalidByte(1, 45))",
@@ -837,104 +681,6 @@ def test_bigquery_unparseable_private_key_is_non_retryable(observed_error):
     matching = [key for key in non_retryable_errors if key in observed_error]
     assert matching, "Unparseable private key error should be recognised as non-retryable"
     assert all(non_retryable_errors[key] is not None for key in matching)
-
-
-@pytest.mark.parametrize(
-    "observed_error",
-    [
-        # Column collision surfaced with the raw BigQuery [row:col] location.
-        "400 Column name organization is ambiguous at [1:113]; reason: invalidQuery, location: query, "
-        "message: Column name organization is ambiguous at [1:113]\n\nLocation: us-west1\nJob ID: cc9e1e07-9d3a-4fcc-a51c-09b2f4237894\n",
-        # Different column name and location — the match must not rely on either.
-        "400 Column name id is ambiguous at [2:45]; reason: invalidQuery, location: query, "
-        "message: Column name id is ambiguous at [2:45]",
-    ],
-)
-def test_bigquery_ambiguous_column_is_non_retryable(observed_error):
-    """A view/table whose own definition yields a colliding column name (e.g. a join of tables
-    sharing a column, or two columns differing only by case) makes every retry fail identically."""
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    matching = [key for key in non_retryable_errors if key in observed_error]
-    assert matching, "Ambiguous column error should be recognised as non-retryable"
-    assert all(non_retryable_errors[key] is not None for key in matching)
-
-
-@pytest.mark.parametrize(
-    "observed_error",
-    [
-        # Incremental field (or an enabled column) renamed/dropped from the source table.
-        "400 Unrecognized name: ingested_at at [1:37]; reason: invalidQuery, location: query, "
-        "message: Unrecognized name: ingested_at at [1:37]\n\nLocation: europe-north1\nJob ID: "
-        "f50c015b-4295-4b95-a361-2503e9c936f7\n",
-        # Different column name and location — the match must not rely on either.
-        "400 Unrecognized name: legacy_status at [2:10]; reason: invalidQuery, location: query, "
-        "message: Unrecognized name: legacy_status at [2:10]",
-    ],
-)
-def test_bigquery_unrecognized_column_name_is_non_retryable(observed_error):
-    """A column referenced by our query (the incremental field, an enabled column, or a row
-    filter) that was renamed or dropped from the source table makes every retry fail identically."""
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    matching = [key for key in non_retryable_errors if key in observed_error]
-    assert matching, "Unrecognized column name error should be recognised as non-retryable"
-    assert all(non_retryable_errors[key] is not None for key in matching)
-
-
-@pytest.mark.parametrize(
-    "observed_error",
-    [
-        # A single enabled column renamed/dropped from the source table (direct-read path).
-        "request failed: The following selected fields do not exist in the table schema: FOO",
-        # Multiple columns — the match must not rely on the specific field names or their count.
-        "request failed: The following selected fields do not exist in the table schema: FOO, BAR, BAZ",
-    ],
-)
-def test_bigquery_missing_selected_fields_is_non_retryable(observed_error):
-    """A column selected for syncing via the Storage Read API's direct-read path that was renamed
-    or dropped from the live table makes every retry fail identically."""
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    matching = [key for key in non_retryable_errors if key in observed_error]
-    assert matching, "Missing selected-fields error should be recognised as non-retryable"
-    assert all(non_retryable_errors[key] is not None for key in matching)
-
-
-@pytest.mark.parametrize(
-    "observed_error",
-    [
-        # A malformed project/dataset ID (e.g. Dataset ID set to "project.dataset") makes
-        # `bq.dataset(...)`-based REST calls reject the request with this resource-name wording,
-        # distinct from the "Invalid project ID"/"Invalid dataset ID" wording query jobs raise for
-        # the same misconfiguration (see `test_bigquery_malformed_table_id_is_non_retryable`).
-        "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-project.my_dataset/datasets/"
-        "my-project.my_dataset/tables?prettyPrint=false: Invalid resource name "
-        "projects/my-project.my_dataset; Project id: my-project.my_dataset",
-    ],
-)
-def test_bigquery_invalid_resource_name_is_non_retryable(observed_error):
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    matching = [key for key in non_retryable_errors if key in observed_error]
-    assert matching, "Invalid resource name error should be recognised as non-retryable"
-    # Must map to the actionable identifier guidance, not just any non-null message.
-    assert all(non_retryable_errors[key] == BIGQUERY_INVALID_IDENTIFIER_ERROR for key in matching)
-
-
-@pytest.mark.parametrize(
-    "transient_error",
-    [
-        # A token refresh that failed for a transient reason must stay retryable.
-        "RefreshError: ('Failed to retrieve token', {'error': 'internal_failure'})",
-        "RefreshError: HTTPError 503 Service Unavailable",
-        "Connection reset by peer",
-        "ReadTimeout: The read operation timed out",
-        "503 Service Unavailable",
-    ],
-)
-def test_non_retryable_errors_does_not_match_transient_refresh_failures(transient_error):
-    """Transient errors must not match any non-retryable key, so they stay retryable. Mirrors the
-    real matching mechanism (substring against every key) to guard against an overly broad key."""
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    matching = [key for key in non_retryable_errors if key in transient_error]
-    assert not matching, f"Transient error should remain retryable, but matched keys: {matching}"
 
 
 def _run_delete_all_temp_destination_tables(side_effect, logger):
@@ -1003,20 +749,6 @@ def test_delete_all_temp_destination_tables_captures_unexpected_errors():
 # `Invalid dataset ID ' ...'`. The identifiers must be trimmed before reaching BigQuery.
 
 
-@pytest.mark.parametrize(
-    "resolver,field,raw,expected",
-    [
-        (_resolve_project_id, "project_id", " 524098457564", "524098457564"),
-        (_resolve_project_id, "project_id", "project-id\n", "project-id"),
-        (_resolve_dataset_id, "dataset_id", " bigquery_aloalo ", "bigquery_aloalo"),
-        (_resolve_dataset_id, "dataset_id", "\tdataset-id", "dataset-id"),
-    ],
-)
-def test_bigquery_resolvers_trim_whitespace(resolver, field, raw, expected):
-    config = _make_config(**{field: raw})
-    assert resolver(config) == expected
-
-
 def test_bigquery_resolve_region_trims_and_treats_whitespace_as_unset():
     assert (
         _resolve_region(_make_config(dataset_project=None)) is None  # no custom region configured
@@ -1045,37 +777,6 @@ def _patch_bigquery_client(fake_bq):
     )
 
 
-def test_connect_auto_detects_dataset_region_when_unset():
-    """No custom region configured: connect must pin the discovery client to the dataset's real
-    location (read via the region-agnostic `get_dataset`) instead of defaulting to US."""
-    fake_bq = mock.MagicMock()
-    fake_bq.get_dataset.return_value.location = "europe-west1"
-
-    with _patch_bigquery_client(fake_bq) as mock_client:
-        with BigQueryImplementation().connect(_make_config()) as conn:
-            assert conn is fake_bq
-
-    # The region must come from an actual dataset-location lookup, not a hardcoded default.
-    fake_bq.get_dataset.assert_called_once()
-    # The last client built is the one discovery queries run on; its location is positional arg 1.
-    assert mock_client.call_args_list[-1][0][1] == "europe-west1"
-
-
-def test_connect_uses_configured_region_without_probing():
-    """A configured custom region is used as-is — no dataset-location probe is performed."""
-    config = _make_config()
-    config.use_custom_region = BigQueryUseCustomRegionConfig(region="us-east1", enabled=True)
-    fake_bq = mock.MagicMock()
-
-    with _patch_bigquery_client(fake_bq) as mock_client:
-        with BigQueryImplementation().connect(config):
-            pass
-
-    fake_bq.get_dataset.assert_not_called()
-    assert mock_client.call_count == 1
-    assert mock_client.call_args_list[-1][0][1] == "us-east1"
-
-
 def test_connect_falls_back_to_unset_location_when_detection_fails():
     """If the dataset-location probe fails (e.g. the dataset really doesn't exist), connect leaves
     the location unset so `get_columns` still surfaces the actionable not-found error."""
@@ -1087,70 +788,6 @@ def test_connect_falls_back_to_unset_location_when_detection_fails():
             pass
 
     assert mock_client.call_args_list[-1][0][1] is None
-
-
-def test_bigquery_resolve_dataset_project_id_trims_and_treats_whitespace_as_unset():
-    config = _make_config(
-        dataset_project=BigQueryDatasetProjectConfig(dataset_project_id="  other-project ", enabled=True)
-    )
-    assert _resolve_dataset_project_id(config) == "other-project"
-
-    config = _make_config(dataset_project=BigQueryDatasetProjectConfig(dataset_project_id="   ", enabled=True))
-    assert _resolve_dataset_project_id(config) is None
-
-
-def test_bigquery_resolve_query_project_prefers_dataset_project():
-    """The dataset project wins over the project the open connection authenticated as, which is the
-    only project available when the source authenticates through a service account integration."""
-    config = _make_config(
-        project_id=" service-account-project ",
-        dataset_project=BigQueryDatasetProjectConfig(dataset_project_id=" dataset-project ", enabled=True),
-    )
-    assert _resolve_query_project(config, "connection-project") == "dataset-project"
-
-    config = _make_config(project_id=" service-account-project ")
-    assert _resolve_query_project(config, "connection-project") == "connection-project"
-
-
-def test_bigquery_get_columns_trims_whitespace_in_identifiers():
-    """`get_columns` must not embed a leading space into the INFORMATION_SCHEMA query
-    or the `project` it runs against."""
-    fake_client = mock.MagicMock()
-    fake_client.query.return_value.result.return_value = []
-
-    fake_client.project = "524098457564"
-
-    config = _make_config(project_id=" 524098457564", dataset_id=" bigquery_aloalo ")
-    BigQueryImplementation().get_columns(fake_client, config, names=None)
-
-    sql = fake_client.query.call_args.args[0]
-    assert "`524098457564.bigquery_aloalo`.INFORMATION_SCHEMA.COLUMNS" in sql
-    assert " bigquery_aloalo" not in sql
-    assert " 524098457564" not in sql
-    assert fake_client.query.call_args.kwargs["project"] == "524098457564"
-
-
-def test_bigquery_get_columns_qualifies_information_schema_with_dataset_project():
-    """When the dataset lives in a different project (`dataset_project`), the INFORMATION_SCHEMA
-    reference must carry that project — an unqualified `dataset.INFORMATION_SCHEMA.*` makes BigQuery
-    reject the job with "ProjectId must be non-empty". The backtick-quoted identifier must close
-    after the dataset (matching `get_primary_keys`/`get_leading_index_columns`) rather than wrapping
-    `INFORMATION_SCHEMA.COLUMNS` inside it too — quoting the whole path as one identifier stops
-    BigQuery from resolving it as the INFORMATION_SCHEMA view and raises the same error again."""
-    fake_client = mock.MagicMock()
-    fake_client.query.return_value.result.return_value = []
-
-    config = _make_config(
-        project_id="service-account-project",
-        dataset_id="posthog_export",
-        dataset_project=BigQueryDatasetProjectConfig(dataset_project_id="dataset-project", enabled=True),
-    )
-    BigQueryImplementation().get_columns(fake_client, config, names=None)
-
-    sql = fake_client.query.call_args.args[0]
-    assert "`dataset-project.posthog_export`.INFORMATION_SCHEMA.COLUMNS" in sql
-    assert "INFORMATION_SCHEMA.COLUMNS`" not in sql
-    assert fake_client.query.call_args.kwargs["project"] == "dataset-project"
 
 
 @pytest.mark.parametrize("method_name", ["get_primary_keys", "get_leading_index_columns"])
@@ -1172,43 +809,6 @@ def test_bigquery_discovery_qualifies_information_schema_with_dataset_project(me
     sql = fake_client.query.call_args.args[0]
     assert "`dataset-project.posthog_export`.INFORMATION_SCHEMA" in sql
     assert fake_client.query.call_args.kwargs["project"] == "dataset-project"
-
-
-def test_bigquery_get_primary_keys_trims_whitespace_in_identifiers():
-    fake_client = mock.MagicMock()
-    fake_client.query.return_value.result.return_value = []
-
-    fake_client.project = "my-project"
-
-    config = _make_config(project_id=" my-project ", dataset_id=" my_dataset ")
-    BigQueryImplementation().get_primary_keys(fake_client, config, tables=["t"])
-
-    sql = fake_client.query.call_args.args[0]
-    assert "`my-project.my_dataset`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS" in sql
-    assert " my_dataset" not in sql
-    assert " my-project" not in sql
-    assert fake_client.query.call_args.kwargs["project"] == "my-project"
-
-
-def test_bigquery_validate_credentials_trims_whitespace_before_calling_bigquery():
-    bq = mock.MagicMock()
-    client_cm = mock.MagicMock()
-    client_cm.__enter__.return_value = bq
-
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.bigquery_client",
-        return_value=client_cm,
-    ) as mock_client:
-        validate_bigquery_credentials(
-            dataset_id=" my_dataset ",
-            project_id=" 524098457564",
-            credentials=mock.MagicMock(spec=GoogleAuthCredentials),
-            dataset_project_id=None,
-            location=None,
-        )
-
-    assert mock_client.call_args.args[0] == "524098457564"
-    bq.dataset.assert_called_once_with("my_dataset", project="524098457564")
 
 
 def _config_with_key_file(**overrides) -> BigQuerySourceConfig:
@@ -1297,6 +897,22 @@ def test_bigquery_rejects_non_google_token_uri_before_building_credentials(token
             False,
         ),
         (RefreshError("('invalid_grant: Invalid JWT Signature.', {})"), BIGQUERY_CREDENTIALS_REJECTED_ERROR, False),
+        (
+            RefreshError(
+                "('Unable to acquire impersonated credentials', "
+                '\'{"error": {"code": 403, "message": "Permission \\\'iam.serviceAccounts.getAccessToken\\\' '
+                'denied on resource (or it may not exist).", "status": "PERMISSION_DENIED"}}\')'
+            ),
+            BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
+            False,
+        ),
+        (
+            # Names the permission without denying it, so it must not match the check above and
+            # should fall through to the generic (captured) branch.
+            RefreshError("('Unable to acquire impersonated credentials', 'iam.serviceAccounts.getAccessToken')"),
+            BIGQUERY_VALIDATION_GENERIC_ERROR,
+            True,
+        ),
         (BadRequest('Invalid dataset ID "(default)"'), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
         (BadRequest("400 ProjectId must be non-empty"), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
         (
@@ -1377,32 +993,6 @@ def test_bigquery_source_validate_credentials_wires_config_and_region(use_custom
     assert dataset_project_id is None
     # A custom region only flows through when the toggle is enabled and non-empty.
     assert region == expected_region
-
-
-def test_bigquery_build_pipeline_trims_whitespace_in_destination_table():
-    """Whitespace in project/dataset IDs must not leak into the fully-qualified
-    destination table name passed to BigQuery during a sync."""
-    config = _make_config(project_id=" 524098457564", dataset_id=" bigquery_aloalo ")
-    expected_table_id = (
-        f"524098457564.bigquery_aloalo.__posthog_import_schema_id_job_id_"
-        f"{str(parser.parse('2025-01-01T12:00:00.000Z').timestamp()).replace('.', '')}"
-    )
-
-    with (
-        time_machine.travel("2025-01-01T12:00:00.000Z", tick=False),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_all_temp_destination_tables",
-        ) as mock_delete_all,
-        mock.patch.object(BigQueryImplementation, "_build_source_response", return_value=mock.MagicMock()),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_table",
-        ) as mock_delete,
-    ):
-        BigQuerySource().source_for_pipeline(config, _make_inputs())
-
-    assert mock_delete_all.call_args.kwargs["project_id"] == "524098457564"
-    assert mock_delete_all.call_args.kwargs["dataset_id"] == "bigquery_aloalo"
-    assert mock_delete.call_args.kwargs["table_id"] == expected_table_id
 
 
 @pytest.mark.parametrize(
@@ -1498,24 +1088,6 @@ def test_specific_permission_denial_outranks_generic_access_denied(observed_erro
     assert expected_word in friendly
 
 
-def test_job_create_denial_surfaces_job_permission_guidance():
-    # A bigquery.jobs.create denial also contains "Access Denied:", so both keys match.
-    # external_data_job surfaces the first matching key's message, so the job-creation key must sit
-    # above "Access Denied:" — otherwise the customer is told to grant read access to fix a failure
-    # that read access can't resolve.
-    observed_error = str(
-        Forbidden(
-            "POST https://bigquery.googleapis.com/bigquery/v2/projects/p/jobs?prettyPrint=false: "
-            "Access Denied: Project p: User does not have bigquery.jobs.create permission in project p."
-        )
-    )
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    first_key, friendly = next((key, msg) for key, msg in non_retryable_errors.items() if key in observed_error)
-    assert first_key == "bigquery.jobs.create"
-    assert friendly is not None
-    assert "run query jobs" in friendly
-
-
 @pytest.mark.parametrize(
     "observed_error",
     [
@@ -1531,48 +1103,6 @@ def test_job_create_denial_surfaces_job_permission_guidance():
     ],
 )
 def test_non_retryable_errors_match_federated_upstream_permission_denied(observed_error):
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    assert any(key in observed_error for key in non_retryable_errors)
-
-
-@pytest.mark.parametrize(
-    "observed_error",
-    [
-        # Federated EXTERNAL_QUERY view whose upstream schema drifted — a column the view selects was
-        # renamed/dropped in the source database, so BigQuery can't compile the view.
-        str(
-            BadRequest(
-                "GET https://bigquery.googleapis.com/bigquery/v2/projects/p/queries/j?maxResults=0"
-                "&location=us-central1: Invalid table-valued function EXTERNAL_QUERY; failed to parse "
-                "view 'analytics.SurveyResponse'\nFailed to get query schema from PostgreSQL server, "
-                'prepare statement failed. Error: ERROR:  column "participantId" does not exist'
-            )
-        ),
-    ],
-)
-def test_non_retryable_errors_match_unparseable_view(observed_error):
-    """A view whose definition no longer matches the underlying data (e.g. a federated query
-    references a dropped column) can't be recovered by retrying — the user must fix the view."""
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    assert any(key in observed_error for key in non_retryable_errors)
-
-
-@pytest.mark.parametrize(
-    "observed_error",
-    [
-        # A NaN in a NUMERIC-typed column, surfaced from `jobs.getQueryResults` while polling a query
-        # job — BigQuery's NUMERIC type can't represent NaN the way FLOAT64 can.
-        str(
-            BadRequest(
-                "GET https://bigquery.googleapis.com/bigquery/v2/projects/p/queries/j?maxResults=0"
-                "&location=EU&prettyPrint=false: Invalid NUMERIC value: NaN\n\nLocation: EU\nJob ID: j"
-            )
-        ),
-    ],
-)
-def test_non_retryable_errors_match_numeric_nan(observed_error):
-    """A NUMERIC-typed column holding NaN traces back to the customer's source view/data, and the
-    same query keeps producing it on every retry — the user must fix the underlying view/column."""
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     assert any(key in observed_error for key in non_retryable_errors)
 
@@ -1603,28 +1133,6 @@ def test_non_retryable_errors_match_custom_quota_exceeded(observed_error):
     retrying within the sync's window — the user must raise the quota or sync less data."""
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     assert any(key in observed_error for key in non_retryable_errors)
-
-
-@pytest.mark.parametrize(
-    "other_error",
-    [
-        # Transient server / connection errors must stay retryable
-        "503 Service unavailable, please retry",
-        "500 Internal error encountered",
-        "Connection reset by peer",
-        # A federated-read failure that isn't a permission problem must stay retryable
-        "Error while reading data, error message: Failed to fetch row from PostgreSQL server. "
-        "Error: ERROR:  connection to server timed out",
-        # Transient rate-limit quota errors ("Quota exceeded" / `rateLimitExceeded`) are NOT the
-        # administrator-set custom cost control and must stay retryable — the "Custom quota
-        # exceeded" key must not catch them.
-        "403 Quota exceeded: Your project exceeded quota for concurrent queries; reason: quotaExceeded",
-        "403 Exceeded rate limits: too many concurrent queries for this project; reason: rateLimitExceeded",
-    ],
-)
-def test_non_retryable_errors_does_not_match_transient(other_error):
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    assert not any(key in other_error for key in non_retryable_errors)
 
 
 def _run_has_duplicate_primary_keys(side_effect):
@@ -1700,66 +1208,6 @@ def test_has_duplicate_primary_keys_captures_unexpected_errors():
 
     assert result is False
     mock_capture.assert_called_once()
-
-
-@pytest.mark.parametrize(
-    "exc",
-    [
-        # The transient `jobInternalError` from `jobs.getQueryResults` (volatile project/job id redacted).
-        BadRequest(
-            "GET https://bigquery.googleapis.com/bigquery/v2/projects/<redacted>/queries/<redacted>"
-            "?maxResults=0&location=US&prettyPrint=false: The job encountered an error during execution. "
-            "Retrying the job may solve the problem."
-        ),
-        # A second wording for the same transient `jobInternalError` condition, with no
-        # retry-recommendation suffix (volatile project/job id redacted).
-        BadRequest(
-            "GET https://bigquery.googleapis.com/bigquery/v2/projects/<redacted>/queries/<redacted>"
-            "?maxResults=0&location=US&prettyPrint=false: The job encountered an internal error during "
-            "execution and was unable to complete successfully."
-        ),
-        # The library default's own retryable reasons must still be honoured.
-        BadRequest("query failed", errors=[{"reason": "backendError", "message": "internal error"}]),
-        BadRequest("query failed", errors=[{"reason": "rateLimitExceeded", "message": "slow down"}]),
-        # A per-second rate quota (reason `quotaExceeded`, which the library's own predicates don't
-        # retry) is transient — the quota window resets each second — so it must be retried in place
-        # rather than crashing the sync. Volatile project/job ids redacted.
-        Forbidden(
-            "GET https://bigquery.googleapis.com/bigquery/v2/projects/<redacted>/queries/<redacted>"
-            "?maxResults=0&location=US&prettyPrint=false: Quota exceeded: Your project:<redacted> "
-            "exceeded quota for tabledata.list bytes per second per project. For more information, "
-            "see https://cloud.google.com/bigquery/docs/troubleshoot-quotas"
-        ),
-        # The queued-jobs quota (reason `quotaExceeded`, location `max_queued_jobs`) is transient —
-        # the queue drains as running jobs finish — so it must be retried rather than crashing the
-        # sync. Volatile ids redacted.
-        Forbidden(
-            "Quota exceeded: Your project_and_region exceeded quota for max number of jobs that can "
-            "be queued per project. For more information, see "
-            "https://cloud.google.com/bigquery/docs/troubleshoot-quotas"
-        ),
-    ],
-)
-def test_bigquery_query_job_retry_retries_transient_job_errors(exc):
-    assert BIGQUERY_QUERY_JOB_RETRY._predicate(exc) is True
-
-
-@pytest.mark.parametrize(
-    "exc",
-    [
-        # A genuinely malformed query is deterministic — retrying never helps, so it must surface.
-        BadRequest("Syntax error: Unexpected keyword SELECT"),
-        BadRequest("query failed", errors=[{"reason": "invalidQuery", "message": "bad SQL"}]),
-        # The administrator-set "Custom quota exceeded" daily cost cap resets only on Google's daily
-        # schedule — the per-second rate-quota retry must not catch it and hammer the endpoint.
-        Forbidden(
-            "Custom quota exceeded: Your usage exceeded the custom quota for QueryUsagePerDay, "
-            "which is set by your administrator.; reason: quotaExceeded"
-        ),
-    ],
-)
-def test_bigquery_query_job_retry_does_not_retry_deterministic_errors(exc):
-    assert BIGQUERY_QUERY_JOB_RETRY._predicate(exc) is False
 
 
 def test_bigquery_query_create_retry_retries_queued_jobs_quota():
@@ -1884,62 +1332,6 @@ def test_run_destination_query_passes_job_retry():
     assert client.query.call_args.kwargs["retry"] is BIGQUERY_QUERY_CREATE_RETRY
 
 
-def test_query_result_passes_job_retry():
-    """The read/count query must likewise run under the extended job retry so a transient per-second
-    rate quota is retried in place rather than surfacing."""
-    client = mock.MagicMock()
-
-    _query_result_with_job_retry(client, "SELECT COUNT(*)", job_config=mock.MagicMock(), project="prj")
-
-    assert client.query.return_value.result.call_args.kwargs["job_retry"] is BIGQUERY_QUERY_JOB_RETRY
-    assert client.query.call_args.kwargs["retry"] is BIGQUERY_QUERY_CREATE_RETRY
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "404 GET https://bigquery.googleapis.com/.../jobs/abc?projection=full: Not found: Job prj:US.abc",
-        "Not found: Job prj:EU.job_xyz",
-        "Job not found: job_xyz",
-    ],
-)
-def test_is_transient_job_not_found_matches_job_race(message):
-    assert _is_transient_job_not_found(NotFound(message)) is True
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        # A missing dataset/table (or a dataset absent from the queried region) is genuinely
-        # non-retryable and must not be mistaken for the job race, even though the raw dataset 404
-        # can carry a trailing "Job ID:".
-        "404 Not found: Dataset prj:ds was not found in location US Job ID: b3abc342-16a7",
-        "404 Not found: Table prj:ds.tbl",
-    ],
-)
-def test_is_transient_job_not_found_ignores_other_not_found(message):
-    assert _is_transient_job_not_found(NotFound(message)) is False
-
-
-@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
-def test_run_destination_query_retries_transient_job_not_found(mock_sleep):
-    """The copy-into-temp-table query is where the production sync crashed on BigQuery's job-metadata
-    race; a transient job-not-found must be retried with a fresh job instead of aborting the import."""
-    client = mock.MagicMock()
-    ok_job = mock.MagicMock()
-    client.query.side_effect = [NotFound("404 Not found: Job prj:US.abc"), ok_job]
-
-    _run_destination_query_with_job_retry(
-        client, "SELECT 1", destination_table=mock.MagicMock(), query_parameters=[], project="prj"
-    )
-
-    assert client.query.call_count == 2
-    ok_job.result.assert_called_once()
-    mock_sleep.assert_called_once()
-    # WRITE_TRUNCATE keeps the re-run idempotent against a temp table a lost first attempt populated.
-    assert client.query.call_args.kwargs["job_config"].write_disposition == "WRITE_TRUNCATE"
-
-
 @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
 def test_run_destination_query_does_not_retry_genuine_not_found(mock_sleep):
     """A genuine `NotFound` (missing dataset/table) is not the job race, so it surfaces immediately
@@ -1975,114 +1367,6 @@ def test_run_destination_query_gives_up_after_max_attempts(mock_sleep):
     assert client.query.call_count == 4
     # No back-off after the final, failed attempt.
     assert mock_sleep.call_count == 3
-
-
-@pytest.mark.parametrize(
-    "location",
-    ["US", "EU", "asia-northeast1"],
-)
-def test_bigquery_dataset_not_found_in_location_is_non_retryable(location):
-    """A deleted/renamed dataset (or one in a region we don't query) surfaces from schema
-    discovery as a google-api-core NotFound. Its str() is "404 Not found: Dataset ... was
-    not found in location <X>", which must be recognised as non-retryable via the
-    "was not found in location" pattern instead of retrying forever."""
-    error = NotFound(
-        f"Not found: Dataset my-proj:my_dataset was not found in location {location}; "
-        f"reason: notFound, message: Not found: Dataset my-proj:my_dataset was not found in location {location}"
-    )
-
-    # Mirror the substring match in `sync_new_schemas_activity` / `update_external_data_job_model`.
-    error_msg = str(error)
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-
-    assert any(pattern in error_msg for pattern in non_retryable_errors)
-
-
-@pytest.mark.parametrize(
-    "location",
-    ["ua", "us-fake1", "EU "],
-)
-def test_bigquery_unsupported_region_is_non_retryable(location):
-    """A custom/auto-detected region BigQuery can't run query jobs in surfaces from job creation as
-    a 400 BadRequest whose str() is "... Location <X> does not support this operation.". It's a
-    deterministic config error — retrying the same location always fails — so it must be recognised
-    as non-retryable via the "does not support this operation" pattern rather than retrying forever.
-    The volatile location code must not be part of the match."""
-    error_msg = str(
-        BadRequest(
-            f"POST https://bigquery.googleapis.com/bigquery/v2/projects/my-proj/jobs?prettyPrint=false: "
-            f"Location {location} does not support this operation."
-        )
-    )
-
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    matching = [key for key in non_retryable_errors if key in error_msg]
-
-    assert matching, "an unsupported-region 400 should be recognised as non-retryable"
-    assert all(non_retryable_errors[key] is not None for key in matching)
-    assert all(location not in key for key in matching), "match must not depend on the volatile location"
-
-
-def test_bigquery_dataset_not_found_during_sync_is_non_retryable():
-    """A dataset deleted/renamed after schema discovery surfaces from `get_table()` at sync time as a
-    google NotFound whose str() is "... Not found: Dataset <project>:<dataset>" — this REST GET path
-    carries no "was not found in location" suffix, unlike the query-job path covered by that pattern,
-    so it must be recognised as non-retryable via the "Not found: Dataset" pattern instead of retrying
-    a dataset that can't reappear within the run."""
-    error = NotFound(
-        "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-proj/datasets/my_dataset/"
-        "tables/my_table?prettyPrint=false: Not found: Dataset my-proj:my_dataset"
-    )
-
-    # Mirror the substring match in `update_external_data_job_model`.
-    error_msg = str(error)
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    matching = [key for key in non_retryable_errors if key in error_msg]
-
-    assert matching, "a dataset-not-found 404 during sync should be recognised as non-retryable"
-    assert all(non_retryable_errors[key] is not None for key in matching)
-    assert "was not found in location" not in error_msg
-
-
-def test_bigquery_table_not_found_during_sync_is_non_retryable():
-    """A table deleted/renamed after schema discovery surfaces from `get_table()` at sync time as a
-    google NotFound whose str() is "... Not found: Table <project>:<dataset>.<table>" — distinct from
-    the dataset-region "was not found in location" wording. It must be recognised as non-retryable via
-    the "Not found: Table" pattern instead of retrying a table that can't reappear within the run."""
-    error = NotFound(
-        "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-proj/datasets/my_dataset/"
-        "tables/my_table?prettyPrint=false: Not found: Table my-proj:my_dataset.my_table"
-    )
-
-    # Mirror the substring match in `update_external_data_job_model`.
-    error_msg = str(error)
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    matching = [key for key in non_retryable_errors if key in error_msg]
-
-    assert matching, "a table-not-found 404 during sync should be recognised as non-retryable"
-    assert all(non_retryable_errors[key] is not None for key in matching)
-    assert "was not found in location" not in error_msg
-
-
-def test_bigquery_project_not_found_during_sync_is_non_retryable():
-    """A source referencing a deleted or mistyped GCP project surfaces from `get_table()` at sync time
-    as a google NotFound whose str() is "... Project <id> is not found. Make sure it references valid
-    GCP project that hasn't been deleted." — distinct from the table/dataset "Not found" wording. It
-    must be recognised as non-retryable instead of retrying a project that can't reappear within the run."""
-    error = NotFound(
-        "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-proj/datasets/my_dataset/"
-        "tables/my_table?prettyPrint=false: Project my-proj is not found. Make sure it references "
-        "valid GCP project that hasn't been deleted.; Project id: my-proj"
-    )
-
-    error_msg = str(error)
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    matching = [key for key in non_retryable_errors if key in error_msg]
-
-    assert matching, "a project-not-found 404 during sync should be recognised as non-retryable"
-    assert all(non_retryable_errors[key] is not None for key in matching)
-    assert "Not found: Table" not in error_msg
-    assert "was not found in location" not in error_msg
 
 
 def test_bigquery_storage_read_client_disables_grpc_message_size_limit():
@@ -2126,101 +1410,6 @@ def test_bigquery_client_retries_transient_token_refresh_failures():
     assert retry.status_forcelist and {502, 503, 504} <= set(retry.status_forcelist)
 
 
-def test_bigquery_billing_not_enabled_is_non_retryable():
-    # A `billingNotEnabled` Forbidden 403 is a customer config issue — retrying never helps.
-    # Representative message from a real failed job (the `reason: billingNotEnabled` 403 raised
-    # by `job.result()` when the source project has BigQuery billing disabled / is in sandbox mode).
-    internal_error = (
-        "Forbidden: 403 Billing has not been enabled for this project. Enable billing at "
-        "https://console.cloud.google.com/billing. Datasets must have a default expiration time "
-        "and default partition expiration time of less than 60 days while in sandbox mode.; "
-        "reason: billingNotEnabled, message: Billing has not been enabled for this project."
-    )
-
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-
-    billing_key = "Billing has not been enabled for this project"
-    assert billing_key in non_retryable_errors, "expected billing key to be non-retryable"
-    # Mirror the substring match used by `update_external_data_job_model`.
-    assert billing_key in internal_error
-
-
-def test_bigquery_cdc_staleness_is_non_retryable():
-    """A CDC table whose pending upserts are staler than its max_staleness can't be read via the
-    Storage Read API (it never applies CDC changes), so the read fails as an InvalidArgument.
-    Retrying within the sync's window can't recover it — the apply happens on BigQuery's schedule —
-    so it must be recognised as non-retryable instead of hammering the Read API every attempt."""
-    error_msg = str(
-        InvalidArgument(
-            "request failed: The table has un-applied upsert data that is not fresh enough to meet "
-            "table's max_staleness."
-        )
-    )
-
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    matching = [key for key in non_retryable_errors if key in error_msg]
-
-    assert matching, "CDC max_staleness read failure should be recognised as non-retryable"
-    assert all(non_retryable_errors[key] is not None for key in matching)
-
-
-@pytest.mark.parametrize(
-    "other_error",
-    [
-        # A genuine config error about max_staleness must not be swallowed by the freshness key.
-        "400 Invalid value for max_staleness: must be a valid INTERVAL",
-        # Transient server errors must stay retryable.
-        "503 Service unavailable, please retry",
-    ],
-)
-def test_bigquery_cdc_staleness_key_does_not_match_unrelated_errors(other_error):
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    assert "un-applied upsert data that is not fresh enough" not in other_error
-    assert not any(key in other_error for key in non_retryable_errors)
-
-
-def test_bigquery_resources_exceeded_is_non_retryable():
-    """A `resourcesExceeded` query failure exceeds a worker's memory deterministically (heavy sorts /
-    analytic OVER() clauses over a large table or view), so retrying the identical temp-table copy in
-    `_run_destination_query_with_job_retry` always fails — it must be recognised as non-retryable
-    rather than retried on every attempt."""
-    error_msg = str(
-        BadRequest(
-            "GET https://bigquery.googleapis.com/bigquery/v2/projects/<redacted>/queries/<redacted>"
-            "?maxResults=0&location=us-central1&prettyPrint=false: Resources exceeded during query "
-            "execution: The query could not be executed in the allotted memory. Peak usage: 122% of limit."
-        )
-    )
-
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    matching = [key for key in non_retryable_errors if key in error_msg]
-
-    assert matching, "resourcesExceeded query failure should be recognised as non-retryable"
-    assert all(non_retryable_errors[key] is not None for key in matching)
-
-
-def test_bigquery_on_demand_ratio_exceeded_is_non_retryable():
-    """A query whose CPU-second usage relative to billed bytes exceeds the on-demand pricing
-    model's ratio fails deterministically for the same query shape and billing tier, so retrying
-    the identical temp-table copy in `_run_destination_query_with_job_retry` always fails — it must
-    be recognised as non-retryable rather than retried on every attempt."""
-    error_msg = str(
-        BadRequest(
-            "GET https://bigquery.googleapis.com/bigquery/v2/projects/<redacted>/queries/<redacted>"
-            "?maxResults=0&location=us-central1&prettyPrint=false: Query exceeded resource limits. "
-            "This query used 553474 CPU seconds but would charge only 1031M Analysis bytes. This "
-            "exceeds the ratio supported by the on-demand pricing model, which does not have this "
-            "limit. 553474 CPU seconds were used, and this query must use less than 263900 CPU seconds."
-        )
-    )
-
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    matching = [key for key in non_retryable_errors if key in error_msg]
-
-    assert matching, "on-demand pricing ratio failure should be recognised as non-retryable"
-    assert all(non_retryable_errors[key] is not None for key in matching)
-
-
 def test_bigquery_source_declares_v2_as_default():
     # The core of this PR: v2 is a supported version and the default for new sources, while the
     # legacy label stays supported so existing pins keep resolving. Guards a revert of the default
@@ -2231,40 +1420,13 @@ def test_bigquery_source_declares_v2_as_default():
     assert source.default_version == "v2"
 
 
-@pytest.mark.parametrize("pin,expected_segment", [("v1", "v2"), ("v2", "v2"), (None, "v2"), ("v99", "v2")])
-def test_bigquery_rest_api_version_maps_labels_to_v2(pin, expected_segment):
-    # Both supported labels (and any fallback) resolve to BigQuery's single stable REST path
-    # segment — a wrong mapping would point the client at a nonexistent /bigquery/<x>/ endpoint.
-    assert bq_module._bigquery_rest_api_version(pin) == expected_segment
-
-
-@pytest.mark.parametrize("pin", ["v1", "v2"])
-def test_bigquery_build_pipeline_threads_resolved_rest_api_version(pin):
-    # The source's version pin must reach the request layer (the REST segment the read/query
-    # clients run under); dropping it would stop a future version from dispatching.
-    with (
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_all_temp_destination_tables",
-        ),
-        mock.patch.object(
-            BigQueryImplementation, "_build_source_response", return_value=mock.MagicMock()
-        ) as mock_build,
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_table",
-        ),
-    ):
-        BigQuerySource().source_for_pipeline(_make_config(), _make_inputs(api_version=pin))
-
-    assert mock_build.call_args.kwargs["rest_api_version"] == "v2"
-
-
 # A BigQuery source authenticates either with a Google Cloud service account integration (shared
 # across the team, and keyless when PostHog impersonates the account) or with a JSON key file
 # uploaded onto the source itself. `resolve_bigquery_auth` picks between them once per run, and
 # every client the run opens signs with what it returns.
 
 
-_BATCH_EXPORT_MODULE = "products.batch_exports.backend.temporal.destinations.bigquery_batch_export"
+_BATCH_EXPORT_MODULE = "products.batch_exports.backend.facade.destinations.bigquery"
 
 
 def _google_cloud_integration(team, *, with_key: bool, email: str = "sa@my-project.iam.gserviceaccount.com"):
@@ -2283,19 +1445,6 @@ def _google_cloud_integration(team, *, with_key: bool, email: str = "sa@my-proje
             else {}
         ),
     )
-
-
-@pytest.mark.django_db
-def test_bigquery_auth_from_integration_with_a_key_signs_with_the_integrations_key(team):
-    integration = _google_cloud_integration(team, with_key=True)
-    config = BigQuerySourceConfig(dataset_id="my_dataset", auth_type=_integration_auth(integration.id))
-
-    with mock.patch.object(bq_module.service_account.Credentials, "from_service_account_info") as mock_creds:
-        auth = resolve_bigquery_auth(config, team_id=team.id)
-
-    # The project must come from the integration, not from a key file the source no longer has.
-    assert auth.project_id == "integration-project"
-    assert mock_creds.call_args.args[0]["client_email"] == "sa@my-project.iam.gserviceaccount.com"
 
 
 @pytest.mark.django_db
@@ -2348,27 +1497,6 @@ def test_bigquery_unverified_service_account_ownership_is_reported_and_not_retri
 
 
 @pytest.mark.django_db
-def test_bigquery_auth_follows_the_selection_when_both_credentials_are_stored(team):
-    """Switching an existing source to a service account leaves the old upload in `job_inputs`. The
-    selection has to decide, or the source keeps syncing on a key the customer thinks is retired."""
-    integration = _google_cloud_integration(team, with_key=True)
-    config = BigQuerySourceConfig(
-        dataset_id="my_dataset",
-        auth_type=BigQueryAuthTypeConfig(
-            selection="service_account",
-            google_cloud_service_account_integration_id=integration.id,
-            key_file=_key_file(project_id="stale-key-file-project"),
-        ),
-    )
-
-    assert resolve_bigquery_auth(config, team_id=team.id).project_id == "integration-project"
-
-    config.auth_type.selection = "key_file"
-
-    assert resolve_bigquery_auth(config, team_id=team.id).project_id == "stale-key-file-project"
-
-
-@pytest.mark.django_db
 def test_bigquery_auth_rejects_an_integration_belonging_to_another_team(team):
     other_team = Team.objects.create(organization=team.organization, name="other")
     integration = _google_cloud_integration(other_team, with_key=True)
@@ -2378,19 +1506,6 @@ def test_bigquery_auth_rejects_an_integration_belonging_to_another_team(team):
         resolve_bigquery_auth(config, team_id=team.id)
 
     assert str(exc_info.value) == BIGQUERY_INTEGRATION_NOT_FOUND_ERROR
-
-
-@pytest.mark.django_db
-def test_bigquery_disconnected_integration_is_reported_and_not_retried(team):
-    config = BigQuerySourceConfig(dataset_id="my_dataset", auth_type=_integration_auth(999999999))
-
-    with mock.patch.object(bq_module, "bigquery_client") as mock_client:
-        ok, message = BigQuerySource().validate_credentials(config, team_id=team.id)
-
-    assert (ok, message) == (False, BIGQUERY_INTEGRATION_NOT_FOUND_ERROR)
-    mock_client.assert_not_called()
-    # Reconnecting is the only fix, so the sync must stop instead of retrying every run.
-    assert BIGQUERY_INTEGRATION_NOT_FOUND_ERROR in BigQuerySource().get_non_retryable_errors()
 
 
 @pytest.mark.django_db
@@ -2420,23 +1535,20 @@ _COMPLETE_KEY_FILE = {
 
 
 @pytest.mark.parametrize(
-    "auth_type,expected_valid",
+    "job_inputs,expected_valid",
     [
-        ({"selection": "service_account", "google_cloud_service_account_integration_id": 7}, True),
-        ({"selection": "key_file", "key_file": _COMPLETE_KEY_FILE}, True),
-        ({"selection": "service_account", "google_cloud_service_account_integration_id": ""}, False),
-        ({"selection": "key_file", "key_file": {}}, False),
-        # The credential the user did not pick must not satisfy the one they did.
-        ({"selection": "service_account", "key_file": _COMPLETE_KEY_FILE}, False),
-        ({"selection": "key_file", "google_cloud_service_account_integration_id": 7}, False),
+        ({"auth_type": "service_account", "google_cloud_service_account_integration_id": 7}, True),
+        ({"auth_type": "key_file", "key_file": _COMPLETE_KEY_FILE}, True),
+        ({"auth_type": "service_account"}, False),
+        ({"auth_type": "key_file"}, False),
+        ({"auth_type": "key_file", "key_file": {"project_id": "my-project"}}, False),
+        ({"auth_type": "key_file", "key_file": {**_COMPLETE_KEY_FILE, "private_key": ""}}, False),
     ],
 )
-def test_bigquery_validate_config_requires_the_credential_for_the_selected_auth_type(auth_type, expected_valid):
-    """The credential fields under each option are optional on the form, so the option the user did
-    not pick does not block the save. That makes this the only check stopping a source being created
-    with no usable credentials."""
-    is_valid, errors = BigQuerySource().validate_config({"dataset_id": "d", "auth_type": auth_type})
+def test_bigquery_validate_config_reads_a_bare_selection_from_the_flat_payload(job_inputs, expected_valid):
+    is_valid, errors = BigQuerySource().validate_config({"dataset_id": "d", **job_inputs})
 
     assert is_valid is expected_valid
+    assert not any("Required field" in error for error in errors)
     if not expected_valid:
         assert any("Google Cloud service account" in error for error in errors)

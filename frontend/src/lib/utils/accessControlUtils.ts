@@ -138,8 +138,10 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
     } else if (resource === AccessControlResourceType.Ticket) {
         return 'support'
     } else if (resource === AccessControlResourceType.ReplayScanner) {
-        // Covers both scanners and their scheduled summary actions — "replay vision" is the product name.
+        // Replay vision is the product name users know for scanners.
         return 'replay vision'
+    } else if (resource === AccessControlResourceType.BusinessKnowledge) {
+        return 'business knowledge'
     }
 
     return resource.replace(/_/g, ' ') + 's'
@@ -318,7 +320,8 @@ export const getProductAccessDisabledReason = (item: {
         return undefined
     }
     const resourceType = sceneToAccessControlResourceType[item.sceneKey as Scene]
-    if (!resourceType || !productHasEffectiveNoneAccess(resourceType)) {
+    const resources = Array.isArray(resourceType) ? resourceType : resourceType ? [resourceType] : []
+    if (!resources.length || !resources.every(productHasEffectiveNoneAccess)) {
         return undefined
     }
     return `You don't have access to ${item.displayLabel || item.path || 'this product'}`

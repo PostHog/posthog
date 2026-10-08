@@ -26,6 +26,7 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -52,7 +53,7 @@ import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
 import { parseExperimentScannerParams } from './experimentTargeting'
-import { replayScannerLogic } from './replayScannerLogic'
+import { leaveScannerEditor, replayScannerLogic } from './replayScannerLogic'
 import {
     SCANNER_EDITOR_STEPS,
     SCANNER_EDITOR_STEP_ORDER,
@@ -64,7 +65,7 @@ import {
     scannerStepUrlWithParams,
 } from './scannerEditorSceneLogic'
 import { scannerSelfDrivingStatsLogic } from './scannerSelfDrivingStatsLogic'
-import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './types'
+import { MODEL_OPTIONS, SCANNER_TYPE_OPTIONS, scannerTypeOptions } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 const HedgehogImTheDriver = pngHoggie(imTheDriverPng)
@@ -111,7 +112,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     // Multivariate flag; a truthy check would turn the goal flow on for control too.
-    const goalFlow = featureFlags[FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW] === 'test'
+    const goalFlow = featureFlags[FEATURE_FLAGS.VISION_GOAL_FLOW_V2] === 'test'
     // Read once on mount, because the wizard strips the deep-link params as soon as it consumes them.
     const [experimentDeepLink] = useState(() => parseExperimentScannerParams(router.values.searchParams) !== null)
     // Reached a form step by clicking Edit on the goal overview: the overview is home, not a wizard
@@ -351,9 +352,8 @@ function ConfigureStep(): JSX.Element {
     const { scanner, isNew, goalDraft } = useValues(replayScannerLogic({ id: scannerId }))
     const { setScannerType } = useActions(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const isTypeSelectable = isNew && !searchParams.template
+    const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
 
     if (!scanner) {
         return <></>
@@ -394,16 +394,18 @@ function ConfigureStep(): JSX.Element {
                             }
                             setScannerType(next)
                         }}
-                        options={SCANNER_TYPE_OPTIONS.map((opt) => ({
-                            value: opt.value,
-                            label: opt.label,
-                            labelInMenu: (
-                                <div className="flex flex-col">
-                                    <span className="font-medium">{opt.label}</span>
-                                    <span className="text-xs text-muted">{opt.description}</span>
-                                </div>
-                            ),
-                        }))}
+                        options={scannerTypeOptions(experimentScanners || scanner.scanner_type === 'experiment').map(
+                            (opt) => ({
+                                value: opt.value,
+                                label: opt.label,
+                                labelInMenu: (
+                                    <div className="flex flex-col">
+                                        <span className="font-medium">{opt.label}</span>
+                                        <span className="text-xs text-muted">{opt.description}</span>
+                                    </div>
+                                ),
+                            })
+                        )}
                     />
                 </LemonField>
             ) : (
@@ -428,18 +430,10 @@ function ConfigureStep(): JSX.Element {
 
             <div className="flex flex-col gap-1 items-start">
                 <LemonField name="model" label="Model" className="items-start">
-                    <LemonSelect
-                        className="max-w-full"
-                        value={scanner.model}
-                        options={getModelOptions(namingVariant)}
-                    />
+                    <LemonSelect className="max-w-full" value={scanner.model} options={MODEL_OPTIONS} />
                 </LemonField>
-                {/* The price line stays outside the variant branch so every arm of the model-naming experiment
-                    shows it. Tier names give even less of a cost anchor than provider model names do. */}
                 <div className="text-xs text-muted">
-                    {namingVariant
-                        ? 'Higher tiers tend to produce higher-quality observations, but cost more per observation.'
-                        : 'Newer models tend to produce higher-quality observations, but cost more per observation.'}{' '}
+                    Newer models tend to produce higher-quality observations, but cost more per observation.{' '}
                     <CreditPriceNote dataAttr="vision-pricing-link-model-picker" />
                 </div>
             </div>
@@ -521,7 +515,7 @@ function EditorFooter({
     const cancel = (): void => {
         // Resetting first leaves nothing unsaved, so the leave guard can't prompt on top of this.
         discardScannerDraft()
-        router.actions.push(isNew ? urls.replayVision() : urls.replayVision(scannerId))
+        leaveScannerEditor(scannerId, isNew ? urls.replayVision() : urls.replayVision(scannerId))
     }
     const handleCancel = (): void => {
         if (!hasUnsavedChanges) {
@@ -609,6 +603,8 @@ function EditorFooter({
                                     loading={isSubmitting}
                                     disabledReason={saveDisabledReason}
                                     onClick={() => (needsConsent ? setConsentRequested(true) : onSave())}
+                                    // The consent popover anchors here, and a popover anchor gets a dropdown chevron unless told otherwise.
+                                    sideIcon={null}
                                     data-attr="vision-editor-save"
                                     data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
                                 >

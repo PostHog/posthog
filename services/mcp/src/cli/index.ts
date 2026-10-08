@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import { AnalyticsEvent } from '@/lib/posthog/analytics'
-import { createExecTool, formatInputValidationError, rewrapFlattenedArguments } from '@/tools/exec'
+import { createExecTool, formatInputValidationError, repairArgumentNesting } from '@/tools/exec'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import { buildAgentHelp } from './agent-help'
@@ -10,7 +9,7 @@ import type { CliConfig } from './config'
 import { resolveCliConfig, requireApiKey } from './config'
 import { buildCliContext, flushAnalytics } from './context'
 import { installSkill, listSkills } from './skills'
-import { buildToolCallProperties } from './tool-call-properties'
+import { trackCliToolCall } from './tool-call-properties'
 import { getCliTools } from './tools'
 
 const COMMAND_REFERENCE = `CLI-style command string. Supported commands:
@@ -18,7 +17,7 @@ tools
 search <regex_pattern>
 info [--json] <tool_name>
 schema <tool_name> [field_path]
-call [--json] [--confirm] <tool_name> <json_input>`
+call [--json] [--confirm] <tool_name> [json_input]`
 
 interface BuiltExec {
     context: Context
@@ -40,7 +39,7 @@ Usage:
   posthog-cli api search <regex>
   posthog-cli api info [--json] <tool>
   posthog-cli api schema <tool> [field.path]
-  posthog-cli api call [--json] [--dry-run] [--confirm] <tool> '<json>'
+  posthog-cli api call [--json] [--dry-run] [--confirm] <tool> ['<json>']
   posthog-cli api skill list [--json]
   posthog-cli api skill install [--force] <skill-id>
   posthog-cli api agents-md install [--path AGENTS.md]
@@ -92,9 +91,7 @@ async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltE
         'Execute a PostHog CLI command',
         COMMAND_REFERENCE,
         'posthog-cli',
-        (toolName, properties) => {
-            void context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, buildToolCallProperties(toolName, properties))
-        },
+        (toolName, properties) => trackCliToolCall(context, toolName, properties),
         [],
         { requireDestructiveConfirmation: true }
     )
@@ -147,7 +144,7 @@ async function runDryCall(args: string[]): Promise<void> {
 
     // The same rewrap the MCP paths apply, so a dry run reports what a real call would do.
     const firstPass = tool.schema.safeParse(parsed, { reportInput: true })
-    const rewrapped = firstPass.success ? undefined : rewrapFlattenedArguments(firstPass.error, parsed, tool.schema)
+    const rewrapped = firstPass.success ? undefined : repairArgumentNesting(firstPass.error, parsed, tool.schema)
     const validation = rewrapped ? tool.schema.safeParse(rewrapped, { reportInput: true }) : firstPass
     printResult({
         dryRun: true,
@@ -251,7 +248,7 @@ async function main(): Promise<void> {
             const toolName = args.shift()
             const jsonBody = args.length > 0 ? args.join(' ') : '{}'
             if (!toolName) {
-                throw new Error('Usage: posthog-cli api call [--json] [--dry-run] [--confirm] <tool> <json>')
+                throw new Error('Usage: posthog-cli api call [--json] [--dry-run] [--confirm] <tool> [json]')
             }
             await runExecCommand(`call ${json ? '--json ' : ''}${confirmed ? '--confirm ' : ''}${toolName} ${jsonBody}`)
             return

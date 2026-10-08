@@ -3,10 +3,6 @@
         "chromium": 13.862,
         "webkit": 3.975
     },
-    "frontend/src/exporter/stories/ExporterInterview.stories.tsx": {
-        "chromium": 29.053,
-        "webkit": 1.908
-    },
     "frontend/src/exporter/stories/ExporterOther.stories.tsx": {
         "chromium": 25.232,
         "webkit": 4.504
@@ -863,14 +859,6 @@
         "chromium": 9.689,
         "webkit": 4.325
     },
-    "frontend/src/scenes/experiments/stories/ExperimentWithLegacyFunnelsQuery.stories.tsx": {
-        "chromium": 9.746,
-        "webkit": 2.001
-    },
-    "frontend/src/scenes/experiments/stories/ExperimentWithLegacyTrendsQuery.stories.tsx": {
-        "chromium": 10.345,
-        "webkit": 2.109
-    },
     "frontend/src/scenes/experiments/stories/ExperimentWithMeanMetric.stories.tsx": {
         "chromium": 8.934,
         "webkit": 1.958
@@ -1351,10 +1339,6 @@
         "chromium": 19.529,
         "webkit": 3.46
     },
-    "frontend/src/scenes/user-research/UserInterviews.stories.tsx": {
-        "chromium": 14.124,
-        "webkit": 3.767
-    },
     "frontend/src/scenes/web-analytics/CalendarHeatMap/CalendarHeatMap.stories.tsx": {
         "chromium": 21.706,
         "webkit": 2.758
@@ -1486,10 +1470,6 @@
     "products/actions/mcp/apps/Actions.stories.tsx": {
         "chromium": 9.681,
         "webkit": 2.302
-    },
-    "products/ai_gateway/frontend/AIGateway.stories.tsx": {
-        "chromium": 9.754,
-        "webkit": 3.155
     },
     "products/ai_observability/frontend/AIObservabilityTraceScene.stories.tsx": {
         "chromium": 13.557,
@@ -1707,10 +1687,6 @@
         "chromium": 35.165,
         "webkit": 7.171
     },
-    "products/links/frontend/LinksScene.stories.tsx": {
-        "chromium": 15.063,
-        "webkit": 2.919
-    },
     "products/logs/frontend/LogsScene.stories.tsx": {
         "chromium": 1.794,
         "webkit": 1.145
@@ -1850,14 +1826,6 @@
     "products/surveys/mcp/apps/Surveys.stories.tsx": {
         "chromium": 11.993,
         "webkit": 2.61
-    },
-    "products/user_interviews/frontend/InvitePreviewModal.stories.tsx": {
-        "chromium": 36.53,
-        "webkit": 3.171
-    },
-    "products/user_interviews/frontend/TranscriptChat.stories.tsx": {
-        "chromium": 28.639,
-        "webkit": 3.381
     },
     "products/visual_review/frontend/scenes/VisualReviewRunScene.stories.tsx": {
         "chromium": 9.533,

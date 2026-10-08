@@ -1,0 +1,283 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Package label extraction fails on a vision-blind model",
+  "scenario": "A warehouse intake pipeline built with LangChain photographs incoming cartons and asks a tool-calling model to extract structured label fields. Routed to a Cerebras-hosted Llama model that does not support image input, the call fails with a 400 error, which propagates up through the chain span and trace.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1,
+      "$ai_span": 1,
+      "$ai_trace": 1
+    },
+    "traces": 1,
+    "sessions": 1,
+    "errors": 3,
+    "libs": [
+      "posthog-python"
+    ],
+    "providers": [
+      "cerebras"
+    ],
+    "frameworks": [
+      "langchain"
+    ],
+    "models": [
+      "qwen-3.8-27b"
+    ],
+    "content_types": [
+      "image_url"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_span_id": "a18285a8-8cef-7877-ec78-ad8c9a72eb0a",
+        "$ai_latency": 2.0036303997039795,
+        "$ai_session_id": "3030b60b-110e-7653-675c-235b05cc9a77",
+        "$python_version": "3.12.14",
+        "$os": "Linux",
+        "$os_distro": "Debian GNU/Linux",
+        "$geoip_disable": true,
+        "$ai_http_status": 400,
+        "$ai_provider": "cerebras",
+        "$ai_is_error": true,
+        "$ai_model_parameters": {
+          "max_tokens": 2048,
+          "stream": false,
+          "temperature": 0
+        },
+        "$ai_base_url": null,
+        "$ai_trace_id": "3030b60b-110e-7653-675c-235b05cc9a77",
+        "$is_server": true,
+        "$ai_span_name": "extract_shipping_label_fields_llm",
+        "$ai_parent_id": "03aaa1fa-517a-779b-ae4d-3bc682a08ab2",
+        "$ai_model": "qwen-3.8-27b",
+        "$ai_error": "Error code: 400 - {'message': \"The model 'llama3.1-70b' does not support image inputs. Remove the image_url content block from the message and resend the request, or switch to a model that supports vision.\", 'type': 'invalid_request_error', 'param': 'messages', 'code': 'unsupported_content_type'}",
+        "$ai_framework": "langchain",
+        "$python_runtime": "CPython",
+        "$os_version": "13",
+        "$lib": "posthog-python",
+        "$lib_version": "7.44.2",
+        "$ai_input": [
+          {
+            "content": "You are a warehouse intake assistant that extracts structured information from photographs of shipping labels and package markings.\n\nYour job is to look at the attached image and call the extract_package_label_details function with every field you can confidently read from the label. Never guess a value you cannot see clearly; leave it null instead of inventing one.\n\n## Fields\n\n- brand: the printed brand or manufacturer wordmark on the label, if visible.\n- name: the product or item name as printed on the label.\n- quantity: the unit count in the shipment, as an integer if printed.\n- estimated_weight_kg: the package weight in kilograms. Convert from pounds if the label prints lbs instead.\n- package_size_tier_code: one of the enumerated size tiers printed or implied by the carton dimensions.\n- metadata: any other key-value pairs printed on the label, such as barcodes, lot codes, or hazard symbols, that don't fit another field.\n- manufacturer: the manufacturing company name, which may differ from the brand on the front of the box.\n- country_of_manufacture: the country printed after \"Made in\" or an equivalent phrase.\n- expiration_date: the expiry or best-before date, normalized to ISO 8601.\n\n## Rules\n\n1. Read every visible line of text on the label before answering, including small print near the barcode.\n2. When two candidate values conflict, prefer the clearest and most complete printed value.\n3. Do not translate text; keep the original spelling and capitalization from the label.\n4. If the image is too blurry or the label is torn in a way that hides a field, leave that field null rather than guessing.\n\n\n## Worked example: strapping kit carton\n\nGiven a label reading:\n\n```\nACME FREIGHT SUPPLIES\nHeavy-Duty Strapping Kit\nQty: 24 units\nNet Weight: 18.5 kg\nSize Tier: XL\nMade in Vietnam\nBest Before: 2028-03-01\nLot: 44821-B\n```\n\ncall the function with:\n\n```json\n{\n  \"brand\": \"ACME FREIGHT SUPPLIES\",\n  \"name\": \"Heavy-Duty Strapping Kit\",\n  \"quantity\": 24,\n  \"estimated_weight_kg\": 18.5,\n  \"package_size_tier_code\": \"XL\",\n  \"metadata\": {\"lot\": \"44821-B\"},\n  \"manufacturer\": null,\n  \"country_of_manufacture\": \"Vietnam\",\n  \"expiration_date\": \"2028-03-01\"\n}\n```\n\nNote that manufacturer was left null because the label only prints a brand name, not a separate legal manufacturer name. Do not assume the brand and the manufacturer are the same company unless the label says so explicitly.\n\n## Handling torn or damaged labels\n\nWarehouse intake photos frequently show labels that were scuffed in transit. When part of a field is missing:\n\n- If only the unit suffix is torn off a number (for example \"18.\" with no decimal digits), leave estimated_weight_kg null rather than rounding.\n- If the country name is partially obscured but unambiguous from the remaining letters (for example \"Viet\" with the rest torn away and no other plausible country fits), you may fill it in.\n- If the whole label has come off the box and is photographed loose next to it, treat it exactly as if it were still attached; the extraction rules do not change.\n- Never fabricate a lot code, barcode digit, or date from a torn label. A partially readable date such as \"2028-03-\" with the day torn off should be left null, not padded with an assumed day.\n\n## Unit conversion notes\n\nSome suppliers print weight in pounds instead of kilograms. Convert using 1 lb = 0.45359237 kg and round to one decimal place. For example, a label reading \"Net Wt: 40 lbs\" becomes estimated_weight_kg: 18.1.\n\nWhen a label prints both units, such as \"40 lbs / 18.1 kg\", prefer the kilogram figure printed on the label over your own conversion, since it may already account for tare weight or packaging adjustments the supplier made.\n\nSome older labels use \"kgs\" instead of \"kg\", or omit the unit entirely when the shipment is entirely domestic. Assume kilograms only when there is no lbs, lb, or oz marking anywhere on the label; otherwise convert.\n\n## Multi-language labels\n\nMany pallets arriving at the dock carry labels printed in two or three languages, most often English alongside the language of the country of origin. When brand and name appear in multiple languages:\n\n- Prefer the English text for the name field if present.\n- If no English text exists, use whichever language appears first or largest on the label.\n- Do not attempt to translate a name or brand yourself; extract it verbatim in the language it was printed.\n- country_of_manufacture should always be normalized to its English name (for example \"Deutschland\" becomes \"Germany\"), since downstream systems expect English country names.",
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "image_url": {
+                  "url": "https://x.example.com/a1.jpg"
+                },
+                "type": "image_url"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_tools": [
+          {
+            "function": {
+              "description": "",
+              "name": "extract_package_label_details",
+              "parameters": {
+                "properties": {
+                  "brand": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "quantity": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "estimated_weight_kg": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "package_size_tier_code": {
+                    "anyOf": [
+                      {
+                        "description": "Package size classification",
+                        "enum": [
+                          "S",
+                          "XL"
+                        ],
+                        "title": "Size Tier",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "name": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "metadata": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "manufacturer": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "country_of_manufacture": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "expiration_date": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "function"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 1,
+      "distinct_id": "user-1",
+      "properties": {
+        "$lib_version": "7.44.2",
+        "$geoip_disable": true,
+        "$ai_span_name": "RunnableSequence",
+        "$ai_trace_id": "3030b60b-110e-7653-675c-235b05cc9a77",
+        "$python_version": "3.12.14",
+        "$os": "Linux",
+        "$os_distro": "Debian GNU/Linux",
+        "$ai_framework": "langchain",
+        "$ai_session_id": "3030b60b-110e-7653-675c-235b05cc9a77",
+        "$ai_parent_id": "3030b60b-110e-7653-675c-235b05cc9a77",
+        "$python_runtime": "CPython",
+        "$ai_error": "Error code: 400 - {'message': \"The model 'llama3.1-70b' does not support image inputs. Remove the image_url content block from the message and resend the request, or switch to a model that supports vision.\", 'type': 'invalid_request_error', 'param': 'messages', 'code': 'unsupported_content_type'}",
+        "$os_version": "13",
+        "$ai_latency": 2.0081095695495605,
+        "$ai_span_id": "03aaa1fa-517a-779b-ae4d-3bc682a08ab2",
+        "$lib": "posthog-python",
+        "$ai_is_error": true,
+        "$is_server": true,
+        "$ai_input_state": [
+          {
+            "additional_kwargs": {},
+            "content": "You are a warehouse intake assistant that extracts structured information from photographs of shipping labels and package markings.\n\nYour job is to look at the attached image and call the extract_package_label_details function with every field you can confidently read from the label. Never guess a value you cannot see clearly; leave it null instead of inventing one.\n\n## Fields\n\n- brand: the printed brand or manufacturer wordmark on the label, if visible.\n- name: the product or item name as printed on the label.\n- quantity: the unit count in the shipment, as an integer if printed.\n- estimated_weight_kg: the package weight in kilograms. Convert from pounds if the label prints lbs instead.\n- package_size_tier_code: one of the enumerated size tiers printed or implied by the carton dimensions.\n- metadata: any other key-value pairs printed on the label, such as barcodes, lot codes, or hazard symbols, that don't fit another field.\n- manufacturer: the manufacturing company name, which may differ from the brand on the front of the box.\n- country_of_manufacture: the country printed after \"Made in\" or an equivalent phrase.\n- expiration_date: the expiry or best-before date, normalized to ISO 8601.\n\n## Rules\n\n1. Read every visible line of text on the label before answering, including small print near the barcode.\n2. When two candidate values conflict, prefer the clearest and most complete printed value.\n3. Do not translate text; keep the original spelling and capitalization from the label.\n4. If the image is too blurry or the label is torn in a way that hides a field, leave that field null rather than guessing.\n\n\n## Worked example: strapping kit carton\n\nGiven a label reading:\n\n```\nACME FREIGHT SUPPLIES\nHeavy-Duty Strapping Kit\nQty: 24 units\nNet Weight: 18.5 kg\nSize Tier: XL\nMade in Vietnam\nBest Before: 2028-03-01\nLot: 44821-B\n```\n\ncall the function with:\n\n```json\n{\n  \"brand\": \"ACME FREIGHT SUPPLIES\",\n  \"name\": \"Heavy-Duty Strapping Kit\",\n  \"quantity\": 24,\n  \"estimated_weight_kg\": 18.5,\n  \"package_size_tier_code\": \"XL\",\n  \"metadata\": {\"lot\": \"44821-B\"},\n  \"manufacturer\": null,\n  \"country_of_manufacture\": \"Vietnam\",\n  \"expiration_date\": \"2028-03-01\"\n}\n```\n\nNote that manufacturer was left null because the label only prints a brand name, not a separate legal manufacturer name. Do not assume the brand and the manufacturer are the same company unless the label says so explicitly.\n\n## Handling torn or damaged labels\n\nWarehouse intake photos frequently show labels that were scuffed in transit. When part of a field is missing:\n\n- If only the unit suffix is torn off a number (for example \"18.\" with no decimal digits), leave estimated_weight_kg null rather than rounding.\n- If the country name is partially obscured but unambiguous from the remaining letters (for example \"Viet\" with the rest torn away and no other plausible country fits), you may fill it in.\n- If the whole label has come off the box and is photographed loose next to it, treat it exactly as if it were still attached; the extraction rules do not change.\n- Never fabricate a lot code, barcode digit, or date from a torn label. A partially readable date such as \"2028-03-\" with the day torn off should be left null, not padded with an assumed day.\n\n## Unit conversion notes\n\nSome suppliers print weight in pounds instead of kilograms. Convert using 1 lb = 0.45359237 kg and round to one decimal place. For example, a label reading \"Net Wt: 40 lbs\" becomes estimated_weight_kg: 18.1.\n\nWhen a label prints both units, such as \"40 lbs / 18.1 kg\", prefer the kilogram figure printed on the label over your own conversion, since it may already account for tare weight or packaging adjustments the supplier made.\n\nSome older labels use \"kgs\" instead of \"kg\", or omit the unit entirely when the shipment is entirely domestic. Assume kilograms only when there is no lbs, lb, or oz marking anywhere on the label; otherwise convert.\n\n## Multi-language labels\n\nMany pallets arriving at the dock carry labels printed in two or three languages, most often English alongside the language of the country of origin. When brand and name appear in multiple languages:\n\n- Prefer the English text for the name field if present.\n- If no English text exists, use whichever language appears first or largest on the label.\n- Do not attempt to translate a name or brand yourself; extract it verbatim in the language it was printed.\n- country_of_manufacture should always be normalized to its English name (for example \"Deutschland\" becomes \"Germany\"), since downstream systems expect English country names.",
+            "id": null,
+            "name": null,
+            "response_metadata": {},
+            "type": "system"
+          },
+          {
+            "additional_kwargs": {},
+            "content": [
+              {
+                "image_url": {
+                  "url": "data:image/jpeg;base64,⟦media:langchain_cerebras_image_error__M3969345.jpg⟧"
+                },
+                "type": "image_url"
+              }
+            ],
+            "id": null,
+            "name": null,
+            "response_metadata": {},
+            "type": "human"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 3,
+      "distinct_id": "user-1",
+      "properties": {
+        "$lib_version": "7.44.2",
+        "$os": "Linux",
+        "$geoip_disable": true,
+        "$ai_latency": 2.133077383041382,
+        "$ai_span_id": "e72a5269-fadc-77f2-a65c-99731ce9853a",
+        "$ai_error": "Error code: 400 - {'message': \"The model 'llama3.1-70b' does not support image inputs. Remove the image_url content block from the message and resend the request, or switch to a model that supports vision.\", 'type': 'invalid_request_error', 'param': 'messages', 'code': 'unsupported_content_type'}",
+        "$python_version": "3.12.14",
+        "$os_distro": "Debian GNU/Linux",
+        "$python_runtime": "CPython",
+        "$ai_session_id": "3030b60b-110e-7653-675c-235b05cc9a77",
+        "$os_version": "13",
+        "$is_server": true,
+        "$lib": "posthog-python",
+        "$ai_span_name": "scan_package",
+        "$ai_framework": "langchain",
+        "$ai_is_error": true,
+        "$ai_trace_id": "3030b60b-110e-7653-675c-235b05cc9a77",
+        "$ai_input_state": null
+      }
+    }
+  ],
+  "sets": [
+    "core"
+  ],
+  "why": "Error state: failed generation with image input inside a trace"
+}

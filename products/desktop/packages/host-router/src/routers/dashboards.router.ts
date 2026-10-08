@@ -7,6 +7,7 @@ import {
   canvasActionDefinitionSchema,
   canvasActionInvokeInput,
   canvasActionResultSchema,
+  canvasAvailabilitySchema,
   canvasBuildsInput,
   canvasConnectorCallResultSchema,
   canvasConnectorCallServiceInput,
@@ -25,6 +26,8 @@ import {
   listComponentsInput,
   listDashboardsInput,
   promoteCanvasInput,
+  publishProjectInput,
+  publishProjectResultSchema,
   renameDashboardInput,
   reportCanvasErrorInput,
   requestCanvasAgentInput,
@@ -71,6 +74,15 @@ export const dashboardsRouter = router({
     .query(({ ctx, input }) =>
       ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).get(input.id),
     ),
+  // Why a canvas would not open. Only the dead-end surface asks.
+  availability: publicProcedure
+    .input(dashboardIdInput)
+    .output(canvasAvailabilitySchema)
+    .query(({ ctx, input }) =>
+      ctx.container
+        .get<IDashboardsService>(DASHBOARDS_SERVICE)
+        .availability(input.id),
+    ),
   // Everything needed to open a canvas, in one round trip.
   view: publicProcedure
     .input(dashboardIdInput)
@@ -108,6 +120,14 @@ export const dashboardsRouter = router({
       ctx.container
         .get<IDashboardsService>(DASHBOARDS_SERVICE)
         .patchLayout(input),
+    ),
+  publishProject: publicProcedure
+    .input(publishProjectInput)
+    .output(publishProjectResultSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<IDashboardsService>(DASHBOARDS_SERVICE)
+        .publishProject(input),
     ),
   source: publicProcedure
     .input(canvasSourceInput)

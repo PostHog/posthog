@@ -47,19 +47,7 @@ import { WatchFeedTab } from './components/WatchFeedTab'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
 import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
-import {
-    ENABLED_OPTIONS,
-    EnabledFilter,
-    SCANNER_TYPE_OPTIONS,
-    ScannerType,
-    ReplayScanner,
-    homeRedesignVariant,
-} from './types'
-
-const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
-    value,
-    label,
-}))
+import { ENABLED_OPTIONS, EnabledFilter, scannerTypeOptions, ScannerType, ReplayScanner } from './types'
 
 function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element {
     const { deletingIds } = useValues(replayScannersLogic)
@@ -123,6 +111,9 @@ function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element
     )
 }
 
+const KNOWN_TABS: string[] = ['watch', 'scanners', ReplayScannerTab.Search, 'usage']
+const DEFAULT_TAB = 'watch'
+
 export const scene: SceneExport = {
     component: ReplayScannersScene,
     logic: replayScannersLogic,
@@ -154,17 +145,7 @@ export function ReplayScannersScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const { showUsd } = useValues(visionQuotaLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    // On the test arm the tab row itself diverges, so the flag read (which reports exposure)
-    // is correct on every tab of this scene.
-    const isRedesign =
-        homeRedesignVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]) === 'test'
-    // The feed tab exists only on the test arm and is its default; control users following a
-    // shared ?tab=watch link fall through to the scanners tab.
-    const knownTabs: string[] = isRedesign
-        ? ['watch', 'scanners', ReplayScannerTab.Search, 'usage']
-        : ['scanners', ReplayScannerTab.Search, 'usage']
-    const defaultTab = isRedesign ? 'watch' : 'scanners'
-    const activeTab = knownTabs.includes(searchParams.tab) ? searchParams.tab : defaultTab
+    const activeTab = KNOWN_TABS.includes(searchParams.tab) ? searchParams.tab : DEFAULT_TAB
 
     const columns: LemonTableColumns<ReplayScanner> = [
         {
@@ -176,7 +157,10 @@ export function ReplayScannersScene(): JSX.Element {
                     <Link to={urls.replayVision(scanner.id)} className="font-semibold text-primary">
                         {scanner.name || '(untitled)'}
                     </Link>
-                    {scanner.description && <div className="text-muted text-sm">{scanner.description}</div>}
+                    {/* The creator's own description wins; the question fills in for scanners that have none. */}
+                    {(scanner.description || scanner.prompt_question) && (
+                        <div className="text-muted text-sm">{scanner.description || scanner.prompt_question}</div>
+                    )}
                 </div>
             ),
         },
@@ -299,9 +283,9 @@ export function ReplayScannersScene(): JSX.Element {
 
             <LemonTabs
                 activeKey={activeTab}
-                onChange={(tab) => push(urls.replayVision(), tab === defaultTab ? {} : { tab })}
+                onChange={(tab) => push(urls.replayVision(), tab === DEFAULT_TAB ? {} : { tab })}
                 tabs={[
-                    ...(isRedesign ? [{ key: 'watch', label: 'What to watch', content: <></> }] : []),
+                    { key: 'watch', label: 'What to watch', content: <></> },
                     { key: 'scanners', label: 'Scanners', content: <></> },
                     { key: ReplayScannerTab.Search, label: 'Search', content: <></> },
                     { key: 'usage', label: 'Usage', content: <></> },
@@ -338,24 +322,31 @@ export function ReplayScannersScene(): JSX.Element {
                                 />
                                 <FilterPill<EnabledFilter>
                                     label="Status"
+                                    dataAttr="vision-scanners-status-filter"
                                     options={ENABLED_OPTIONS}
                                     value={enabledFilter}
                                     onChange={(v) => setScannersFilters({ enabledFilter: v })}
                                 />
                                 <FilterPill<ScannerType>
                                     label="Type"
-                                    options={TYPE_OPTIONS}
+                                    dataAttr="vision-scanners-type-filter"
+                                    options={scannerTypeOptions(
+                                        !!featureFlags[FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER] ||
+                                            !!scannerStats?.by_type?.experiment?.total
+                                    ).map(({ value, label }) => ({ value, label }))}
                                     value={scannerTypeFilter}
                                     onChange={(v) => setScannersFilters({ scannerTypeFilter: v })}
                                 />
                                 <FilterPill<string>
                                     label="Created by"
+                                    dataAttr="vision-scanners-created-by-filter"
                                     options={createdByOptions}
                                     value={createdByFilter}
                                     onChange={(v) => setScannersFilters({ createdByFilter: v })}
                                 />
                                 <FilterPill<string>
                                     label="Tags"
+                                    dataAttr="vision-scanners-tags-filter"
                                     searchable
                                     options={tagOptions}
                                     value={tagsFilter}

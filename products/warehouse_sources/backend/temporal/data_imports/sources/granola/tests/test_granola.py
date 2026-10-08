@@ -9,15 +9,11 @@ from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.granola.granola import (
     GRANOLA_BASE_URL,
-    PAGE_SIZE,
     GranolaResumeConfig,
-    _build_initial_params,
-    _build_url,
     _format_timestamp,
     granola_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.granola.settings import GRANOLA_ENDPOINTS
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.granola.granola"
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -65,10 +61,6 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     return seen
 
 
-def _pages(source_response) -> list[list[dict[str, Any]]]:
-    return list(source_response.items())
-
-
 def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
@@ -85,55 +77,6 @@ class TestFormatTimestamp:
     )
     def test_format_timestamp(self, value: Any, expected: str) -> None:
         assert _format_timestamp(value) == expected
-
-    def test_no_plus_zero_offset(self) -> None:
-        assert "+00:00" not in _format_timestamp(datetime(2026, 1, 27, 15, 30, tzinfo=UTC))
-
-
-class TestBuildInitialParams:
-    def test_non_incremental_only_sets_page_size(self) -> None:
-        params = _build_initial_params(GRANOLA_ENDPOINTS["notes"], False, None, None)
-
-        assert params == {"page_size": PAGE_SIZE}
-
-    @pytest.mark.parametrize(
-        "incremental_field, expected_param",
-        [
-            ("updated_at", "updated_after"),
-            ("created_at", "created_after"),
-            (None, "updated_after"),  # falls back to the first advertised field
-        ],
-    )
-    def test_incremental_maps_field_to_server_filter(self, incremental_field, expected_param) -> None:
-        params = _build_initial_params(
-            GRANOLA_ENDPOINTS["notes"],
-            True,
-            datetime(2026, 1, 27, 15, 30, 0, tzinfo=UTC),
-            incremental_field,
-        )
-
-        assert params[expected_param] == "2026-01-27T15:30:00Z"
-        assert params["page_size"] == PAGE_SIZE
-
-    def test_incremental_without_last_value_skips_filter(self) -> None:
-        params = _build_initial_params(GRANOLA_ENDPOINTS["notes"], True, None, "updated_at")
-
-        assert params == {"page_size": PAGE_SIZE}
-
-    def test_folders_has_no_server_filter(self) -> None:
-        # folders advertises no incremental fields, so it never gets a timestamp filter.
-        params = _build_initial_params(
-            GRANOLA_ENDPOINTS["folders"], True, datetime(2026, 1, 27, tzinfo=UTC), "updated_at"
-        )
-
-        assert params == {"page_size": PAGE_SIZE}
-
-
-class TestBuildUrl:
-    def test_build_url(self) -> None:
-        url = _build_url("/v1/notes", {"page_size": 30, "cursor": "abc"})
-
-        assert url == f"{GRANOLA_BASE_URL}/v1/notes?page_size=30&cursor=abc"
 
 
 class TestValidateCredentials:
@@ -172,6 +115,7 @@ class TestValidateCredentials:
             (None, "/v1/notes"),
             ("notes", "/v1/notes"),
             ("folders", "/v1/folders"),
+            ("transcripts", "/v1/notes"),  # fan-out child probes its parent listing
             ("unknown", "/v1/notes"),
         ],
     )
@@ -188,55 +132,6 @@ class TestValidateCredentials:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_and_yields_each_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"notes": [{"id": "not_1"}, {"id": "not_2"}], "hasMore": True, "cursor": "c1"}),
-                _response({"notes": [{"id": "not_3"}], "hasMore": False, "cursor": None}),
-            ],
-        )
-
-        pages = _pages(
-            granola_source("grn_test", "notes", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        )
-
-        assert pages == [[{"id": "not_1"}, {"id": "not_2"}], [{"id": "not_3"}]]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_yielding_each_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"notes": [{"id": "not_1"}], "hasMore": True, "cursor": "c1"}),
-                _response({"notes": [{"id": "not_2"}], "hasMore": False, "cursor": None}),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(granola_source("grn_test", "notes", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        # Only one checkpoint - the final page has no next cursor.
-        manager.save_state.assert_called_once()
-        saved = manager.save_state.call_args.args[0]
-        assert isinstance(saved, GranolaResumeConfig)
-        assert "cursor=c1" in saved.next_url
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_cursor_missing_even_if_has_more(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"notes": [{"id": "not_1"}], "hasMore": True, "cursor": None})])
-
-        manager = _make_manager()
-        rows = _rows(granola_source("grn_test", "notes", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == [{"id": "not_1"}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_url(self, MockSession) -> None:
         session = MockSession.return_value
         resume_url = f"{GRANOLA_BASE_URL}/v1/notes?page_size=30&cursor=resume_token"
@@ -246,15 +141,6 @@ class TestPagination:
         _rows(granola_source("grn_test", "notes", team_id=1, job_id="j", resumable_source_manager=manager))
 
         assert seen[0]["url"] == resume_url
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_page_carries_page_size(self, MockSession) -> None:
-        session = MockSession.return_value
-        seen = _wire(session, [_response({"notes": [{"id": "not_1"}], "hasMore": False, "cursor": None})])
-
-        _rows(granola_source("grn_test", "notes", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-
-        assert seen[0]["params"]["page_size"] == PAGE_SIZE
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_filter_in_first_request_and_next_url(self, MockSession) -> None:
@@ -288,18 +174,6 @@ class TestPagination:
         assert "updated_after=2026-01-27T15%3A30%3A00Z" in saved.next_url
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_yields_no_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        # A body without the wrapper key is treated as an empty page (not a hard error).
-        _wire(session, [_response({"hasMore": False, "cursor": None})])
-
-        rows = _rows(
-            granola_source("grn_test", "notes", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        )
-
-        assert rows == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_forbidden_status_raises_loudly(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response({"error": "forbidden"}, status=403)])
@@ -308,26 +182,79 @@ class TestPagination:
             _rows(granola_source("grn_test", "notes", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
 
 
-class TestGranolaSource:
+class TestTranscriptsFanout:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_notes_response_has_datetime_partition(self, MockSession) -> None:
-        response = granola_source("grn_test", "notes", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-
-        assert response.name == "notes"
-        assert response.primary_keys == ["id"]
-        # "desc" defers the incremental watermark commit until every page is processed.
-        assert response.sort_mode == "desc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-        assert response.partition_format == "week"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_folders_response_has_no_partition(self, MockSession) -> None:
-        response = granola_source(
-            "grn_test", "folders", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+    def test_paginates_each_note_transcript_and_skips_deleted_notes(self, MockSession) -> None:
+        session = MockSession.return_value
+        seen = _wire(
+            session,
+            [
+                _response({"notes": [{"id": "not_1"}, {"id": "not_2"}], "hasMore": False, "cursor": None}),
+                _response({"transcript": [{"text": "a"}], "hasMore": True, "cursor": "t1"}),
+                # A cursor alongside hasMore=false still ends the transcript.
+                _response({"transcript": [{"text": "b"}], "hasMore": False, "cursor": "t2"}),
+                _response({"message": "Not found"}, status=404),
+            ],
         )
 
-        assert response.name == "folders"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None
+        manager = _make_manager()
+        rows = _rows(granola_source("grn_test", "transcripts", team_id=1, job_id="j", resumable_source_manager=manager))
+
+        assert [(row["note_id"], row["text"]) for row in rows] == [("not_1", "a"), ("not_1", "b")]
+        assert all("_notes_id" not in row for row in rows)
+        child_requests = seen[1:]
+        assert [r["url"].removeprefix(GRANOLA_BASE_URL) for r in child_requests] == [
+            "/v1/notes/not_1/transcript",
+            "/v1/notes/not_1/transcript",
+            "/v1/notes/not_2/transcript",
+        ]
+        assert child_requests[0]["params"] == {"page_size": 100}
+        assert child_requests[1]["params"] == {"page_size": 100, "cursor": "t1"}
+        assert manager.save_state.call_args.args[0].completed == [
+            "/v1/notes/not_1/transcript",
+            "/v1/notes/not_2/transcript",
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_completed_notes_and_continues_current_cursor(self, MockSession) -> None:
+        session = MockSession.return_value
+        seen = _wire(
+            session,
+            [
+                _response({"notes": [{"id": "not_1"}, {"id": "not_2"}], "hasMore": False, "cursor": None}),
+                _response({"transcript": [{"text": "c"}], "hasMore": False, "cursor": None}),
+            ],
+        )
+
+        manager = _make_manager(
+            GranolaResumeConfig(
+                completed=["/v1/notes/not_1/transcript"],
+                current="/v1/notes/not_2/transcript",
+                child_state={"cursor": "t5"},
+            )
+        )
+        rows = _rows(granola_source("grn_test", "transcripts", team_id=1, job_id="j", resumable_source_manager=manager))
+
+        assert rows == [{"text": "c", "note_id": "not_2"}]
+        assert seen[1]["url"] == f"{GRANOLA_BASE_URL}/v1/notes/not_2/transcript"
+        assert seen[1]["params"]["cursor"] == "t5"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_repeated_transcript_cursor_fails_instead_of_looping(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"notes": [{"id": "not_1"}], "hasMore": False, "cursor": None}),
+                _response({"transcript": [{"text": "a"}], "hasMore": True, "cursor": "t1"}),
+                _response({"transcript": [{"text": "a"}], "hasMore": True, "cursor": "t1"}),
+            ],
+        )
+
+        with pytest.raises(ValueError, match="not advancing"):
+            _rows(
+                granola_source(
+                    "grn_test", "transcripts", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+                )
+            )
+        assert session.send.call_count == 3

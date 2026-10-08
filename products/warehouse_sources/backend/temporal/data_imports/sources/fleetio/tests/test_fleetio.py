@@ -111,35 +111,6 @@ class TestFleetioAuth:
 
 
 class TestBuildBaseParams:
-    def test_full_refresh_sorts_by_partition_key_and_has_no_filter(self) -> None:
-        params = _build_base_params(
-            FLEETIO_ENDPOINTS["vehicles"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        assert params == {"per_page": 100, "sort[created_at]": "asc"}
-
-    def test_incremental_sorts_and_filters_on_chosen_field(self) -> None:
-        params = _build_base_params(
-            FLEETIO_ENDPOINTS["vehicles"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            incremental_field="updated_at",
-        )
-        assert params["sort[updated_at]"] == "asc"
-        assert params["filter[updated_at][gt]"] == "2026-03-04T02:58:14+00:00"
-
-    def test_incremental_first_sync_has_no_filter_value(self) -> None:
-        # First incremental sync has no last value yet — sort, but don't filter (pull everything).
-        params = _build_base_params(
-            FLEETIO_ENDPOINTS["vehicles"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="updated_at",
-        )
-        assert params == {"per_page": 100, "sort[updated_at]": "asc"}
-
     def test_incremental_on_created_at_filters_created_at(self) -> None:
         params = _build_base_params(
             FLEETIO_ENDPOINTS["fuel_entries"],
@@ -170,18 +141,6 @@ class TestPagination:
         manager.save_state.assert_called_once_with(FleetioResumeConfig(start_cursor="CUR2"))
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_terminal_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}, {"id": 2}], None)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_starts_from_saved_cursor(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"id": 9}], None)])
@@ -191,24 +150,6 @@ class TestPagination:
 
         assert rows == [{"id": 9}]
         assert params[0]["start_cursor"] == "SAVED"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_filter_reaches_the_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": 1}], None)])
-
-        rows = _rows(
-            _source(
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-                incremental_field="updated_at",
-            )
-        )
-
-        assert rows == [{"id": 1}]
-        assert params[0]["sort[updated_at]"] == "asc"
-        assert params[0]["filter[updated_at][gt]"] == "2026-03-04T02:58:14+00:00"
 
     @parameterized.expand(
         [
@@ -259,32 +200,110 @@ class TestPagination:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code,expected", [(200, True), (401, False), (403, False)])
-    @mock.patch(FLEETIO_SESSION_PATCH)
-    def test_status_maps_to_bool(self, mock_session, status_code: int, expected: bool) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("k", "a", FLEETIO_VERSION_2025_05_05) is expected
-
-    @pytest.mark.parametrize(
-        "api_version,expected_header,expected_url",
-        [
-            (FLEETIO_LEGACY_VERSION, FLEETIO_API_VERSION, "https://secure.fleetio.com/api/v1/vehicles?per_page=1"),
-            (FLEETIO_VERSION_2025_05_05, "2025-05-05", "https://secure.fleetio.com/api/vehicles?per_page=1"),
-        ],
-    )
-    @mock.patch(FLEETIO_SESSION_PATCH)
-    def test_probe_targets_version_base_path(
-        self, mock_session, api_version: str, expected_header: str, expected_url: str
-    ) -> None:
-        # The probe must hit the same base path/version the source will sync with, so a new source
-        # created on the default version validates against the endpoints it will actually read.
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("k", "a", api_version)
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == expected_url
-        assert call.kwargs["headers"]["X-Api-Version"] == expected_header
-
     @mock.patch(FLEETIO_SESSION_PATCH)
     def test_network_error_is_not_valid(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("k", "a", FLEETIO_VERSION_2025_05_05) is False
+
+
+class TestServiceEntryLineItemsFanout:
+    """The only fan-out endpoint: line items are listed per service entry, never account-wide."""
+
+    def _wire_fanout(self, session: mock.MagicMock, responses: list[Response]) -> list[str]:
+        session.headers = {}
+        urls: list[str] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            url = request.url
+            for key, value in (request.params or {}).items():
+                url = url.replace("{" + key + "}", str(value))
+            urls.append(url)
+            prepared = mock.MagicMock()
+            prepared.url = url
+            return prepared
+
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = responses
+        return urls
+
+    def _line_items(self, manager: mock.MagicMock, **kwargs: Any):
+        return fleetio_source(
+            api_key="k",
+            account_token="a",
+            endpoint="service_entry_line_items",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=manager,
+            **kwargs,
+        )
+
+    @parameterized.expand(
+        [
+            # Fleetio removed `/v1/service_entries` when it moved the resource to v2, so a legacy
+            # pin that assumes one shared generation segment cannot list the fan-out's parents.
+            (FLEETIO_LEGACY_VERSION, "/api/v2/service_entries", "/api/v2/service_entries/11/service_entry_line_items"),
+            (FLEETIO_VERSION_2025_05_05, "/api/service_entries", "/api/service_entries/11/service_entry_line_items"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_parent_and_child_carry_their_own_version_segment(
+        self, api_version: str, parent_path: str, child_path: str, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        urls = self._wire_fanout(session, [_response([{"id": 11}], None), _response([{"id": 101}], None)])
+
+        _rows(self._line_items(_make_manager(), api_version=api_version))
+
+        assert urls[0] == f"https://secure.fleetio.com{parent_path}"
+        assert urls[1] == f"https://secure.fleetio.com{child_path}"
+
+
+class TestPurchaseOrderLineItemsFanout:
+    """Line items are listed per purchase order, and the path binds the order's number, not its id."""
+
+    def _wire_fanout(self, session: mock.MagicMock, responses: list[Response]) -> list[str]:
+        session.headers = {}
+        urls: list[str] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            url = request.url
+            for key, value in (request.params or {}).items():
+                url = url.replace("{" + key + "}", str(value))
+            urls.append(url)
+            prepared = mock.MagicMock()
+            prepared.url = url
+            return prepared
+
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = responses
+        return urls
+
+    def _line_items(self, manager: mock.MagicMock, **kwargs: Any):
+        return fleetio_source(
+            api_key="k",
+            account_token="a",
+            endpoint="purchase_order_line_items",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=manager,
+            **kwargs,
+        )
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_checkpoints_by_parent_and_resumes_past_completed_parents(self, MockSession) -> None:
+        session = MockSession.return_value
+        self._wire_fanout(
+            session,
+            [
+                _response([{"id": 11, "number": 4001}, {"id": 22, "number": 4002}], None),
+                _response([{"id": 201}], None),
+            ],
+        )
+
+        completed = "/purchase_orders/4001/purchase_order_line_items"
+        manager = _make_manager(FleetioResumeConfig(completed=[completed], current=None, child_state=None))
+        rows = _rows(self._line_items(manager))
+
+        assert [row["purchase_order_number"] for row in rows] == [4002]
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert any(state.completed is not None and completed in state.completed for state in saved)

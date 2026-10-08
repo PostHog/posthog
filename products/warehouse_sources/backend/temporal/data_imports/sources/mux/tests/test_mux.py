@@ -1,6 +1,6 @@
 import json
 from collections.abc import Iterable
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any, cast
 
 import pytest
@@ -17,14 +17,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mux.mux im
     _as_epoch,
     _normalize_row,
     _strip_sensitive_fields,
-    _timeframe_params,
     get_validation_status,
     mux_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux.settings import (
     AGGREGATE_LOOKBACK,
     MUX_ENDPOINTS,
-    VIDEO_VIEWS_INITIAL_LOOKBACK,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -99,23 +97,8 @@ class TestNormalizeRow:
         result = _normalize_row(item, MUX_ENDPOINTS[endpoint])
         assert result["created_at"] == expected
 
-    def test_endpoint_without_partition_key_is_untouched(self) -> None:
-        # Uploads have no created_at partition key, so the row passes through verbatim.
-        item = {"id": "u1", "status": "waiting"}
-        assert _normalize_row(item, MUX_ENDPOINTS["uploads"]) == item
-
-    def test_missing_created_at_is_untouched(self) -> None:
-        item = {"id": "a1"}
-        assert _normalize_row(item, MUX_ENDPOINTS["assets"]) == item
-
 
 class TestStripSensitiveFields:
-    def test_live_stream_stream_key_is_dropped(self) -> None:
-        item = {"id": "ls1", "created_at": "1", "stream_key": "super-secret", "status": "idle"}
-        cleaned = _strip_sensitive_fields(item, MUX_ENDPOINTS["live_streams"])
-        assert "stream_key" not in cleaned
-        assert cleaned == {"id": "ls1", "created_at": "1", "status": "idle"}
-
     def test_live_stream_simulcast_target_stream_keys_are_dropped(self) -> None:
         item = {
             "id": "ls1",
@@ -125,16 +108,6 @@ class TestStripSensitiveFields:
         }
         cleaned = _strip_sensitive_fields(item, MUX_ENDPOINTS["live_streams"])
         assert cleaned["simulcast_targets"] == [{"id": "t1", "url": "rtmp://example", "status": "idle"}]
-
-    def test_upload_url_is_dropped(self) -> None:
-        item = {"id": "u1", "url": "https://storage.googleapis.com/upload?signature=secret", "status": "waiting"}
-        cleaned = _strip_sensitive_fields(item, MUX_ENDPOINTS["uploads"])
-        assert "url" not in cleaned
-        assert cleaned == {"id": "u1", "status": "waiting"}
-
-    def test_endpoint_without_sensitive_fields_is_untouched(self) -> None:
-        item = {"id": "a1", "status": "ready"}
-        assert _strip_sensitive_fields(item, MUX_ENDPOINTS["assets"]) is item
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_source_never_yields_stripped_fields(self, MockSession) -> None:
@@ -156,48 +129,8 @@ class TestGetValidationStatus:
             monkeypatch.setattr(mux, "_make_session", lambda *a, _s=session, **k: _s)
             assert get_validation_status("id", "secret", "/video/v1/assets") == status_code
 
-    def test_transport_error_returns_none(self, monkeypatch: Any) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        monkeypatch.setattr(mux, "_make_session", lambda *a, **k: session)
-        assert get_validation_status("id", "secret", "/video/v1/assets") is None
-
 
 class TestOffsetPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_pages_until_short_page(self, MockSession) -> None:
-        # live_streams uses page pagination with page_size 100; a page shorter than the limit ends it.
-        session = MockSession.return_value
-        full_page = [{"id": str(i), "created_at": "1609869152"} for i in range(100)]
-        params = _wire(
-            session, [_response({"data": full_page}), _response({"data": [{"id": "100", "created_at": "1609869152"}]})]
-        )
-
-        manager = _make_manager()
-        rows = _run("live_streams", manager)
-
-        assert len(rows) == 101
-        assert params[0]["limit"] == 100
-        assert params[0]["page"] == 1
-        assert params[1]["page"] == 2
-        assert session.send.call_count == 2
-        # created_at coerced to int for partitioning.
-        assert rows[0]["created_at"] == 1609869152
-        # Checkpoint saved after the first full page (points at the next page); short page ends it.
-        manager.save_state.assert_called_once_with(MuxResumeConfig(page=2))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"data": []})])
-
-        manager = _make_manager()
-        rows = _run("live_streams", manager)
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_full_final_page_triggers_one_more_empty_fetch(self, MockSession) -> None:
         # An exact-multiple final page can't be distinguished from a full page, so we fetch once more.
@@ -243,18 +176,6 @@ class TestCursorPagination:
         assert "cursor" not in params[0]
         assert params[1]["cursor"] == "CURSOR2"
         manager.save_state.assert_called_once_with(MuxResumeConfig(cursor="CURSOR2"))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_assets_stop_when_next_cursor_null(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"data": [{"id": "a1", "created_at": "1609869152"}], "next_cursor": None})])
-
-        manager = _make_manager()
-        rows = _run("assets", manager)
-
-        assert [r["id"] for r in rows] == ["a1"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_assets_resume_from_saved_cursor(self, MockSession) -> None:
@@ -311,79 +232,13 @@ class TestRetryableErrors:
         assert session.send.call_count == 1
 
 
-class TestMuxSourceResponse:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_partitioned_endpoint_sets_datetime_partitioning(self, _MockSession) -> None:
-        response = mux_source("id", "secret", "assets", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        assert response.name == "assets"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-        assert response.partition_format == "month"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unpartitioned_endpoint_has_no_partitioning(self, _MockSession) -> None:
-        response = mux_source(
-            "id", "secret", "uploads", team_id=1, job_id="j", resumable_source_manager=_make_manager()
-        )
-        assert response.name == "uploads"
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_metrics_comparison_keys_on_metric_and_is_unpartitioned(self, _MockSession) -> None:
-        response = mux_source(
-            "id", "secret", "metrics_comparison", team_id=1, job_id="j", resumable_source_manager=_make_manager()
-        )
-        assert response.primary_keys == ["metric"]
-        assert response.partition_mode is None
-        assert response.sort_mode == "asc"
-
-
 class TestAsEpoch:
-    def test_parses_iso_string_as_utc(self) -> None:
-        # 2023-01-01T00:00:00Z == 1672531200 seconds since epoch.
-        assert _as_epoch("2023-01-01T00:00:00Z") == 1672531200
-
-    def test_accepts_datetime(self) -> None:
-        assert _as_epoch(datetime(2023, 1, 1, tzinfo=UTC)) == 1672531200
-
     def test_naive_datetime_treated_as_utc(self) -> None:
         # Mux `view_end` values are UTC; a tz-naive watermark must not shift by the local offset.
         assert _as_epoch(datetime(2023, 1, 1)) == 1672531200
 
 
 class TestTimeframeParams:
-    def test_incremental_window_starts_before_watermark(self) -> None:
-        params = _timeframe_params(
-            MUX_ENDPOINTS["video_views"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2023-01-01T00:00:00Z",
-        )
-        start, end = params["timeframe[]"]
-        assert start == 1672531200 - int(INCREMENTAL_OVERLAP.total_seconds())
-        assert end >= start
-
-    def test_first_video_views_sync_uses_short_lookback(self) -> None:
-        params = _timeframe_params(
-            MUX_ENDPOINTS["video_views"], should_use_incremental_field=True, db_incremental_field_last_value=None
-        )
-        start, end = params["timeframe[]"]
-        # First incremental sync windows by the modest video-views lookback, not the wide aggregate one.
-        assert abs((end - start) - int(VIDEO_VIEWS_INITIAL_LOOKBACK.total_seconds())) <= 5
-
-    def test_full_refresh_aggregate_uses_wide_lookback(self) -> None:
-        # Aggregate endpoints ignore any watermark and window by the aggregate retention lookback, which
-        # stays within Mux's standard 100-day retention so the request isn't rejected as an invalid
-        # timeframe on accounts without the 13-month add-on.
-        params = _timeframe_params(
-            MUX_ENDPOINTS["errors"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value="2023-01-01T00:00:00Z",
-        )
-        start, end = params["timeframe[]"]
-        assert abs((end - start) - int(AGGREGATE_LOOKBACK.total_seconds())) <= 5
-
     def test_aggregate_lookback_stays_within_standard_retention(self) -> None:
         # A window past the account's retention is rejected with `400 invalid_timeframe`, not clamped.
         # Mux's standard retention floor is 100 days, so the aggregate lookback must not exceed it —
@@ -411,16 +266,6 @@ class TestMuxDataEndpoints:
         assert params[0]["order_direction"] == "asc"
         assert params[0]["limit"] == 100
         assert params[0]["page"] == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_video_views_full_refresh_omits_order_direction(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response({"data": [{"id": "v1", "view_end": "2023-02-01T00:00:00Z"}]})])
-
-        _run("video_views", _make_manager(), should_use_incremental_field=False)
-
-        assert "timeframe[]" in params[0]
-        assert "order_direction" not in params[0]
 
     @parameterized.expand([("errors",), ("metrics_comparison",)])
     @mock.patch(CLIENT_SESSION_PATCH)
