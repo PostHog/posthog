@@ -60,7 +60,7 @@ class LagoHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class LagoResumeConfig:
     # The next page to fetch on resume. Persisted after each page is yielded, so a crash before
     # this write leaves the previous value in place and the last page is re-yielded (Lago merges

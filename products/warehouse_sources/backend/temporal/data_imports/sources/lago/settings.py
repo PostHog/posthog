@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 DEFAULT_PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=True)
 class LagoEndpointConfig:
     name: str
     # Path appended to the API base (which already ends in `/api/v1`).
