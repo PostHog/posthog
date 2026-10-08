@@ -129,7 +129,15 @@ export class PushApiServer implements NodeServer {
                         resolve()
                         return
                     }
-                    this.pushServer.close(() => resolve())
+                    const server = this.pushServer
+                    // close() ends only the connections idle at that moment. A connection that finishes its
+                    // request afterwards stays open until the keep-alive timeout, which is longer than a pod's
+                    // grace period, so the idle ones are closed until the server stops.
+                    const closeIdle = setInterval(() => server.closeIdleConnections(), 100)
+                    server.close(() => {
+                        clearInterval(closeIdle)
+                        resolve()
+                    })
                 })
             },
             healthcheck: () => this.isHealthy(),
@@ -176,7 +184,9 @@ export class PushApiServer implements NodeServer {
         // endpoint is starved of connections rather than of CPU.
         server.headersTimeout = 10_000
         server.requestTimeout = 15_000
-        server.keepAliveTimeout = 30_000
+        // Envoy keeps an idle upstream connection for up to an hour. If node closes it first, a request
+        // Envoy sends at that moment fails with a 503, so the idle timeout outlasts Envoy's.
+        server.keepAliveTimeout = 65 * 60_000
 
         return new Promise((resolve, reject) => {
             server.once('error', (error) => {
