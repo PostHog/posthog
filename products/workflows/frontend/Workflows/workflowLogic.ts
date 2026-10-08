@@ -3142,9 +3142,9 @@ export const workflowLogic = kea<workflowLogicType>([
             null as HogFlow | null,
             {
                 loadWorkflow: async () => {
-                    workflowDistributionLogic.actions.editorArrived(
-                        props.id === 'new' && !props.editTemplateId ? props.distributionContextKey : undefined
-                    )
+                    if (props.id === 'new' && !props.editTemplateId && props.distributionContextKey) {
+                        workflowDistributionLogic.actions.editorArrived(props.distributionContextKey)
+                    }
                     if (!props.id || props.id === 'new') {
                         if (props.editTemplateId) {
                             // Editing a template - load it and add a temporary status field for the editor

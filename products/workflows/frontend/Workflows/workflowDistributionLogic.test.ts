@@ -169,6 +169,9 @@ describe('authorized browser offer-to-saved-draft', () => {
         expect(editor.values.workflow.actions.find((action) => action.type === 'trigger')?.config).toEqual(
             source.trigger
         )
+        const backgroundEditor = workflowLogic({ id: 'new' })
+        backgroundEditor.mount()
+        await expectLogic(backgroundEditor).toDispatchActions(['loadWorkflowSuccess'])
         editor.actions.setWorkflowValue('name', 'Workspace follow-up')
         teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
         await expectLogic(editor, () => editor.actions.saveWorkflow(editor.values.workflow)).toDispatchActions([
@@ -184,9 +187,15 @@ describe('authorized browser offer-to-saved-draft', () => {
                 workflow_id: '7e778826-9987-4205-bb5d-005f4ab33c10',
             })
         )
+        await expectLogic(editor, () => editor.actions.duplicate()).toFinishAllListeners()
+        expect(creates).toBe(2)
+        expect(
+            jest.mocked(posthog.capture).mock.calls.filter(([event]) => event === 'workflow distribution draft created')
+        ).toHaveLength(1)
         await expectLogic(distribution, () => distribution.actions.offer(source)).toFinishAllListeners()
         expect(Object.values(distribution.values.offers)).toHaveLength(0)
         editor.unmount()
+        backgroundEditor.unmount()
         distribution.unmount()
         distribution = workflowDistributionLogic()
         distribution.mount()
@@ -198,7 +207,7 @@ describe('authorized browser offer-to-saved-draft', () => {
         await expectLogic(unrelated, () => unrelated.actions.saveWorkflow(unrelated.values.workflow)).toDispatchActions(
             ['saveWorkflowSuccess']
         )
-        expect(creates).toBe(2)
+        expect(creates).toBe(3)
         expect(
             jest.mocked(posthog.capture).mock.calls.filter(([event]) => event === 'workflow distribution draft created')
         ).toHaveLength(1)
