@@ -85,7 +85,7 @@ def trial_stats(results: Sequence[CaseResult], *, trials: int) -> list[ScorerTri
 def _scorer_stats(name: str, scores_by_case: list[list[float]], trials: int, *, short_cases: int) -> ScorerTrialStats:
     total = sum(len(scores) for scores in scores_by_case)
     mean = sum(sum(scores) for scores in scores_by_case) / total
-    ci_low, ci_high = _clustered_interval(scores_by_case, mean, total)
+    margin = _clustered_margin(scores_by_case, mean, total)
 
     complete = [scores for scores in scores_by_case if len(scores) >= trials]
     passes = [sum(score >= 1.0 for score in scores) for scores in complete]
@@ -95,8 +95,8 @@ def _scorer_stats(name: str, scores_by_case: list[list[float]], trials: int, *, 
         cases=len(scores_by_case),
         trials=trials,
         mean=mean,
-        ci_low=ci_low,
-        ci_high=ci_high,
+        ci_low=None if margin is None else max(0.0, mean - margin),
+        ci_high=None if margin is None else min(1.0, mean + margin),
         complete_cases=len(complete),
         pass_all=sum(n == len(s) for n, s in zip(passes, complete)) / len(complete) if multi_trial else None,
         pass_any=sum(n > 0 for n in passes) / len(complete) if multi_trial else None,
@@ -105,14 +105,12 @@ def _scorer_stats(name: str, scores_by_case: list[list[float]], trials: int, *, 
     )
 
 
-def _clustered_interval(
-    scores_by_case: list[list[float]], mean: float, total: int
-) -> tuple[float | None, float | None]:
+def _clustered_margin(scores_by_case: list[list[float]], mean: float, total: int) -> float | None:
+    """Half-width of the 95% interval around the pooled ``mean``; ``None`` below two cases."""
     cases = len(scores_by_case)
     if cases < 2:
-        return None, None
+        return None
     # Cluster-robust variance of the pooled mean: trials of one case are not independent draws.
     residuals = sum(sum(score - mean for score in scores) ** 2 for scores in scores_by_case)
     standard_error = math.sqrt(cases / (cases - 1) * residuals) / total
-    margin = (_T_95[cases - 2] if cases - 1 <= len(_T_95) else 1.96) * standard_error
-    return max(0.0, mean - margin), min(1.0, mean + margin)
+    return (_T_95[cases - 2] if cases - 1 <= len(_T_95) else 1.96) * standard_error

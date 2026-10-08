@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import fields, replace
+from dataclasses import replace
 
 import pytest
 
@@ -20,14 +20,18 @@ def _trials(scores_by_case: dict[str, list[float]]) -> list[CaseResult]:
     return [_result(case, score) for case, scores in scores_by_case.items() for score in scores]
 
 
+def _round(value: float | None) -> float | None:
+    return None if value is None else round(value, 4)
+
+
 def _rounded(stats: ScorerTrialStats) -> ScorerTrialStats:
     return replace(
         stats,
-        **{
-            field.name: round(value, 4)
-            for field in fields(stats)
-            if isinstance(value := getattr(stats, field.name), float)
-        },
+        mean=round(stats.mean, 4),
+        ci_low=_round(stats.ci_low),
+        ci_high=_round(stats.ci_high),
+        pass_all=_round(stats.pass_all),
+        pass_any=_round(stats.pass_any),
     )
 
 
