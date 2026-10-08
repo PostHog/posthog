@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { insightFlagCalledReferences } from 'lib/components/FlagCalledRebuildBanner/flagCalledDependencies'
+import { insightReadsFlagCalls } from 'lib/components/FlagCalledRebuildBanner/flagCalledDependencies'
 import { FlagCalledRebuildBanner } from 'lib/components/FlagCalledRebuildBanner/FlagCalledRebuildBanner'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { urls } from 'scenes/urls'
@@ -19,7 +19,7 @@ export function InsightFlagCalledBanner({ insightProps }: { insightProps: Insigh
     return (
         <FlagCalledRebuildBanner
             artifactType="insight"
-            references={insightFlagCalledReferences(query)}
+            readsFlagCalls={insightReadsFlagCalls(query)}
             action={
                 insightMode !== ItemMode.Edit && canEditInsight && insight.short_id
                     ? {

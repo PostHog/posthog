@@ -1,35 +1,18 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { expectLogic } from 'kea-test-utils'
-
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
-import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { announcementUrlFromPayload, flagCalledRebuildBannerLogic } from './flagCalledRebuildBannerLogic'
 
 describe('flagCalledRebuildBannerLogic', () => {
     let logic: ReturnType<typeof flagCalledRebuildBannerLogic.build>
-    let releaseFirstAction: () => void
 
     beforeEach(() => {
-        const firstActionHeld = new Promise<void>((resolve) => {
-            releaseFirstAction = resolve
-        })
-        useMocks({
-            get: {
-                '/api/projects/:team/actions/1/': async () => {
-                    await firstActionHeld
-                    return [200, { id: 1, steps: [{ event: '$feature_flag_called' }] }]
-                },
-                '/api/projects/:team/actions/2/': () => [200, { id: 2, steps: [{ event: '$feature_flag_called' }] }],
-                '/api/projects/:team/actions/3/': () => [404, { detail: 'Not found.' }],
-            },
-        })
         initKeaTests()
         logic = flagCalledRebuildBannerLogic()
         logic.mount()
@@ -58,16 +41,5 @@ describe('flagCalledRebuildBannerLogic', () => {
         ['an https URL', { url: 'https://posthog.com/blog/flag-calls' }, 'https://posthog.com/blog/flag-calls'],
     ])('a payload with %s links to %s', (_label, payload, expected) => {
         expect(announcementUrlFromPayload(payload)).toBe(expected)
-    })
-
-    it('keeps the actions of a load that finishes before an earlier one', async () => {
-        logic.actions.loadReferencedActions([1])
-        logic.actions.loadReferencedActions([2, 3])
-        await expectLogic(logic).toDispatchActions(['addReferencedActions'])
-
-        releaseFirstAction()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.referencedActions.map((action) => action.id).sort()).toEqual([1, 2])
     })
 })

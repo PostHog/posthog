@@ -27,7 +27,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { cohortFlagCalledReferences } from 'lib/components/FlagCalledRebuildBanner/flagCalledDependencies'
+import { cohortReadsFlagCalls } from 'lib/components/FlagCalledRebuildBanner/flagCalledDependencies'
 import { FlagCalledRebuildBanner } from 'lib/components/FlagCalledRebuildBanner/FlagCalledRebuildBanner'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
@@ -851,7 +851,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                     {!isNewCohort && (
                                         <FlagCalledRebuildBanner
                                             artifactType="cohort"
-                                            references={cohortFlagCalledReferences(cohort)}
+                                            readsFlagCalls={cohortReadsFlagCalls(cohort)}
                                         >
                                             This cohort has a criterion on Feature flag called, directly or through an
                                             action. That criterion won't see flag calls made after your organization's

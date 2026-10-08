@@ -2,10 +2,7 @@ import { useValues } from 'kea'
 
 import { Link } from '@posthog/lemon-ui'
 
-import {
-    combineReferences,
-    insightFlagCalledReferences,
-} from 'lib/components/FlagCalledRebuildBanner/flagCalledDependencies'
+import { insightReadsFlagCalls } from 'lib/components/FlagCalledRebuildBanner/flagCalledDependencies'
 import { FlagCalledRebuildBanner } from 'lib/components/FlagCalledRebuildBanner/FlagCalledRebuildBanner'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -27,37 +24,27 @@ export function DashboardFlagCalledBanner(): JSX.Element | null {
         return null
     }
     // A viewer without access to an insight gets its tile without a query.
-    const tiles = (insightTiles ?? []).flatMap(({ insight }) =>
-        insight?.query ? [{ insight, references: insightFlagCalledReferences(insight.query) }] : []
+    const affectedInsights = (insightTiles ?? []).flatMap(({ insight }) =>
+        insight?.query && insightReadsFlagCalls(insight.query) ? [insight] : []
     )
 
     return (
         <FlagCalledRebuildBanner
             artifactType="dashboard"
-            references={combineReferences(tiles.map(({ references }) => references))}
+            readsFlagCalls={affectedInsights.length > 0}
             className="mt-4 mb-2"
         >
-            {(dependsOn) => {
-                const affectedInsights = tiles
-                    .filter(({ references }) => dependsOn(references))
-                    .map(({ insight }) => insight)
-                return (
-                    <>
-                        <span>{pluralize(affectedInsights.length, 'insight')}</span> on this dashboard won't show
-                        feature flag calls made after your organization's flag calls move out of the events table. Open
-                        each one to rebuild it:{' '}
-                        {/* Elements, not bare text, so page translation can't break list updates (react#11538). */}
-                        {affectedInsights.map((insight, index) => (
-                            <span key={insight.short_id}>
-                                {index > 0 && <span>, </span>}
-                                <Link to={urls.insightView(insight.short_id)}>
-                                    {insight.name || insight.derived_name || 'Untitled'}
-                                </Link>
-                            </span>
-                        ))}
-                    </>
-                )
-            }}
+            <span>{pluralize(affectedInsights.length, 'insight')}</span> on this dashboard won't show feature flag calls
+            made after your organization's flag calls move out of the events table. Open each one to rebuild it:{' '}
+            {/* Elements, not bare text, so page translation can't break list updates (react#11538). */}
+            {affectedInsights.map((insight, index) => (
+                <span key={insight.short_id}>
+                    {index > 0 && <span>, </span>}
+                    <Link to={urls.insightView(insight.short_id)}>
+                        {insight.name || insight.derived_name || 'Untitled'}
+                    </Link>
+                </span>
+            ))}
         </FlagCalledRebuildBanner>
     )
 }

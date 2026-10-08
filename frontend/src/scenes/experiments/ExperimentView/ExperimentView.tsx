@@ -11,7 +11,6 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope } from '~/types'
 
-import { ExperimentFlagCalledBanner } from 'products/experiments/frontend/components/ExperimentFlagCalledBanner'
 import { ExperimentMetaBar } from 'products/experiments/frontend/components/ExperimentMetaBar'
 import { ExperimentHealthDebug } from 'products/experiments/frontend/health/ExperimentHealthDebug'
 import { ExperimentHealthPanel } from 'products/experiments/frontend/health/ExperimentHealthPanel'
@@ -197,7 +196,6 @@ export function ExperimentView(): JSX.Element {
             ) : (
                 <>
                     {healthFindings === null && <ExperimentWarningBanner />}
-                    <ExperimentFlagCalledBanner />
                     {showDebugPanel && (
                         <div className="mb-4">
                             <ExperimentDebugPanel
