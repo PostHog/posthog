@@ -131,7 +131,7 @@ def test_get_destination_test_resolves_s3_family(destination, expected_test, exp
     assert [type(step) for step in destination_test.steps] == expected_steps
 
 
-def test_aws_s3_destination_test_serializes_without_integration():
+def test_aws_s3_destination_test_builds_steps_without_integration():
     """AwsS3 configured with inline credentials (no integration) must not raise.
 
     Its steps reference `organization_id` and each step needs an initialized

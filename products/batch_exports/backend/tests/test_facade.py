@@ -373,7 +373,10 @@ def test_destination_test_step_refuses_an_integration_from_another_team(team, or
         sensitive_config={"client_id": "fake-client-id", "client_secret": "fake-client-secret"},
     )
 
-    with pytest.raises(Integration.DoesNotExist):
+    with (
+        mock.patch("products.batch_exports.backend.destination_tests.get_destination_test"),
+        pytest.raises(Integration.DoesNotExist),
+    ):
         api.run_destination_test_step(
             team.pk,
             destination_type="Databricks",
