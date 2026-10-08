@@ -21,7 +21,7 @@ Three definitions decide every number on this dashboard. A guessed definition of
 
 ### Reuse a definition the team already has
 
-Most projects have defined these somewhere already. Look in this order, and skip a source whose tool you do not have:
+Most projects have defined these somewhere already. Look in this order, skip a source whose tool you do not have, and stop at the first source that gives you a definition:
 
 1. **What the user said** in the request.
 2. **Saved metrics.** An approved Data Catalog metric for active users, signups, activation, or paying customers (`posthog:metric-list`, then `posthog:metric-describe`). Use its events and filters in your tiles.
@@ -29,7 +29,7 @@ Most projects have defined these somewhere already. Look in this order, and skip
 4. **Project configuration.** `posthog:project-get` returns the signup, activity, and payment events when the team has set them. Check that each one still receives events.
 5. **The events list** from `posthog:read-data-schema`, when nothing above exists.
 
-A project often has more than one definition, for example an activation rate for each team or product. When you find several, prefer them in this order:
+A project often has more than one definition, for example an activation rate for each team or product. When one source gives you several, prefer them in this order:
 
 - One that the person asking created or last edited. `posthog:user-get` gives their ID. Compare it with `created_by_id` and `last_modified_by_id`.
 - One that belongs to the product area the request is about. Judge by its name, its description, and the dashboard it sits on.
@@ -37,14 +37,16 @@ A project often has more than one definition, for example an activation rate for
 
 If two candidates still count different things and you cannot tell which the user means, ask. Name each candidate and say what it counts.
 
+A definition the team already uses wins over the defaults in this file, even when it is simpler, such as an activation that is a single event. Say in your summary how it differs.
+
 The core action can be an action that combines several events. Lifecycle, stickiness, and retention accept one event or one action, so a product with several core events needs an action. If none exists, use the single most representative event for those three tiles and say so.
 
 ### When the project does not answer
 
 Ask the user before you build, in one message, and only about what you could not find: which event marks a signup, what counts as active, what counts as activated, and whether to count people or accounts.
-If you cannot ask, choose, and put your choices first in your summary and in the dashboard description.
+If you cannot ask, choose, say so first in your summary, and state your choices in the dashboard description.
 
-Run the heaviest queries once before you build on them, usually the funnel and the active-users trend. If one times out or runs out of memory, do not retry it unchanged: shorten the range or use a lighter event.
+Run the heaviest queries once before you build on them, usually the funnel and the active-users trend. If one times out or runs out of memory, do not retry it unchanged. Use a lighter event, or shorten the date range of the whole dashboard. A shorter range on one tile does not hold, because the dashboard's range replaces it.
 
 **Count one thing.** Choose people or accounts for the whole dashboard, and count that unit in every tile. For a B2B product (`posthog:project-get` shows the business model and the account group), count accounts.
 
@@ -80,14 +82,15 @@ Box is `w` x `h` on the 12-column grid. Rows follow the order of the table.
 
 "Unique count" means unique users (`math: "dau"`) when the dashboard counts people, and unique accounts (`math: "unique_group"` with the group type index) when it counts accounts.
 For accounts, also aggregate the funnel, lifecycle, and retention tiles by the account group.
-The headline signup number must equal the funnel's first step for the same interval.
+The headline signup tile and the funnel's first step must count the same thing: the same event, filters, and unit.
 
 Name the "Core actions" tile after what it counts, such as "Reports created".
+Include "New paying customers" only when you also build the Revenue section below.
 Headline tile names are about 20 characters at most. A longer name is cut off at three columns wide.
 
 **The headline row holds counts, not rates.** Activation, conversion, and retention rates belong to a cohort: the people who signed up in a period and what they did later. A trends formula cannot follow a cohort. It divides this week's activations by this week's signups, which can read twice the true rate.
 
-**Activation rate.** When the team already has an activation insight, add that insight to the dashboard as it is.
+**Activation rate.** When the team already has an activation insight, add that insight to the dashboard as it is. It keeps its own settings.
 Otherwise build it from the definition. A habit definition, such as the core action in 3 of the first 4 weeks, cannot be a funnel. Build a SQL insight that shows, for each signup week, the share of new users who met it, and leave out signup weeks whose window is still open. Show it as a line chart, not a table.
 
 For "What people do", choose the actions from the core action's own events or from the most-used custom events, one per product area. Leave out pageviews, autocapture, and system events.

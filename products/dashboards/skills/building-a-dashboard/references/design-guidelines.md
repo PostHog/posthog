@@ -114,7 +114,7 @@ The query tools ignore both fields, so a test run still shows the partial period
 
 ## Build order
 
-1. Run the heaviest query once before you build on it, usually the funnel or the unique-users trend. If it times out or runs out of memory, shorten the range or pick a lighter event. Do not retry it unchanged.
+1. Run the heaviest query once before you build on it, usually the funnel or the unique-users trend. If it times out or runs out of memory, do not retry it unchanged. Pick a lighter event, or shorten the date range of the whole dashboard.
 2. `posthog:dashboard-create` with the name, description, and tags.
 3. `posthog:insight-create` for each tile, with `dashboards: [<id>]` so the insight lands on the dashboard. Keep the tile ID from each response.
 4. `posthog:dashboard-create-tile` for each section heading, with its layout box.

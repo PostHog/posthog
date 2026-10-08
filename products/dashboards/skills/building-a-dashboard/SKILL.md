@@ -46,7 +46,7 @@ A blueprint replaces the dashboard templates on its topic, and its design guidel
 When a blueprint covers the request, do not consult templates, and create the dashboard with `use_template` only when the user says they want the template.
 A framework name such as "AARRR" is a request for those sections, not for the template of the same name.
 
-For any other dashboard, follow the sections below.
+A blueprint build still follows the other sections below, such as "Create vs update" and the Data Catalog rules. Any other dashboard follows all of them.
 
 ## Use templates as reference
 
