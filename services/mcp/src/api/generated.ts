@@ -1618,10 +1618,10 @@ export namespace Schemas {
          */
       churned_at?: string | null;
       /**
-         * When Track Rules ignored the account. Null means the account is tracked.
+         * When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.
          * @nullable
          */
-      readonly ignored_at: string | null;
+      ignored_at?: string | null;
       readonly created_at: string;
       /** @nullable */
       readonly created_by: number | null;
@@ -10521,9 +10521,9 @@ export namespace Schemas {
     } as const;
 
     export interface PieChartSettings {
-      /** Whether to show the aggregation total below the chart. Defaults to on. */
+      /** Whether to show the aggregation total. Defaults to on only when slices show values. */
       showTotal?: boolean | null;
-      /** What to render on each slice. Defaults to labels. */
+      /** What to render on each slice. Defaults to values. */
       sliceContent?: SliceContent | null;
       /** Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`. */
       valueDisplay?: ValueDisplay | null;
@@ -31312,6 +31312,7 @@ export namespace Schemas {
      * * `Arcade` - Arcade
      * * `Neo4j` - Neo4j
      * * `TestDino` - TestDino
+     * * `ChessCom` - ChessCom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -32689,6 +32690,7 @@ export namespace Schemas {
       Arcade: 'Arcade',
       Neo4j: 'Neo4j',
       TestDino: 'TestDino',
+      ChessCom: 'ChessCom',
     } as const;
 
     /**
@@ -34079,7 +34081,8 @@ export namespace Schemas {
        * * `Loom` - Loom
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino */
+       * * `TestDino` - TestDino
+       * * `ChessCom` - ChessCom */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -36718,7 +36721,8 @@ export namespace Schemas {
        * * `Loom` - Loom
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino */
+       * * `TestDino` - TestDino
+       * * `ChessCom` - ChessCom */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -48145,7 +48149,8 @@ export namespace Schemas {
        * * `Loom` - Loom
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino */
+       * * `TestDino` - TestDino
+       * * `ChessCom` - ChessCom */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -49556,7 +49561,8 @@ export namespace Schemas {
        * * `Loom` - Loom
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino */
+       * * `TestDino` - TestDino
+       * * `ChessCom` - ChessCom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -75673,10 +75679,10 @@ export namespace Schemas {
          */
       churned_at?: string | null;
       /**
-         * When Track Rules ignored the account. Null means the account is tracked.
+         * When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.
          * @nullable
          */
-      readonly ignored_at?: string | null;
+      ignored_at?: string | null;
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: number | null;
@@ -94053,6 +94059,9 @@ export namespace Schemas {
      * * `deduplicating` - deduplicating
      * * `validating` - validating
      * * `finalizing` - finalizing
+     * * `single_agent_preparing` - single_agent_preparing
+     * * `single_agent_reviewing` - single_agent_reviewing
+     * * `single_agent_finalizing` - single_agent_finalizing
      */
     export type ReviewStageEnum = typeof ReviewStageEnum[keyof typeof ReviewStageEnum];
 
@@ -94065,10 +94074,13 @@ export namespace Schemas {
       Deduplicating: 'deduplicating',
       Validating: 'validating',
       Finalizing: 'finalizing',
+      SingleAgentPreparing: 'single_agent_preparing',
+      SingleAgentReviewing: 'single_agent_reviewing',
+      SingleAgentFinalizing: 'single_agent_finalizing',
     } as const;
 
     export interface ReviewProgress {
-      /** How far the in-flight review turn has come: fetching the diff, chunking, picking each chunk's perspectives, reviewing chunks, merging overlapping findings, validating them, or finalizing (building and publishing the review).
+      /** How far the in-flight review turn has come: fetching the diff, chunking, picking each chunk's perspectives, reviewing chunks, merging overlapping findings, validating them, or finalizing (building and publishing the review). A single-agent Flash turn reports its own `single_agent_*` stages instead: preparing, reviewing (main and lens sessions), and finalizing (merging, capping, and publishing the findings).
        *
        * * `fetching` - fetching
        * * `chunking` - chunking
@@ -94076,7 +94088,10 @@ export namespace Schemas {
        * * `reviewing` - reviewing
        * * `deduplicating` - deduplicating
        * * `validating` - validating
-       * * `finalizing` - finalizing */
+       * * `finalizing` - finalizing
+       * * `single_agent_preparing` - single_agent_preparing
+       * * `single_agent_reviewing` - single_agent_reviewing
+       * * `single_agent_finalizing` - single_agent_finalizing */
       review_stage: ReviewStageEnum;
       /**
          * Work units finished within the stage; null when the stage has no counter.
@@ -100650,7 +100665,8 @@ export namespace Schemas {
        * * `Loom` - Loom
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino */
+       * * `TestDino` - TestDino
+       * * `ChessCom` - ChessCom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -102092,7 +102108,8 @@ export namespace Schemas {
        * * `Loom` - Loom
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino */
+       * * `TestDino` - TestDino
+       * * `ChessCom` - ChessCom */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -103501,7 +103518,8 @@ export namespace Schemas {
        * * `Loom` - Loom
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino */
+       * * `TestDino` - TestDino
+       * * `ChessCom` - ChessCom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -114789,6 +114807,10 @@ export namespace Schemas {
      * When true, returns only accounts where no user actively holds any relationship.
      */
     all_roles_unassigned?: boolean;
+    /**
+     * When true, active and tracked accounts come before churned or ignored ones, and `ordering` applies within each group. Use with `include_churned` or `include_ignored`.
+     */
+    inactive_last?: boolean;
     /**
      * Include churned accounts. Churned accounts are hidden by default.
      */

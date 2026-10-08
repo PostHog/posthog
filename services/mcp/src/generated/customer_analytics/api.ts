@@ -113,6 +113,7 @@ export const AccountsListParams = () => zod.object({
         ),
 })
 
+export const accountsListQueryInactiveLastDefault = false
 export const accountsListQueryIncludeChurnedDefault = false
 export const accountsListQueryIncludeIgnoredDefault = false
 
@@ -121,6 +122,12 @@ export const AccountsListQueryParams = () => zod.object({
         .boolean()
         .optional()
         .describe('When true, returns only accounts where no user actively holds any relationship.'),
+    inactive_last: zod
+        .boolean()
+        .default(accountsListQueryInactiveLastDefault)
+        .describe(
+            'When true, active and tracked accounts come before churned or ignored ones, and `ordering` applies within each group. Use with `include_churned` or `include_ignored`.'
+        ),
     include_churned: zod
         .boolean()
         .default(accountsListQueryIncludeChurnedDefault)
@@ -216,6 +223,12 @@ export const AccountsCreateBody = () => zod
             .datetime({ offset: true })
             .nullish()
             .describe('When the account churned. Null means the account has not churned.'),
+        ignored_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                'When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.'
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -434,6 +447,12 @@ export const AccountsPartialUpdateBody = () => zod
             .datetime({ offset: true })
             .nullish()
             .describe('When the account churned. Null means the account has not churned.'),
+        ignored_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                'When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.'
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
