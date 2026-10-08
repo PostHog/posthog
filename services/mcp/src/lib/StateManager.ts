@@ -44,6 +44,7 @@ export class StateManager {
      * request-scoped context: the session store records the switch, and the token
      * cache must not, because other sessions on the same credential read it. A
      * pinned request without a session still persists the keys the pin leaves open.
+     * A project pin also fixes the org, because the project owns it.
      */
     async setActiveContext(updates: { orgId?: string; projectId?: string }): Promise<void> {
         const pinned = this._pinned
@@ -62,7 +63,9 @@ export class StateManager {
         }
         if (!pinned.sessionScoped) {
             await this._cache.setMany({
-                ...(updates.orgId && !pinned.pin.organizationId ? { orgId: updates.orgId } : {}),
+                ...(updates.orgId && !pinned.pin.organizationId && !pinned.pin.projectId
+                    ? { orgId: updates.orgId }
+                    : {}),
                 ...(updates.projectId && !pinned.pin.projectId ? { projectId: updates.projectId } : {}),
             })
         }
@@ -293,13 +296,12 @@ export class StateManager {
             return pinned.orgId
         }
         // A pinned project owns the org. The shared token cache can hold another
-        // session's org, so derive the org from the project first.
+        // session's org, so when the project cannot name its org, report missing
+        // context instead of falling back to the cache.
         if (pinned?.projectId) {
             const project = await this.getCachedOrFetchProject().catch(() => undefined)
-            if (project?.organization) {
-                pinned.orgId = project.organization
-                return pinned.orgId
-            }
+            pinned.orgId = project?.organization ?? undefined
+            return pinned.orgId
         }
 
         const cached = await this._cache.get('orgId')

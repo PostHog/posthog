@@ -19,8 +19,11 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     // Without a session, the next request applies the pin again: a pinned project
     // brings back its own org. Refuse rather than report a switch that reverts.
     const pinned = context.stateManager.pinnedContext
-    if (pinned && !pinned.sessionScoped && pinned.pin.organizationId !== orgId) {
-        throw new PinnedContextSwitchError(pinned.pin)
+    if (pinned && !pinned.sessionScoped) {
+        const pinnedOrgId = pinned.pin.organizationId ?? (await context.stateManager.getOrgID().catch(() => undefined))
+        if (pinnedOrgId !== orgId) {
+            throw new PinnedContextSwitchError(pinned.pin)
+        }
     }
     await context.stateManager.setActiveContext({ orgId })
     // Record the switch on the MCP session so a pinned connection's resent pin

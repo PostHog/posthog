@@ -19,7 +19,7 @@ export type SessionState = {
 // `activeOrgId`/`activeProjectId` record an in-session switch-organization /
 // switch-project; `appliedPin*` record the request pin the session last saw so
 // the resolver can tell a resent pin from a genuinely changed one. See
-// RequestStateResolver.applyPinnedContext.
+// RequestStateResolver.resolvePinnedContext.
 export type SessionScopedState = {
     activeProjectId: string | undefined
     activeOrgId: string | undefined
@@ -34,7 +34,7 @@ export type SessionScopedState = {
  * the same credential, so the pin never goes there.
  */
 export type PinnedActiveContext = {
-    /** The org and project ids that the request params pinned. */
+    /** The org and project ids that the request params, or the session's saved pin, pinned. */
     pin: { organizationId?: string | undefined; projectId?: string | undefined }
     /** True when an MCP session records switches across requests. */
     sessionScoped: boolean
@@ -146,7 +146,7 @@ export type Context = {
     trackEvent: (event: AnalyticsEvent, properties?: Record<string, unknown>) => Promise<void>
     /**
      * Record an in-session context switch so a pinned connection's resent pin
-     * doesn't revert it (see RequestStateResolver.applyPinnedContext). Absent
+     * doesn't revert it (see RequestStateResolver.resolvePinnedContext). Absent
      * when the request carries no MCP session id — there is no cross-request
      * session state to record for.
      */

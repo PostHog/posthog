@@ -274,6 +274,10 @@ export class RequestStateResolver {
      * same credential shares that cache, so a pin written there would revert a
      * switch and leak into the other sessions.
      *
+     * Many clients send the pin only on `initialize`. A later request in the same
+     * session that omits the pin restores the session's saved pin and switch, so
+     * it does not fall back to whatever another session left in the token cache.
+     *
      * Without an MCP session id nothing records a switch across requests, so the
      * pin wins on every request and the switch tools refuse to switch.
      */
@@ -282,13 +286,11 @@ export class RequestStateResolver {
         pin: { organizationId?: string | undefined; projectId?: string | undefined }
     ): Promise<PinnedActiveContext | undefined> {
         const { organizationId, projectId } = pin
-        if (!organizationId && !projectId) {
-            return undefined
-        }
+        const hasPin = Boolean(organizationId || projectId)
 
         const sessionCache = reqCtx.sessionScopedCache
         if (!sessionCache) {
-            return { pin, sessionScoped: false, orgId: organizationId, projectId }
+            return hasPin ? { pin, sessionScoped: false, orgId: organizationId, projectId } : undefined
         }
 
         const [appliedPinOrg, appliedPinProject, activeOrg, activeProject] = await Promise.all([
@@ -297,6 +299,9 @@ export class RequestStateResolver {
             sessionCache.get('activeOrgId'),
             sessionCache.get('activeProjectId'),
         ])
+        if (!hasPin && !appliedPinOrg && !appliedPinProject && !activeOrg && !activeProject) {
+            return undefined
+        }
 
         // These keys carry a write-based TTL, but the MCP session they belong to
         // renews its own context store on every request. Renew them too, so a
@@ -304,6 +309,16 @@ export class RequestStateResolver {
         // the session ends and read back as a missing marker — which reads as a
         // changed pin, discards the switch, and reverts to the pin mid-session.
         await sessionCache.refreshTtl(['appliedPinOrgId', 'appliedPinProjectId', 'activeOrgId', 'activeProjectId'])
+
+        // An omitted pin is not a changed pin: keep the session's saved context.
+        if (!hasPin) {
+            return {
+                pin: { organizationId: appliedPinOrg, projectId: appliedPinProject },
+                sessionScoped: true,
+                orgId: activeOrg ?? appliedPinOrg,
+                projectId: activeProject ?? appliedPinProject,
+            }
+        }
 
         const pinChanged =
             (organizationId !== undefined && appliedPinOrg !== organizationId) ||

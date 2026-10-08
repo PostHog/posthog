@@ -85,6 +85,9 @@ export class RequestContext {
      * session's in-session context switches and last-applied request pin. The
      * token cache can't hold these: it is shared by every concurrent session on
      * the same credential. Undefined when the request carries no session id.
+     *
+     * The key includes the credential: a caller chooses its session id, so a
+     * request must never restore context that another credential saved.
      */
     get sessionScopedCache(): RedisCache<SessionScopedState> | undefined {
         const mcpSessionId = this.requestContext.mcpSessionId
@@ -92,7 +95,9 @@ export class RequestContext {
             return undefined
         }
         if (!this.sessionScopedCacheInstance) {
-            const digest = createHash('sha256').update(mcpSessionId).digest()
+            const digest = createHash('sha256')
+                .update(`${this.props.userHash ?? ''}\0${mcpSessionId}`)
+                .digest()
             this.sessionScopedCacheInstance = new RedisCache<SessionScopedState>(
                 digest.subarray(0, 16).toString('base64url'),
                 this.redis,
