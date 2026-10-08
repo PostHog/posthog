@@ -399,18 +399,10 @@ function taskMocks(
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${RUN_ID}/logs`]: () => new HttpResponse(RUN_LOGS),
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/artifacts/artifact-chart/download/`]: () =>
                 new HttpResponse(CHART_SVG, { headers: { 'Content-Type': 'image/svg+xml' } }),
-            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/artifacts/:artifact_id/preview/`]: ({
-                request,
-            }: {
-                request: Request
-            }) => [
-                200,
-                {
-                    url: `data:text/html;charset=utf-8,${encodeURIComponent(SUMMARY_HTML)}`,
-                    scripts_enabled: new URL(request.url).searchParams.get('scripts') === 'true',
-                    scripts_available: true,
-                },
-            ],
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/artifacts/:artifact_id/preview/`]: {
+                url: `data:text/html;charset=utf-8,${encodeURIComponent(SUMMARY_HTML)}`,
+                scripts_available: true,
+            },
             '/api/projects/:team_id/task_channels/': [],
             '/api/projects/:team_id/integrations/': { results: [] },
             '/api/environments/:team_id/conversations/': { results: [], next: null },

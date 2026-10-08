@@ -1966,7 +1966,6 @@ class TaskRunArtifactPresignResponseSerializer(serializers.Serializer):
 
 class TaskRunArtifactPreviewResponseSerializer(serializers.Serializer):
     url = serializers.URLField(help_text="Short-lived URL for the isolated HTML preview")
-    scripts_enabled = serializers.BooleanField(help_text="Whether the page at this URL runs its scripts")
     scripts_available = serializers.BooleanField(
         help_text=(
             "Whether the caller can request a preview that runs scripts. False when whoever wrote this artifact "

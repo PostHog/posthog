@@ -440,7 +440,7 @@ async function requestHtmlPreview(
             ...emptyHtmlPreview(artifact.id),
             url: result.url,
             expiresAt: Date.now() + 4 * 60 * 1000,
-            scriptsEnabled: result.scripts_enabled,
+            scriptsEnabled: scripts,
             scriptsAvailable: result.scripts_available,
         }
     } catch {

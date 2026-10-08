@@ -3095,9 +3095,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if url is None:
             return Response({"error": "Artifact preview is unavailable"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         return Response(
-            TaskRunArtifactPreviewResponseSerializer(
-                {"url": url, "scripts_enabled": run_scripts, "scripts_available": scripts_available}
-            ).data
+            TaskRunArtifactPreviewResponseSerializer({"url": url, "scripts_available": scripts_available}).data
         )
 
     def _preview_unavailable_page(self, outcome: str, task_id: str) -> HttpResponse:

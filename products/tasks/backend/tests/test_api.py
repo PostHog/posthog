@@ -10258,7 +10258,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         static = self.client.get(api_path)
         self.assertEqual(static.status_code, status.HTTP_200_OK)
-        self.assertEqual((static.json()["scripts_enabled"], static.json()["scripts_available"]), (False, True))
+        self.assertTrue(static.json()["scripts_available"])
         static_csp = self.client.get(urlsplit(static.json()["url"]).path, HTTP_HOST="usercontent.example")[
             "Content-Security-Policy"
         ]
@@ -10272,7 +10272,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         minted = self.client.get(f"{api_path}?scripts=true")
         self.assertEqual(minted.status_code, status.HTTP_200_OK)
-        self.assertTrue(minted.json()["scripts_enabled"])
         preview_path = urlsplit(minted.json()["url"]).path
         preview = self.client.get(preview_path, HTTP_HOST="usercontent.example")
 
