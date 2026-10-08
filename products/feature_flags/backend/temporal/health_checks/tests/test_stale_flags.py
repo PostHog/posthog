@@ -876,15 +876,17 @@ class TestStaleFlagsContract(SimpleTestCase):
         registration = HEALTH_CHECKS["stale_feature_flags"]
         assert registration.owner == JobOwners.TEAM_FEATURE_FLAGS
         assert registration.product == Product.FEATURE_FLAGS
-        # These are the framework defaults. `rollout_percentage` samples teams before
-        # `eligible_team_ids` runs and `dry_run` drops the writes after detection, so either one
-        # would mean enabling a team in the flag produces nothing.
+        # These are the framework defaults. A `rollout_percentage` below 1.0 samples teams out before
+        # `eligible_team_ids` runs, and `dry_run` drops the writes after detection. Overriding either
+        # one means a team the flag enables can still get no issues.
         assert registration.dry_run is False
         assert registration.rollout_percentage == 1.0
         assert registration.schedule == "0 6 * * 1"
         assert registration.remediation is not None
-        # Payloads carry flag keys and names, so the Health API must gate them on flag access.
+        # Payloads carry one flag's key, name and rollout state, so the Health API must gate each
+        # issue on access to that flag, not only on access to flags as a resource.
         assert registration.access_controlled_resource == "feature_flag"
+        assert registration.access_controlled_object_key == "flag_id"
 
     def test_remediation_orders_code_removal_before_archive(self) -> None:
         remediation = StaleFeatureFlagsCheck.remediation
