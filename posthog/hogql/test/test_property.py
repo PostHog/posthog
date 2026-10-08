@@ -1,11 +1,12 @@
 from collections.abc import Iterable
 from typing import Any, Literal, Optional, Union, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_materialized_columns
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -29,19 +30,25 @@ from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property import (
     BEHAVIORAL_PROPERTY_FILTER_FLAG,
     action_to_expr,
+    element_property_key_to_breakdown_expr,
     entity_to_expr,
     has_aggregation,
     map_virtual_properties,
+    operator_is_negative,
     property_to_expr,
     selector_to_expr,
     tag_name_to_expr,
 )
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.visitor import clear_locations
+from posthog.hogql.visitor import TraversingVisitor, clear_locations
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
 from posthog.models import Property, PropertyDefinition, Team
+from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE
 from posthog.models.property import PropertyGroup
+from posthog.models.property.util import get_property_string_expr
 from posthog.utils import relative_date_parse
 
 from products.actions.backend.models.action import Action
@@ -55,6 +62,33 @@ from ee.clickhouse.materialized_columns.columns import materialize
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
 elements_chain_imatch = lambda x: parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(x))})
 not_call = lambda x: ast.Call(name="not", args=[x])
+
+
+class _FieldChainCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        self.parts: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.parts.update(str(part) for part in node.chain)
+
+
+def field_parts_read_by(expr: ast.Expr) -> set[str]:
+    collector = _FieldChainCollector()
+    collector.visit(expr)
+    return collector.parts
+
+
+class TestElementBreakdownExpression(SimpleTestCase):
+    def test_tag_name_breakdown_matches_bare_inner_tag(self):
+        self.assertEqual(
+            clear_locations(element_property_key_to_breakdown_expr("tag_name")),
+            clear_locations(parse_expr("extract(elements_chain, '(?:^|;)([A-Za-z][A-Za-z0-9_-]*)(?:[.]|$|:|;)')")),
+        )
+
+    @parameterized.expand(["selector", "id", "garbage"])
+    def test_unsupported_key_raises_query_error(self, key: str):
+        with self.assertRaises(QueryError):
+            element_property_key_to_breakdown_expr(key)
 
 
 class TestProperty(BaseTest):
@@ -77,9 +111,16 @@ class TestProperty(BaseTest):
             Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"]
         ] = None,
         strict: bool = True,
+        cohort_via_distinct_id: bool = False,
     ):
         return clear_locations(
-            property_to_expr(property, team=team or self.team, scope=scope or "event", strict=strict)
+            property_to_expr(
+                property,
+                team=team or self.team,
+                scope=scope or "event",
+                strict=strict,
+                cohort_via_distinct_id=cohort_via_distinct_id,
+            )
         )
 
     def _selector_to_expr(self, selector: str):
@@ -150,8 +191,54 @@ class TestProperty(BaseTest):
             self._property_to_expr(
                 Property(type="group", group_type_index=0, key="arr", operator="gt", value=100), scope="group"
             ),
-            self._parse_expr("properties.arr > 100"),
+            self._parse_expr("toFloat(properties.arr) > 100"),
         )
+
+    @parameterized.expand(
+        [
+            # `$group_key` is the group's key column, not an entry in its property JSON
+            ("event_scope", {"group_type_index": 0, "value": "org_123"}, None, "group_0.key = 'org_123'"),
+            ("group_scope", {"group_type_index": 2, "value": "org_123"}, "group", "key = 'org_123'"),
+            # groups.key is a String column, so a numeric key has to reach it as a string
+            ("numeric_value", {"group_type_index": 0, "value": 13}, None, "group_0.key = '13'"),
+            (
+                "multiple_values",
+                {"group_type_index": 0, "value": ["org_1", "org_2"]},
+                None,
+                "group_0.key in ('org_1', 'org_2')",
+            ),
+            # Multi-value starts_with expands per value by recursing with the original key, so the
+            # column has to survive that round trip
+            (
+                "multi_value_starts_with",
+                {"group_type_index": 0, "operator": "starts_with", "value": ["org_1", "org_2"]},
+                None,
+                "toString(group_0.key) ilike 'org_1%' or toString(group_0.key) ilike 'org_2%'",
+            ),
+        ]
+    )
+    def test_property_to_expr_group_key(
+        self, _name: str, filter_fields: dict[str, Any], scope: Optional[Literal["group"]], expected: str
+    ) -> None:
+        self.assertEqual(
+            self._property_to_expr({"type": "group", "key": "$group_key", **filter_fields}, scope=scope),
+            self._parse_expr(expected),
+        )
+
+    def test_property_to_expr_group_key_prints_the_group_join(self) -> None:
+        # The AST tests above stop at `group_0.key`; this proves the resolver reaches the groups table's
+        # key column through the events lazy join and does not fall back to a JSON extract.
+        where = self._property_to_expr({"type": "group", "group_type_index": 0, "key": "$group_key", "value": "org_1"})
+        query = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=where,
+        )
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql, _ = prepare_and_print_ast(query, context=context, dialect="clickhouse")
+        assert "groups" in sql
+        assert "group_key" in sql
+        assert "group_properties" not in sql
 
     def test_property_to_expr_group_booleans(self):
         PropertyDefinition.objects.create(
@@ -193,19 +280,19 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gt"}),
-            self._parse_expr("properties.a > '3'"),
+            self._parse_expr("toFloat(properties.a) > 3.0"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lt"}),
-            self._parse_expr("properties.a < '3'"),
+            self._parse_expr("toFloat(properties.a) < 3.0"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gte"}),
-            self._parse_expr("properties.a >= '3'"),
+            self._parse_expr("toFloat(properties.a) >= 3.0"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lte"}),
-            self._parse_expr("properties.a <= '3'"),
+            self._parse_expr("toFloat(properties.a) <= 3.0"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "icontains"}),
@@ -382,16 +469,6 @@ class TestProperty(BaseTest):
             ),
         )
 
-    def test_property_to_expr_generic_lt_gt_unchanged(self):
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lt"}),
-            self._parse_expr("properties.a < '3'"),
-        )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gt"}),
-            self._parse_expr("properties.a > '3'"),
-        )
-
     @parameterized.expand(
         [
             ("is_date_before_relative", "-10m", "is_date_before", ast.CompareOperationOp.Lt, "2025-06-09 12:00:00"),
@@ -399,7 +476,7 @@ class TestProperty(BaseTest):
             ("is_date_exact_relative", "-1y", "is_date_exact", ast.CompareOperationOp.Eq, "2025-04-09 12:00:00"),
         ]
     )
-    @freeze_time("2026-04-09T12:00:00Z")
+    @time_machine.travel("2026-04-09T12:00:00Z", tick=False)
     def test_property_to_expr_date_operator_relative(self, _name, value, operator, op, expected_rhs):
         result = self._property_to_expr({"type": "event", "key": "a", "value": value, "operator": operator})
         assert isinstance(result, ast.CompareOperation)
@@ -409,6 +486,38 @@ class TestProperty(BaseTest):
         assert len(result.right.args) == 1
         assert isinstance(result.right.args[0], ast.Constant)
         assert result.right.args[0].value == expected_rhs
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_property_to_expr_event_dotted_key_reads_one_flat_path(self):
+        # A filter key is one property name however many dots it holds, so the native read must bind the escaped
+        # path name rather than descend into `properties.a.b`.
+        expr = self._property_to_expr({"type": "event", "key": "a.b", "value": "x"})
+        self.assertEqual(expr, self._parse_expr("properties.`a.b` = 'x'"))
+
+        query = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=expr,
+        )
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql, _ = prepare_and_print_ast(query, context=context, dialect="clickhouse")
+        self.assertIn("getSubcolumn(events.properties, %(hogql_val_", sql)
+        self.assertNotIn("events.properties.a", sql)
+        self.assertEqual(set(context.values.values()) - {"x"}, {"a%2Eb", "^`a%2Eb`"})
+
+    def test_property_string_expr_reads_dotted_key_as_one_flat_path_on_native_table(self):
+        # Raw-SQL readers must bind the escaped path name like the printer does, and stay safe for callers that
+        # run the SQL through `%` parameter substitution.
+        expr, _ = get_property_string_expr("events", "a.b", "'a.b'", "properties", use_new_events_schema=True)
+        self.assertNotIn("%", expr)
+
+        document = '{"a.b": "flat", "a": {"b": "nested"}}'
+        [(value,)] = sync_execute(
+            f"SELECT {expr} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties) AS events",
+            {"raw": document, "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
+            settings={"json_type_escape_dots_in_keys": 1, "type_json_skip_duplicated_paths": 1},
+        )
+        self.assertEqual(value, "flat")
 
     def test_property_to_expr_event_list(self):
         # positive
@@ -450,7 +559,7 @@ class TestProperty(BaseTest):
                     "operator": "not_icontains",
                 }
             ),
-            self._parse_expr("multiSearchAnyCaseInsensitive(toString(properties.a), ['b', 'c']) = 0"),
+            self._parse_expr("NOT multiSearchAnyCaseInsensitive(toString(properties.a), ['b', 'c']) > 0"),
         )
         a = self._property_to_expr(
             {
@@ -546,7 +655,7 @@ class TestProperty(BaseTest):
                 }
             ),
             self._parse_expr(
-                "arrayExists(v -> v not in ('ReferenceError', 'TypeError'), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+                "NOT arrayExists(v -> v in ('ReferenceError', 'TypeError'), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
             ),
         )
         self.assertEqual(
@@ -559,7 +668,7 @@ class TestProperty(BaseTest):
                 }
             ),
             self._parse_expr(
-                "arrayExists(v -> ifNull(not(match(toString(v), 'ValidationError')), 1), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+                "NOT arrayExists(v -> ifNull(match(toString(v), 'ValidationError'), 0), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
             ),
         )
         self.assertEqual(
@@ -585,7 +694,7 @@ class TestProperty(BaseTest):
                 }
             ),
             self._parse_expr(
-                "arrayExists(v -> toString(v) NOT ILIKE '%ValidationError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+                "NOT arrayExists(v -> toString(v) ILIKE '%ValidationError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
             ),
         )
         self.assertEqual(
@@ -611,7 +720,7 @@ class TestProperty(BaseTest):
                 }
             ),
             self._parse_expr(
-                "arrayExists(v -> multiSearchAnyCaseInsensitive(toString(v), ['ReferenceError', 'TypeError']) = 0, JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+                "NOT arrayExists(v -> multiSearchAnyCaseInsensitive(toString(v), ['ReferenceError', 'TypeError']) > 0, JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
             ),
         )
 
@@ -733,19 +842,20 @@ class TestProperty(BaseTest):
             ),
             self._parse_expr("toString(elements_chain_href) ilike '%href-text.%'"),
         )
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "element",
-                    "key": "text",
-                    "value": "text-text.",
-                    "operator": "regex",
-                }
-            ),
-            self._parse_expr(
-                "arrayExists(text -> ifNull(match(toString(text), 'text-text.'), 0), elements_chain_texts)"
-            ),
-        )
+        for text_key in ("text", "$el_text"):
+            self.assertEqual(
+                self._property_to_expr(
+                    {
+                        "type": "element",
+                        "key": text_key,
+                        "value": "text-text.",
+                        "operator": "regex",
+                    }
+                ),
+                self._parse_expr(
+                    "arrayExists(text -> ifNull(match(toString(text), 'text-text.'), 0), elements_chain_texts)"
+                ),
+            )
 
     def test_property_groups(self):
         self.assertEqual(
@@ -849,12 +959,16 @@ class TestProperty(BaseTest):
     def test_selector_to_expr(self):
         self.assertEqual(
             self._selector_to_expr("div"),
-            clear_locations(elements_chain_match("(^|;)div[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
+            clear_locations(
+                elements_chain_match('(^|;)div(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))')
+            ),
         )
         self.assertEqual(
             self._selector_to_expr("div > div"),
             clear_locations(
-                elements_chain_match("(^|;)div[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))div[^;]*?($|;|:([^;^\\s]*(;|$|\\s))).*")
+                elements_chain_match(
+                    '(^|;)div(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))div(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s))).*'
+                )
             ),
         )
         self.assertEqual(
@@ -862,20 +976,32 @@ class TestProperty(BaseTest):
             clear_locations(
                 parse_expr(
                     "{regex} and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0",
-                    {"regex": elements_chain_match('(^|;)a.*?href="boo".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))')},
+                    {
+                        "regex": elements_chain_match(
+                            '(^|;)a(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?href="boo"(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                        )
+                    },
                 )
             ),
         )
         self.assertEqual(
             self._selector_to_expr(".class"),
-            clear_locations(elements_chain_match("(^|;).*?\\.class[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
+            clear_locations(
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.class(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
         )
         self.assertEqual(
             self._selector_to_expr("a#withid"),
             clear_locations(
                 parse_expr(
                     """{regex} and indexOf(elements_chain_ids, 'withid') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
-                    {"regex": elements_chain_match('(^|;)a.*?attr_id="withid".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))')},
+                    {
+                        "regex": elements_chain_match(
+                            '(^|;)a(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?attr_id="withid"(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                        )
+                    },
                 )
             ),
         )
@@ -887,7 +1013,7 @@ class TestProperty(BaseTest):
                     """{regex} and indexOf(elements_chain_ids, 'with-dashed-id') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
                     {
                         "regex": elements_chain_match(
-                            '(^|;)a.*?attr_id="with\\-dashed\\-id".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                            '(^|;)a(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?attr_id="with\\-dashed\\-id"(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
                         )
                     },
                 )
@@ -902,6 +1028,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr("#with-dashed-id"),
             self._selector_to_expr("[id='with-dashed-id']"),
         )
+        self.assertEqual(self._selector_to_expr("#a[id='b']"), ast.Constant(value=False))
         self.assertEqual(
             self._selector_to_expr("#with\\slashed\\id"),
             clear_locations(
@@ -917,7 +1044,9 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._selector_to_expr(".sm:[max-width:640px]"),
             clear_locations(
-                elements_chain_match("(^|;).*?\\.sm:\\[max\\-width:640px\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.sm:\\[max\\-width:640px\\](?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
             ),
         )
 
@@ -925,7 +1054,9 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._selector_to_expr(".w-[calc(100%-2rem)]"),
             clear_locations(
-                elements_chain_match("(^|;).*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\](?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
             ),
         )
 
@@ -934,7 +1065,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr(".shadow-[0_4px_6px_rgba(0,0,0,0.1)]"),
             clear_locations(
                 elements_chain_match(
-                    "(^|;).*?\\.shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))"
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\](?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
                 )
             ),
         )
@@ -942,7 +1073,11 @@ class TestProperty(BaseTest):
         # Test Tailwind fraction/opacity class with a slash
         self.assertEqual(
             self._selector_to_expr(".bg-yellow/50"),
-            clear_locations(elements_chain_match("(^|;).*?\\.bg\\-yellow/50[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
+            clear_locations(
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.bg\\-yellow/50(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
         )
 
     def test_cohort_filter_static(self):
@@ -965,6 +1100,34 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
             self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
         )
+
+    @parameterized.expand(
+        [
+            ("in", {}, "IN"),
+            ("negation", {"negation": True}, "NOT IN"),
+            ("not_in_operator", {"operator": "not_in"}, "NOT IN"),
+        ]
+    )
+    def test_cohort_filter_via_distinct_id(self, _name: str, extra: dict, expected_op: str):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "cohort", "key": "id", "value": cohort.pk, **extra},
+                self.team,
+                cohort_via_distinct_id=True,
+            ),
+            self._parse_expr(
+                f"distinct_id {expected_op} "
+                f"(SELECT distinct_id FROM person_distinct_ids WHERE person_id IN COHORT {cohort.pk})"
+            ),
+        )
+
+    def test_cohort_filter_missing_cohort(self):
+        with self.assertRaisesMessage(QueryError, "Cohort 2137 does not exist"):
+            self._property_to_expr({"type": "cohort", "key": "id", "value": 2137}, self.team)
 
     def test_person_scope(self):
         self.assertEqual(
@@ -1332,6 +1495,67 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "event", "key": "count", "value": [5, 6], "operator": "exact"}),
             self._parse_expr("properties.count in (5, 6)"),
         )
+        # ordered operators leave a Numeric-typed LHS alone too, with no toFloat wrap
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "count", "value": 5, "operator": "gt"}),
+            self._parse_expr("properties.count > 5"),
+        )
+
+    @parameterized.expand(
+        [
+            ("person", "person", None),
+            ("event", "event", None),
+            ("group", "group", 0),
+        ]
+    )
+    def test_property_to_expr_ordered_numeric_filter_on_string_property(self, _name, property_type, group_type_index):
+        # An ordered numeric filter on a string-typed (or as-yet-undefined) property compiles to
+        # <String> > <number>, which ClickHouse rejects at read time with NO_COMMON_TYPE (386), so
+        # the LHS needs a toFloat (accurateCastOrNull) cast that drops non-numeric values instead.
+        base: dict = {"type": property_type, "key": "prop", "value": 200, "operator": "gt"}
+        if group_type_index is not None:
+            base["group_type_index"] = group_type_index
+        prefix = {"person": "person.properties", "event": "properties", "group": "group_0.properties"}[property_type]
+
+        for operator, symbol in [("gt", ">"), ("lt", "<"), ("gte", ">="), ("lte", "<=")]:
+            self.assertEqual(
+                self._property_to_expr({**base, "operator": operator}),
+                self._parse_expr(f"toFloat({prefix}.prop) {symbol} 200"),
+            )
+        self.assertEqual(
+            self._property_to_expr({**base, "operator": "between", "value": [5, 10]}),
+            self._parse_expr(f"toFloat({prefix}.prop) >= 5 and toFloat({prefix}.prop) <= 10"),
+        )
+        self.assertEqual(
+            self._property_to_expr({**base, "operator": "not_between", "value": [5, 10]}),
+            self._parse_expr(
+                f"toFloat({prefix}.prop) < 5 or toFloat({prefix}.prop) > 10 or isNull(toFloat({prefix}.prop))"
+            ),
+        )
+        # a non-numeric string value keeps the uncoerced String comparison
+        self.assertEqual(
+            self._property_to_expr({**base, "value": "abc"}),
+            self._parse_expr(f"{prefix}.prop > 'abc'"),
+        )
+
+    def test_property_to_expr_numeric_text_bound_parses_against_coerced_lhs(self):
+        # The filter UI submits a typed-in bound as text, so "200" must coerce like 200 does.
+        # Left uncoerced it compares lexicographically: "9" > "200" matches even though 9 < 200.
+        expr = self._property_to_expr({"type": "event", "key": "prop", "value": "200", "operator": "gt"})
+        assert isinstance(expr, ast.CompareOperation)
+        self.assertEqual(expr.left, ast.Call(name="toFloat", args=[ast.Field(chain=["properties", "prop"])]))
+        assert isinstance(expr.right, ast.Constant)
+        self.assertIsInstance(expr.right.value, float)
+        self.assertEqual(expr.right.value, 200.0)
+
+        # between bounds are validated numeric, so text bounds coerce there too
+        expr = self._property_to_expr({"type": "event", "key": "prop", "value": ["5", "10"], "operator": "between"})
+        assert isinstance(expr, ast.And)
+        upper = expr.exprs[1]
+        assert isinstance(upper, ast.CompareOperation)
+        assert isinstance(upper.right, ast.Constant)
+        self.assertIsInstance(upper.right.value, float)
+        self.assertEqual(upper.right.value, 10.0)
 
     def test_property_to_expr_event_metadata_invalid_scope(self):
         with self.assertRaises(Exception) as e:
@@ -1592,17 +1816,19 @@ class TestProperty(BaseTest):
     def test_property_to_expr_between_operator(self):
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18, 65]}),
-            self._parse_expr("(properties.age >= 18 AND properties.age <= 65)"),
+            self._parse_expr("(toFloat(properties.age) >= 18 AND toFloat(properties.age) <= 65)"),
         )
 
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "age", "operator": "between", "value": [25, 50]}),
-            self._parse_expr("(person.properties.age >= 25 AND person.properties.age <= 50)"),
+            self._parse_expr("(toFloat(person.properties.age) >= 25 AND toFloat(person.properties.age) <= 50)"),
         )
 
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "score", "operator": "not_between", "value": [0, 100]}),
-            self._parse_expr("(properties.score < 0 OR properties.score > 100)"),
+            self._parse_expr(
+                "(toFloat(properties.score) < 0 OR toFloat(properties.score) > 100 OR isNull(toFloat(properties.score)))"
+            ),
         )
 
     def test_property_to_expr_between_operator_validation(self):
@@ -1637,6 +1863,15 @@ class TestProperty(BaseTest):
         with self.assertRaisesMessage(QueryError, "between operator requires numeric values"):
             self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [None, 10]})
 
+        # float("NaN") parses without error, and float(bool) silently coerces to 0.0/1.0, so both need an
+        # explicit reject to match rust/feature-flags/src/properties/property_matching.rs, which refuses
+        # both as filter bounds.
+        with self.assertRaisesMessage(QueryError, "not_between operator requires numeric values"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": ["NaN", 100]})
+
+        with self.assertRaisesMessage(QueryError, "not_between operator requires numeric values"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": [False, True]})
+
     @parameterized.expand(
         [
             ("trailing_backslash", "^abc\\"),
@@ -1656,25 +1891,25 @@ class TestProperty(BaseTest):
         # Test MIN operator (alias for GTE)
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "age", "operator": "min", "value": 18}),
-            self._parse_expr("properties.age >= 18"),
+            self._parse_expr("toFloat(properties.age) >= 18"),
         )
 
         # Test MAX operator (alias for LTE)
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "age", "operator": "max", "value": 65}),
-            self._parse_expr("properties.age <= 65"),
+            self._parse_expr("toFloat(properties.age) <= 65"),
         )
 
         # Test MIN with person properties
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "age", "operator": "min", "value": 25}),
-            self._parse_expr("person.properties.age >= 25"),
+            self._parse_expr("toFloat(person.properties.age) >= 25"),
         )
 
         # Test MAX with person properties
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "score", "operator": "max", "value": 100}),
-            self._parse_expr("person.properties.score <= 100"),
+            self._parse_expr("toFloat(person.properties.score) <= 100"),
         )
 
     def test_property_to_expr_semver_operators(self):
@@ -1963,7 +2198,37 @@ class TestProperty(BaseTest):
         result = self._property_to_expr(
             {"type": "event", "key": "test_prop", "value": value, "operator": operator_value}
         )
-        self.assertIsInstance(result, ast.Expr)
+        # An unhandled operator degrades to a neutral constant that matches every row, which an
+        # isinstance check accepts. Requiring the compiled expression to read the filtered property
+        # rejects that. This guards dispatch only: how multiple values combine is behavior, covered
+        # by test_multi_value_negative_operator_drops_row_matching_any_value.
+        assert "test_prop" in field_parts_read_by(result)
+
+    # An empty value list means the filter is not configured, so HogQL matches every row. Without a
+    # guard these two operators build multiSearchAnyCaseInsensitive(x, []), which ClickHouse rejects
+    # with ILLEGAL_TYPE_OF_ARGUMENT. This is HogQL's own convention, not a cross-engine agreement:
+    # the Rust flag evaluator treats an empty icontains_multi list as matching nothing instead.
+    # "$exception_types" exercises the array-backed path, which compiles through arrayExists.
+    @parameterized.expand([("icontains_multi",), ("not_icontains_multi",)])
+    def test_empty_value_list_is_a_neutral_filter(self, operator: str):
+        for key in ("plan", "$exception_types"):
+            assert self._property_to_expr({"type": "event", "key": key, "value": [], "operator": operator}) == (
+                ast.Constant(value=1)
+            )
+
+    # Filters created via the API can carry a single scalar for IN/NOT IN. Rejecting the scalar
+    # fails every query that uses the stored filter, so it must compile like a one-element list.
+    @parameterized.expand([("in",), ("not_in",)])
+    def test_scalar_value_for_in_operator_compiles_as_single_element_list(self, operator: str):
+        assert self._property_to_expr(
+            {"type": "event", "key": "action", "value": "edit_video", "operator": operator}
+        ) == self._property_to_expr({"type": "event", "key": "action", "value": ["edit_video"], "operator": operator})
+
+    def test_every_negative_operator_is_known(self):
+        # A negative operator missing from operator_is_negative silently negates per element on
+        # array properties and loses its lowercase index hint, so the name pattern pins the set.
+        by_name = {op for op in PropertyOperator if op.value.startswith(("not_", "is_not"))}
+        assert {op for op in PropertyOperator if operator_is_negative(op)} == by_name
 
     def test_flag_evaluates_to_produces_neutral_expr(self):
         prop = FlagPropertyFilter(type="flag", key="my-flag", value="true", operator="flag_evaluates_to")
@@ -2072,7 +2337,7 @@ class TestProperty(BaseTest):
         )
 
     def test_behavioral_explicit_datetime_bounds(self):
-        with freeze_time("2024-05-15T12:00:00Z"):
+        with time_machine.travel("2024-05-15T12:00:00Z", tick=False):
             expected_from = relative_date_parse("-7d", self.team.timezone_info)
             self.assertEqual(
                 self._property_to_expr(
@@ -2137,7 +2402,7 @@ class TestProperty(BaseTest):
             )
 
     def test_behavioral_explicit_datetime_to_bounds_a_relative_window(self):
-        with freeze_time("2024-05-15T12:00:00Z"):
+        with time_machine.travel("2024-05-15T12:00:00Z", tick=False):
             expected_to = relative_date_parse("-1d", self.team.timezone_info)
             self.assertEqual(
                 self._property_to_expr(self._behavioral_filter(explicit_datetime_to="-1d")),
@@ -2214,7 +2479,12 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
         self.test_cases: list[tuple[str, Any, PropertyType, Any]] = [
             # String type: value, empty, "null" literal, null, not set
             ("string_value_prop", "hello", PropertyType.String, True),
-            ("string_empty_prop", "", PropertyType.String, self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED),
+            (
+                "string_empty_prop",
+                "",
+                PropertyType.String,
+                False if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED,
+            ),
             ("string_null_literal_prop", "null", PropertyType.String, self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED),
             ("string_null_prop", None, PropertyType.String, False),
             ("string_not_set_prop", self.NOT_SET, PropertyType.String, False),
@@ -2381,9 +2651,9 @@ class TestPropertyDateOperatorsWithData(APIBaseTest):
             properties={"signup_dt": "2026-03-19T18:00:00Z"},
         )
 
-    def _run(self, filter: dict) -> int:
+    def _count_query(self, filter: dict) -> ast.SelectQuery:
         expr = property_to_expr(filter, team=self.team, scope="event")
-        query_ast = ast.SelectQuery(
+        return ast.SelectQuery(
             select=[ast.Call(name="count", args=[])],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(
@@ -2397,8 +2667,20 @@ class TestPropertyDateOperatorsWithData(APIBaseTest):
                 ]
             ),
         )
-        result = execute_hogql_query(team=self.team, query=query_ast)
+
+    def _run(self, filter: dict) -> int:
+        result = execute_hogql_query(team=self.team, query=self._count_query(filter))
         return result.results[0][0]
+
+    def _run_in_session_timezone(self, filter: dict, session_timezone: str) -> int:
+        # execute_hogql_query only accepts the allowlisted HogQL settings, so the printed SQL
+        # runs through sync_execute to pin the ClickHouse session zone.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql, _ = prepare_and_print_ast(self._count_query(filter), context=context, dialect="clickhouse")
+        [[count]] = sync_execute(
+            sql, context.values, settings={"session_timezone": session_timezone}, team_id=self.team.pk
+        )
+        return count
 
     @parameterized.expand(
         [
@@ -2445,3 +2727,319 @@ class TestPropertyDateOperatorsWithData(APIBaseTest):
 
         count = self._run({"type": "event", "key": "signup_dt", "value": value, "operator": operator})
         assert count == expected_count
+
+    @parameterized.expand(
+        [
+            # A non-UTC ClickHouse session must not shift the stored value. Read back as UTC, u1 stays
+            # 10:00Z and u2 stays 18:00Z; read back as Los Angeles wall clock marked Z, both would fall
+            # before 14:00Z.
+            ("la_session_is_date_before_iso_z", "2026-03-19T14:00:00Z", "is_date_before", 1),
+            ("la_session_is_date_after_iso_z", "2026-03-19T14:00:00Z", "is_date_after", 1),
+        ]
+    )
+    def test_is_date_operator_on_datetime_event_property_non_utc_session(
+        self, _name: str, value: str, operator: str, expected_count: int
+    ):
+        count = self._run_in_session_timezone(
+            {"type": "event", "key": "signup_dt", "value": value, "operator": operator}, "America/Los_Angeles"
+        )
+        assert count == expected_count
+
+    def test_property_string_expr_renders_datetime_as_utc_in_non_utc_session(self):
+        use_new_events_schema = settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        expr, _ = get_property_string_expr(
+            "events", "signup_dt", "'signup_dt'", "properties", use_new_events_schema=use_new_events_schema
+        )
+        table = DISTRIBUTED_EVENTS_JSON_TABLE if use_new_events_schema else "events"
+        rows = sync_execute(
+            f"SELECT {expr} FROM {table} WHERE team_id = %(team_id)s AND event = 'signup' ORDER BY distinct_id",
+            {"team_id": self.team.pk},
+            settings={"session_timezone": "America/Los_Angeles"},
+            team_id=self.team.pk,
+        )
+        assert rows == [("2026-03-19T10:00:00Z",), ("2026-03-19T18:00:00Z",)]
+
+
+# A property missing from a row extracts to NULL, which a WHERE clause discards, so every negative
+# operator must keep such a row on its own. The NULL default is applied in the printer, not the AST,
+# so these run the printed SQL against ClickHouse rather than asserting AST shape. The events carry
+# no person, so a person-scoped filter sees person_properties '{}' and must keep that row too.
+class TestNegativeOperatorNullParityWithData(APIBaseTest):
+    EVENT = "purchase"
+    SCORED_EVENT = "scored"
+    EXCEPTION_EVENT = "exception"
+    ARRAYS_WITHOUT_MATCH = {"types_missing", "types_empty", "types_nonmatch_only"}
+    ARRAYS_WITH_MATCH = {"types_match_only", "types_mixed"}
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        PropertyDefinition.objects.create(
+            team=cls.team,
+            name="score",
+            type=PropertyDefinition.Type.EVENT,
+            property_type=PropertyType.Numeric,
+        )
+        _create_event(
+            team=cls.team,
+            event=cls.EVENT,
+            distinct_id="present_nonmatch",
+            properties={"plan": "enterprise", "score": 50},
+        )
+        _create_event(
+            team=cls.team, event=cls.EVENT, distinct_id="present_match", properties={"plan": "free", "score": 500}
+        )
+        _create_event(team=cls.team, event=cls.EVENT, distinct_id="missing", properties={})
+        for distinct_id, score in [
+            ("score_50", 50),
+            ("score_500", 500),
+            ("score_abc", "abc"),
+            ("score_null", None),
+            ("score_str50", "50"),
+            ("score_nan", "NaN"),
+        ]:
+            _create_event(team=cls.team, event=cls.SCORED_EVENT, distinct_id=distinct_id, properties={"score": score})
+        _create_event(team=cls.team, event=cls.SCORED_EVENT, distinct_id="score_missing", properties={})
+        for distinct_id, types in [
+            ("types_empty", []),
+            ("types_match_only", ["ReferenceError"]),
+            ("types_nonmatch_only", ["OtherError"]),
+            ("types_mixed", ["ReferenceError", "OtherError"]),
+        ]:
+            _create_event(
+                team=cls.team,
+                event=cls.EXCEPTION_EVENT,
+                distinct_id=distinct_id,
+                properties={"$exception_types": types},
+            )
+        _create_event(team=cls.team, event=cls.EXCEPTION_EVENT, distinct_id="types_missing", properties={})
+
+    def _kept(self, filter: dict, event: str) -> set[str]:
+        expr = property_to_expr(filter, team=self.team, scope="event")
+        query_ast = ast.SelectQuery(
+            select=[ast.Field(chain=["distinct_id"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=event),
+                    ),
+                    expr,
+                ]
+            ),
+        )
+        return {row[0] for row in execute_hogql_query(team=self.team, query=query_ast).results}
+
+    @parameterized.expand(
+        [
+            (
+                "event_multi_value_not_icontains",
+                {"type": "event", "key": "plan", "value": ["free", "trial"], "operator": "not_icontains"},
+                {"present_nonmatch", "missing"},
+            ),
+            (
+                "event_not_icontains_multi",
+                {"type": "event", "key": "plan", "value": ["free"], "operator": "not_icontains_multi"},
+                {"present_nonmatch", "missing"},
+            ),
+            (
+                "event_not_between",
+                {"type": "event", "key": "score", "value": [0, 100], "operator": "not_between"},
+                {"present_match", "missing"},
+            ),
+            ("event_is_not_set", {"type": "event", "key": "plan", "operator": "is_not_set"}, {"missing"}),
+            (
+                "person_multi_value_not_icontains_personless",
+                {"type": "person", "key": "email", "value": ["@a.com", "@b.com"], "operator": "not_icontains"},
+                {"present_nonmatch", "present_match", "missing"},
+            ),
+            (
+                "person_is_not_set_personless",
+                {"type": "person", "key": "email", "operator": "is_not_set"},
+                {"present_nonmatch", "present_match", "missing"},
+            ),
+        ]
+    )
+    def test_negative_operator_keeps_row_when_property_is_missing(
+        self, _name: str, filter: dict, expected_kept: set[str]
+    ):
+        assert self._kept(filter, self.EVENT) == expected_kept
+
+    # present_nonmatch holds "enterprise" and present_match holds "free", so each row matches exactly
+    # one of the two values and both must drop. A negative operator that ORs its per-value negations
+    # keeps both instead, because each row fails to match the other value.
+    @parameterized.expand(
+        [
+            ("not_icontains",),
+            ("not_icontains_multi",),
+            ("is_not",),
+            ("not_in",),
+            ("not_regex",),
+            ("not_starts_with",),
+            ("not_ends_with",),
+        ]
+    )
+    def test_multi_value_negative_operator_drops_row_matching_any_value(self, operator: str):
+        filter = {"type": "event", "key": "plan", "value": ["free", "enterprise"], "operator": operator}
+        assert self._kept(filter, self.EVENT) == {"missing"}
+
+    # 256 needles used to build one multiSearchAnyCaseInsensitive call, which ClickHouse rejects
+    # against a nonconstant haystack ("passed 256, should be at most 255"); a constant haystack
+    # folds away before that check runs, so this needs real event data rather than a literal. The
+    # matching needle sits in the second chunk, so a fix that only checked the first chunk would
+    # also fail this.
+    @parameterized.expand(
+        [
+            ("icontains", {"present_match"}),
+            ("icontains_multi", {"present_match"}),
+            ("not_icontains", {"present_nonmatch", "missing"}),
+            ("not_icontains_multi", {"present_nonmatch", "missing"}),
+        ]
+    )
+    def test_multi_value_operator_chunks_needles_past_clickhouse_limit(self, operator: str, expected_kept: set[str]):
+        needles = [f"needle_{i}" for i in range(255)] + ["free"]
+        filter = {"type": "event", "key": "plan", "value": needles, "operator": operator}
+        assert self._kept(filter, self.EVENT) == expected_kept
+
+    # Same inputs and outcomes as test_match_properties_between_operator_uncoercible_values in
+    # rust/feature-flags/src/properties/property_matching.rs. NaN is in neither set: its comparisons
+    # are false and it is not NULL.
+    @parameterized.expand(
+        [
+            ("not_between", {"score_500", "score_missing", "score_abc", "score_null"}),
+            ("between", {"score_50", "score_str50"}),
+        ]
+    )
+    def test_between_operators_treat_uncoercible_value_as_out_of_range(self, operator: str, expected_kept: set[str]):
+        filter = {"type": "event", "key": "score", "value": [0, 100], "operator": operator}
+        assert self._kept(filter, self.SCORED_EVENT) == expected_kept
+
+    @parameterized.expand(
+        [
+            (
+                "not_icontains_multi_value",
+                {"value": ["ReferenceError", "TypeError"], "operator": "not_icontains"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            (
+                "not_icontains_single_value",
+                {"value": "ReferenceError", "operator": "not_icontains"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            (
+                "is_not_multi_value",
+                {"value": ["ReferenceError", "TypeError"], "operator": "is_not"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            (
+                "is_not_single_value",
+                {"value": "ReferenceError", "operator": "is_not"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            (
+                "not_regex",
+                {"value": "Reference", "operator": "not_regex"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            (
+                "not_in",
+                {"value": ["ReferenceError", "TypeError"], "operator": "not_in"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            (
+                "not_icontains_multi",
+                {"value": ["ReferenceError"], "operator": "not_icontains_multi"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            # "TypeError" never appears in the fixture, so this needle alone matches nothing: the
+            # expected set stays identical to the single-needle case above only if the two needles
+            # combine with AND instead of OR.
+            (
+                "not_icontains_multi_two_needles",
+                {"value": ["ReferenceError", "TypeError"], "operator": "not_icontains_multi"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            (
+                "not_starts_with",
+                {"value": "Reference", "operator": "not_starts_with"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            (
+                "not_ends_with",
+                {"value": "ceError", "operator": "not_ends_with"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            ("is_not_set", {"operator": "is_not_set"}, {"types_missing", "types_empty"}),
+            # positive baseline: the mixed row holds a match, so it belongs on this side and only this side
+            (
+                "icontains_multi_value",
+                {"value": ["ReferenceError", "TypeError"], "operator": "icontains"},
+                ARRAYS_WITH_MATCH,
+            ),
+        ]
+    )
+    def test_negative_operator_on_array_property_negates_whole_array(
+        self, _name: str, filter_fields: dict, expected_kept: set[str]
+    ):
+        filter = {"type": "event", "key": "$exception_types", **filter_fields}
+        assert self._kept(filter, self.EXCEPTION_EVENT) == expected_kept
+
+
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+# $exception_types is a native Array(String) subcolumn on the new events schema, so its negative
+# multi-value filters compile through the arrayExists optimizer rather than a scalar comparison. These
+# execute against ClickHouse to prove the optimized path returns the right rows, not only the right SQL.
+class TestNegativeArrayOperatorNullParityWithData(APIBaseTest):
+    EVENT = "purchase"
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        _create_event(
+            team=cls.team,
+            event=cls.EVENT,
+            distinct_id="has_alpha",
+            properties={"$exception_types": ["alpha", "gamma"]},
+        )
+        _create_event(
+            team=cls.team,
+            event=cls.EVENT,
+            distinct_id="no_alpha",
+            properties={"$exception_types": ["beta", "gamma"]},
+        )
+        _create_event(team=cls.team, event=cls.EVENT, distinct_id="missing", properties={})
+
+    def _count(self, filter: dict) -> int:
+        expr = property_to_expr(filter, team=self.team, scope="event")
+        query_ast = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=self.EVENT),
+                    ),
+                    expr,
+                ]
+            ),
+        )
+        return execute_hogql_query(team=self.team, query=query_ast).results[0][0]
+
+    @parameterized.expand(
+        [
+            # not_icontains_multi: has_alpha dropped, no_alpha kept, missing kept
+            ("not_icontains_multi", {"value": ["alpha"], "operator": "not_icontains_multi"}, 2),
+            # A needle that spans two array elements once the array is serialized to '["alpha","gamma"]'
+            # matches the JSON text but no single element, so the element-wise scan keeps all three rows.
+            # The de-optimized serialized-text search would find it and drop has_alpha, returning 2.
+            ("not_icontains_multi_json_separator", {"value": ['pha","gam'], "operator": "not_icontains_multi"}, 3),
+            # positive baseline proving the array subcolumn is populated and queryable: only has_alpha matches
+            ("icontains_multi_baseline", {"value": ["alpha"], "operator": "icontains_multi"}, 1),
+        ]
+    )
+    def test_array_operator_row_counts(self, _name: str, filter_fields: dict, expected_count: int):
+        assert self._count({"type": "event", "key": "$exception_types", **filter_fields}) == expected_count

@@ -62,6 +62,7 @@ export function useResolvedWorkspaceMode({
   });
   const initiallyResolved = pinCloud || !localWorkspaces;
   const [isResolved, setIsResolved] = useState(initiallyResolved);
+  const previousHasGithubIntegrationRef = useRef(hasGithubIntegration);
 
   const cloudSignalsSettled = areCloudSignalsSettled({
     cloudModeEnabled,
@@ -99,6 +100,35 @@ export function useResolvedWorkspaceMode({
     cloudModeEnabled,
     hasGithubIntegration,
     localFallback,
+  ]);
+
+  useEffect(() => {
+    const previouslyHadGithub = previousHasGithubIntegrationRef.current;
+    previousHasGithubIntegrationRef.current = hasGithubIntegration;
+
+    if (
+      !isResolved ||
+      isLoadingIntegrations ||
+      !previouslyHadGithub ||
+      hasGithubIntegration ||
+      workspaceMode !== "cloud" ||
+      pinCloud ||
+      !localWorkspaces
+    ) {
+      return;
+    }
+
+    setWorkspaceModeState(localFallback);
+    setLastUsedWorkspaceMode(localFallback);
+  }, [
+    hasGithubIntegration,
+    isLoadingIntegrations,
+    isResolved,
+    localFallback,
+    localWorkspaces,
+    pinCloud,
+    setLastUsedWorkspaceMode,
+    workspaceMode,
   ]);
 
   const setWorkspaceMode = useCallback(

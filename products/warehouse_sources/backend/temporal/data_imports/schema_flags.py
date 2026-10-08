@@ -18,13 +18,6 @@ from posthog.temporal.common.utils import retry_on_db_connection_drop
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
-# Rollout for completing a run on a negative source probe (see `_fast_return_eligible`).
-WAREHOUSE_FAST_RETURN_FLAG = "data-warehouse-fast-return"
-
-
-def is_fast_return_enabled(schema: ExternalDataSchema) -> bool:
-    return is_schema_flag_enabled(schema, WAREHOUSE_FAST_RETURN_FLAG)
-
 
 def is_schema_flag_enabled(schema: ExternalDataSchema, flag: str) -> bool:
     """Evaluate a rollout flag for this schema.

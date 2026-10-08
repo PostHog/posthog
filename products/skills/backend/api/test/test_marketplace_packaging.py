@@ -20,7 +20,6 @@ from products.skills.backend.marketplace.packaging import (
     parse_skill_zip,
     render_frontmatter,
     render_skill_md,
-    validate_for_export,
 )
 
 # These tests are intentionally DB-free — the packaging core takes plain dataclasses.
@@ -77,18 +76,6 @@ class TestFrontmatter:
         out = render_skill_md(_skill())
         assert "---\n" in out
         assert out.rstrip().endswith("Do the thing.")
-
-
-class TestExportValidation:
-    def test_description_over_spec_limit_is_flagged(self):
-        problems = validate_for_export(_skill(description="x" * 1025))
-        assert any("1024" in p for p in problems)
-
-    def test_empty_description_is_flagged(self):
-        assert any("non-empty" in p for p in validate_for_export(_skill(description="   ")))
-
-    def test_clean_skill_has_no_problems(self):
-        assert validate_for_export(_skill()) == []
 
 
 class TestSkillTreeAndZip:

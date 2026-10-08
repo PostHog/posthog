@@ -16,6 +16,10 @@ If the app is not running, the OS launches it and the link is queued until the r
 
 Links can also be dispatched from inside the app: the `deepLink.open` tRPC route forwards a URL through the same handlers, with no OS hop. Remote announcement CTAs use this — author payloads with the production scheme; dev builds swap in their scheme automatically.
 
+## Report references in the app
+
+Report references in agent messages open the full report page in the current app, including inside task chats. They do not open a general object preview or an external browser. The hover card's explicit **Open in PostHog** action still opens the web page.
+
 ## User-facing links
 
 These are the deep links you would share with someone or wire up from another tool.
@@ -85,13 +89,13 @@ Open an existing task. Optionally jump to a specific run, or focus a comment thr
 | `<taskId>` | Yes | Task ID |
 | `run/<taskRunId>` | No | Specific run to open |
 | `comment` | No | Comment thread (root comment id) to focus after the task opens |
-| `scope` | No | Comment target scope when the thread lives on a sub-resource: `desktop_canvas` or `task_artifact`. Defaults to the task itself. |
+| `scope` | No | Comment target scope when the thread lives on a sub-resource: `canvas` or `task_artifact`. Defaults to the task itself. The app also accepts the old name `desktop_canvas`. |
 | `item` | No | Row id of the canvas/artifact the thread lives on; required alongside `scope` |
 
 ```
 posthog-code://task/abc123
 posthog-code://task/abc123/run/xyz789
-posthog-code://task/abc123?comment=thread-1&scope=desktop_canvas&item=canvas-9
+posthog-code://task/abc123?comment=thread-1&scope=canvas&item=canvas-9
 ```
 
 An **https** bridge also exists for links sent outside the app (e.g. comment Slack DMs): `<instance>/code/task/<taskId>` resolves to a web interstitial in PostHog Cloud, which fires this scheme — forwarding the `comment`, `scope`, and `item` params — or offers the desktop-app download.
@@ -113,7 +117,7 @@ posthog-code://inbox
 posthog-code://inbox/report_abc123
 ```
 
-### `posthog-code://scout/<skillSlug>`
+### `posthog-code://scout/<skillName>`
 
 Open a scout's detail page, optionally focused on a specific finding (expanded
 and scrolled into view). This is the link copied by the "Share" CTA on a scout
@@ -121,12 +125,12 @@ emission card.
 
 | Segment / Parameter | Required | Description |
 |---|---|---|
-| `<skillSlug>` | Yes | Scout route slug, i.e. the skill name with the `signals-scout-` prefix stripped (e.g. `error-tracking`) |
+| `<skillName>` | Yes | Full scout skill name (e.g. `signals-scout-error-tracking`, or a bare name such as `my-churn-watch`). Older links carrying the name with the `signals-scout-` prefix stripped still resolve. |
 | `finding` | No | Emission id to expand and scroll to. Best effort – only resolves while the finding is still inside the scout's runs window. |
 
 ```
-posthog-code://scout/error-tracking
-posthog-code://scout/error-tracking?finding=abc123
+posthog-code://scout/signals-scout-error-tracking
+posthog-code://scout/my-churn-watch?finding=abc123
 ```
 
 ### `posthog-code://loop/<loopId>`
@@ -151,6 +155,10 @@ canvas copies an **https** link (`<instance>/code/canvas/<channelId>/<dashboardI
 that resolves to a web interstitial in PostHog Cloud, which fires this scheme
 (or offers the desktop-app download). That way the link works for anyone,
 whether or not they have the app.
+
+Use the link button in the canvas toolbar to copy this link without opening a
+menu. The button has a "Copy link to canvas" tooltip, like the session link
+button. "Copy link" also remains in the canvas options menu.
 
 | Segment | Required | Description |
 |---|---|---|

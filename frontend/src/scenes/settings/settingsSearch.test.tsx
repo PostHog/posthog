@@ -1,3 +1,7 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+
+import { matchesFlagDefinition } from './flagGating'
+import { SETTINGS_MAP } from './SettingsMap'
 import { buildSettingsSearchIndex, createSettingsSearchFuse, searchSettingsIndex } from './settingsSearch'
 import { Setting, SettingSection } from './types'
 
@@ -108,5 +112,50 @@ describe('settingsSearch', () => {
 
     it('returns nothing for a term that is only whitespace', () => {
         expect(search('   ')).toEqual([])
+    })
+
+    // Integration guides ask for the public project token under several names, and without
+    // those synonyms a search for one of them puts personal API keys on top instead. Searches
+    // the shipped map, not a fixture, because the synonyms have to stay on the setting itself.
+    test.each(['client api key', 'public api key', 'write key'])('puts the project token first for "%s"', (term) => {
+        const visible = (definition: Pick<Setting, 'flag'>): boolean => matchesFlagDefinition(definition.flag, {})
+        const fuse = createSettingsSearchFuse(buildSettingsSearchIndex(SETTINGS_MAP.filter(visible), visible))
+
+        expect(searchSettingsIndex(fuse, term)[0]?.settingId).toBe('variables')
+    })
+    // The today-rail-nav redesign renames some sections by keeping their id and gating two copies on
+    // the flag and its negation. Both copies visible at once would render the section twice.
+    test.each([
+        ['on', { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true }],
+        ['off', {}],
+    ])('shows each section once with today-rail-nav %s', (_state, flags) => {
+        const allOtherFlags = Object.fromEntries(
+            Object.values(FEATURE_FLAGS)
+                .filter((flag) => flag !== FEATURE_FLAGS.TODAY_RAIL_NAV)
+                .map((flag) => [flag, true])
+        )
+        const visibleIds = SETTINGS_MAP.filter((section) =>
+            matchesFlagDefinition(section.flag, { ...allOtherFlags, ...flags })
+        ).map((section) => section.id)
+
+        expect(visibleIds.length).toBe(new Set(visibleIds).size)
+    })
+
+    test.each([
+        ['model preferences', 'task-agent-my-preference'],
+        ['subscriptions', 'ai-subscription-codex'],
+        ['personalization', 'task-agent-my-instructions'],
+        ['plan & usage', 'ai-usage-spend'],
+        ['worktrees', 'task-agent-other-settings'],
+        ['self-driving', 'task-agent-other-settings'],
+    ])('finds a setting by its PostHog Desktop name "%s" with today-rail-nav on', (term, expectedSettingId) => {
+        const flags = {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD]: true,
+        }
+        const visible = (definition: Pick<Setting, 'flag'>): boolean => matchesFlagDefinition(definition.flag, flags)
+        const fuse = createSettingsSearchFuse(buildSettingsSearchIndex(SETTINGS_MAP.filter(visible), visible))
+
+        expect(searchSettingsIndex(fuse, term).map((entry) => entry.settingId)).toContain(expectedSettingId)
     })
 })

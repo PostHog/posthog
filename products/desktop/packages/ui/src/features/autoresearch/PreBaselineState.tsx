@@ -1,7 +1,6 @@
 import { MagnifyingGlass } from "@phosphor-icons/react";
 import type { AutoresearchRun } from "@posthog/core/autoresearch/schemas";
-import { Spinner } from "@posthog/quill";
-import { Spin } from "@posthog/ui/primitives/Spinner";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Badge, Skeleton, Text } from "@radix-ui/themes";
 
 export interface SessionActivity {
@@ -23,13 +22,7 @@ export function PreBaselineState({
   return (
     <div className="flex flex-col gap-4" aria-live="polite">
       <div className="flex items-start gap-3 rounded-md border border-blue-6 bg-blue-2 px-3 py-3">
-        {live && (
-          <span className="relative mt-0.5 size-5 shrink-0">
-            <Spin className="size-5 motion-reduce:animate-none">
-              <Spinner className="size-5 animate-none" />
-            </Spin>
-          </span>
-        )}
+        {live && <Spinner size="md" className="mt-0.5" />}
         <div>
           <Text as="div" size="2" weight="medium">
             {activity.title}

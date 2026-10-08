@@ -1,7 +1,6 @@
 import { ArchiveIcon } from "@phosphor-icons/react";
 import {
   Button,
-  Spinner,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -18,6 +17,7 @@ import {
 } from "@posthog/ui/features/inbox/components/DismissReportDialog";
 import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { useInboxReportActionDraftStore } from "@posthog/ui/features/inbox/stores/inboxReportActionDraftStore";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import {
   type ReactElement,
   useCallback,
@@ -108,8 +108,7 @@ export function useInboxReportDismissAction(
           <Button
             type="button"
             variant="outline"
-            size="icon-xs"
-            className="h-7 w-7"
+            size="icon-sm"
             aria-label="Dismiss this report for everyone in the project"
             disabled={isPending}
             onClick={() => setOpen(true)}

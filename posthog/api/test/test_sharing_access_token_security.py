@@ -6,7 +6,7 @@ import json
 from datetime import timedelta
 from typing import Any, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 
 from django.conf import settings
@@ -17,6 +17,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
+from products.user_interviews.backend.models import IntervieweeContext, UserInterviewTopic
 
 
 class SharingAccessTokenSecurityTest(APIBaseTest):
@@ -62,7 +63,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
 
         # Jump past the grace period so the old token is fully expired
         future = timezone.now() + timedelta(seconds=settings.SHARING_TOKEN_GRACE_PERIOD_SECONDS + 60)
-        with freeze_time(future):
+        with time_machine.travel(future, tick=False):
             # Old token must be rejected
             response = self.client.get(
                 f"/api/environments/{self.team.id}/insights/{insight.id}/",
@@ -111,7 +112,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
 
         # Jump past the grace period
         future = timezone.now() + timedelta(seconds=settings.SHARING_TOKEN_GRACE_PERIOD_SECONDS + 60)
-        with freeze_time(future):
+        with time_machine.travel(future, tick=False):
             # Old JWT against expired config must be rejected
             response = self.client.get(
                 f"/api/environments/{self.team.id}/insights/{insight.id}/",
@@ -488,6 +489,27 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
         )
         sharing_config = SharingConfiguration.objects.create(team=self.team, dashboard=self.dashboard, enabled=True)
         return insight, sharing_config
+
+    def test_sharing_access_token_of_retired_user_interview_is_rejected(self):
+        topic = UserInterviewTopic.objects.create(team=self.team, topic="Onboarding")
+        interviewee_context = IntervieweeContext.objects.create(
+            team=self.team, topic=topic, interviewee_identifier="person@example.com", agent_context="context"
+        )
+        team_config = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        interview_config = SharingConfiguration.objects.create(
+            team=self.team, interviewee_context=interviewee_context, enabled=True
+        )
+
+        team_wide_url = f"/api/projects/{self.team.id}/data_color_themes/"
+        response = self.client.get(team_wide_url, cast(Any, {"sharing_access_token": team_config.access_token}))
+        assert response.status_code == 200, response.content
+
+        response = self.client.get(team_wide_url, cast(Any, {"sharing_access_token": interview_config.access_token}))
+        assert response.status_code == 403, response.content
+        assert response.json()["detail"] == "Sharing access token is invalid."
+
+        response = self.client.get(f"/shared/{interview_config.access_token}")
+        assert response.status_code == 404
 
     def test_sharing_access_token_rejected_when_organization_disallows_public_sharing(self):
         """

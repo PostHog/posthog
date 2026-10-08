@@ -51,7 +51,7 @@ def _parse_retry_after(response: requests.Response) -> float | None:
 def _wait_strategy(retry_state: RetryCallState) -> float:
     """Honor a 429's Retry-After when present, else fall back to jittered exponential backoff.
 
-    Doing the wait here (rather than time.sleep inside execute) avoids stacking both delays.
+    Doing the wait here (rather than time.sleep inside the request) avoids stacking both delays.
     """
     exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
     if isinstance(exc, LinearRetryableError) and exc.retry_after is not None:
@@ -87,6 +87,89 @@ def _coerce_float_fields(nodes: list[dict[str, Any]], endpoint_name: str) -> Non
                 node[field_name] = float(value)
 
 
+def _raise_for_retryable_status(response: requests.Response) -> None:
+    """Map the HTTP statuses that Linear's edge clears on its own onto the retry path.
+
+    Linear answers HTTP-level rate limits with a 429 and an HTML body (not GraphQL JSON), so
+    this must run before the JSON parse. Otherwise response.json() raises a JSONDecodeError
+    that escalates to a plain, non-retryable Exception instead of being retried with backoff
+    like the GraphQL-level RATELIMITED case. The blind exponential backoff often gives up
+    before Linear's rate-limit window resets, so honor the Retry-After it sends when present
+    and fall back to the exponential otherwise.
+    """
+    if response.status_code >= 500:
+        raise LinearRetryableError(f"Linear: server error {response.status_code}")
+
+    if response.status_code == 429:
+        raise LinearRetryableError("Linear: rate limited (429)", retry_after=_parse_retry_after(response))
+
+
+def _parse_json_body(response: requests.Response) -> Any:
+    try:
+        return response.json()
+    except Exception as e:
+        if not response.ok:
+            raise Exception(
+                f"{response.status_code} Client Error: {response.reason} (Linear API: {response.text})"
+            ) from e
+        # A 2xx whose body won't parse as JSON is almost always a truncated transfer (the
+        # connection dropped mid-body on a large page), not a stable response Linear will keep
+        # returning. Ride it out on the same backoff path as other transient failures instead of
+        # failing the activity outright. Don't echo response.text — a partial body carries data.
+        raise LinearRetryableError(f"Linear: incomplete JSON response ({e})") from e
+
+
+def _raise_for_graphql_errors(response: requests.Response, errors: list[dict[str, Any]]) -> None:
+    error_messages = [e.get("message", "") for e in errors]
+    joined = "; ".join(error_messages)
+    if any(e.get("extensions", {}).get("code") == "RATELIMITED" for e in errors):
+        raise LinearRetryableError(f"Linear: rate limited - {joined}")
+    if not response.ok:
+        raise Exception(f"{response.status_code} Client Error: {response.reason} (Linear API: {joined})")
+    # Linear's GraphQL layer sometimes wraps a resolver-side blip as a 200 with a generic
+    # "Internal server error" message instead of an HTTP 5xx. Treat it the same as the
+    # status-code case above rather than failing the activity outright.
+    if any("internal server error" in message.lower() for message in error_messages):
+        raise LinearRetryableError(f"Linear: internal server error - {joined}")
+    raise Exception(f"Linear GraphQL error: {joined}")
+
+
+def _validate_response(response: requests.Response) -> dict:
+    _raise_for_retryable_status(response)
+
+    payload = _parse_json_body(response)
+
+    if "errors" in payload:
+        _raise_for_graphql_errors(response, payload["errors"])
+
+    if not response.ok:
+        raise Exception(f"{response.status_code} Client Error: {response.reason} (Linear API: {payload})")
+
+    if "data" not in payload:
+        raise Exception(f"Unexpected Linear response format. Keys: {list(payload.keys())}")
+
+    return payload
+
+
+@retry(
+    retry=retry_if_exception_type(LinearRetryableError),
+    stop=stop_after_attempt(LINEAR_MAX_RETRY_ATTEMPTS),
+    wait=_wait_strategy,
+    reraise=True,
+)
+def _execute_query(sess: requests.Session, query: str, variables: dict[str, Any]) -> dict:
+    try:
+        response = sess.post(LINEAR_API_URL, json={"query": query, "variables": variables}, timeout=60)
+    except (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError) as e:
+        # The session's urllib3 Retry only covers idempotent methods, so Linear's POSTs get no
+        # transport-level retry. Route transient network failures (read timeout, connection reset,
+        # a connection broken mid-body which surfaces as ChunkedEncodingError) through the same
+        # backoff path as 5xx/429 instead of failing the whole activity on one blip.
+        raise LinearRetryableError(f"Linear: transient network error - {e}")
+
+    return _validate_response(response)
+
+
 @dataclasses.dataclass
 class LinearResumeConfig:
     cursor: str
@@ -116,69 +199,6 @@ def _make_paginated_request(
         }
     )
 
-    @retry(
-        retry=retry_if_exception_type(LinearRetryableError),
-        stop=stop_after_attempt(LINEAR_MAX_RETRY_ATTEMPTS),
-        wait=_wait_strategy,
-        reraise=True,
-    )
-    def execute(variables: dict[str, Any]) -> dict:
-        try:
-            response = sess.post(LINEAR_API_URL, json={"query": query, "variables": variables}, timeout=60)
-        except (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError) as e:
-            # The session's urllib3 Retry only covers idempotent methods, so Linear's POSTs get no
-            # transport-level retry. Route transient network failures (read timeout, connection reset,
-            # a connection broken mid-body which surfaces as ChunkedEncodingError) through the same
-            # backoff path as 5xx/429 instead of failing the whole activity on one blip.
-            raise LinearRetryableError(f"Linear: transient network error - {e}")
-
-        if response.status_code >= 500:
-            raise LinearRetryableError(f"Linear: server error {response.status_code}")
-
-        # Linear answers HTTP-level rate limits with a 429 and an HTML body (not GraphQL JSON),
-        # so this must be caught before the JSON parse below. Otherwise response.json() raises a
-        # JSONDecodeError that escalates to a plain, non-retryable Exception instead of being
-        # retried with backoff like the GraphQL-level RATELIMITED case. The blind exponential
-        # backoff often gives up before Linear's rate-limit window resets, so honor the
-        # Retry-After it sends when present and fall back to the exponential otherwise.
-        if response.status_code == 429:
-            raise LinearRetryableError("Linear: rate limited (429)", retry_after=_parse_retry_after(response))
-
-        try:
-            payload = response.json()
-        except Exception as e:
-            if not response.ok:
-                raise Exception(
-                    f"{response.status_code} Client Error: {response.reason} (Linear API: {response.text})"
-                ) from e
-            # A 2xx whose body won't parse as JSON is almost always a truncated transfer (the
-            # connection dropped mid-body on a large page), not a stable response Linear will keep
-            # returning. Ride it out on the same backoff path as other transient failures instead of
-            # failing the activity outright. Don't echo response.text — a partial body carries data.
-            raise LinearRetryableError(f"Linear: incomplete JSON response ({e})") from e
-
-        if "errors" in payload:
-            error_messages = [e.get("message", "") for e in payload["errors"]]
-            joined = "; ".join(error_messages)
-            if any(e.get("extensions", {}).get("code") == "RATELIMITED" for e in payload["errors"]):
-                raise LinearRetryableError(f"Linear: rate limited - {joined}")
-            if not response.ok:
-                raise Exception(f"{response.status_code} Client Error: {response.reason} (Linear API: {joined})")
-            # Linear's GraphQL layer sometimes wraps a resolver-side blip as a 200 with a generic
-            # "Internal server error" message instead of an HTTP 5xx. Treat it the same as the
-            # status-code case above rather than failing the activity outright.
-            if any("internal server error" in message.lower() for message in error_messages):
-                raise LinearRetryableError(f"Linear: internal server error - {joined}")
-            raise Exception(f"Linear GraphQL error: {joined}")
-
-        if not response.ok:
-            raise Exception(f"{response.status_code} Client Error: {response.reason} (Linear API: {payload})")
-
-        if "data" not in payload:
-            raise Exception(f"Unexpected Linear response format. Keys: {list(payload.keys())}")
-
-        return payload
-
     variables: dict[str, Any] = {"pageSize": LINEAR_DEFAULT_PAGE_SIZE}
 
     if updated_at_gte:
@@ -193,7 +213,7 @@ def _make_paginated_request(
         has_next_page = True
         while has_next_page:
             logger.debug(f"Querying Linear endpoint {endpoint_name} with variables: {variables}")
-            payload = execute(variables)
+            payload = _execute_query(sess, query, variables)
 
             data = payload["data"][graphql_query_name]["nodes"]
             _coerce_float_fields(data, endpoint_name)

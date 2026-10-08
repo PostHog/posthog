@@ -6,11 +6,7 @@ from slack_sdk.http_retry.request import HttpRequest
 from slack_sdk.http_retry.response import HttpResponse
 from slack_sdk.http_retry.state import RetryState
 
-from posthog.egress.slack.observability import (
-    record_slack_api_exception,
-    record_slack_api_response,
-    slack_endpoint_from_url,
-)
+from posthog.egress.slack.observability import record_slack_attempt
 
 
 class SlackObservabilityHandler(RetryHandler):
@@ -28,23 +24,13 @@ class SlackObservabilityHandler(RetryHandler):
         response: HttpResponse | None = None,
         error: Exception | None = None,
     ) -> bool:
-        endpoint = slack_endpoint_from_url(request.url)
-        if response is not None:
-            record_slack_api_response(
-                response,
-                source=self._source,
-                workspace_id=self._workspace_id,
-                app_id=self._app_id,
-                method=request.method,
-                endpoint=endpoint,
-            )
-        else:
-            record_slack_api_exception(
-                source=self._source,
-                workspace_id=self._workspace_id,
-                method=request.method,
-                endpoint=endpoint,
-            )
+        record_slack_attempt(
+            source=self._source,
+            workspace_id=self._workspace_id,
+            app_id=self._app_id,
+            request=request,
+            response=response,
+        )
         return False
 
 
@@ -59,6 +45,9 @@ class SlackWebClient(WebClient):
         **kwargs: Any,
     ) -> None:
         super().__init__(token=token, **kwargs)
+        # Kept on the client so callers that need the workspace this token belongs to (e.g. to
+        # namespace a per-workspace cache) can read it back instead of re-resolving it.
+        self.workspace_id = workspace_id or None
         self.retry_handlers.insert(
             0,
             SlackObservabilityHandler(source=source, workspace_id=workspace_id, app_id=app_id),

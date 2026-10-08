@@ -49,9 +49,9 @@ use crate::workers::merge_path::MergeWorkerDeps;
 use crate::workers::reconcile::{ReconcileQueue, SupersedeOutcome};
 use crate::workers::seed_run::{Admitted, OffsetSpan, SeedGroup, SeedKind, SeedOffset, SeedRun};
 use crate::workers::stage2_path::{
-    commit_stage2_writes, diff_single_leaf_registers, recompute_stage2, FoldedLeaf, RegisterDiff,
-    Stage2Recompute,
+    commit_stage2_writes, diff_single_leaf_registers, FoldedLeaf, RegisterDiff, Stage2Recompute,
 };
+use crate::workers::stage2_person_inputs::recompute_stage2_by_person;
 use crate::workers::worker::{
     first_cascades, produce_cascades, produce_membership, transition_metric_label,
 };
@@ -855,14 +855,14 @@ impl Scheduled {
                 let Some(filters) = deps.team(team_id) else {
                     continue;
                 };
-                let mut composed = recompute_stage2(
+                let mut composed = recompute_stage2_by_person(
                     deps.partition_id,
                     deps.handle,
+                    team_id,
                     filters,
                     &leaves,
                     stamp.now_ms,
                     &stamp.last_updated,
-                    ReadLane::Maintenance,
                 )
                 .await
                 .map_err(SeedHold::store(ApplyStage::Recompute))?;

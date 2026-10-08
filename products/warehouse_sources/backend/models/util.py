@@ -12,8 +12,10 @@ from posthog.hogql.database.models import (
     DateDatabaseField,
     DateTimeDatabaseField,
     DecimalDatabaseField,
+    FloatArrayDatabaseField,
     FloatDatabaseField,
     IntegerDatabaseField,
+    MapStringDatabaseField,
     StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
@@ -35,8 +37,12 @@ class DatabaseFieldFactory(Protocol):
     def __call__(self, *args: Any, **kwargs: Any) -> DatabaseField: ...
 
 
-def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "DataWarehouseTable", None]:
+def get_view_or_table_by_name(
+    team, name, exclude_direct_access: bool = False
+) -> Union["DataWarehouseSavedQuery", "DataWarehouseTable", None]:
+    """``exclude_direct_access`` drops direct-connection tables, which the default HogQL scope hides."""
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
     table_names = [name]
@@ -48,13 +54,13 @@ def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "D
             # Support both `_` suffixed source prefix and without - e.g. postgres_table_name and postgrestable_name
             table_names = [f"{chain[1]}_{chain[0]}_{chain[2]}", f"{chain[1]}{chain[0]}_{chain[2]}"]
 
+    # `queryable()` ignores soft-deleted tables and orphans of a soft-deleted source.
+    tables = DataWarehouseTable.objects.queryable().filter(team=team, name__in=table_names)
+    if exclude_direct_access:
+        tables = tables.exclude(external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT)
     table: DataWarehouseSavedQuery | DataWarehouseTable | None = (
-        # `queryable()` ignores soft-deleted tables and orphans of a soft-deleted source.
-        DataWarehouseTable.objects.queryable()
-        .filter(team=team, name__in=table_names)
         # Deterministic resolution when more than one live table matches: newest wins.
-        .order_by("-created_at")
-        .first()
+        tables.order_by("-created_at").first()
     )
     if table is None:
         table = DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team=team, name=name).first()
@@ -197,6 +203,8 @@ CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "UInt16": IntegerDatabaseField,
     "UInt32": IntegerDatabaseField,
     "UInt64": IntegerDatabaseField,
+    "UInt128": IntegerDatabaseField,
+    "UInt256": IntegerDatabaseField,
     "Float8": FloatDatabaseField,
     "Float16": FloatDatabaseField,
     "Float32": FloatDatabaseField,
@@ -205,6 +213,8 @@ CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "Int16": IntegerDatabaseField,
     "Int32": IntegerDatabaseField,
     "Int64": IntegerDatabaseField,
+    "Int128": IntegerDatabaseField,
+    "Int256": IntegerDatabaseField,
     "Tuple": StringJSONDatabaseField,
     "Array": StringArrayDatabaseField,
     "Map": StringJSONDatabaseField,
@@ -212,7 +222,23 @@ CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "Decimal": DecimalDatabaseField,
     "FixedString": StringDatabaseField,
     "Enum8": StringDatabaseField,
+    "Enum16": StringDatabaseField,
+    "IPv4": StringDatabaseField,
+    "IPv6": StringDatabaseField,
+    "JSON": StringJSONDatabaseField,
+    "Variant": UnknownDatabaseField,
+    "Dynamic": UnknownDatabaseField,
 }
+
+
+def hogql_type_name_for_clickhouse_type(clickhouse_type: str) -> str:
+    """Resolve a ClickHouse type name to its HogQL field class name.
+
+    Types absent from ``CLICKHOUSE_HOGQL_MAPPING`` fall back to ``UnknownDatabaseField`` so an
+    unfamiliar column type downgrades to a usable column instead of raising ``KeyError``.
+    """
+    return CLICKHOUSE_HOGQL_MAPPING.get(clean_type(clickhouse_type), UnknownDatabaseField).__name__
+
 
 # Old-style column metadata stores only the ClickHouse type string and resolves through a
 # mapping on every query, so retyping UUID in CLICKHOUSE_HOGQL_MAPPING would flip every
@@ -230,6 +256,8 @@ STR_TO_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "IntegerDatabaseField": IntegerDatabaseField,
     "DecimalDatabaseField": DecimalDatabaseField,
     "FloatDatabaseField": FloatDatabaseField,
+    "FloatArrayDatabaseField": FloatArrayDatabaseField,
+    "MapStringDatabaseField": MapStringDatabaseField,
     "StringArrayDatabaseField": StringArrayDatabaseField,
     "StringDatabaseField": StringDatabaseField,
     "StringJSONDatabaseField": StringJSONDatabaseField,
@@ -691,9 +719,14 @@ def _is_safe_public_ip(host: str) -> bool:
         if ip.sixtofour:
             return _is_safe_public_ip(str(ip.sixtofour))
 
-    return not (
-        ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
-    )
+    # Require global routability rather than enumerating the families to reject. The enumeration
+    # missed shared address space (100.64.0.0/10), which is neither private nor global to
+    # `ipaddress` but is routinely internal, and which `posthog/security/url_validation.py` and
+    # `rust/common/dns` both already reject. Two families count as global by this measure and
+    # keep their own clause: multicast, and the reserved IPv6 blocks. Reserved matters because
+    # `::/8` holds the NAT64 well-known prefix (64:ff9b::/96) and the deprecated IPv4-compatible
+    # form, both of which carry an embedded IPv4 address that the unwrapping above does not see.
+    return ip.is_global and not ip.is_multicast and not ip.is_reserved
 
 
 # The AWS half matches the global, regional, dashed-regional, dualstack and accelerate endpoints,
@@ -723,16 +756,17 @@ _NOT_OUR_STORAGE = (
 # DATAWAREHOUSE_BUCKET/BUCKET_PATH, so a deployment that points it at a different bucket was
 # reachable through a table's url_pattern until this line was added.
 #
-# CLICKHOUSE_BACKUPS_BUCKET, DICTIONARY_STAGING_S3_BUCKET, IDENTITY_MATCHING_S3_BUCKET,
-# NOTEBOOKS_FRAME_STORE_S3_BUCKET, OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET, and
-# QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET are here because each is read or written by ClickHouse's own
-# `s3(...)` / `BACKUP ... TO S3(...)` with no explicit access key in the query, the same credential-less
-# shape the original vulnerability exploited - not because a customer's url_pattern can reach them today.
+# CLICKHOUSE_BACKUPS_BUCKET, DATA_DELETION_STAGING_S3_BUCKET, DICTIONARY_STAGING_S3_BUCKET,
+# IDENTITY_MATCHING_S3_BUCKET, NOTEBOOKS_FRAME_STORE_S3_BUCKET,
+# OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET, and QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET are here
+# because each is read or written by ClickHouse's own `s3(...)` / `BACKUP ... TO S3(...)` with no
+# explicit access key in the query, the same credential-less shape the original vulnerability
+# exploited - not because a customer's url_pattern can reach them today.
 #
-# DICTIONARY_STAGING_S3_BUCKET and NOTEBOOKS_FRAME_STORE_S3_BUCKET both fall back to
-# OBJECT_STORAGE_BUCKET, so they widen this set only on a deployment that points either one at a
-# bucket of its own, which cloud does for frames. Both writers (posthog/dags/common/staged_dictionary.py
-# and notebooks' frame_materialize.py) omit credentials whenever their own endpoint setting is empty,
+# DATA_DELETION_STAGING_S3_BUCKET, DICTIONARY_STAGING_S3_BUCKET and NOTEBOOKS_FRAME_STORE_S3_BUCKET
+# all fall back to OBJECT_STORAGE_BUCKET, so they widen this set only on a deployment that points one
+# at a bucket of its own, which cloud does for frames. Every writer (posthog/dags/common/s3_staging.py
+# and notebooks' frame_materialize.py) omits credentials whenever its own endpoint setting is empty,
 # and it is empty on prod, so ClickHouse reaches the object through its node role.
 #
 # BATCH_EXPORT_INTERNAL_STAGING_BUCKET is the same shape: internal_stage.py's get_s3_function_call
@@ -746,13 +780,18 @@ _POSTHOG_OWNED_BUCKET_SETTING_NAMES = (
     "BUCKET_PATH",
     "BUCKET_URL",
     "CLICKHOUSE_BACKUPS_BUCKET",
+    "DATA_DELETION_STAGING_S3_BUCKET",
     "DATAWAREHOUSE_BUCKET",
     "DICTIONARY_STAGING_S3_BUCKET",
     "IDENTITY_MATCHING_S3_BUCKET",
+    # Another region's app object store, so it holds that region's team data. Deny it even without a known node-role path.
+    "INBOX_RANKING_SERVING_MIRROR_BUCKET",
     "NOTEBOOKS_FRAME_STORE_S3_BUCKET",
     "OBJECT_STORAGE_BUCKET",
     "OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET",
     "QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET",
+    # Holds decrypted recordings from many teams and may share a bucket the node role reads, so it is denied.
+    "REPLAY_VISION_BENCHMARK_BUCKET",
     "SESSION_RECORDING_V2_S3_BUCKET",
 )
 
@@ -775,7 +814,6 @@ _BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE = {
     "AI_BLOB_S3_BUCKET": "read via posthog.storage.object_storage (boto3), by ai_observability/backend/api/ai_blob.py",
     "BATCH_EXPORTS_FILE_DOWNLOAD_BUCKET": "written via a pre-signed URL over an assumed STS role, and read via aioboto3 - never by ClickHouse",
     "BILLING_USAGE_REPORTS_S3_BUCKET": "read via posthog.storage.object_storage (boto3), by posthog/temporal/usage_report/storage.py",
-    "DAGSTER_AI_EVALS_S3_BUCKET": "read via boto3 (s3.get_client()) by products/posthog_ai/dags/utils.py",
     "DAGSTER_FAVICONS_S3_BUCKET": "read via boto3 (s3.get_client()) by products/web_analytics/dags/cache_favicons.py",
     "DAGSTER_S3_BUCKET": "read via Dagster's own S3Resource (boto3), the pickle io-manager's storage",
     "INBOX_RANKING_DATASET_S3_BUCKET": "read via boto3 by products/signals/dags/inbox_ranking/common.py",

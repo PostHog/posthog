@@ -1,5 +1,4 @@
 from datetime import timedelta
-from types import SimpleNamespace
 
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
@@ -8,6 +7,7 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 
+from products.signals.backend.agent_runtime import DEFAULT_RUNTIME
 from products.signals.backend.artefact_schemas import Dismissal
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.repo_corrections import wrong_repo_corrections_block
@@ -110,7 +110,7 @@ class TestRepoCorrections(BaseTest):
 class TestSelectRepositoryPassesCorrections(BaseTest):
     def test_chokepoint_threads_corrections_into_selection(self):
         select = AsyncMock(return_value=RepoSelectionResult(repository="acme/checkout", reason="ok"))
-        runtime = SimpleNamespace(model=None, runtime_adapter=None, reasoning_effort=None)
+        runtime = DEFAULT_RUNTIME
         with (
             patch.object(select_repo, "wrong_repo_corrections_block", return_value="- entry") as block,
             patch.object(select_repo, "select_repository", new=select),

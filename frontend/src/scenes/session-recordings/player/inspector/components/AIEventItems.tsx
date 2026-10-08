@@ -12,7 +12,7 @@ import { selectAiValue } from 'products/ai_observability/frontend/utils'
 
 export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.Element {
     const { input, output, tools, isLoading } = useAIData({
-        uuid: event.uuid,
+        uuid: event.id,
         input: event.properties?.$ai_input,
         output: selectAiValue(event.properties?.$ai_output_choices, event.properties?.$ai_output),
         tools: event.properties?.$ai_tools,
@@ -41,6 +41,7 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
                     textOutputTokens={event.properties.$ai_text_output_tokens}
                     stopReason={event.properties.$ai_stop_reason}
                     traceId={event.properties.$ai_trace_id}
+                    eventId={event.id}
                 />
             ) : (
                 <LLMInputOutput

@@ -1,5 +1,11 @@
 Trace counts per logarithmic duration bucket — the latency distribution of requests.
 
+All parameters go inside `query` — top-level fields are rejected:
+
+```json
+{ "query": { "serviceNames": ["api"], "dateRange": { "date_from": "-1h" } } }
+```
+
 Returns one row per `(duration bucket, service)` pair:
 
 - `bucket_ns` — bucket floor in nanoseconds, on the 1-2-5 series (1ms, 2ms, 5ms, 10ms, 20ms, ...)
@@ -17,11 +23,7 @@ Use to answer:
 
 For percentiles per operation (p50/p95), use `apm-spans-aggregate`. For counts over time, use `apm-spans-sparkline`.
 
-All parameters must be nested inside a `query` object.
-
 # Parameters
-
-All parameters go inside `query`.
 
 ## query.dateRange
 
@@ -42,7 +44,7 @@ Filter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error
 
 Property filters applied to the matched spans. Same filter shape and operators as `query-apm-spans`:
 
-- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)
+- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). A `duration` filter value is in milliseconds (1 second = `1000`).
 - `span_attribute` — span-level attributes
 - `span_resource_attribute` — resource-level attributes
 
@@ -75,4 +77,4 @@ Property filters applied to the matched spans. Same filter shape and operators a
 - `bucket_ns` is nanoseconds: 1ms = 1,000,000; 1s = 1,000,000,000.
 - Counts are **traces** (one per root span), so they line up with request counts — not with `apm-spans-count`, which counts every span.
 - Buckets follow the 1-2-5 series; a trace of 3.5ms lands in the 2ms bucket (bucket floor).
-- To fetch the actual slow traces after spotting a tail, use `query-apm-spans` with a `duration` filter (nanoseconds) and `orderBy: "duration"`.
+- To fetch the actual slow traces after spotting a tail, use `query-apm-spans` with a `duration` filter (milliseconds, not nanoseconds) and `orderBy: "duration"`.

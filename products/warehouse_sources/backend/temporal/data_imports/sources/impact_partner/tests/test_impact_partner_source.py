@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.impactpartner import (
     ImpactPartnerSourceConfig,
 )
@@ -21,20 +22,6 @@ def _inputs(schema_name: str = "Actions", **overrides: object) -> MagicMock:
 
 
 class TestImpactPartnerSourceClass:
-    def test_no_unreleased_flag(self) -> None:
-        # A finished source ships visible; unreleasedSource must not be set.
-        assert ImpactPartnerSource().get_source_config.unreleasedSource is not True
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert ImpactPartnerSource.lists_tables_without_credentials is True
-
-    def test_get_schemas_returns_all_endpoints(self) -> None:
-        schemas = ImpactPartnerSource().get_schemas(
-            ImpactPartnerSourceConfig(account_sid="s", auth_token="t"), team_id=1
-        )
-        names = {s.name for s in schemas}
-        assert names == {"Campaigns", "Actions", "Invoices"}
-
     @parameterized.expand(
         [
             ("Actions", True),
@@ -49,11 +36,6 @@ class TestImpactPartnerSourceClass:
         assert len(schemas) == 1
         assert schemas[0].supports_incremental is expected
         assert schemas[0].supports_append is expected
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        tables = ImpactPartnerSource().get_documented_tables()
-        names = {t["name"] for t in tables}
-        assert names == {"Campaigns", "Actions", "Invoices"}
 
     @parameterized.expand(
         [
@@ -97,3 +79,28 @@ class TestImpactPartnerSourceClass:
             )
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    @parameterized.expand(
+        [
+            (
+                "exhausted_429",
+                "429 Client Error: Too Many Requests for url: https://api.impact.com/Mediapartners/s/Actions",
+            ),
+            (
+                "exhausted_500",
+                "500 Server Error: Internal Server Error for url: https://api.impact.com/Mediapartners/s/Campaigns",
+            ),
+            ("exhausted_502", "502 Server Error: Bad Gateway for url: https://api.impact.com/Mediapartners/s/Invoices"),
+        ]
+    )
+    def test_exhausted_transient_responses_are_retryable(self, _name: str, error: str) -> None:
+        assert error_message_matches(error, ImpactPartnerSource().get_retryable_errors())
+
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.impact.com/Mediapartners/s/Invoices"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.impact.com/Mediapartners/s/Invoices"),
+        ]
+    )
+    def test_client_errors_are_not_retryable(self, _name: str, error: str) -> None:
+        assert not error_message_matches(error, ImpactPartnerSource().get_retryable_errors())

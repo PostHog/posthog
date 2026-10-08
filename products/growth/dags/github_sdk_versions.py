@@ -42,6 +42,17 @@ SDK_FETCH_FUNCTIONS: dict[SdkTypes, Callable[[], dict[str, Any]]] = {
     "posthog-ruby": lambda: fetch_ruby_sdk_data(),
     "posthog-elixir": lambda: fetch_elixir_sdk_data(),
     "posthog-dotnet": lambda: fetch_dotnet_sdk_data(),
+    "posthog-unity": lambda: fetch_sdk_data_from_releases(
+        "PostHog/posthog-unity", tag_prefixes=[UNPREFIXED_SEMVER_TAG]
+    ),
+    "posthog-node-mcp": lambda: fetch_sdk_data_from_releases("PostHog/posthog-js", tag_prefixes=["@posthog/mcp@"]),
+    "posthog-python-mcp": lambda: fetch_python_sdk_data(),
+    "posthog-edge": lambda: fetch_node_sdk_data(),
+    "posthog-convex": lambda: fetch_sdk_data_from_releases("PostHog/posthog-js", tag_prefixes=["@posthog/convex@"]),
+    "posthog-rails": lambda: fetch_sdk_data_from_releases("PostHog/posthog-ruby", tag_prefixes=["posthog-rails-v"]),
+    "posthog-aspnetcore": lambda: fetch_sdk_data_from_releases(
+        "PostHog/posthog-dotnet", tag_prefixes=["PostHog.AspNetCore-v"]
+    ),
 }
 
 

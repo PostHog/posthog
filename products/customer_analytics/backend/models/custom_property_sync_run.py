@@ -38,9 +38,9 @@ class SyncPhase(models.TextChoices):
 class CustomPropertySyncRun(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
     """One warehouse sync run for a single custom property source."""
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     source = models.ForeignKey(

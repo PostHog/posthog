@@ -10,11 +10,12 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { ArchiveSurveyButton } from 'scenes/surveys/components/ArchiveSurveyButton'
+import { isSurveyResponseEvent } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { saveActionFromEvent } from '~/models/saveAsActionDialog'
-import { EventType, SurveyEventName } from '~/types'
+import { EventType } from '~/types'
 
 export function EventRowActions({
     event,
@@ -59,7 +60,7 @@ function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
                     Create action from event
                 </LemonButton>
             )}
-            {event.event === SurveyEventName.SENT && event.uuid && event.properties.$survey_id ? (
+            {isSurveyResponseEvent(event.event, event.properties) && event.uuid && event.properties.$survey_id ? (
                 <ArchiveSurveyButton surveyId={event.properties.$survey_id} responseUuid={event.uuid} />
             ) : null}
             {event.uuid && event.timestamp && <EventCopyLinkButton event={event} />}
@@ -102,7 +103,7 @@ function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
 
 export const EventCopyLinkButton = React.forwardRef<
     HTMLButtonElement,
-    { event: Pick<EventType, 'uuid' | 'timestamp'> }
+    { event: Pick<EventType, 'uuid' | 'timestamp' | 'event'> }
 >(function EventCopyLinkButton({ event }, ref) {
     return (
         <LemonButton
@@ -112,7 +113,7 @@ export const EventCopyLinkButton = React.forwardRef<
             data-attr="events-table-event-link"
             onClick={() =>
                 void copyToClipboard(
-                    urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp))),
+                    urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp, event.event))),
                     'link to event'
                 )
             }

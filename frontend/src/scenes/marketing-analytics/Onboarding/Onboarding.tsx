@@ -95,8 +95,6 @@ export function Onboarding({ completeOnboarding }: OnboardingProps): JSX.Element
 function WelcomeStep({ onContinue }: { onContinue: () => void }): JSX.Element {
     return (
         <ProductIntroduction
-            productName="Marketing analytics"
-            productKey={ProductKey.MARKETING_ANALYTICS}
             thingName="marketing integration"
             titleOverride="Welcome to Marketing analytics"
             description="Track your marketing campaigns performance across all your ad platforms. Connect your data sources to see spend, conversions, and ROI in one place."

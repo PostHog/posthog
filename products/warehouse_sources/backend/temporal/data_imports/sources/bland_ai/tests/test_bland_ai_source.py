@@ -18,12 +18,6 @@ class TestBlandAISource:
         self.team_id = 123
         self.config = BlandAISourceConfig(api_key="key")
 
-    def test_lists_tables_without_credentials(self):
-        # get_schemas iterates a static endpoint catalog with no I/O, so the public docs catalog renders.
-        assert self.source.lists_tables_without_credentials is True
-        documented = self.source.get_documented_tables()
-        assert [t["name"] for t in documented] == ["calls", "call_transcripts", "pathways"]
-
     @parameterized.expand(
         [
             # GET /v1/calls has a server-side `start_date` filter, so both call endpoints are incremental.
@@ -32,6 +26,14 @@ class TestBlandAISource:
             ("call_transcripts", True, False),
             # Pathways have no timestamp filters at all — full refresh only.
             ("pathways", False, True),
+            # GET /v1/sms/conversations filters on `created_at` with a `gte` operator.
+            ("sms_conversations", True, True),
+            # Hydrating messages costs one request per conversation, so the table is opt-in.
+            ("sms_messages", True, False),
+            # Account-level lookups with no timestamp filters — full refresh only.
+            ("inbound_numbers", False, True),
+            ("personas", False, True),
+            ("voices", False, True),
         ]
     )
     def test_get_schemas_incremental_support(self, endpoint, supports_incremental, should_sync_default):

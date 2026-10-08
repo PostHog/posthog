@@ -6,12 +6,22 @@ import type { LogRecord } from '~/logs/log-record-avro'
 import { type FilterGroupNode, matchFilterGroup } from '../sampling/filter-group-match'
 
 /**
- * Retention tiers a rule may assign. Kept in sync with `VALID_RETENTION_DAYS` in
- * `products/logs/backend/presentation/views/retention_api.py` (write-time validation) and
- * `RETENTION_USAGE_TIERS` in `logs-ingestion-consumer.ts`. Rows outside these tiers are
- * dropped at compile time so a hand-crafted or legacy row can't stamp an arbitrary value.
+ * Kept in sync with `logs_retention_days_error` in `posthog/models/team/logs_retention.py`. Rows
+ * outside this shape are dropped at compile time so a hand-crafted or legacy row can't stamp an arbitrary value.
  */
-export const VALID_RETENTION_DAYS = new Set([14, 30, 90])
+export const DEFAULT_RETENTION_DAYS = 14
+export const RETENTION_MONTH_DAYS = 30
+export const MAX_RETENTION_DAYS = RETENTION_MONTH_DAYS * 86
+
+export function isValidRetentionDays(days: number): boolean {
+    if (!Number.isInteger(days)) {
+        return false
+    }
+    if (days === DEFAULT_RETENTION_DAYS) {
+        return true
+    }
+    return days > 0 && days <= MAX_RETENTION_DAYS && days % RETENTION_MONTH_DAYS === 0
+}
 
 export type CompiledRetentionRule = {
     id: string

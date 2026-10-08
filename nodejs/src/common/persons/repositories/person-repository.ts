@@ -21,6 +21,12 @@ export type InternalPersonWithDistinctId = InternalPerson & {
     distinct_id: string
 }
 
+/** A distinct id's committed mapping row, shaped for re-emission to ClickHouse. */
+export type PersonDistinctIdMapping = {
+    distinctId: string
+    message: PersonMessage
+}
+
 export class PersonPropertiesSizeViolationError extends Error {
     constructor(
         message: string,
@@ -159,6 +165,12 @@ export interface PersonRepository {
         options?: { limitPerPerson?: number; useReadReplica?: boolean }
     ): Promise<Record<string, string[]>>
 
+    /**
+     * Reads the authoritative side: a stale pairing re-emitted with its version would
+     * overwrite a newer mapping. Ids without a live mapping are absent from the result.
+     */
+    fetchPersonDistinctIdMappings(teamId: TeamId, distinctIds: string[]): Promise<PersonDistinctIdMapping[]>
+
     createPerson(
         createdAt: DateTime,
         properties: Properties,
@@ -178,6 +190,12 @@ export interface PersonRepository {
         tag?: string
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
 
+    /** Trims and writes a person whose stored properties already exceed the size limit, or rejects the update. */
+    handleOversizedPersonProperties(
+        person: InternalPerson,
+        update: PersonUpdateFields
+    ): Promise<[InternalPerson, PersonMessage[], boolean]>
+
     updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, PersonMessage[]]>
 
     /**
@@ -186,11 +204,21 @@ export interface PersonRepository {
      * - success: boolean indicating if the update succeeded
      * - version: the new version if successful
      * - kafkaMessage: the Kafka message to send if successful
+     * - person: the row after the update, if successful
      * - error: error details if the update failed
      */
-    updatePersonsBatch(
-        personUpdates: PersonUpdate[]
-    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: PersonMessage; error?: Error }>>
+    updatePersonsBatch(personUpdates: PersonUpdate[]): Promise<
+        Map<
+            string,
+            {
+                success: boolean
+                version?: number
+                kafkaMessage?: PersonMessage
+                person?: InternalPerson
+                error?: Error
+            }
+        >
+    >
 
     deletePerson(person: InternalPerson): Promise<PersonMessage[]>
 

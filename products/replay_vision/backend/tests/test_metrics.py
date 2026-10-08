@@ -8,8 +8,9 @@ from prometheus_client import REGISTRY
 from products.replay_vision.backend.temporal.metrics import (
     record_activity_duration,
     record_credits_consumed,
+    record_estimate_outcome,
     record_failure_kind,
-    record_gemini_cleanup_backlog,
+    record_gemini_cleanup_files,
     record_ineligible_kind,
     record_observation,
     record_observation_e2e,
@@ -93,11 +94,25 @@ class TestRecordHelpers(SimpleTestCase):
                 3.0,
             ),
             (
+                "estimate_outcome",
+                lambda: record_estimate_outcome("experiment_linkage_unresolved"),
+                "replay_vision_estimate_outcomes_total",
+                {"outcome": "experiment_linkage_unresolved"},
+                1.0,
+            ),
+            (
                 "observation_e2e",
                 lambda: record_observation_e2e("monitor", 120.0),
                 "replay_vision_observation_e2e_seconds_count",
                 {"scanner_type": "monitor"},
                 1.0,
+            ),
+            (
+                "gemini_cleanup_files",
+                lambda: record_gemini_cleanup_files("delete_failed", 4),
+                "replay_vision_gemini_cleanup_files_total",
+                {"result": "delete_failed"},
+                4.0,
             ),
             (
                 "side_effect_failure",
@@ -119,9 +134,3 @@ class TestRecordHelpers(SimpleTestCase):
         before = _sample(sample_name, labels)
         record()
         assert _sample(sample_name, labels) == before + expected_delta
-
-    def test_gemini_cleanup_backlog_is_a_gauge(self) -> None:
-        record_gemini_cleanup_backlog(7)
-        assert _sample("replay_vision_gemini_cleanup_backlog", {}) == 7.0
-        record_gemini_cleanup_backlog(2)
-        assert _sample("replay_vision_gemini_cleanup_backlog", {}) == 2.0

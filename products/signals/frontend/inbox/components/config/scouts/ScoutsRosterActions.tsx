@@ -5,43 +5,69 @@ import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import type { ScoutChatType } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
-import { ScoutCreateButton } from './ScoutCreateButton'
 import { useScoutCreateDisabledReason } from './ScoutCreateModalHost'
-import { ScoutSuggestButton } from './ScoutSuggestButton'
+import { ScoutNewButton } from './ScoutNewButton'
 
 /** Actions for the roster, lifted into the scene header so they sit in one predictable place. */
 export function ScoutsRosterActions(): JSX.Element {
     const { loadScoutConfigs } = useActions(scoutFleetLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
     const suggestionsEnabled = !!featureFlags[FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI]
+    // Every trial endpoint requires skill editor access, so the page is empty without it.
+    const trialsDisabledReason = useScoutCreateDisabledReason()
     return (
         <>
+            {currentTeamId === 2 && user?.is_staff && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    to={urls.inboxScoutTrials()}
+                    disabledReason={trialsDisabledReason ?? undefined}
+                    data-attr="scout-open-comparisons"
+                >
+                    Trials
+                </LemonButton>
+            )}
             <AskAboutScoutsMenu />
-            {/* Without the suggestions strip this button is the only way to ask for a pick, so it
-                keeps its place in the header until the strip reaches everyone. */}
-            {suggestionsEnabled ? <ShowSuggestionsButton /> : <ScoutSuggestButton type="secondary" size="small" />}
-            <ScoutCreateButton size="small" onCreated={() => loadScoutConfigs()} />
+            {suggestionsEnabled ? <ShowSuggestionsButton /> : null}
+            <ScoutNewButton surface="fleet_list" size="small" onCreated={() => loadScoutConfigs()} />
         </>
     )
 }
 
-/** Takes the "Suggest a scout" spot while the strip is closed, and reopens it in place of a chat. */
+/**
+ * Takes the "Suggest a scout" spot whenever the strip has no picks to show. With picks waiting it
+ * reopens the closed strip; with none it opens the authoring chat.
+ */
 function ShowSuggestionsButton(): JSX.Element | null {
-    const { hasBatch, stripHidden } = useValues(scoutSuggestionsLogic)
-    const { showStrip } = useActions(scoutSuggestionsLogic)
-    if (!hasBatch || !stripHidden) {
+    const { suggestButtonVisible, hasPicks, isRefreshing, suggestionSetLoading, aiConsentDisabledReason } =
+        useValues(scoutSuggestionsLogic)
+    const { runningChatType } = useValues(scoutFleetLogic)
+    const { askForSuggestions } = useActions(scoutSuggestionsLogic)
+    // Opening the chat ends in a skill write, so it carries the editor gate. Reopening needs neither.
+    const creationDisabledReason = useScoutCreateDisabledReason()
+    if (!suggestButtonVisible) {
         return null
     }
+    const busyReason = showSuggestionsBusyReason({ hasPicks, isRefreshing, suggestionSetLoading, runningChatType })
+    const gateReason = hasPicks ? null : (creationDisabledReason ?? aiConsentDisabledReason)
     return (
         <LemonButton
             type="secondary"
             size="small"
             icon={<IconSparkles />}
-            onClick={() => showStrip()}
+            loading={!!busyReason}
+            disabledReason={busyReason ?? gateReason ?? undefined}
+            onClick={() => askForSuggestions()}
             data-attr="scout-suggestions-show"
         >
             Suggest a scout
@@ -49,27 +75,47 @@ function ShowSuggestionsButton(): JSX.Element | null {
     )
 }
 
+function showSuggestionsBusyReason({
+    hasPicks,
+    isRefreshing,
+    suggestionSetLoading,
+    runningChatType,
+}: {
+    hasPicks: boolean
+    isRefreshing: boolean
+    suggestionSetLoading: boolean
+    runningChatType: ScoutChatType | null
+}): string | null {
+    // With picks waiting, the press only reopens the strip: no read, no task. Nothing else the
+    // header is doing holds that up, and every reason below would name work it never starts.
+    if (hasPicks) {
+        return null
+    }
+    if (suggestionSetLoading) {
+        return 'Reading the suggestions…'
+    }
+    // A scan already running is the answer to the press, so say so instead of opening a chat on top.
+    if (isRefreshing) {
+        return 'Scanning the project…'
+    }
+    if (runningChatType === 'author_scout') {
+        return 'Starting a task…'
+    }
+    if (runningChatType !== null) {
+        return 'Starting another task…'
+    }
+    return null
+}
+
 /**
- * The templated chat kickoffs, behind one button. As peers of "Create scout" they read as primary
+ * The templated chat kickoffs, behind one button. As peers of "New scout" they read as primary
  * actions, which they aren't — each one navigates away to a task rather than changing anything here.
- * "Suggest a scout" joins them once the suggestions strip offers picks with nothing to wait for.
+ * Creating a scout lives in "New scout", so this menu holds questions only.
  */
 function AskAboutScoutsMenu(): JSX.Element {
     const { startScoutChatTask } = useActions(scoutFleetLogic)
     const { runningChatType, aiConsentDisabledReason } = useValues(scoutFleetLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    // Authoring a scout ends in a skill write, so it keeps the editor gate the standalone button had.
-    const creationDisabledReason = useScoutCreateDisabledReason()
-    const prompts: { label: string; chatType: ScoutChatType; disabledReason?: string }[] = [
-        ...(featureFlags[FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI]
-            ? [
-                  {
-                      label: 'Suggest a scout',
-                      chatType: 'author_scout' as ScoutChatType,
-                      disabledReason: creationDisabledReason ?? undefined,
-                  },
-              ]
-            : []),
+    const prompts: { label: string; chatType: ScoutChatType }[] = [
         { label: 'How is my scout troop performing?', chatType: 'fleet_overview' },
         { label: 'What signals were emitted recently?', chatType: 'recent_signals' },
     ]
@@ -80,14 +126,14 @@ function AskAboutScoutsMenu(): JSX.Element {
 
     return (
         <LemonMenu
-            items={prompts.map(({ label, chatType, disabledReason }) => ({
+            items={prompts.map(({ label, chatType }) => ({
                 label,
                 onClick: () => startScoutChatTask(chatType, label),
                 disabledReason: anotherTaskIsStarting
                     ? 'Starting another task…'
                     : isStarting
                       ? 'Starting a task…'
-                      : (disabledReason ?? aiConsentDisabledReason ?? undefined),
+                      : (aiConsentDisabledReason ?? undefined),
             }))}
         >
             <LemonButton

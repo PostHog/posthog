@@ -5,7 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DataTableNode, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, DataVisualizationNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import type { InsightQueryNode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AppContext, ChartDisplayType, FunnelVizType, TeamType } from '~/types'
@@ -17,7 +17,9 @@ import {
     escapeHogQLString,
     escapePropertyAsHogQLIdentifier,
     getDisplay,
+    getShowLegend,
     hogql,
+    isMetricInsightQuery,
     queryUsesDataWarehouse,
     queryVizDefinitelyRendersToCanvas,
     queryVizRendersToCanvas,
@@ -237,6 +239,24 @@ describe('convertDataTableNodeToDataVisualizationNode', () => {
                 columns: [{ column: 'event' }],
             },
         })
+    })
+})
+
+describe('getShowLegend', () => {
+    const trends = (display: ChartDisplayType, showLegend?: boolean): InsightQueryNode => ({
+        kind: NodeKind.TrendsQuery,
+        series: [],
+        trendsFilter: { display, showLegend },
+    })
+
+    it.each([
+        ['a proportion bar with few parts', trends(ChartDisplayType.ActionsProportionBar), 5, true],
+        ['a proportion bar with many parts', trends(ChartDisplayType.ActionsProportionBar), 25, undefined],
+        ['a proportion bar before its parts load', trends(ChartDisplayType.ActionsProportionBar), undefined, undefined],
+        ['a proportion bar with the legend turned off', trends(ChartDisplayType.ActionsProportionBar, false), 5, false],
+        ['a line chart', trends(ChartDisplayType.ActionsLineGraph), 5, undefined],
+    ])('%s', (_name, query, partCount, expected) => {
+        expect(getShowLegend(query, partCount)).toBe(expected)
     })
 })
 
@@ -478,5 +498,42 @@ describe('getDisplay', () => {
         ],
     ])('normalizes the deprecated ActionsStackedBar alias to ActionsBar for %s', (_, query) => {
         expect(getDisplay(query as InsightQueryNode)).toEqual(ChartDisplayType.ActionsBar)
+    })
+})
+
+describe('isMetricInsightQuery', () => {
+    it.each([
+        [
+            'SQL metric',
+            {
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                display: ChartDisplayType.Metric,
+            },
+            true,
+        ],
+        [
+            'trends metric',
+            {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    trendsFilter: { display: ChartDisplayType.Metric },
+                },
+            },
+            true,
+        ],
+        [
+            'SQL line chart',
+            {
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                display: ChartDisplayType.ActionsLineGraph,
+            },
+            false,
+        ],
+    ])('identifies a %s', (_label, query, expected) => {
+        expect(isMetricInsightQuery(query as Node)).toBe(expected)
     })
 })

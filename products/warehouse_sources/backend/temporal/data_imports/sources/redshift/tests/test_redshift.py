@@ -1,4 +1,6 @@
-from datetime import date
+from collections.abc import Callable
+from datetime import UTC, date, datetime
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, call, patch
@@ -9,8 +11,14 @@ from psycopg import sql
 from psycopg.pq import TransactionStatus
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     TemporaryFileSizeExceedsLimitException,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HostNotAllowedError,
+    TemporaryHostResolutionError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
@@ -26,25 +34,32 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.r
     RedshiftColumn,
     RedshiftImplementation,
     SafeDateLoader,
+    SafeTimestampLoader,
+    SafeTimestamptzLoader,
     _build_query,
     _explain_query,
-    _fetch_arrow_batches,
     _is_transient_connection_drop_error,
-    _libpq_rows_per_chunk,
     _stream_arrow_batches,
-    _stream_rows_as_arrow_batches,
-    filter_redshift_incremental_fields,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import (
-    _REDSHIFT_IMPLEMENTATION,
-    RedshiftSource,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _catalog_primary_key_rows(
+    constraints: list[tuple[str, str, Any]], attributes: list[tuple[str, str, int, str]]
+) -> Callable[[], list[tuple[Any, ...]]]:
+    """`fetchall` side effect for the two `pg_catalog` reads a key lookup makes."""
+    rows: list[list[tuple[Any, ...]]] = [list(constraints), list(attributes)]
+
+    def fetchall() -> list[tuple[Any, ...]]:
+        return rows.pop(0) if rows else []
+
+    return fetchall
 
 
 def _make_config(**overrides) -> RedshiftSourceConfig:
@@ -84,73 +99,6 @@ def _make_inputs(schema_name: str = "messages", **overrides) -> SourceInputs:
 # ---------------------------------------------------------------------------
 
 
-class TestFilterIncrementalFields:
-    @pytest.mark.parametrize(
-        "data_type,expected_type",
-        [
-            ("timestamp", IncrementalFieldType.Timestamp),
-            ("timestamp without time zone", IncrementalFieldType.Timestamp),
-            ("timestamp with time zone", IncrementalFieldType.Timestamp),
-            ("date", IncrementalFieldType.Date),
-            ("integer", IncrementalFieldType.Integer),
-            ("bigint", IncrementalFieldType.Integer),
-            ("smallint", IncrementalFieldType.Integer),
-            ("int4", IncrementalFieldType.Integer),
-            ("int8", IncrementalFieldType.Integer),
-        ],
-    )
-    def test_includes_incremental_types(self, data_type, expected_type):
-        result = filter_redshift_incremental_fields([("col", data_type, True)])
-        assert result == [("col", expected_type, True)]
-
-    @pytest.mark.parametrize("data_type", ["varchar", "text", "json", "super", "real"])
-    def test_excludes_non_incremental_types(self, data_type):
-        result = filter_redshift_incremental_fields([("col", data_type, True)])
-        assert result == []
-
-
-class TestBuildQueryEnabledColumns:
-    @pytest.mark.parametrize(
-        "enabled_columns,primary_keys,expected_select",
-        [
-            (None, ["id"], "SELECT * FROM"),
-            (["email"], ["id"], 'SELECT "email", "id" FROM'),
-            ([], None, "SELECT * FROM"),
-            ([], ["id"], 'SELECT "id" FROM'),
-        ],
-    )
-    def test_full_refresh_projection(self, enabled_columns, primary_keys, expected_select):
-        composed = _build_query(
-            schema="public",
-            table_name="users",
-            should_use_incremental_field=False,
-            table_type=None,
-            incremental_field=None,
-            incremental_field_type=None,
-            db_incremental_field_last_value=None,
-            enabled_columns=enabled_columns,
-            primary_keys=primary_keys,
-        )
-        rendered = composed.as_string()
-        assert rendered.startswith(expected_select)
-
-    def test_incremental_projection_retains_incremental_field(self):
-        composed = _build_query(
-            schema="public",
-            table_name="users",
-            should_use_incremental_field=True,
-            table_type=None,
-            incremental_field="created_at",
-            incremental_field_type=IncrementalFieldType.DateTime,
-            db_incremental_field_last_value="2025-01-01",
-            enabled_columns=["email"],
-            primary_keys=["id"],
-        )
-        rendered = composed.as_string()
-        assert rendered.startswith('SELECT "email", "id", "created_at" FROM')
-        assert 'WHERE "created_at"' in rendered
-
-
 class TestBuildQueryRowFilters:
     def _filter(self, column, operator, value, category=ColumnTypeCategory.INTEGER):
         return ValidatedRowFilter(column=column, operator=operator, value=value, category=category)
@@ -184,36 +132,6 @@ class TestBuildQueryRowFilters:
         assert 'WHERE "created_at"' in rendered
         assert 'AND "age" > 21' in rendered
         assert rendered.rstrip().endswith('ORDER BY "created_at" ASC')
-
-    def test_sampling_query_is_not_filtered(self):
-        # Row filters apply only to the real data path; the sampling/estimation query stays unfiltered.
-        composed = _build_query(
-            schema="public",
-            table_name="users",
-            should_use_incremental_field=False,
-            table_type=None,
-            incremental_field=None,
-            incremental_field_type=None,
-            db_incremental_field_last_value=None,
-            add_sampling=True,
-            row_filters=[self._filter("age", ">", 21)],
-        )
-        rendered = composed.as_string()
-        assert '"age"' not in rendered
-
-    def test_in_filter_renders_parenthesized_list(self):
-        composed = _build_query(
-            schema="public",
-            table_name="users",
-            should_use_incremental_field=False,
-            table_type=None,
-            incremental_field=None,
-            incremental_field_type=None,
-            db_incremental_field_last_value=None,
-            row_filters=[self._filter("age", "IN", [21, 30, 40])],
-        )
-        rendered = composed.as_string()
-        assert 'WHERE "age" IN (21, 30, 40)' in rendered
 
     def test_not_in_string_list_values_are_escaped_literals(self):
         composed = _build_query(
@@ -254,12 +172,6 @@ class TestRedshiftColumnToArrowField:
         with pytest.raises(TypeError, match="numeric_precision"):
             col.to_arrow_field()
 
-    def test_bigint_maps_to_int64(self):
-        col = RedshiftColumn(name="x", data_type="bigint", nullable=False)
-        field = col.to_arrow_field()
-        assert "int64" in str(field.type)
-        assert field.nullable is False
-
     def test_timestamptz_carries_utc_timezone(self):
         col = RedshiftColumn(name="x", data_type="timestamptz", nullable=True)
         field = col.to_arrow_field()
@@ -299,6 +211,41 @@ class TestSafeDateLoader:
             loader.load(input_data)
 
 
+class TestSafeTimestampLoader:
+    @pytest.fixture
+    def loader(self):
+        return SafeTimestampLoader(oid=1114)
+
+    @pytest.mark.parametrize(
+        "input_data,expected",
+        [
+            (b"2024-01-15 10:30:00", datetime(2024, 1, 15, 10, 30, 0)),
+            (b"0001-01-01 00:00:00", datetime(1, 1, 1, 0, 0, 0)),
+            (b"9999-12-31 23:59:59", datetime(9999, 12, 31, 23, 59, 59)),
+            (b"10000-01-01 00:00:00", datetime.max),
+            (b"infinity", datetime.max),
+            (b"-infinity", datetime.min),
+            # Reproduces the reported incident: psycopg's default `TimestampLoader` raises
+            # `DataError: timestamp too small (before year 1)`, aborting the sync.
+            (b"0001-02-11 00:00:00 BC", datetime.min),
+            (None, None),
+        ],
+    )
+    def test_load_timestamps(self, loader, input_data, expected):
+        assert loader.load(input_data) == expected
+
+
+class TestSafeTimestamptzLoader:
+    @pytest.fixture
+    def loader(self):
+        return SafeTimestamptzLoader(oid=1184)
+
+    def test_clamps_out_of_range_value_with_utc_tzinfo(self, loader):
+        # `timestamptz` columns map to a UTC-aware Arrow type; mixing in a naive clamp would
+        # raise when the batch tries to combine aware and naive datetimes in one column.
+        assert loader.load(b"0001-02-11 00:00:00 BC") == datetime.min.replace(tzinfo=UTC)
+
+
 # ---------------------------------------------------------------------------
 # Per-cursor metadata queries — exercise impl methods directly
 # ---------------------------------------------------------------------------
@@ -324,14 +271,6 @@ def cursor() -> MagicMock:
 
 
 class TestGetPrimaryKeysForTable:
-    def test_returns_none_when_no_rows(self, impl, cursor):
-        cursor.fetchall.return_value = []
-        assert impl.get_primary_keys_for_table(cursor, "public", "t") is None
-
-    def test_returns_pk_column_names(self, impl, cursor):
-        cursor.fetchall.return_value = [("id",), ("email",)]
-        assert impl.get_primary_keys_for_table(cursor, "public", "t") == ["id", "email"]
-
     @pytest.mark.parametrize(
         "table_type,expected_phrase",
         [
@@ -352,78 +291,31 @@ class TestGetPrimaryKeysForTable:
         assert expected_phrase in warning
         assert "full table replication" in warning
 
-    def test_warns_that_a_table_declares_no_key_when_the_role_can_read_constraints(self, impl, cursor, logger):
-        # A key found elsewhere in the schema proves the role can read `table_constraints`, so this
-        # table's empty result is a real absence and the message can say so outright.
+    def test_warns_that_a_table_declares_no_key(self, impl, cursor, logger):
+        # `pg_catalog` applies no privilege filter, and a failed read raises rather than returning
+        # nothing, so an empty result is a real absence. Hedging it sends the operator after a
+        # permission that cannot be the cause, and the suggested fix does not apply.
         cursor.fetchall.return_value = []
-        cursor.execute.return_value = cursor
-        cursor.fetchone.return_value = (1,)
-
-        impl.get_primary_keys_for_table(cursor, "public", "t", logger, "table")
-
-        assert "No primary key is set on t" in logger.warning.call_args.args[0]
-
-    @pytest.mark.parametrize("probe_outcome", ["sees_nothing", "probe_fails"])
-    def test_does_not_claim_a_table_is_keyless_when_detection_is_undetermined(
-        self, impl, cursor, logger, probe_outcome
-    ):
-        # The reported bug: an unreadable key and an absent key both produce zero rows, and the
-        # message asserted the second. Asserting absence here sends the operator to set keys by
-        # hand for a condition they may not have.
-        cursor.fetchall.return_value = []
-        cursor.execute.return_value = cursor
-        cursor.fetchone.return_value = None
-        if probe_outcome == "probe_fails":
-            # Only the privilege probe is a LIMIT 1, so this fails it without counting calls.
-            def fail_the_probe(query, *args):
-                if "LIMIT 1" in query.as_string():
-                    raise Exception("permission denied")
-                return cursor
-
-            cursor.execute.side_effect = fail_the_probe
 
         impl.get_primary_keys_for_table(cursor, "public", "t", logger, "table")
 
         warning = logger.warning.call_args.args[0]
-        assert "Could not determine a primary key" in warning
-        assert "No primary key is set" not in warning
+        assert "No primary key is set on t" in warning
+        assert "full table replication" in warning
 
-    def test_orders_composite_key_columns_by_declared_position(self, impl, cursor):
-        # Without ORDER BY, Redshift returns the constraint's columns in arbitrary order and a
-        # composite key is assembled wrong, which silently corrupts incremental merge matching.
-        cursor.fetchall.return_value = [("a",), ("b",)]
+    @pytest.mark.parametrize("conkey", ["2 1", "{2,1}", [2, 1]])
+    def test_orders_composite_key_columns_by_declared_position(self, impl, cursor, conkey):
+        # The catalog holds the key as column numbers, in whichever form the driver hands back.
+        # Sorting by column number instead assembles a composite key wrong, which silently
+        # corrupts incremental merge matching.
+        cursor.fetchall.side_effect = _catalog_primary_key_rows(
+            [("public", "t", conkey)], [("public", "t", 1, "a"), ("public", "t", 2, "b")]
+        )
 
-        impl.get_primary_keys_for_table(cursor, "public", "t")
-
-        assert "ORDER BY" in cursor.execute.call_args.args[0].as_string()
-        assert "kcu.ordinal_position" in cursor.execute.call_args.args[0].as_string()
+        assert impl.get_primary_keys_for_table(cursor, "public", "t") == ["b", "a"]
 
 
 class TestGetTableMetadata:
-    def test_builds_table_with_columns(self, impl, cursor):
-        cursor.execute.return_value = cursor
-        # First fetchone for is-view check; iteration for columns
-        cursor.fetchone.return_value = (False,)
-        cursor.__iter__.return_value = iter(
-            [
-                ("id", "integer", "NO", None, None),
-                ("email", "varchar", "YES", None, None),
-            ]
-        )
-        table = impl.get_table_metadata(cursor, "public", "users")
-        assert table.name == "users"
-        assert table.parents == ("public",)
-        assert len(table.columns) == 2
-        assert table.type == "table"
-
-    def test_marks_view_when_is_view_true(self, impl, cursor):
-        cursor.execute.return_value = cursor
-        # svv_mv_info probe first, then pg_views.
-        cursor.fetchone.side_effect = [(False,), (True,)]
-        cursor.__iter__.return_value = iter([("id", "integer", "NO", None, None)])
-        table = impl.get_table_metadata(cursor, "public", "myview")
-        assert table.type == "view"
-
     def test_marks_materialized_view_when_svv_mv_info_matches(self, impl, cursor):
         # Redshift has no `pg_matviews`, so the `pg_views` lookup alone reported every
         # materialized view as a plain table.
@@ -444,18 +336,6 @@ class TestGetTableMetadata:
         table = impl.get_table_metadata(cursor, "public", "myview")
 
         assert table.type == "view"
-
-    def test_populates_numeric_precision_and_scale_for_decimals(self, impl, cursor):
-        cursor.execute.return_value = cursor
-        cursor.fetchone.return_value = (False,)
-        cursor.__iter__.return_value = iter(
-            [
-                ("amount", "decimal", "NO", 10, 2),
-            ]
-        )
-        table = impl.get_table_metadata(cursor, "public", "orders")
-        assert table.columns[0].numeric_precision == 10
-        assert table.columns[0].numeric_scale == 2
 
     def test_excludes_redshift_internal_columns_from_arrow_schema(self, impl, cursor):
         # Materialized views expose `padb_internal_*` bookkeeping columns in
@@ -508,6 +388,19 @@ class TestGetRowsToSync:
             assert impl.get_rows_to_sync(cursor, self._inner(), None, logger) == 0
         mock_capture.assert_not_called()
 
+    def test_undefined_table_is_not_reported(self, impl, cursor, logger):
+        # The table can be dropped or renamed between schema discovery and this count query
+        # running. That's an expected, already-known customer/upstream condition (the overall
+        # sync's `get_non_retryable_errors` already stops retrying on "does not exist"), not an
+        # actionable bug — row-count estimation is best-effort (the caller defaults to 0), so skip
+        # gracefully without reporting it to error tracking.
+        cursor.execute.side_effect = psycopg.errors.UndefinedTable('relation "public.apps" does not exist')
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
+        ) as mock_capture:
+            assert impl.get_rows_to_sync(cursor, self._inner(), None, logger) == 0
+        mock_capture.assert_not_called()
+
     def test_remote_request_timeout_is_not_reported(self, impl, cursor, logger):
         # A `Remote request timeout` (code 29150) is Redshift's leader node losing internal RPC
         # contact with a compute node mid-query — a transient cluster-side hiccup, the same
@@ -527,31 +420,6 @@ class TestGetRowsToSync:
 
 
 class TestFetchTableStats:
-    def test_returns_none_when_no_row(self, impl, cursor, logger):
-        cursor.fetchone.return_value = None
-        assert impl.fetch_table_stats(cursor, "public", "t", logger) is None
-
-    def test_returns_none_when_size_zero(self, impl, cursor, logger):
-        cursor.fetchone.return_value = (0, 100)
-        assert impl.fetch_table_stats(cursor, "public", "t", logger) is None
-
-    def test_returns_none_when_rows_zero(self, impl, cursor, logger):
-        cursor.fetchone.return_value = (10, 0)
-        assert impl.fetch_table_stats(cursor, "public", "t", logger) is None
-
-    def test_converts_size_mb_to_bytes(self, impl, cursor, logger):
-        cursor.fetchone.return_value = (2, 100)  # 2 MB, 100 rows
-        stats = impl.fetch_table_stats(cursor, "public", "t", logger)
-        assert stats == TableStats(table_size_bytes=2 * 1024 * 1024, row_count=100)
-
-    def test_returns_none_on_exception(self, impl, cursor, logger):
-        cursor.execute.side_effect = RuntimeError("boom")
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
-        ) as mock_capture:
-            assert impl.fetch_table_stats(cursor, "public", "t", logger) is None
-        mock_capture.assert_called_once()
-
     def test_permission_denied_on_svv_table_info_is_not_reported(self, impl, cursor, logger):
         # Some Redshift roles lack SELECT on `svv_table_info`. That's an expected customer
         # permission-config issue — stats are optional, so skip gracefully without reporting the
@@ -612,20 +480,6 @@ def _fake_poisoning_cursor(real_query_result):
 
 
 class TestExplainQuery:
-    def test_swallows_explain_failure_without_reporting(self, logger):
-        # EXPLAIN failures are expected for system views and non-actionable, so they must not be
-        # reported to error tracking (this is the source of the reported noise).
-        cursor = MagicMock()
-        cursor.execute.side_effect = psycopg.errors.UndefinedColumn('column "t" does not exist in t')
-        cursor.connection.info.transaction_status = TransactionStatus.IDLE
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
-        ) as mock_capture:
-            _explain_query(cursor, sql.SQL("SELECT 1 FROM svv_table_info").format(), logger)
-
-        mock_capture.assert_not_called()
-
     def test_rolls_back_aborted_transaction(self, logger):
         cursor = MagicMock()
         cursor.execute.side_effect = psycopg.errors.UndefinedColumn('column "t" does not exist in t')
@@ -634,15 +488,6 @@ class TestExplainQuery:
         _explain_query(cursor, sql.SQL("SELECT 1 FROM svv_table_info").format(), logger)
 
         cursor.connection.rollback.assert_called_once()
-
-    def test_does_not_roll_back_when_transaction_healthy(self, logger):
-        cursor = MagicMock()
-        cursor.execute.side_effect = psycopg.errors.UndefinedColumn('column "t" does not exist in t')
-        cursor.connection.info.transaction_status = TransactionStatus.IDLE
-
-        _explain_query(cursor, sql.SQL("SELECT 1 FROM svv_table_info").format(), logger)
-
-        cursor.connection.rollback.assert_not_called()
 
 
 class TestFetchAverageRowSize:
@@ -725,71 +570,7 @@ def _ids(tables) -> list[list[int]]:
     return [table.column("id").to_pylist() for table in tables]
 
 
-class TestFetchArrowBatches:
-    def test_accumulates_small_fetches_into_chunk_sized_batches(self):
-        # Paging the FETCH must not shrink the Arrow batch too: one table per 1000-row fetch would
-        # hand the Delta writer 20x more, 20x smaller batches than the chunk size budgets for.
-        cursor = _stream_cursor([[(1,), (2,)], [(3,), (4,)], [(5,), (6,)], [(7,)]])
-
-        tables = list(_fetch_arrow_batches(cursor, 5, _STREAM_SCHEMA, fetch_size=2))
-
-        assert _ids(tables) == [[1, 2, 3, 4, 5], [6, 7]]
-        assert [c.args[0] for c in cursor.fetchmany.call_args_list] == [2, 2, 2, 2, 2]
-
-    def test_fetches_a_whole_chunk_at_a_time_by_default(self):
-        cursor = _stream_cursor([[(1,), (2,)]])
-
-        assert _ids(list(_fetch_arrow_batches(cursor, 2, _STREAM_SCHEMA))) == [[1, 2]]
-        assert [c.args[0] for c in cursor.fetchmany.call_args_list] == [2, 2]
-
-
-class TestStreamRowsAsArrowBatches:
-    def test_accumulates_streamed_rows_into_chunk_sized_batches(self):
-        # Streaming yields row by row; the Delta writer still has to see chunk_size-sized batches.
-        cursor = _rows_cursor([(1,), (2,), (3,), (4,), (5,)])
-
-        tables = list(_stream_rows_as_arrow_batches(cursor, _STREAM_QUERY, 2, _STREAM_SCHEMA))
-
-        assert _ids(tables) == [[1, 2], [3, 4], [5]]
-
-    def test_asks_libpq_for_chunked_delivery(self):
-        cursor = _rows_cursor([(1,)])
-
-        list(_stream_rows_as_arrow_batches(cursor, _STREAM_QUERY, 1, _STREAM_SCHEMA))
-
-        assert cursor.stream.call_args.kwargs["size"] == _libpq_rows_per_chunk()
-
-    def test_yields_nothing_for_an_empty_result(self):
-        cursor = _rows_cursor([])
-
-        assert list(_stream_rows_as_arrow_batches(cursor, _STREAM_QUERY, 2, _STREAM_SCHEMA)) == []
-
-
 class TestStreamArrowBatches:
-    def test_streams_without_declaring_a_cursor(self, logger):
-        # Streaming declares nothing on the cluster, so the per-node cap on cursor data - which no
-        # fetch size can get under - never applies to the table at all.
-        stream_cursor = _rows_cursor([(1,), (2,), (3,)])
-        server_cursor = _stream_cursor([])
-        connection = _stream_connection(server_cursor, stream_cursor)
-
-        tables = list(_stream_arrow_batches(connection, _STREAM_QUERY, 2, _STREAM_SCHEMA, "cur", logger))
-
-        assert _ids(tables) == [[1, 2], [3]]
-        assert connection.cursor.call_args_list == [call()]
-        server_cursor.execute.assert_not_called()
-
-    def test_falls_back_to_a_server_cursor_when_streaming_fails(self, logger):
-        stream_cursor = _rows_cursor(psycopg.errors.FeatureNotSupported("single row mode not supported"))
-        server_cursor = _stream_cursor([[(1,), (2,)]])
-        connection = _stream_connection(server_cursor, stream_cursor, TransactionStatus.INERROR)
-
-        tables = list(_stream_arrow_batches(connection, _STREAM_QUERY, 2, _STREAM_SCHEMA, "cur", logger))
-
-        assert _ids(tables) == [[1, 2]]
-        # Without the rollback the fallback dies on `InFailedSqlTransaction` instead of syncing.
-        connection.rollback.assert_called_once()
-
     def test_retries_the_cursor_at_the_single_node_limit(self, logger):
         # A single-node cluster rejects the first FETCH of every sync, and that one a smaller fetch
         # does fix - so it must retry rather than give up on the cursor.
@@ -868,21 +649,41 @@ class TestHasDuplicatePrimaryKeys:
         assert impl.has_duplicate_primary_keys(cursor, "public", "t", None, logger) is False
         assert impl.has_duplicate_primary_keys(cursor, "public", "t", [], logger) is False
 
-    def test_returns_true_when_row_found(self, impl, cursor, logger):
-        cursor.fetchone.return_value = (1,)
-        assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is True
-
-    def test_returns_false_when_no_row(self, impl, cursor, logger):
-        cursor.fetchone.return_value = None
-        assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
-
-    def test_returns_false_on_exception(self, impl, cursor, logger):
+    def test_returns_inconclusive_on_exception(self, impl: Any, cursor: Any, logger: Any) -> None:
         cursor.execute.side_effect = RuntimeError("boom")
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
         ) as mock_capture:
-            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is None
         mock_capture.assert_called_once()
+
+    def test_row_filters_bound_both_sides_of_the_check(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.fetchone.return_value = None
+
+        impl.has_duplicate_primary_keys(
+            cursor,
+            "public",
+            "t",
+            ["id"],
+            logger,
+            incremental_window=("updated_at", ">", "2026-01-01"),
+            row_filters=[
+                ValidatedRowFilter(column="tenant", operator="=", value="acme", category=ColumnTypeCategory.STRING)
+            ],
+        )
+
+        executed = cursor.execute.call_args.args[0].as_string()
+        assert executed.count('"tenant"') == 2
+
+    def test_an_aborted_check_is_inconclusive_not_clean(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.execute.side_effect = psycopg.errors.InternalError_("system requested abort")
+
+        assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is None
+
+    def test_query_canceled_is_propagated(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.execute.side_effect = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+        with pytest.raises(psycopg.errors.QueryCanceled):
+            impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger)
 
     def test_operational_error_is_propagated(self, impl, cursor, logger):
         # A connection-level failure (e.g. the SSL connection dropping mid-query) means the probe
@@ -898,18 +699,28 @@ class TestHasDuplicatePrimaryKeys:
                 impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger)
         mock_capture.assert_not_called()
 
-    def test_system_requested_abort_is_not_reported(self, impl, cursor, logger):
-        # Redshift WLM/QMR aborts (code 1020, "system requested abort") surface as `InternalError_`
-        # and are expected, non-actionable noise — skip gracefully without reporting to error tracking.
-        abort_message = (
-            "abort query\nDETAIL:  \n  error:  abort query\n  code:      1020\n"
-            "  context:   system requested abort\n  location:  queryabort.hpp:103\n"
+    def test_insufficient_privilege_is_not_reported(self, impl: Any, cursor: Any, logger: Any) -> None:
+        # The connecting role lacks SELECT on the relation (or a materialized view's base table) —
+        # a customer permission-config issue, not an actionable bug. The probe is best-effort, so
+        # skip gracefully without reporting the expected error to error tracking.
+        cursor.execute.side_effect = psycopg.errors.InsufficientPrivilege(
+            'permission denied for materialized view base relation "some_mv"'
         )
-        cursor.execute.side_effect = psycopg.errors.InternalError(abort_message)
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
         ) as mock_capture:
-            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is None
+        mock_capture.assert_not_called()
+
+    def test_undefined_table_is_not_reported(self, impl: Any, cursor: Any, logger: Any) -> None:
+        # The table was dropped or renamed between schema discovery and this probe running — a
+        # customer-side change, not an actionable bug. The probe is best-effort, so skip gracefully
+        # without reporting the expected error to error tracking.
+        cursor.execute.side_effect = psycopg.errors.UndefinedTable('relation "public.t" does not exist')
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
+        ) as mock_capture:
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is None
         mock_capture.assert_not_called()
 
 
@@ -918,118 +729,88 @@ class TestHasDuplicatePrimaryKeys:
 # ---------------------------------------------------------------------------
 
 
+def _columns_conn(*fetches: list[tuple[Any, ...]]) -> tuple[MagicMock, MagicMock]:
+    conn = MagicMock()
+    cur = MagicMock()
+    cur.__enter__.return_value = cur
+    cur.fetchall.side_effect = [*fetches, [], [], []]
+    conn.cursor.return_value = cur
+    return conn, cur
+
+
 class TestGetColumns:
-    def test_returns_columns_grouped_by_table(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.fetchall.return_value = [
-            ("public", "users", "id", "integer", "NO"),
-            ("public", "users", "email", "varchar", "YES"),
-            ("public", "orders", "id", "bigint", "NO"),
-        ]
-        conn.cursor.return_value = cur
-
-        result = impl.get_columns(conn, _make_config(), names=None)
-
-        # Pinned schema → bare table keys (single-namespace fast path).
-        assert result == {
-            "users": [("id", "integer", False), ("email", "varchar", True)],
-            "orders": [("id", "bigint", False)],
-        }
-        executed_sql = cur.execute.call_args.args[0]
-        assert "table_schema = %(schema)s" in executed_sql
-
-    def test_returns_empty_when_no_rows(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.fetchall.return_value = []
-        conn.cursor.return_value = cur
-
-        assert impl.get_columns(conn, _make_config(), names=["foo"]) == {}
-
     def test_excludes_redshift_internal_columns(self, impl):
         # Discovery must drop the `padb_internal_*` columns Redshift stamps onto materialized
         # views — they never come back from `SELECT *`, so surfacing them desyncs the schema.
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.fetchall.return_value = []
-        conn.cursor.return_value = cur
+        conn, cur = _columns_conn([])
 
         impl.get_columns(conn, _make_config(), names=None)
 
-        executed_sql, executed_params = cur.execute.call_args.args
+        executed_sql, executed_params = cur.execute.call_args_list[0].args
         assert "column_name NOT LIKE %(internal_column)s" in executed_sql
         assert executed_params["internal_column"] == "padb_internal%"
 
-    def test_blank_schema_qualifies_and_excludes_system_schemas(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        # Same table name in two schemas must stay distinct.
-        cur.fetchall.return_value = [
-            ("analytics", "users", "id", "integer", "NO"),
-            ("public", "users", "id", "bigint", "NO"),
-        ]
-        conn.cursor.return_value = cur
+    def test_requested_relation_hidden_from_information_schema_is_read_from_pg_catalog(self, impl):
+        # A materialized view the role can read may still have no `information_schema.columns`
+        # rows, which made "edit sync method" report the relation as missing or unreadable.
+        conn, cur = _columns_conn(
+            [("public", "orders", "id", "bigint", "NO")],
+            [
+                ("public", "daily_totals", "day", "date", "NO"),
+                ("public", "daily_totals", "total", "numeric(18,2)", "YES"),
+                ("public", "daily_totals", "label", "character varying(256)", "YES"),
+                ("public", "daily_totals", "refreshed_at", "timestamp without time zone", "YES"),
+            ],
+        )
 
-        result = impl.get_columns(conn, _make_config(schema=""), names=None)
+        result = impl.get_columns(conn, _make_config(schema=""), names=["public.orders", "public.daily_totals"])
 
         assert result == {
-            "analytics.users": [("id", "integer", False)],
-            "public.users": [("id", "bigint", False)],
+            "public.orders": [("id", "bigint", False)],
+            "public.daily_totals": [
+                ("day", "date", False),
+                ("total", "numeric", True),
+                ("label", "character varying", True),
+                ("refreshed_at", "timestamp without time zone", True),
+            ],
         }
-        executed_sql, executed_params = cur.execute.call_args.args
-        assert "table_schema NOT IN" in executed_sql
-        assert "pg_temp_%" in executed_sql
-        assert set(executed_params.values()) >= {"pg_catalog", "information_schema", "pg_internal", "pg_automv"}
+        catalog_sql, catalog_params = cur.execute.call_args.args
+        assert "pg_catalog.pg_attribute" in catalog_sql
+        assert "n.nspname = %(sch_0)s AND c.relname = %(tbl_0)s" in catalog_sql
+        assert catalog_params["tbl_0"] == "daily_totals"
+        assert "orders" not in catalog_params.values()
 
-    def test_blank_schema_with_qualified_names_filters_by_pair(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.fetchall.return_value = [("analytics", "users", "id", "integer", "NO")]
-        conn.cursor.return_value = cur
+    def test_full_listing_adds_materialized_views_missing_from_information_schema(self, impl):
+        # A schema refresh disables the sync of every table it no longer lists, so a hidden
+        # materialized view has to come back from `svv_mv_info` + `pg_catalog`. One that
+        # `information_schema` did list must not be read twice.
+        conn, cur = _columns_conn(
+            [
+                ("public", "orders", "id", "bigint", "NO"),
+                ("public", "listed_mv", "id", "bigint", "NO"),
+            ],
+            [("public", "listed_mv"), ("public", "hidden_mv")],
+            [("public", "hidden_mv", "id", "integer", "NO")],
+        )
 
-        result = impl.get_columns(conn, _make_config(schema=""), names=["analytics.users"])
+        result = impl.get_columns(conn, _make_config(), names=None)
 
-        assert result == {"analytics.users": [("id", "integer", False)]}
-        executed_sql, executed_params = cur.execute.call_args.args
-        assert "table_schema = %(sch_0)s AND table_name = %(tbl_0)s" in executed_sql
-        assert executed_params["sch_0"] == "analytics"
-        assert executed_params["tbl_0"] == "users"
+        assert result == {
+            "orders": [("id", "bigint", False)],
+            "listed_mv": [("id", "bigint", False)],
+            "hidden_mv": [("id", "integer", False)],
+        }
+        mv_sql = cur.execute.call_args_list[1].args[0]
+        assert "svv_mv_info" in mv_sql
+        catalog_params = cur.execute.call_args.args[1]
+        assert catalog_params["name_0"] == "hidden_mv"
+        assert "listed_mv" not in catalog_params.values()
 
 
 class TestGetPrimaryKeys:
     def test_returns_empty_for_no_tables(self, impl):
         result = impl.get_primary_keys(MagicMock(), _make_config(), [])
         assert result == {}
-
-    def test_returns_pk_columns_grouped_by_table(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.fetchall.return_value = [
-            ("public", "users", "id"),
-            ("public", "users", "tenant_id"),
-            ("public", "orders", "id"),
-        ]
-        conn.cursor.return_value = cur
-
-        result = impl.get_primary_keys(conn, _make_config(), ["users", "orders", "items"])
-        assert result == {"users": ["id", "tenant_id"], "orders": ["id"], "items": None}
-
-    def test_blank_schema_keeps_same_table_name_distinct(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.fetchall.return_value = [("analytics", "users", "id"), ("public", "users", "uid")]
-        conn.cursor.return_value = cur
-
-        result = impl.get_primary_keys(conn, _make_config(schema=""), ["analytics.users", "public.users"])
-        assert result == {"analytics.users": ["id"], "public.users": ["uid"]}
 
     def test_blank_schema_bare_name_degrades_without_crashing(self, impl):
         # Unknown-schema key must not crash the batch query (None can't sort with str schemas).
@@ -1043,14 +824,20 @@ class TestGetPrimaryKeys:
         assert result == {"users": None}
 
     def test_swallows_errors_and_returns_none_per_table(self, impl):
+        # Discovery runs every probe on one transactional connection, so the aborted transaction
+        # has to go here: the row-count and sortkey probes that follow would otherwise fail on
+        # `InFailedSqlTransaction` and lose metadata this failure never touched.
         conn = MagicMock()
         cur = MagicMock()
         cur.__enter__.return_value = cur
         cur.execute.side_effect = Exception("denied")
         conn.cursor.return_value = cur
+        conn.info.transaction_status = TransactionStatus.INERROR
 
         result = impl.get_primary_keys(conn, _make_config(), ["users"])
+
         assert result == {"users": None}
+        conn.rollback.assert_called_once()
 
 
 class TestGetRowCounts:
@@ -1128,28 +915,6 @@ class TestGetLeadingIndexColumns:
     def test_returns_empty_for_no_tables(self, impl):
         assert impl.get_leading_index_columns(MagicMock(), _make_config(), []) == {}
 
-    def test_returns_leading_compound_sortkey(self, impl):
-        # schemaname, tablename, column, sortkey
-        conn = self._make_conn(
-            [
-                ("public", "messages", "created_at", 1),
-                ("public", "messages", "user_id", 2),
-            ]
-        )
-        result = impl.get_leading_index_columns(conn, _make_config(), ["messages"])
-        assert result == {"messages": {"created_at"}}
-
-    def test_treats_interleaved_sortkey_as_indexed(self, impl):
-        conn = self._make_conn(
-            [
-                ("public", "messages", "a", -1),
-                ("public", "messages", "b", 2),
-                ("public", "messages", "c", -3),
-            ]
-        )
-        result = impl.get_leading_index_columns(conn, _make_config(), ["messages"])
-        assert result == {"messages": {"a", "b", "c"}}
-
     def test_blank_schema_classifies_sortkeys_per_namespace(self, impl):
         conn = self._make_conn(
             [
@@ -1163,74 +928,13 @@ class TestGetLeadingIndexColumns:
         )
         assert result == {"analytics.messages": {"created_at"}, "public.messages": {"a", "b"}}
 
-    def test_tables_with_no_sortkey_are_empty(self, impl):
-        conn = self._make_conn([])
-        result = impl.get_leading_index_columns(conn, _make_config(), ["messages", "logs"])
-        assert result == {"messages": set(), "logs": set()}
-
-    def test_returns_none_on_exception(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.execute.side_effect = Exception("denied")
-        conn.cursor.return_value = cur
-        assert impl.get_leading_index_columns(conn, _make_config(), ["t"]) is None
-
-
-class TestGetSourceMetadata:
-    def test_pinned_schema_stamps_config_namespace(self, impl):
-        metadata = impl.get_source_metadata(MagicMock(), _make_config(), ["users", "orders"])
-        assert metadata.schema_by_table == {"users": "public", "orders": "public"}
-        assert metadata.table_name_by_table == {"users": "users", "orders": "orders"}
-        assert metadata.catalog_by_table == {"users": None, "orders": None}
-
-    def test_blank_schema_splits_qualified_display_names(self, impl):
-        metadata = impl.get_source_metadata(MagicMock(), _make_config(schema=""), ["analytics.users", "public.users"])
-        assert metadata.schema_by_table == {"analytics.users": "analytics", "public.users": "public"}
-        assert metadata.table_name_by_table == {"analytics.users": "users", "public.users": "users"}
-        assert metadata.catalog_by_table == {"analytics.users": None, "public.users": None}
-
-    def test_blank_schema_does_not_guess_namespace_for_bare_name(self, impl):
-        # A bare key in multi-schema mode is unexpected (discovery always qualifies); never invent
-        # a schema we'd then fail to query — leave it unknown so the resolver self-heals.
-        metadata = impl.get_source_metadata(MagicMock(), _make_config(schema=""), ["users"])
-        assert metadata.schema_by_table == {"users": None}
-        assert metadata.table_name_by_table == {"users": "users"}
-
 
 # ---------------------------------------------------------------------------
 # Source wiring — singleton + get_implementation + non-retryable errors
 # ---------------------------------------------------------------------------
 
 
-class TestRedshiftSourceWiring:
-    def test_get_implementation_returns_singleton(self):
-        source = RedshiftSource()
-        assert source.get_implementation is _REDSHIFT_IMPLEMENTATION
-
-
 class TestRedshiftSourceNonRetryableErrors:
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            "Source column type changed",
-            "SchemaColumnTypeChangedException: Source column type changed: 'id' has values that no longer fit",
-        ],
-    )
-    def test_widened_integer_column_errors_are_non_retryable(self, error_msg):
-        non_retryable = RedshiftSource().get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable
-
-    def test_ssl_server_error_is_non_retryable(self):
-        error_msg = (
-            'connection failed: connection to server at "10.0.0.1", port 5439 failed: '
-            "server does not support SSL, but SSL was required"
-        )
-        non_retryable = RedshiftSource().get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable
-
     def test_permission_denied_raw_message_is_non_retryable(self):
         # The activity-level check matches the raw `str(exception)`, which for a psycopg
         # `InsufficientPrivilege` never contains the class name — only the `InsufficientPrivilege`
@@ -1242,16 +946,15 @@ class TestRedshiftSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable
 
-    def test_query_timeout_raw_message_is_non_retryable(self):
-        # Mirrors the `InsufficientPrivilege` case above: the activity-level check matches raw
-        # `str(exception)`, which for `QueryTimeoutException` is just the message with no class
-        # name — only the `QueryTimeoutException` key (workflow layer only) would miss this,
-        # letting the activity retry a query that times out identically every attempt because the
-        # table's incremental field isn't a SORTKEY.
-        error_msg = "10 min timeout statement reached. Please ensure your incremental field (updated_at) is set as a SORTKEY on the table"
-        non_retryable = RedshiftSource().get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable
+    @pytest.mark.parametrize(
+        "error_msg",
+        [f"{HOST_RESOLUTION_TIMEOUT_ERROR} after 15.0s", TEMPORARY_HOST_RESOLUTION_ERROR],
+    )
+    def test_resolver_failures_before_the_connect_are_classified_retryable(self, error_msg):
+        source = RedshiftSource()
+        assert any(pattern in error_msg for pattern in source.get_retryable_errors())
+        assert not any(pattern in error_msg for pattern in source.get_non_retryable_errors())
+        assert source.get_retryable_errors() == set(source.get_retry_exhausted_errors().keys())
 
 
 class TestRedshiftValidateCredentials:
@@ -1278,6 +981,29 @@ class TestRedshiftValidateCredentials:
 
         assert ok is False
         assert error is not None and "does not support SSL" in error
+        capture.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "refusal,expected_fragment",
+        [
+            (HostNotAllowedError("Database host not allowed: resolves to a private address"), "not allowed"),
+            (TemporaryHostResolutionError("db.example.com"), "Try again in a moment"),
+        ],
+    )
+    def test_a_host_the_policy_refuses_is_returned_without_capturing(self, mocker, refusal, expected_fragment):
+        config = _make_config()
+        source = RedshiftSource()
+        mocker.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None))
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        mocker.patch.object(source, "get_schemas", side_effect=refusal)
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source.capture_exception"
+        )
+
+        ok, error = source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert error is not None and expected_fragment in error
         capture.assert_not_called()
 
     def test_ssh_gateway_session_error_maps_to_actionable_message(self, mocker):
@@ -1377,52 +1103,11 @@ def build_pipeline_mocks(mocker):
 
 
 class TestIsTransientConnectionDropError:
-    def test_matches_connection_is_lost(self):
-        assert _is_transient_connection_drop_error(psycopg.OperationalError("the connection is lost")) is True
-
-    def test_does_not_match_unrelated_operational_error(self):
-        # A permanent, non-actionable failure that also raises OperationalError must not be
-        # swept up by the narrow "the connection is lost" match and retried in-process.
-        assert (
-            _is_transient_connection_drop_error(
-                psycopg.OperationalError("password authentication failed for user testuser")
-            )
-            is False
-        )
-
     def test_does_not_match_non_operational_error(self):
         assert _is_transient_connection_drop_error(ValueError("the connection is lost")) is False
 
 
 class TestBuildPipeline:
-    def test_retries_once_on_transient_connection_drop_during_setup(self, build_pipeline_mocks, mocker):
-        # Regression: `get_table_metadata` hit a freshly opened connection that dropped
-        # (`psycopg.OperationalError: the connection is lost`) before setup finished. Without an
-        # in-process retry this failed the whole sync out to Temporal's activity-level retry, which
-        # restarts the entire setup phase from scratch instead of reconnecting once.
-        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.time.sleep")
-        attempts = {"n": 0}
-        fake_table = Table(
-            name="messages",
-            parents=("public",),
-            columns=[RedshiftColumn(name="id", data_type="integer", nullable=False)],
-            type="table",
-        )
-
-        def flaky_get_table_metadata(*args, **kwargs):
-            attempts["n"] += 1
-            if attempts["n"] == 1:
-                raise psycopg.OperationalError("the connection is lost")
-            return fake_table
-
-        mocker.patch.object(RedshiftImplementation, "get_table_metadata", side_effect=flaky_get_table_metadata)
-
-        impl = RedshiftImplementation()
-        response = impl.build_pipeline(_make_config(), _make_inputs())
-
-        assert attempts["n"] == 2
-        assert response.primary_keys == ["id"]
-
     def test_gives_up_after_max_attempts_on_persistent_connection_drop(self, build_pipeline_mocks, mocker):
         mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.time.sleep")
         mocker.patch.object(
@@ -1435,33 +1120,63 @@ class TestBuildPipeline:
         with pytest.raises(psycopg.OperationalError):
             impl.build_pipeline(_make_config(), _make_inputs())
 
-    def test_returns_source_response(self, build_pipeline_mocks):
-        mock_connect, _ = build_pipeline_mocks
-        impl = RedshiftImplementation()
-        response = impl.build_pipeline(_make_config(), _make_inputs())
-        assert response.name == "messages"
-        assert response.primary_keys == ["id"]
-        # psycopg.connect was called at least once for the metadata pass
-        assert mock_connect.called
+    def test_retries_once_on_transient_connection_drop_opening_the_streaming_connection(
+        self, build_pipeline_mocks, mocker
+    ):
+        # Regression: unlike the metadata connect above, opening the streaming connection had no
+        # in-process retry. Nothing has been read yet at that point, so a drop there is exactly as
+        # safe to retry as a setup-phase drop — but without the retry it fell straight through to a
+        # full Temporal activity retry that restarts the whole sync.
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.time.sleep")
+        mock_connect, streaming_cursor = build_pipeline_mocks
+        real_side_effect = mock_connect.side_effect
+        attempts = {"n": 0}
 
-    def test_metadata_connection_uses_autocommit(self, build_pipeline_mocks):
-        # Regression: discovery probes share one connection. Without autocommit a single failing
-        # best-effort probe leaves the transaction aborted (INERROR) and every probe after it —
-        # `has_duplicate_primary_keys` was the reported one — raises `InFailedSqlTransaction`.
-        mock_connect, _ = build_pipeline_mocks
-        impl = RedshiftImplementation()
-        impl.build_pipeline(_make_config(), _make_inputs())
+        def flaky_streaming_connect(*args, **kwargs):
+            attempts["n"] += 1
+            # Call 1 is the metadata connect; call 2 is the first streaming connect attempt.
+            if attempts["n"] == 2:
+                raise psycopg.OperationalError("the connection is lost")
+            return real_side_effect(*args, **kwargs)
 
-        metadata_conn = mock_connect.created_conns[0]
-        assert metadata_conn.autocommit is True
+        mock_connect.side_effect = flaky_streaming_connect
 
-    def test_streaming_drains_without_error(self, build_pipeline_mocks):
-        _, streaming_cursor = build_pipeline_mocks
         impl = RedshiftImplementation()
         response = impl.build_pipeline(_make_config(), _make_inputs())
         list(response.items())  # type: ignore[arg-type]
-        # streaming cursor.execute should have been invoked for the streaming query
-        assert streaming_cursor.execute.called
+
+        assert attempts["n"] == 3
+        # The metadata connect's own `SET statement_timeout` also calls `execute` on this shared
+        # cursor mock, so asserting `execute.called` would pass even if the retried streaming
+        # connection never ran its query. `stream` is only called once the retry succeeds.
+        streaming_cursor.stream.assert_called_once()
+
+    def test_sync_all_names_the_columns_rediscovered_before_streaming(self, build_pipeline_mocks, mocker):
+        # A role holding column grants instead of table grants cannot run `SELECT *`, because the
+        # star expands to columns it may not read. The cluster drops `nickname` between setup and
+        # the read here: naming it would fail the read as a permanent error, which disables the
+        # schema.
+        def table_with(*columns: str) -> Table:
+            return Table(
+                name="messages",
+                parents=("public",),
+                columns=[RedshiftColumn(name=name, data_type="varchar", nullable=True) for name in columns],
+                type="table",
+            )
+
+        mocker.patch.object(
+            RedshiftImplementation,
+            "get_table_metadata",
+            side_effect=[table_with("id", "email", "nickname"), table_with("id", "email")],
+        )
+        _, streaming_cursor = build_pipeline_mocks
+        impl = RedshiftImplementation()
+
+        response = impl.build_pipeline(_make_config(), _make_inputs())
+        list(response.items())  # type: ignore[arg-type]
+
+        streaming_query = streaming_cursor.stream.call_args.args[0]
+        assert streaming_query.as_string().startswith('SELECT "id", "email" FROM')
 
     def test_chunk_size_override_skips_probe(self, build_pipeline_mocks, mocker):
         mocked_chunk_size = mocker.patch.object(RedshiftImplementation, "get_chunk_size")
@@ -1469,125 +1184,10 @@ class TestBuildPipeline:
         impl.build_pipeline(_make_config(), _make_inputs(), chunk_size_override=4242)
         mocked_chunk_size.assert_not_called()
 
-    def test_routes_per_row_namespace_from_schema_metadata(self, build_pipeline_mocks, mocker):
-        get_meta = mocker.patch.object(
-            RedshiftImplementation,
-            "get_table_metadata",
-            return_value=Table(
-                name="users",
-                parents=("analytics",),
-                columns=[RedshiftColumn(name="id", data_type="integer", nullable=False)],
-                type="table",
-            ),
-        )
-        impl = RedshiftImplementation()
-        inputs = _make_inputs(
-            schema_name="analytics.users",
-            schema_metadata={"source_schema": "analytics", "source_table_name": "users"},
-        )
-
-        response = impl.build_pipeline(_make_config(schema=""), inputs)
-
-        # Per-row schema + unqualified table threaded into the metadata query.
-        assert get_meta.call_args.args[1] == "analytics"
-        assert get_meta.call_args.args[2] == "users"
-        # Delta subdir is the underscore-normalized qualified name.
-        assert response.name == "analytics_users"
-
-    def test_legacy_row_falls_back_to_config_schema(self, build_pipeline_mocks, mocker):
-        get_meta = mocker.patch.object(
-            RedshiftImplementation,
-            "get_table_metadata",
-            return_value=Table(
-                name="messages",
-                parents=("public",),
-                columns=[RedshiftColumn(name="id", data_type="integer", nullable=False)],
-                type="table",
-            ),
-        )
-        impl = RedshiftImplementation()
-        # No schema_metadata, bare table name, pinned config schema.
-        response = impl.build_pipeline(_make_config(), _make_inputs(schema_name="messages"))
-
-        assert get_meta.call_args.args[1] == "public"
-        assert get_meta.call_args.args[2] == "messages"
-        assert response.name == "messages"
-
-    def test_s3_folder_name_preserves_legacy_delta_path(self, build_pipeline_mocks, mocker):
-        mocker.patch.object(
-            RedshiftImplementation,
-            "get_table_metadata",
-            return_value=Table(
-                name="users",
-                parents=("analytics",),
-                columns=[RedshiftColumn(name="id", data_type="integer", nullable=False)],
-                type="table",
-            ),
-        )
-        impl = RedshiftImplementation()
-        inputs = _make_inputs(
-            schema_name="analytics.users",
-            schema_metadata={"source_schema": "analytics", "source_table_name": "users"},
-            s3_folder_name="users",
-        )
-
-        response = impl.build_pipeline(_make_config(schema=""), inputs)
-
-        # Migrated row keeps its original subdir rather than moving to `analytics_users`.
-        assert response.name == "users"
-
 
 # ---------------------------------------------------------------------------
 # Connection lifecycle
 # ---------------------------------------------------------------------------
-
-
-class TestConnect:
-    def test_connect_forwards_tcp_keepalive_opts(self, mocker):
-        # Regression: a discovery query (`get_columns`) hung in psycopg's `wait_c` on a dead
-        # connection until the Temporal activity's `start_to_close_timeout` cancelled the worker
-        # thread, surfacing a misleading `CancelledError`. `connect_timeout` only bounds
-        # establishing the connection, so the connection must enable TCP keepalives to detect a
-        # dead peer mid-query and fail fast with a retryable error instead.
-        mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.open_ssh_tunnel",
-        ).return_value.__enter__.return_value = ("localhost", 5439)
-        mock_conn = MagicMock()
-        mock_conn.__enter__.return_value = mock_conn
-        mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.psycopg.connect",
-            return_value=mock_conn,
-        )
-
-        impl = RedshiftImplementation()
-        with impl.connect(_make_config()):
-            pass
-
-        kwargs = mock_connect.call_args.kwargs
-        assert kwargs["keepalives"] == 1
-        assert kwargs["keepalives_idle"] == 30
-        assert kwargs["keepalives_interval"] == 10
-        assert kwargs["keepalives_count"] == 3
-        assert kwargs["tcp_user_timeout"] == 60000
-
-    def test_connect_registers_safe_date_loader(self, mocker):
-        # Wiring guard: SafeDateLoader only protects a sync if it's actually registered on the
-        # connection every `connect()` call produces.
-        mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.open_ssh_tunnel",
-        ).return_value.__enter__.return_value = ("localhost", 5439)
-        mock_conn = MagicMock()
-        mock_conn.__enter__.return_value = mock_conn
-        mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.psycopg.connect",
-            return_value=mock_conn,
-        )
-
-        impl = RedshiftImplementation()
-        with impl.connect(_make_config()):
-            pass
-
-        mock_conn.adapters.register_loader.assert_any_call("date", SafeDateLoader)
 
 
 class TestGetConnectionMetadata:

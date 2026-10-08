@@ -2,19 +2,20 @@ import { BindLogic } from 'kea'
 import { CSSProperties, useState } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { TrendInsight } from 'scenes/trends/Trends'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { InsightVizNode } from '~/queries/schema/schema-general'
-import { InsightLogicProps, InsightShortId, InsightType, QueryBasedInsightModel } from '~/types'
+import { InsightLogicProps, InsightShortId, InsightType, InsightModel } from '~/types'
+
+import { TrendInsight } from 'products/product_analytics/frontend/insights/trends/Trends'
 
 let uniqueNode = 0
 
 interface InsightVizStoryProps {
-    insight: Partial<QueryBasedInsightModel>
+    insight: Partial<InsightModel>
     /** Wrapper width in pixels. @default 720 */
     width?: number
     /** Value for `--insight-viz-min-height`, which the chart height floors to. @default '32rem' */

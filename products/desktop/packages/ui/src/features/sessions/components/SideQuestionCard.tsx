@@ -61,7 +61,7 @@ export function SideQuestionCard({ taskId, taskRunId }: SideQuestionCardProps) {
       <output className="mt-1 block pl-6">
         {entry.status === "pending" && (
           <div className="flex items-center gap-2">
-            <Spinner size={14} className="text-muted-foreground" />
+            <Spinner size="md" className="text-muted-foreground" />
             <Text className="text-[13px] text-muted-foreground">
               Answering…
             </Text>

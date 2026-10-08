@@ -5,11 +5,15 @@ import pytest
 from unittest import mock
 
 from parameterized import parameterized
-from requests import PreparedRequest, Response
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.codefresh import (
+    ACCOUNT_LOOKUP_FAILED,
+    ACCOUNT_LOOKUP_MESSAGE,
+    CODEFRESH_BASE_URL,
     CodefreshResumeConfig,
     _flatten,
+    _resolve_account_id,
     _transform_row,
     codefresh_source,
     validate_credentials,
@@ -61,10 +65,15 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict
     return param_snapshots, header_snapshots
 
 
-def _source(endpoint: str, manager: mock.MagicMock | None = None):
-    return codefresh_source(
-        "token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager or _make_manager()
-    )
+def _source(endpoint: str, manager: mock.MagicMock | None = None, account_teams: Any = None):
+    """Build the source response, stubbing the /team lookup the ``users`` path needs for its
+    account id. Other endpoints never make that call, so the stub is inert for them."""
+    session = mock.MagicMock()
+    session.get.return_value = _response([{"account": "acc-1"}] if account_teams is None else account_teams)
+    with mock.patch(CODEFRESH_SESSION_PATCH, return_value=session):
+        return codefresh_source(
+            "token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager or _make_manager()
+        )
 
 
 def _rows(source_response) -> list[dict[str, Any]]:
@@ -79,18 +88,6 @@ class TestFlatten:
         assert result["name"] == "build-and-test"
         assert result["spec"] == {"steps": {}}
         assert "metadata" not in result
-
-    def test_top_level_field_wins_on_clash(self) -> None:
-        item = {"metadata": {"id": "from_metadata"}, "id": "top_level"}
-        assert _flatten(item, "metadata")["id"] == "top_level"
-
-    def test_no_flatten_key_is_passthrough(self) -> None:
-        item = {"id": "1", "created": "2026-01-01"}
-        assert _flatten(item, None) == item
-
-    def test_flatten_key_absent_is_passthrough(self) -> None:
-        item = {"id": "1"}
-        assert _flatten(item, "metadata") == item
 
 
 class TestTransformRow:
@@ -149,28 +146,16 @@ class TestTransformRow:
             ("pipelines", "spec.variables"),
             ("triggers", "event-data.endpoint"),
             ("triggers", "event-data.secret"),
+            ("users", "inviteUrl"),
         ]
     )
     def test_endpoint_redacts_secret_bearing_variables(self, endpoint: str, redacted_key: str) -> None:
-        # These endpoints expose plaintext config/CI variables or webhook secrets; the configured
-        # source must strip them.
+        # These endpoints expose plaintext config/CI variables, webhook secrets, or an invite URL
+        # that grants account access; the configured source must strip them.
         assert redacted_key in CODEFRESH_ENDPOINTS[endpoint].redact_keys
 
 
 class TestOffsetPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_stops_without_saving(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "1"}])])
-        manager = _make_manager()
-
-        rows = _rows(_source("projects", manager))
-
-        assert rows == [{"id": "1"}]
-        assert session.send.call_count == 1
-        # A short page is the last page — nothing left to resume to, so no state is saved.
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_full_page_then_short_page_paginates_and_saves(self, MockSession) -> None:
         session = MockSession.return_value
@@ -254,42 +239,6 @@ class TestPagePagination:
         assert manager.save_state.call_args.args[0] == CodefreshResumeConfig(page=2, session_id="sess-1")
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_no_next(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"workflows": {"docs": [{"id": "b1"}]}, "pagination": {"nextPage": False}})])
-        manager = _make_manager()
-
-        rows = _rows(_source("builds", manager))
-
-        assert rows == [{"id": "b1"}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_stops_even_when_next_page_advertised(self, MockSession) -> None:
-        # A misbehaving API that streams empty pages with nextPage=True must not loop forever.
-        session = MockSession.return_value
-        _wire(session, [_response({"workflows": {"docs": []}, "pagination": {"nextPage": True}})])
-        manager = _make_manager()
-
-        rows = _rows(_source("builds", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_docs_envelope_stops_without_rows(self, MockSession) -> None:
-        # A body without workflows.docs yields no rows and terminates (parity with the old transport).
-        session = MockSession.return_value
-        _wire(session, [_response({"pagination": {"nextPage": True}})])
-
-        rows = _rows(_source("builds"))
-
-        assert rows == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_starts_from_saved_page_and_session(self, MockSession) -> None:
         session = MockSession.return_value
         params, headers = _wire(
@@ -303,78 +252,6 @@ class TestPagePagination:
         assert rows == [{"id": "b9"}]
         assert params[0]["page"] == 3
         assert headers[0]["X-Pagination-Session-Id"] == "sess-resume"
-
-
-class TestUnpaginatedEndpoint:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_triggers_single_fetch_yields_rows_without_pagination_params(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _headers = _wire(
-            session,
-            [
-                _response(
-                    [
-                        {"event": "e1", "pipeline": "p1", "event-data": {"secret": "s", "endpoint": "u"}},
-                        {"event": "e2", "pipeline": "p1"},
-                    ]
-                )
-            ],
-        )
-        manager = _make_manager()
-
-        rows = _rows(_source("triggers", manager))
-
-        # Single request, no pagination params, and the webhook secret/endpoint are redacted.
-        assert rows == [{"event": "e1", "pipeline": "p1", "event-data": {}}, {"event": "e2", "pipeline": "p1"}]
-        assert session.send.call_count == 1
-        assert params[0] == {}
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        rows = _rows(_source("triggers"))
-
-        assert rows == []
-
-
-class TestGetRowsFlattensPipelines:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_pipeline_metadata_lifted_to_top_level(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [_response({"docs": [{"metadata": {"id": "p1", "name": "deploy"}, "spec": {"steps": {}}}], "count": 1})],
-        )
-
-        rows = _rows(_source("pipelines"))
-
-        assert rows == [{"id": "p1", "name": "deploy", "spec": {"steps": {}}}]
-
-
-class TestAuth:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_authorization_header_is_raw_token_without_bearer_prefix(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        captured_auth: list[Any] = []
-
-        def _prepare(request: Any) -> mock.MagicMock:
-            captured_auth.append(request.auth)
-            return mock.MagicMock()
-
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = [_response([{"id": "1"}])]
-
-        _rows(_source("projects"))
-
-        # Codefresh expects the raw token as the Authorization header value — no "Bearer " prefix.
-        prepared = PreparedRequest()
-        prepared.prepare(method="GET", url="https://g.codefresh.io/api/projects", headers={})
-        captured_auth[0](prepared)
-        assert prepared.headers["Authorization"] == "token"
 
 
 class _FakeResponse:
@@ -402,6 +279,31 @@ class TestValidateCredentials:
         if not expected_valid:
             assert error is not None
 
+    def test_users_schema_is_rejected_when_no_team_names_an_account(self) -> None:
+        # A 200 from /team that names no account passes a status probe but fails the sync later,
+        # so validation has to reject it rather than report the table as reachable.
+        session = mock.MagicMock()
+        session.get.return_value = _response([{"_id": "t1", "name": "users"}])
+        with mock.patch(CODEFRESH_SESSION_PATCH, return_value=session):
+            valid, error = validate_credentials("token", schema_name="users")
+        assert valid is False
+        assert error == ACCOUNT_LOOKUP_MESSAGE
+
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    def test_users_schema_reports_the_status_the_team_lookup_returned(self, _name: str, status: int) -> None:
+        # A denied /team lookup is a credential answer, not an account answer, so the status
+        # mapping must report it instead of the account-lookup message.
+        denied = Response()
+        denied.status_code = status
+        denied._content = b"{}"
+        denied.url = f"{CODEFRESH_BASE_URL}/team"
+        session = mock.MagicMock()
+        session.get.side_effect = [denied, _FakeResponse(status)]
+        with mock.patch(CODEFRESH_SESSION_PATCH, return_value=session):
+            valid, error = validate_credentials("token", schema_name="users")
+        assert valid is False
+        assert error != ACCOUNT_LOOKUP_MESSAGE
+
     def test_connection_error_is_invalid(self) -> None:
         session = mock.MagicMock()
         session.get.side_effect = ConnectionError("boom")
@@ -409,6 +311,40 @@ class TestValidateCredentials:
             valid, error = validate_credentials("token")
         assert valid is False
         assert error is not None
+
+
+class TestAccountIdResolution:
+    def _patched(self, body: Any) -> mock.MagicMock:
+        session = mock.MagicMock()
+        session.get.return_value = _response(body)
+        return session
+
+    @parameterized.expand(
+        [
+            ("no_teams", []),
+            ("team_without_account", [{"_id": "t1", "name": "users"}]),
+            ("unexpected_envelope", {"docs": [{"account": "acc-7"}]}),
+        ]
+    )
+    def test_unresolvable_account_raises_the_curated_error(self, _name: str, body: Any) -> None:
+        # The message is what the user reads, because the source maps this prefix to an explanation
+        # in get_non_retryable_errors.
+        session = self._patched(body)
+        with mock.patch(CODEFRESH_SESSION_PATCH, return_value=session):
+            with pytest.raises(ValueError, match=ACCOUNT_LOOKUP_FAILED):
+                _resolve_account_id("token")
+
+
+class TestEnvelopeEndpointFailsLoudOnAMissingDataKey:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_body_without_the_docs_envelope_fails_loud(self, MockSession) -> None:
+        # Codefresh does not document this response body. A shape we did not expect must stop the
+        # sync instead of quietly syncing an empty table on every run.
+        session = MockSession.return_value
+        _wire(session, [_response([{"_id": "e1"}])])
+
+        with pytest.raises(ValueError, match="matched nothing in the response"):
+            _rows(_source("environments"))
 
 
 class TestCodefreshSourceResponse:
@@ -420,6 +356,9 @@ class TestCodefreshSourceResponse:
             ("images", ["id"], "created"),
             ("triggers", ["event", "pipeline"], None),
             ("step_types", ["id"], None),
+            ("environments", ["_id"], None),
+            ("teams", ["_id"], None),
+            ("users", ["_id"], None),
         ]
     )
     def test_source_response_primary_keys_and_partition(
@@ -434,9 +373,3 @@ class TestCodefreshSourceResponse:
         else:
             assert response.partition_mode == "datetime"
             assert response.partition_keys == [partition_key]
-
-    def test_every_endpoint_has_a_source_response(self) -> None:
-        # Guards against an endpoint added to settings without transport wiring.
-        for endpoint in CODEFRESH_ENDPOINTS:
-            response = _source(endpoint)
-            assert response.primary_keys

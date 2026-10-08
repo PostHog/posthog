@@ -50,6 +50,10 @@ def update_validated_data_from_url(validated_data: dict[str, Any], url: str) -> 
     """If remote plugin, download the archive and get up-to-date validated_data from there. Returns plugin.json."""
     plugin_json: Optional[dict[str, Any]]
     if url.startswith("file:"):
+        # A local plugin reads its plugin.json from the app server's filesystem, and the caller chooses the path.
+        # Only local development installs plugins this way, so refuse the scheme everywhere else.
+        if not settings.DEBUG:
+            raise ValidationError("Must be a GitHub/GitLab repository or a npm package URL!")
         plugin_path = url[5:]
         plugin_json_path = os.path.join(plugin_path, "plugin.json")
         plugin_json = cast(Optional[dict[str, Any]], load_json_file(plugin_json_path))

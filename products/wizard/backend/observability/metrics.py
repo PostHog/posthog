@@ -1,7 +1,12 @@
 from prometheus_client import Counter, Gauge, Histogram
 
 from products.wizard.backend.facade.contracts import WizardRunArtifactDTO, WizardRunDTO
-from products.wizard.backend.facade.enums import WizardRunEnvironment, WizardRunStage, WizardRunStatus
+from products.wizard.backend.facade.enums import (
+    WizardRunEnvironment,
+    WizardRunErrorCode,
+    WizardRunStage,
+    WizardRunStatus,
+)
 from products.wizard.backend.observability.config import (
     WIZARD_RUN_DURATION_BUCKETS,
     WIZARD_WORKER_CPU_SECONDS_BUCKETS,
@@ -157,8 +162,22 @@ def report_run_status_changed(previous: WizardRunDTO, current: WizardRunDTO) -> 
         WIZARD_CLOUD_RUNS_ACTIVE.labels(status=current.status.value, stage=current.stage.value).inc()
 
 
+# Known error codes are a fixed set; the stored code can also be an open PHW_* value
+# from a pinned Wizard version. Collapse anything outside the set to keep the Prometheus
+# label bounded — the raw code stays in the run row and the log line.
+_KNOWN_ERROR_CODES: frozenset[str] = frozenset(code.value for code in WizardRunErrorCode)
+
+
+def _bounded_error_code(error_code: str | None) -> str:
+    if error_code is None:
+        return "none"
+    if error_code in _KNOWN_ERROR_CODES:
+        return error_code
+    return "other"
+
+
 def report_run_finished(run: WizardRunDTO, failure_stage: WizardRunStage | None) -> None:
-    error_code = run.error_code or "none"
+    error_code = _bounded_error_code(run.error_code)
 
     WIZARD_RUNS_FINISHED_TOTAL.labels(
         environment=run.environment.value,

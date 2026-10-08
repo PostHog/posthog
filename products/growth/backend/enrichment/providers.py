@@ -51,7 +51,13 @@ class EnrichmentProvider(abc.ABC):
 
         No-op by default; a provider without async enrichment tracking has nothing to poll.
         """
-        return None
+        return (await self.enrichment_statuses_for([urn])).get(urn)
+
+    async def enrichment_statuses_for(self, urns: list[str]) -> dict[str, str]:
+        """A URN the provider has nothing to report for is absent from the result rather than mapped to None,
+        so callers can use plain membership checks.
+        """
+        return {}
 
 
 def _parent_company_urn(company: dict[str, Any]) -> Optional[str]:
@@ -82,12 +88,16 @@ class HarmonicEnrichmentProvider(EnrichmentProvider):
                 fields = await self._with_parent_company(client, company, fields)
         return ProviderLookup(fields=fields, raw_payload=company, enrichment_urn=lookup.enrichment_urn)
 
-    async def enrichment_status_for(self, urn: str) -> Optional[str]:
+    async def enrichment_statuses_for(self, urns: list[str]) -> dict[str, str]:
+        if not urns:
+            return {}
         async with AsyncHarmonicClient(source="growth_enrichment_provider") as client:
-            statuses = await client.get_enrichment_status([urn])
-        entry = statuses.get(urn)
-        status = entry.get("status") if isinstance(entry, dict) else None
-        return status if isinstance(status, str) else None
+            statuses = await client.get_enrichment_status(urns)
+        return {
+            urn: entry["status"]
+            for urn, entry in statuses.items()
+            if isinstance(entry, dict) and isinstance(entry.get("status"), str)
+        }
 
     async def _with_parent_company(
         self, client: AsyncHarmonicClient, company: dict[str, Any], fields: EnrichmentFields

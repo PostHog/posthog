@@ -22,7 +22,7 @@ function request(
     taskRunId: "r1",
     expectedCount: 10,
     currentCount: 5,
-    newEntries: [],
+    entryBatches: [],
     ...over,
   };
 }
@@ -33,24 +33,27 @@ describe("mergeCloudLogGapRequests", () => {
     expect(mergeCloudLogGapRequests(undefined, next)).toBe(next);
   });
 
-  it("widens the range and concatenates entries", () => {
+  it("widens the range and preserves batch positions", () => {
     const current = request({
       currentCount: 3,
       expectedCount: 8,
-      newEntries: [entry("a")],
+      entryBatches: [{ endCount: 8, entries: [entry("a")] }],
       logUrl: "old",
     });
     const next = request({
       currentCount: 6,
       expectedCount: 12,
-      newEntries: [entry("b")],
+      entryBatches: [{ endCount: 12, entries: [entry("b")] }],
       logUrl: undefined,
     });
 
     const merged = mergeCloudLogGapRequests(current, next);
     expect(merged.currentCount).toBe(3);
     expect(merged.expectedCount).toBe(12);
-    expect(merged.newEntries).toHaveLength(2);
+    expect(merged.entryBatches).toEqual([
+      { endCount: 8, entries: [entry("a")] },
+      { endCount: 12, entries: [entry("b")] },
+    ]);
     expect(merged.logUrl).toBe("old");
   });
 

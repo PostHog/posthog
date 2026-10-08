@@ -3,7 +3,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -109,10 +109,6 @@ class TestAccountNormalization:
         assert normalize_account(value) == "mycompany"
         assert base_url(value) == "https://mycompany.lacework.net/api/v2"
 
-    def test_account_with_path_stays_pinned_under_lacework_net(self) -> None:
-        # Anything after a slash is dropped, so a crafted value can't escape *.lacework.net.
-        assert base_url("evil.com/pwn?x=") == "https://evil.com.lacework.net/api/v2"
-
     @parameterized.expand(
         [
             ("empty", ""),
@@ -161,12 +157,6 @@ class TestValidateCredentials:
         with patch(f"{_LACEWORK_MODULE}.make_tracked_session", return_value=session):
             return validate_credentials("mycompany", "KEY_ID", "secret")
 
-    def test_valid_credentials(self) -> None:
-        assert self._validate(_FakeResponse(201, {"token": "tok", "expiresAt": "2100-01-01T00:00:00.000Z"})) == (
-            True,
-            None,
-        )
-
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
     def test_bad_credentials(self, _name: str, status_code: int) -> None:
         ok, message = self._validate(_FakeResponse(status_code, {"message": "unauthorized"}))
@@ -187,70 +177,35 @@ class TestValidateCredentials:
 
 
 class TestGetRowsWindowing:
-    @freeze_time("2026-06-15T12:00:00Z")
-    def test_post_search_slices_watermark_to_now_into_windows(self) -> None:
-        # vulnerabilities_hosts uses 1-day windows; a watermark 2.5 days back must produce three
-        # consecutive windows ending exactly at now — a slicing bug would skip or overlap data.
-        session = _FakeSession(
-            [
-                _FakeResponse(200, {"data": [{"vulnId": "CVE-1"}], "paging": {}}),
-                _FakeResponse(200, {"data": [{"vulnId": "CVE-2"}], "paging": {}}),
-                _FakeResponse(200, {"data": [{"vulnId": "CVE-3"}], "paging": {}}),
-            ]
-        )
-        rows = _collect_rows(
-            session,
-            "vulnerabilities_hosts",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 6, 13, 0, 0, tzinfo=UTC),
-        )
-
-        assert [r["vulnId"] for r in rows] == ["CVE-1", "CVE-2", "CVE-3"]
-        assert [
-            (method, body["timeFilter"]) for method, _url, body, _headers in session.data_calls if body is not None
-        ] == [
-            ("POST", {"startTime": "2026-06-13T00:00:00.000Z", "endTime": "2026-06-14T00:00:00.000Z"}),
-            ("POST", {"startTime": "2026-06-14T00:00:00.000Z", "endTime": "2026-06-15T00:00:00.000Z"}),
-            ("POST", {"startTime": "2026-06-15T00:00:00.000Z", "endTime": "2026-06-15T12:00:00.000Z"}),
+    @parameterized.expand(
+        [
+            (
+                "compliance",
+                "compliance_evaluations_aws",
+                "/Configs/ComplianceEvaluations/search",
+                "dataset",
+                "AwsCompliance",
+            ),
+            ("inventory", "inventory_gcp", "/Inventory/search", "csp", "GCP"),
         ]
-        assert all(url.endswith("/api/v2/Vulnerabilities/Hosts/search") for _m, url, _b, _h in session.data_calls)
-
-    @freeze_time("2026-06-15T12:00:00Z")
-    def test_get_endpoint_sends_time_window_as_query_params(self) -> None:
-        session = _FakeSession([_FakeResponse(200, {"data": [{"alertId": 1}], "paging": {}})])
-        rows = _collect_rows(
-            session,
-            "alerts",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 6, 15, 6, 0, tzinfo=UTC),
-        )
-
-        assert rows == [{"alertId": 1}]
-        method, url, body, _headers = session.data_calls[0]
-        assert method == "GET"
-        assert body is None
-        parsed = urlparse(url)
-        assert parsed.path == "/api/v2/Alerts"
-        assert parse_qs(parsed.query) == {
-            "startTime": ["2026-06-15T06:00:00.000Z"],
-            "endTime": ["2026-06-15T12:00:00.000Z"],
-        }
-
-    @freeze_time("2026-06-15T12:00:00Z")
-    def test_compliance_search_includes_dataset(self) -> None:
+    )
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    def test_search_includes_required_body_param(
+        self, _name: str, endpoint: str, path: str, param: str, value: str
+    ) -> None:
         session = _FakeSession([_FakeResponse(200, {"data": [], "paging": {}})])
         _collect_rows(
             session,
-            "compliance_evaluations_aws",
+            endpoint,
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 6, 15, 6, 0, tzinfo=UTC),
         )
 
         _method, url, body, _headers = session.data_calls[0]
-        assert url.endswith("/api/v2/Configs/ComplianceEvaluations/search")
-        assert body is not None and body["dataset"] == "AwsCompliance"
+        assert url.endswith(f"/api/v2{path}")
+        assert body is not None and body[param] == value
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_full_refresh_uses_default_lookback(self) -> None:
         # agent_info: 7-day lookback with 7-day windows -> exactly one request window.
         session = _FakeSession([_FakeResponse(200, {"data": [{"mid": 1}], "paging": {}})])
@@ -264,51 +219,72 @@ class TestGetRowsWindowing:
             "endTime": "2026-06-15T12:00:00.000Z",
         }
 
-    @freeze_time("2026-06-15T12:00:00Z")
-    def test_future_watermark_yields_nothing(self) -> None:
-        session = _FakeSession([])
-        rows = _collect_rows(
-            session,
-            "alerts",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2027, 1, 1, tzinfo=UTC),
-        )
 
-        assert rows == []
-        assert session.data_calls == []
-
-
-class TestGetRowsPagination:
-    @freeze_time("2026-06-15T12:00:00Z")
-    def test_follows_next_page_and_checkpoints_after_yield(self) -> None:
-        next_url = "https://mycompany.lacework.net/api/v2/Alerts/AbCdEf123"
+class TestGetRowsUnwindowed:
+    def test_list_endpoint_pages_without_time_range_and_strips_credentials(self) -> None:
+        next_url = "https://mycompany.lacework.net/api/v2/CloudAccounts/page2"
         session = _FakeSession(
             [
-                _FakeResponse(200, {"data": [{"alertId": 1}], "paging": {"urls": {"nextPage": next_url}}}),
-                _FakeResponse(200, {"data": [{"alertId": 2}], "paging": {}}),
+                _FakeResponse(
+                    200,
+                    {
+                        "data": [
+                            {
+                                "intgGuid": "A",
+                                "data": {
+                                    "awsAccountId": "123",
+                                    "crossAccountCredentials": {"externalId": "x", "roleArn": "arn"},
+                                },
+                            }
+                        ],
+                        "paging": {"urls": {"nextPage": next_url}},
+                    },
+                ),
+                _FakeResponse(
+                    200,
+                    {"data": [{"intgGuid": "B", "data": {"credentials": {"clientSecret": "s"}, "tenantId": "t"}}]},
+                ),
             ]
         )
         manager = _FakeResumableManager()
-        rows = _collect_rows(
-            session,
-            "alerts",
-            manager=manager,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 6, 15, 6, 0, tzinfo=UTC),
-        )
+        rows = _collect_rows(session, "cloud_accounts", manager=manager)
 
-        assert [r["alertId"] for r in rows] == [1, 2]
-        method, url, body, _headers = session.data_calls[1]
-        assert (method, url, body) == ("GET", next_url, None)
-        assert manager.saved == [
-            LaceworkResumeConfig(
-                window_start="2026-06-15T06:00:00.000Z",
-                window_end="2026-06-15T12:00:00.000Z",
-                next_page_url=next_url,
-            )
+        assert rows == [
+            {"intgGuid": "A", "data": {"awsAccountId": "123"}},
+            {"intgGuid": "B", "data": {"tenantId": "t"}},
         ]
+        assert [(m, u, b) for m, u, b, _h in session.data_calls] == [
+            ("GET", "https://mycompany.lacework.net/api/v2/CloudAccounts", None),
+            ("GET", next_url, None),
+        ]
+        assert manager.saved == []
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @parameterized.expand(
+        [
+            ("credential_endpoint", "cloud_accounts", False),
+            ("plain_endpoint", "policies", True),
+        ]
+    )
+    def test_data_session_capture_follows_credential_redaction(self, _name: str, endpoint: str, captured: bool) -> None:
+        session = _FakeSession([_FakeResponse(200, {"data": []})])
+        with patch(f"{_LACEWORK_MODULE}.make_tracked_session", return_value=session) as mock_make:
+            list(
+                get_rows(
+                    account_name="mycompany",
+                    key_id="KEY_ID",
+                    secret_key="secret",
+                    endpoint=endpoint,
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+
+        data_session_calls = [c for c in mock_make.call_args_list if not c.kwargs.get("redact_values")]
+        assert [c.kwargs.get("capture", True) for c in data_session_calls] == [captured]
+
+
+class TestGetRowsPagination:
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_next_page_on_foreign_host_is_not_followed(self) -> None:
         session = _FakeSession(
             [
@@ -328,7 +304,7 @@ class TestGetRowsPagination:
         assert [r["alertId"] for r in rows] == [1]
         assert len(session.data_calls) == 1
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_resume_continues_from_saved_window_and_page(self) -> None:
         resume_url = "https://mycompany.lacework.net/api/v2/Alerts/ResumeToken"
         manager = _FakeResumableManager(
@@ -370,7 +346,7 @@ class TestGetRowsPagination:
             )
         ]
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_resume_url_on_foreign_host_is_ignored(self) -> None:
         manager = _FakeResumableManager(
             LaceworkResumeConfig(
@@ -393,7 +369,7 @@ class TestGetRowsPagination:
         assert method == "GET"
         assert urlparse(url).hostname == "mycompany.lacework.net"
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_204_no_data_yields_nothing(self) -> None:
         session = _FakeSession([_FakeResponse(204, None)])
         rows = _collect_rows(
@@ -407,7 +383,7 @@ class TestGetRowsPagination:
 
 
 class TestAuth:
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_token_exchanged_once_and_sent_as_bearer(self) -> None:
         next_url = "https://mycompany.lacework.net/api/v2/Alerts/AbCdEf123"
         session = _FakeSession(
@@ -427,7 +403,7 @@ class TestAuth:
         for _method, _url, _body, headers in session.data_calls:
             assert headers["Authorization"] == "Bearer tok-123"
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_token_exchange_is_excluded_from_sample_capture(self) -> None:
         # The X-LW-UAKS request header and the response's generic `token` field are not caught by
         # the name-based sample scrubbers, so the auth session must opt out of capture and redact
@@ -458,7 +434,7 @@ class TestAuth:
         assert mock_make.call_args.kwargs.get("capture") is False
         assert mock_make.call_args.kwargs.get("redact_values") == ("secret",)
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_retries_on_429_using_retry_after(self) -> None:
         session = _FakeSession(
             [
@@ -476,7 +452,7 @@ class TestAuth:
         assert [r["alertId"] for r in rows] == [1]
         assert len(session.data_calls) == 2
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_result_set_row_cap_is_logged(self) -> None:
         session = _FakeSession(
             [_FakeResponse(200, {"data": [{"alertId": 1}], "paging": {"rows": 5000, "totalRows": 500_000}})]

@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
@@ -58,6 +59,13 @@ export function MetricsClauseRow({
         removeClause,
     } = useActions(metricsViewerLogic)
 
+    // Scoping attribute suggestions to the clause's metric lets the backend prune by metric name.
+    const metricName = clause.metricName.trim()
+    const clauseEndpointFilters = useMemo(
+        () => (metricName ? { ...attributeEndpointFilters, metricName } : attributeEndpointFilters),
+        [attributeEndpointFilters, metricName]
+    )
+
     const select = (): void => {
         if (!isActive) {
             setActiveClauseIndex(index)
@@ -75,7 +83,6 @@ export function MetricsClauseRow({
     const recommendedAggregation = clause.selectedMetricType
         ? RECOMMENDED_AGGREGATION_BY_TYPE[clause.selectedMetricType]
         : undefined
-
     return (
         <div className="flex flex-wrap items-start gap-2" data-attr="metrics-clause-row">
             {showAlias && (
@@ -106,11 +113,15 @@ export function MetricsClauseRow({
                 />
                 {clause.selectedMetricType &&
                     recommendedAggregation &&
-                    clause.aggregation !== recommendedAggregation && (
+                    (clause.aggregation !== recommendedAggregation ? (
                         <span className="text-xs text-secondary">
                             {clause.selectedMetricType}: {recommendedAggregation} recommended
                         </span>
-                    )}
+                    ) : (
+                        <LemonTag type="muted" size="small" className="self-start">
+                            {clause.selectedMetricType} · {recommendedAggregation}
+                        </LemonTag>
+                    ))}
             </div>
             <LemonSelect
                 size="small"
@@ -126,7 +137,7 @@ export function MetricsClauseRow({
                 rootKey={`metrics-viewer-filters-${clause.name}`}
                 group={clause.filterGroup.values[0] as UniversalFiltersGroup}
                 taxonomicGroupTypes={[TaxonomicFilterGroupType.MetricAttributes]}
-                endpointFilters={attributeEndpointFilters}
+                endpointFilters={clauseEndpointFilters}
                 onChange={(group) => {
                     if (!disabledReason) {
                         withSelect(setFilterGroup)({ type: FilterLogicalOperator.And, values: [group] })

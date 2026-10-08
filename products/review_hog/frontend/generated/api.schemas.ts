@@ -63,6 +63,9 @@ export interface PatchedReviewResolutionConfigSelectApi {
  * * `deduplicating` - deduplicating
  * * `validating` - validating
  * * `finalizing` - finalizing
+ * * `single_agent_preparing` - single_agent_preparing
+ * * `single_agent_reviewing` - single_agent_reviewing
+ * * `single_agent_finalizing` - single_agent_finalizing
  */
 export type ReviewStageEnumApi = (typeof ReviewStageEnumApi)[keyof typeof ReviewStageEnumApi]
 
@@ -74,10 +77,13 @@ export const ReviewStageEnumApi = {
     Deduplicating: 'deduplicating',
     Validating: 'validating',
     Finalizing: 'finalizing',
+    SingleAgentPreparing: 'single_agent_preparing',
+    SingleAgentReviewing: 'single_agent_reviewing',
+    SingleAgentFinalizing: 'single_agent_finalizing',
 } as const
 
 export interface ReviewProgressApi {
-    /** How far the in-flight review turn has come: fetching the diff, chunking, picking each chunk's perspectives, reviewing chunks, merging overlapping findings, validating them, or finalizing (building and publishing the review).
+    /** How far the in-flight review turn has come: fetching the diff, chunking, picking each chunk's perspectives, reviewing chunks, merging overlapping findings, validating them, or finalizing (building and publishing the review). A single-agent Flash turn reports its own `single_agent_*` stages instead: preparing, reviewing (main and lens sessions), and finalizing (merging, capping, and publishing the findings).
      *
      * * `fetching` - fetching
      * * `chunking` - chunking
@@ -85,7 +91,10 @@ export interface ReviewProgressApi {
      * * `reviewing` - reviewing
      * * `deduplicating` - deduplicating
      * * `validating` - validating
-     * * `finalizing` - finalizing */
+     * * `finalizing` - finalizing
+     * * `single_agent_preparing` - single_agent_preparing
+     * * `single_agent_reviewing` - single_agent_reviewing
+     * * `single_agent_finalizing` - single_agent_finalizing */
     review_stage: ReviewStageEnumApi
     /**
      * Work units finished within the stage; null when the stage has no counter.
@@ -473,6 +482,7 @@ export interface ReviewPerspectiveStatsApi {
  * * `review` - review
  * * `review_only` - review_only
  * * `resolve_only` - resolve_only
+ * * `flash` - flash
  */
 export type ReviewTriggerRequestRunModeEnumApi =
     (typeof ReviewTriggerRequestRunModeEnumApi)[keyof typeof ReviewTriggerRequestRunModeEnumApi]
@@ -481,23 +491,25 @@ export const ReviewTriggerRequestRunModeEnumApi = {
     Review: 'review',
     ReviewOnly: 'review_only',
     ResolveOnly: 'resolve_only',
+    Flash: 'flash',
 } as const
 
 export interface ReviewTriggerRequestApi {
     /** GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation. */
     pr_url: string
-    /** What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads.
+    /** What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads; 'flash' uses a lower-cost model for the review passes and validation, and never resolves comments.
      *
      * * `review` - review
      * * `review_only` - review_only
-     * * `resolve_only` - resolve_only */
+     * * `resolve_only` - resolve_only
+     * * `flash` - flash */
     run_mode?: ReviewTriggerRequestRunModeEnumApi
 }
 
 export interface ReviewTriggerResponseApi {
     /** Temporal workflow id for the started review run; empty when no run was started. */
     workflow_id: string
-    /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts), 'joined_running_review' when a review was already in flight (no new run starts; a report in a cheaper tier is lifted to human strength for the rest of that review and every later one). */
+    /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review in the requested mode, 'joined_running_review' when a review was already in flight and the request joined its queue. A requested Full review waits for an active Flash review. */
     status: string
 }
 
@@ -505,6 +517,18 @@ export interface ReviewTriggerErrorApi {
     /** Human-readable explanation of why the trigger was rejected. */
     error: string
 }
+
+/**
+ * * `medium` - Medium
+ * * `xhigh` - Extra high
+ */
+export type ReviewUserSettingsFlashReasoningEffortEnumApi =
+    (typeof ReviewUserSettingsFlashReasoningEffortEnumApi)[keyof typeof ReviewUserSettingsFlashReasoningEffortEnumApi]
+
+export const ReviewUserSettingsFlashReasoningEffortEnumApi = {
+    Medium: 'medium',
+    Xhigh: 'xhigh',
+} as const
 
 /**
  * * `consider` - Consider
@@ -529,14 +553,25 @@ export interface ReviewUserSettingsApi {
     review_labeled_prs?: boolean
     /** After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing. */
     resolve_comments?: boolean
+    /** Show a fun image in the review comment when a review of this user's pull requests finds nothing to raise. On by default; turning it off makes clean reviews end with the text summary only. */
+    celebrate_clean_reviews?: boolean
+    /** Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. Off by default. Flash reviews post findings without resolving comments. */
+    review_authored_prs?: boolean
+    /** Reasoning effort for this user's automatic and manually requested Flash reviews: 'medium' (default) or 'xhigh'. Applies to both review and validation. Saved independently of the automatic-review toggle.
+     *
+     * * `medium` - Medium
+     * * `xhigh` - Extra high */
+    flash_reasoning_effort?: ReviewUserSettingsFlashReasoningEffortEnumApi
     /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
      *
      * * `consider` - Consider
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix */
     urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnumApi
-    /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
+    /** Whether reviews can be started from this project's Code review page. */
     readonly can_trigger_reviews: boolean
+    /** Whether to show Flash mode and settings for automatic, label-triggered, and Inbox reviews. */
+    readonly show_internal_features: boolean
     /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
     readonly stamphog_connected: boolean
 }
@@ -550,14 +585,25 @@ export interface PatchedReviewUserSettingsApi {
     review_labeled_prs?: boolean
     /** After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing. */
     resolve_comments?: boolean
+    /** Show a fun image in the review comment when a review of this user's pull requests finds nothing to raise. On by default; turning it off makes clean reviews end with the text summary only. */
+    celebrate_clean_reviews?: boolean
+    /** Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. Off by default. Flash reviews post findings without resolving comments. */
+    review_authored_prs?: boolean
+    /** Reasoning effort for this user's automatic and manually requested Flash reviews: 'medium' (default) or 'xhigh'. Applies to both review and validation. Saved independently of the automatic-review toggle.
+     *
+     * * `medium` - Medium
+     * * `xhigh` - Extra high */
+    flash_reasoning_effort?: ReviewUserSettingsFlashReasoningEffortEnumApi
     /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
      *
      * * `consider` - Consider
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix */
     urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnumApi
-    /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
+    /** Whether reviews can be started from this project's Code review page. */
     readonly can_trigger_reviews?: boolean
+    /** Whether to show Flash mode and settings for automatic, label-triggered, and Inbox reviews. */
+    readonly show_internal_features?: boolean
     /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
     readonly stamphog_connected?: boolean
 }

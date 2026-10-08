@@ -20,8 +20,6 @@
         "schema:build": "bin/hogli build:schema",
         "openapi:build": "bin/hogli build:openapi",
         "schema:build:python": "bash bin/build-schema-python.sh",
-        "taxonomy:build": "pnpm run taxonomy:build:json",
-        "taxonomy:build:json": "python bin/build-taxonomy-json.py",
         "grammar:build": "pnpm grammar:build:cpp",
         "grammar:build:cpp": "cd posthog/hogql/grammar && cat HogQLLexer.cpp.g4 > HogQLLexer.g4 && tail -n +2 HogQLLexer.common.g4 >> HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -Dlanguage=Cpp HogQLLexer.g4 && rm HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -visitor -no-listener -Dlanguage=Cpp HogQLParser.g4",
         "build:products": "pnpm --filter=@posthog/frontend run build:products",
@@ -84,7 +82,7 @@
         "fsevents": "^2.3.3"
     },
     "lint-staged": {
-        ".claude/settings.json": "sh -c 'printf \"\\n\\033[31mDo not commit .claude/settings.json — personal permissions belong in .claude/settings.local.json (gitignored).\\nUnstage with: git restore --staged .claude/settings.json\\033[0m\\n\\n\" >&2 && exit 1'",
+        ".claude/settings.json": "sh -c '.github/scripts/check-claude-settings.sh'",
         "**/{AGENTS,CLAUDE}.md": "sh -c '.github/scripts/check-agents-md-symlinks.sh'",
         "frontend/public/services/*.{png,jpg,jpeg,gif}": "node frontend/bin/check-service-icon-size.mjs",
         "products/**/manifest.tsx": [
@@ -99,9 +97,10 @@
         ],
         "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:js",
         "products/desktop/**/*.{js,mjs,ts,tsx,json,jsonc,css}": "pnpm --dir products/desktop exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true",
+        "packages/agent/**/*.{js,mjs,mts,ts,tsx,json,jsonc}": "pnpm --dir packages/agent exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true",
         "nodejs/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
-        "!(posthog/hogql/grammar/*|posthog/personhog_client/proto/generated/*|products/*/skills/*/scripts/*)*.{py,pyi}": [
+        "!(posthog/hogql/grammar/*|products/*/skills/*/scripts/*|products/stamphog/packages/*/*)*.{py,pyi}": [
             "bin/hogli lint:python:fix",
             "bin/hogli format:python",
             "uv run --no-sync ty check"

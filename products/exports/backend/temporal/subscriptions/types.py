@@ -11,6 +11,10 @@ from posthog.slo.types import SloConfig
 # has no persisted details. The type still lands in diagnostics, logs, and error tracking.
 UNDISCLOSED_QUERY_ERROR_TYPES = frozenset({"ClickHouseQueryMemoryLimitExceeded"})
 
+# The snapshot builder sets this query_error type when an insight stores no query at all. The
+# summary step reads it to tell an insight that cannot run apart from one that ran and failed.
+MISSING_QUERY_ERROR_TYPE = "missing_query"
+
 
 class QueryErrorDetails(typing.TypedDict):
     """A failed query's type paired with its optional safe code and message."""
@@ -112,6 +116,8 @@ AI_REPORT_QUERY_FAILURE_TYPE = "AIReportQueryFailure"
 # (exactly gap-free); rows written before this key existed fall back to finished_at.
 AI_REPORT_WINDOW_END_KEY = "ai_report_window_end"
 AI_REPORT_CHARTS_KEY = "ai_report_charts"
+# Immutable plan outcome for this delivery. Historical rows written before this key existed omit it.
+AI_REPORT_QUERY_PLAN_STATUS_KEY = "ai_report_query_plan_status"
 
 
 class SubscriptionTriggerType:
@@ -161,7 +167,7 @@ class CreateExportAssetsInputs:
     delivery_id: typing.Optional[uuid.UUID] = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CreateExportAssetsResult:
     """Small metadata envelope for create_export_assets.
 
@@ -177,6 +183,7 @@ class CreateExportAssetsResult:
     target_type: str = ""
     available_insight_count: int = 0
     selected_insight_count: int = 0
+    insight_limit: int = 0
     status: str = ExportAssetPreparationStatus.READY
     failure_context: NoExportableInsightsContext | None = None
 

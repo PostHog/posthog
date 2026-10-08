@@ -67,7 +67,7 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
             experimentForm?.variants[variant].transforms?.length > 0 ? (
                 <LemonCollapse
                     size="small"
-                    activeKey={experimentForm?.variants[variant].transforms.length === 1 ? 0 : undefined}
+                    defaultActiveKey={experimentForm?.variants[variant].transforms.length === 1 ? 0 : undefined}
                     panels={experimentForm?.variants[variant].transforms.map((transform, transformIndex) => {
                         return {
                             key: transformIndex,

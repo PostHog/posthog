@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from unittest.mock import patch
 
 from django.test import TestCase
+from django.test.utils import override_settings
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -11,9 +12,13 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import hash_key_value
+from posthog.models.scoping import team_scope
 from posthog.models.utils import generate_random_token_personal
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, resolve_scopes
 
+from products.canvas.backend.facade import testing as canvas_testing
 from products.tasks.backend.exceptions import ComputeBillingLimitError
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
@@ -175,8 +180,10 @@ class ChannelsAPITestCase(TestCase):
             response = self.client.post(f"{self._channels_url()}{action}/", {}, format="json")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @override_settings(DEBUG=False)
+    @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.presentation.views.channels_api.onboarding_test_tools_enabled", return_value=True)
-    def test_flagged_user_can_create_test_onboarding_artifacts(self, _enabled):
+    def test_flagged_user_can_create_test_onboarding_artifacts(self, _enabled, _model_enabled):
         personal_id = next(
             channel["id"] for channel in self._provision()["channels"] if channel["system_role"] == "personal"
         )
@@ -188,7 +195,12 @@ class ChannelsAPITestCase(TestCase):
         ) as start:
             response = self.client.post(
                 f"{self._channels_url()}onboarding_session_test/",
-                {"joining_existing_organization": True, "other_members": ["Max"], "has_events": True},
+                {
+                    "joining_existing_organization": True,
+                    "other_members": ["Max"],
+                    "has_events": True,
+                    "model": "zai-org/glm-5.3",
+                },
                 format="json",
             )
 
@@ -196,6 +208,7 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(response.json(), {"task_id": str(task_id), "channel_id": personal_id})
         self.assertTrue(start.call_args.kwargs["joining_existing_organization"])
         self.assertEqual(start.call_args.kwargs["other_members"], ["Max"])
+        self.assertEqual(start.call_args.kwargs["model"], "zai-org/glm-5.3")
 
         teaching = TeachingCanvas(channel_id=uuid4(), canvas_id=canvas_id)
         with patch(
@@ -555,6 +568,48 @@ class ChannelsAPITestCase(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual({m["id"] for m in response.json()}, {creator.id, self.other_user.id})
+
+    def test_contributors_list_task_and_canvas_owners_in_visible_channels(self):
+        public_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+        private_id = self._create_private_channel()["id"]
+        third = User.objects.create_user(email="third@example.com", first_name="Cy", password="password")
+        now = django_timezone.now()
+
+        def task(channel_id: str, owner: User, minutes_ago: int, **extra) -> None:
+            Task.objects.create(
+                team=self.team,
+                created_by=owner,
+                channel_id=channel_id,
+                title="t",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                last_activity_at=now - timedelta(minutes=minutes_ago),
+                **extra,
+            )
+
+        task(public_id, self.user, 30)
+        task(public_id, self.user, 90, archived=True)
+        task(public_id, third, 5, deleted=True)
+        task(private_id, self.user, 1)
+        canvas_testing.create_canvas(
+            team_id=self.team.id, channel_id=UUID(public_id), name="Board", created_by_id=self.other_user.id
+        )
+        canvas_testing.create_canvas(
+            team_id=self.team.id, channel_id=UUID(public_id), name="Gone", created_by_id=third.id, deleted=True
+        )
+
+        response = self.client.get(f"{self._channels_url()}contributors/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(
+            {row["channel"]: [person["id"] for person in row["people"]] for row in response.json()},
+            {public_id: [self.other_user.id, self.user.id], private_id: [self.user.id]},
+        )
+
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        self.assertEqual(
+            [row["channel"] for row in other_client.get(f"{self._channels_url()}contributors/").json()], [public_id]
+        )
 
     def test_deleting_github_integration_clears_channel_repositories(self):
         integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
@@ -949,6 +1004,62 @@ class ThreadMessagesAPITestCase(ChannelTaskAPITestCase):
         response = self.peer_client.get(url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    @parameterized.expand(
+        [
+            ("own_trial", "scout-trial:", "own", False, status.HTTP_200_OK),
+            ("sibling_trial", "scout-trial:", "other", False, status.HTTP_404_NOT_FOUND),
+            ("unbound_trial", "scout-trial:", "unbound", False, status.HTTP_404_NOT_FOUND),
+            ("sibling_judge", "scout-trial-judge:", "other", False, status.HTTP_404_NOT_FOUND),
+            ("ordinary_task", "", "other", False, status.HTTP_200_OK),
+            ("judge_token", "scout-trial-judge:", "own", True, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_sandbox_thread_reads_respect_trial_task_binding(
+        self, _name: str, origin_prefix: str, binding: str, judge_token: bool, expected_status: int
+    ) -> None:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.author,
+            title="Thread target",
+            origin_product=Task.OriginProduct.SIGNALS_SCOUT if origin_prefix else Task.OriginProduct.USER_CREATED,
+            origin_key=f"{origin_prefix}{uuid4()}" if origin_prefix else None,
+        )
+        message = TaskThreadMessage.objects.for_team(self.team.id).create(
+            team=self.team, task=task, author=self.author, content="Saved thread message"
+        )
+        url = f"/api/projects/{self.team.id}/tasks/{task.id}/thread_messages/"
+        self.assertEqual(self.author_client.get(url).status_code, status.HTTP_200_OK)
+        self.task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
+        self.task.origin_key = f"scout-trial:{uuid4()}"
+        self.task.save(update_fields=["origin_product", "origin_key"])
+        application = OAuthApplication.objects.create(
+            name="Thread sandbox",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.author,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.author,
+            application=application,
+            token=f"pha_thread_{uuid4().hex}",
+            scope=" ".join(resolve_scopes("signals_scout_judge" if judge_token else "signals_scout_experiment")),
+            expires=django_timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task.id if binding == "own" else self.task.id if binding == "other" else None,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+
+        response = client.get(url)
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual([row["id"] for row in response.json()], [str(message.id)])
+
 
 class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
     def _mentions_url(self) -> str:
@@ -1047,15 +1158,19 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
         response = self.peer_client.get(self._mentions_url(), {"since": "not-a-date"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand([("private",), ("scout_trial",)])
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_mention_on_invisible_task_is_hidden(self, mock_delay, _flag):
+    def test_mention_on_invisible_task_is_hidden(self, kind, mock_delay, _flag):
         private_task = Task.objects.create(
             team=self.team,
             created_by=self.author,
             title="Private",
             description="d",
-            origin_product=Task.OriginProduct.USER_CREATED,
+            origin_product=(
+                Task.OriginProduct.SIGNALS_SCOUT if kind == "scout_trial" else Task.OriginProduct.USER_CREATED
+            ),
+            origin_key="scout-trial:11111111-1111-1111-1111-111111111111" if kind == "scout_trial" else None,
         )
         with self.captureOnCommitCallbacks(execute=True):
             self._post_message(self.author_client, "fyi @[Bob](peer@example.com)", task=private_task)
@@ -1531,3 +1646,142 @@ class ChannelFeedMessageAPITestCase(TestCase):
         # Same org, wrong team in the URL — the channel must not resolve.
         response = self.client.get(f"/api/projects/{other_team.id}/task_channels/{channel_id}/feed/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class RepositoryConfigAnalyticsTestCase(TestCase):
+    """Repository and CONTEXT.md changes are the only durable record of who reconfigured a
+    Space, so these assert the event fires exactly once per real change and never on a no-op."""
+
+    CAPTURE = "products.tasks.backend.repository_config_analytics.posthoganalytics.capture"
+
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Growth Team")
+        self.user = User.objects.create_user(email="author@example.com", first_name="Ann", password="password")
+        self.organization.members.add(self.user)
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+        self.integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
+
+    def _channels_url(self) -> str:
+        return f"/api/projects/{self.team.id}/task_channels/"
+
+    def _tasks_url(self) -> str:
+        return f"/api/projects/{self.team.id}/tasks/"
+
+    @staticmethod
+    def _rows(capture, event: str) -> list[dict]:
+        return [call.kwargs["properties"] for call in capture.call_args_list if call.kwargs.get("event") == event]
+
+    def _channel_with_repos(self, repositories: list[str], name: str = "growth") -> Channel:
+        return Channel.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name=name,
+            github_integration=self.integration,
+            repositories=repositories,
+        )
+
+    @patch("posthog.models.integration.github.GitHubIntegration.list_all_cached_repositories")
+    def test_space_repository_patch_emits_one_row(self, list_repositories):
+        list_repositories.return_value = [{"full_name": "posthog/posthog"}]
+        channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+
+        with patch(self.CAPTURE) as capture:
+            response = self.client.patch(
+                f"{self._channels_url()}{channel_id}/",
+                {"github_integration": self.integration.id, "repositories": ["posthog/posthog"]},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        rows = self._rows(capture, "repository_config_changed")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["subject"], "space")
+        self.assertEqual(rows[0]["trigger"], "space_settings_edit")
+        self.assertEqual(rows[0]["previous_repository_count"], 0)
+        self.assertEqual(rows[0]["repository_count"], 1)
+        self.assertEqual(rows[0]["added_count"], 1)
+        self.assertNotIn("added_repositories", rows[0])
+        self.assertNotIn("removed_repositories", rows[0])
+        self.assertTrue(rows[0]["is_first_configuration"])
+        self.assertTrue(rows[0]["github_integration_changed"])
+
+    @patch("posthog.models.integration.github.GitHubIntegration.list_all_cached_repositories")
+    def test_resubmitting_the_same_repositories_emits_nothing(self, list_repositories):
+        list_repositories.return_value = [{"full_name": "posthog/posthog"}]
+        channel = self._channel_with_repos(["posthog/posthog"])
+
+        with patch(self.CAPTURE) as capture:
+            response = self.client.patch(
+                f"{self._channels_url()}{channel.id}/",
+                {"github_integration": self.integration.id, "repositories": ["posthog/posthog"]},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(self._rows(capture, "repository_config_changed"), [])
+
+    def test_task_inheriting_the_space_list_emits_nothing_but_an_override_emits_one_row(self):
+        channel = self._channel_with_repos(["posthog/posthog"])
+
+        with patch(self.CAPTURE) as capture:
+            tasks_facade.create_task(
+                self.team.id,
+                self.user.id,
+                validated_data={"title": "Inherit", "description": "d", "channel": channel},
+            )
+        self.assertEqual(self._rows(capture, "repository_config_changed"), [])
+
+        with patch(self.CAPTURE) as capture:
+            tasks_facade.create_task(
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "title": "Override",
+                    "description": "d",
+                    "channel": channel,
+                    "repositories": ["posthog/posthog.com"],
+                },
+            )
+        rows = self._rows(capture, "repository_config_changed")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["trigger"], "task_created")
+        self.assertEqual(rows[0]["subject"], "task")
+        self.assertTrue(rows[0]["diverged_from_space"])
+        self.assertEqual(rows[0]["space_repository_count"], 1)
+
+    def test_deleting_the_github_integration_emits_one_aggregate_row(self):
+        self._channel_with_repos(["posthog/posthog"], name="growth")
+        self._channel_with_repos(["posthog/posthog.com", "posthog/marketing"], name="editorial")
+
+        with patch(self.CAPTURE) as capture:
+            Integration.objects.filter(id=self.integration.id).delete()
+
+        rows = self._rows(capture, "repository_config_changed")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["trigger"], "github_integration_disconnected")
+        self.assertEqual(rows[0]["affected_space_count"], 2)
+        self.assertEqual(rows[0]["previous_repository_count"], 3)
+        self.assertTrue(rows[0]["is_cleared"])
+
+    def test_context_publish_records_whether_a_person_or_a_loop_wrote_it(self):
+        channel = self._channel_with_repos([])
+
+        # The view sets the scope from the request; a direct facade call must set it itself.
+        with patch(self.CAPTURE) as capture, team_scope(self.team.id):
+            tasks_facade.publish_channel_instructions(
+                channel.id, self.team.id, self.user.id, content="# Context", source="user"
+            )
+            tasks_facade.publish_channel_instructions(
+                channel.id, self.team.id, self.user.id, content="# Context, revised", source="agent"
+            )
+
+        rows = self._rows(capture, "space_context_changed")
+        self.assertEqual([row["source"] for row in rows], ["user", "agent"])
+        self.assertEqual([row["new_version"] for row in rows], [1, 2])
+        self.assertTrue(rows[0]["is_first_version"])
+        self.assertFalse(rows[1]["is_first_version"])
+        self.assertEqual(rows[1]["previous_content_bytes"], len(b"# Context"))
+        self.assertNotIn("content", rows[0])

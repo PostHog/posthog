@@ -52,8 +52,48 @@ class TestRenderSkillMd:
 
     def test_optional_fields_omitted_when_empty(self) -> None:
         frontmatter, _ = _parse(render_skill_md(name="X", description="Y", body="Z"))
-        for omitted in ("tags", "author_handle", "license", "compatibility", "allowed_tools"):
+        for omitted in ("tags", "author_handle", "license", "compatibility", "allowed_tools", "kind", "scout_config"):
             assert omitted not in frontmatter
+
+    def test_marks_a_scout_and_carries_its_settings(self) -> None:
+        # Without the marker the catalog can't tell a scout from a skill, and it lands inert.
+        frontmatter, _ = _parse(
+            render_skill_md(
+                name="Feed scout",
+                description="Watch a feed.",
+                body="b",
+                kind="scout",
+                scout_config={"run_interval_minutes": 720, "emit": False},
+            )
+        )
+        assert frontmatter["kind"] == "scout"
+        assert frontmatter["scout_config"] == {"run_interval_minutes": 720, "emit": False}
+
+    @pytest.mark.parametrize(
+        "kind,scout_config",
+        [
+            ("scout", {"network_access": "full"}),
+            ("scout", {"model": "claude"}),
+            ("scout", {"mcp_gateway_server_ids": ["abc"]}),
+            ("scout", {"run_interval_minutes": 5}),
+            ("skill", {"emit": False}),
+        ],
+    )
+    def test_rejects_scout_settings_ingest_would_drop(self, kind: str, scout_config: dict[str, Any]) -> None:
+        with pytest.raises(CommunitySkillPublishError):
+            render_skill_md(name="n", description="d", body="b", kind=kind, scout_config=scout_config)
+
+    def test_rejects_a_scout_with_bundled_files(self) -> None:
+        # Ingest refuses one, so publishing it opens a PR that merges and never reaches the catalog.
+        with pytest.raises(CommunitySkillPublishError):
+            render_community_skill_files(
+                slug="signals-scout-feed",
+                name="Feed scout",
+                description="Watch a feed.",
+                body="b",
+                kind="scout",
+                files=[{"path": "references/playbook.md", "content": "hints", "content_type": "text/markdown"}],
+            )
 
     def test_optional_fields_included_when_set(self) -> None:
         content = render_skill_md(
@@ -113,7 +153,7 @@ class TestRenderSkillMd:
             # install_community_skill refuses a blank body as having no instructions, so publishing
             # one merges a listing that nobody can ever install.
             ("blank body", "n", "d", "  \n  "),
-            # Longer than the Agent Skills spec allows, so validate_for_export refuses the skill once
+            # Longer than the Agent Skills spec allows, so compute_spec_problems refuses the skill once
             # someone installs it from the catalog.
             ("description over the spec cap", "n", "x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1), "b"),
             # Longer than CommunitySkill.name: the PR would merge and ingest would then drop the entry.
@@ -253,7 +293,18 @@ class TestRenderCommunitySkillFiles:
     def test_rejects_bad_slug(self) -> None:
         # "new" and the category-tab slugs are rejected by ingest, so publishing one merges a pull
         # request whose skill never appears in the catalog. A trailing newline needs `fullmatch`.
-        for bad in ["Make-PR", "make_pr", "-bad", "double--hyphen", "x" * 65, "new", "review-hog", "make-pr\n"]:
+        # A catalog entry installs under its slug, so a slug PostHog bundles is refused here too.
+        for bad in [
+            "Make-PR",
+            "make_pr",
+            "-bad",
+            "double--hyphen",
+            "x" * 65,
+            "new",
+            "review-hog",
+            "make-pr\n",
+            "signals-scout-logs",
+        ]:
             try:
                 render_community_skill_files(slug=bad, name="n", description="d", body="b")
             except CommunitySkillPublishError:

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconCheck, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
+import { IconCheck, IconColumns, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -9,18 +9,19 @@ import ViewRecordingButton, {
     RecordingPlayerType,
     ViewRecordingButtonVariant,
 } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 // The key-matching helpers and their convention lists are shared with Logs, because both
 // products resolve the same SDK-emitted attribute keys (posthogDistinctId, sessionId, ...).
 import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+import { tracingConfigLogic } from 'products/tracing/frontend/tracingConfigLogic'
 import { tracingCorrelationConfigLogic } from 'products/tracing/frontend/tracingCorrelationConfigLogic'
 import { tracingFiltersLogic } from 'products/tracing/frontend/tracingFiltersLogic'
+
+import { spanColumnKey, toggleSpanAttributeColumn } from './spanColumns'
 
 const APPLIED_INDICATOR_MS = 2000
 
@@ -44,6 +45,22 @@ export interface SpanAttributesProps {
     propertyType?: PropertyFilterType.SpanAttribute | PropertyFilterType.SpanResourceAttribute
 }
 
+function ToggleColumnButton({ isColumn, onToggle }: { isColumn: boolean; onToggle: () => void }): JSX.Element {
+    return (
+        <LemonButton
+            tooltip={isColumn ? 'Remove the column for this attribute' : 'Show this attribute as a column'}
+            size="xsmall"
+            onClick={(e) => {
+                e.stopPropagation()
+                onToggle()
+            }}
+            data-attr="tracing-attribute-toggle-column"
+        >
+            <IconColumns className={isColumn ? 'text-success' : undefined} />
+        </LemonButton>
+    )
+}
+
 export function SpanAttributes({
     attributes,
     title,
@@ -52,15 +69,17 @@ export function SpanAttributes({
     propertyType,
 }: SpanAttributesProps): JSX.Element {
     const { addFilter } = useActions(tracingFiltersLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { configuredDistinctIdKeys, configuredSessionIdKeys } = useValues(tracingCorrelationConfigLogic)
+    const { configuredDistinctIdKeys, configuredSessionIdKeys, correlationLinksEnabled } =
+        useValues(tracingCorrelationConfigLogic)
+    const { spanColumns } = useValues(tracingConfigLogic)
+    const { setSpanColumns } = useActions(tracingConfigLogic)
+    const columnKeys = useMemo(() => new Set(spanColumns.map(spanColumnKey)), [spanColumns])
     const [appliedFilter, setAppliedFilter] = useState<{ key: string; direction: FilterDirection } | null>(null)
     const appliedFilterTimeoutRef = useRef<number | null>(null)
 
     // Person/replay links only apply to real OTel attribute tables (propertyType set), because
     // the synthetic "Span details" table repeats span metadata under conventional-looking keys.
-    const correlationLinksEnabled =
-        !!featureFlags[FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS] && propertyType !== undefined
+    const showCorrelationLinks = correlationLinksEnabled && propertyType !== undefined
 
     useEffect(
         () => () => {
@@ -123,6 +142,12 @@ export function SpanAttributes({
                                       <IconMinusSquare />
                                   </LemonButton>
                               )}
+                              <ToggleColumnButton
+                                  isColumn={columnKeys.has(
+                                      spanColumnKey({ type: 'attribute', attributeKey: record.key })
+                                  )}
+                                  onToggle={() => setSpanColumns(toggleSpanAttributeColumn(spanColumns, record.key))}
+                              />
                           </div>
                       ),
                   },
@@ -147,7 +172,7 @@ export function SpanAttributes({
                 }
                 // The stopPropagation wrapper keeps a link click from also triggering any
                 // ancestor row handler, matching SpanRowActions' convention.
-                const correlationLink = !correlationLinksEnabled ? null : isDistinctIdKey(
+                const correlationLink = !showCorrelationLinks ? null : isDistinctIdKey(
                       record.key,
                       configuredDistinctIdKeys
                   ) ? (

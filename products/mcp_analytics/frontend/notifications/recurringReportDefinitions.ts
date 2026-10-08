@@ -13,6 +13,8 @@ export interface MCPRecurringReport {
      * $mcp_* properties explicitly so it queries the right ones rather than guessing.
      */
     prompt: string
+    /** What a delivery covers, in the reader's terms, one short line each. */
+    covers: string[]
 }
 
 export const MCP_RECURRING_REPORTS: MCPRecurringReport[] = [
@@ -34,6 +36,12 @@ export const MCP_RECURRING_REPORTS: MCPRecurringReport[] = [
             'Call out intents that are new compared with previous weeks, and finish with the single',
             'change to our tools that would help the most agents.',
         ].join(' '),
+        covers: [
+            "Agent goals grouped and ranked by how often they came up, quoted in the agents' own words",
+            'The share of each goal that ended in a failed tool call',
+            'Goals that are new compared with previous weeks',
+            'One change to your tools that would help the most agents',
+        ],
     },
     {
         key: 'tool-health',
@@ -45,12 +53,21 @@ export const MCP_RECURRING_REPORTS: MCPRecurringReport[] = [
         title: 'MCP tool health',
         prompt: [
             'Report on our MCP server’s health for the last week using $mcp_tool_call events.',
-            'Cover total calls, calls per tool (use $mcp_exec_tool_call_name when set, else $mcp_tool_name),',
+            'Cover total calls and calls per tool. Use $mcp_exec_tool_call_name when non-empty.',
+            'Otherwise, for $mcp_tool_name = exec and $mcp_exec_verb = call, use $mcp_exec_target_tool',
+            'when it is non-empty and not unrecognized. Fall back to $mcp_tool_name in all other cases.',
+            'Include discovery requests under exec, not the tool they describe. Cover',
             'the error rate from $mcp_is_error, the most common $mcp_error_type values with example',
             '$mcp_error_message text, and p95 of $mcp_duration_ms per tool.',
             'Highlight tools whose error rate or latency is clearly worse than the weeks before,',
             'and skip sections where nothing notable happened.',
         ].join(' '),
+        covers: [
+            'Total calls and calls per tool',
+            'Error rate, the most common error types and example messages',
+            'p95 latency per tool',
+            'Tools whose errors or latency got clearly worse than the weeks before',
+        ],
     },
 ]
 

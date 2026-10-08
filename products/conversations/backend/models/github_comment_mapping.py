@@ -7,9 +7,9 @@ from .ticket import Ticket
 
 class GithubCommentMapping(UUIDModel):
     github_comment_id = models.BigIntegerField(db_index=True)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE)
-    comment = models.ForeignKey("posthog.Comment", on_delete=models.CASCADE, null=True, blank=True)
+    comment = models.ForeignKey("posthog.Comment", on_delete=models.CASCADE, null=True, blank=True, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -1,19 +1,16 @@
 from typing import Optional, cast
 
-from django.conf import settings
+from posthog.exceptions_capture import capture_exception
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SuggestedTable,
 )
-
-from posthog.exceptions_capture import capture_exception
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
@@ -38,7 +35,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 from .bing_ads import bing_ads_source, get_incremental_fields, get_schemas
 from .client import BingAdsClient
+from .schemas import BingAdsResource
 from .utils import BingAdsResumeConfig
+
+# Default incremental overlap re-read windows, keyed by schema name. The report request sets
+# ReturnOnlyCompleteData = False, so the newest days arrive before Microsoft finishes processing them,
+# and Microsoft attributes later conversions to the date of the click. An incremental sync that starts
+# at the newest imported day freezes each earlier day at its first-imported value. Re-reading a trailing
+# window lets those days catch up, and merge-by-primary-key makes the overlap idempotent. The window
+# matches the Google Ads stats tables, and users can change it per schema.
+BING_ADS_INCREMENTAL_LOOKBACK_SECONDS: dict[str, int] = {
+    BingAdsResource.DESTINATION_URL_PERFORMANCE_REPORT.value: 15 * 24 * 60 * 60,
+}
 
 
 @SourceRegistry.register
@@ -150,19 +158,33 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # A Bing SOAP call that comes back with a bare HTTP 400 (no SOAP fault) is rejected at the
-        # transport/edge layer, not by request validation — suds surfaces it as `Exception((400,
-        # 'Bad Request'))`, which our wrapper re-raises as `ValueError(... Exception: (400, 'Bad
-        # Request'))`. A genuinely malformed report request instead returns a coded WebFault
-        # (InvalidReportColumn, etc.), so this shape is a transient upstream blip that Temporal's
-        # activity retry clears — keep it out of error tracking as noise rather than paging as a bug.
-        # Match the stable status tuple only; a fault-backed 400 never produces this substring.
-        return {"(400, 'Bad Request')"}
+        return {
+            # A Bing SOAP call that comes back with a bare HTTP 400 (no SOAP fault) is rejected at the
+            # transport/edge layer, not by request validation — suds surfaces it as `Exception((400,
+            # 'Bad Request'))`, which our wrapper re-raises as `ValueError(... Exception: (400, 'Bad
+            # Request'))`. A genuinely malformed report request instead returns a coded WebFault
+            # (InvalidReportColumn, etc.), so this shape is a transient upstream blip that Temporal's
+            # activity retry clears — keep it out of error tracking as noise rather than paging as a bug.
+            # Match the stable status tuple only; a fault-backed 400 never produces this substring.
+            "(400, 'Bad Request')",
+            # Bing did not finish building the report before the SDK exhausted its own polling window
+            # (REPORT_TIMEOUT_MS), which it reports as `ReportingDownloadException`. Generation runs on
+            # Bing's queue, so the next Temporal attempt submits a fresh request and normally clears it.
+            # Match the SDK's stable message text, which carries no request or account values.
+            "Reporting file download tracking status timeout",
+            # A urllib transport failure reaching Bing's SOAP endpoints — connection refused, DNS or
+            # TLS failure, socket timeout — which suds surfaces as `URLError` and our wrapper re-raises
+            # as `ValueError(... URLError: <urlopen error ...>)`. The endpoints are fixed (see
+            # utils.ENVIRONMENT), so nothing at this layer is customer-configured or deterministic: the
+            # next Temporal attempt normally clears it. Match the exception name plus urllib's fixed
+            # message prefix, which together carry no request or account values.
+            "URLError: <urlopen error",
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BING_ADS,
+            name=ExternalDataSourceType.BINGADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             keywords=["microsoft ads", "microsoft advertising"],
             label="Bing Ads",
@@ -251,7 +273,8 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
                 "The linked Bing Ads integration could not be found. Please reconnect your Bing Ads integration."
             ) from e
 
-        if not settings.BING_ADS_DEVELOPER_TOKEN:
+        developer_token = integration_secrets.get_secret("BING_ADS_DEVELOPER_TOKEN")
+        if not developer_token:
             raise ValueError("Bing Ads developer token not configured")
         if not integration.access_token:
             raise IntegrationAccountListingError(
@@ -265,7 +288,7 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
         client = BingAdsClient(
             access_token=integration.access_token,
             refresh_token=integration.refresh_token,
-            developer_token=settings.BING_ADS_DEVELOPER_TOKEN,
+            developer_token=developer_token,
         )
         try:
             return client.list_accounts()
@@ -300,6 +323,7 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
                     {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
                     for column_name, column_type in ads_incremental_fields.get(endpoint, [])
                 ],
+                default_incremental_lookback_seconds=BING_ADS_INCREMENTAL_LOOKBACK_SECONDS.get(endpoint),
             )
             for endpoint in bing_ads_schemas.keys()
         ]

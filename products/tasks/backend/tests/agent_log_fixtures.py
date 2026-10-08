@@ -38,6 +38,25 @@ def _tool_call_line(name: str = "grep") -> str:
     )
 
 
+def _structured_output_line(raw_input: dict) -> str:
+    return json.dumps(
+        {
+            "notification": {
+                "method": "session/update",
+                "params": {
+                    "update": {
+                        "sessionUpdate": "tool_call_update",
+                        "_meta": {"claudeCode": {"toolName": "StructuredOutput"}},
+                        "toolCallId": "toolu_structured",
+                        "rawInput": raw_input,
+                        "title": "StructuredOutput",
+                    }
+                },
+            }
+        }
+    )
+
+
 def _agent_message_chunk_line(text: str) -> str:
     # The agent sometimes streams its response as consecutive agent_message_chunk slices;
     # _check_logs concatenates them when reconstructing the turn's final message.
@@ -82,11 +101,11 @@ def _user_message_line(text: str) -> str:
 
 def _agent_error_line(message: str, category: str | None = None) -> str:
     """Build a `_posthog/error` notification line as the sandbox agent emits on a
-    terminal failure. `category` mirrors classifyAgentError() output and is absent
-    on older agent builds."""
-    params: dict = {"message": message}
+    terminal failure — the full param set the agent server writes. `category` mirrors
+    classifyAgentError() output and is absent on older agent builds."""
+    params: dict = {"source": "agent_server", "stopReason": "error", "message": message, "error": message}
     if category is not None:
-        params["error_category"] = category
+        params["errorCategory"] = category
     return json.dumps({"notification": {"method": "_posthog/error", "params": params}})
 
 

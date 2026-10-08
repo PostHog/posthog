@@ -7,10 +7,20 @@ on:
 permissions:
     contents: read
 
+# A manual dispatch can land while the cron run is still sweeping. Two runs would
+# then mark and delete the same refs and spend the operations budget twice, so a
+# second run queues instead. Never cancel in progress: a half-finished sweep has
+# already posted comments and deleted refs.
+concurrency:
+    group: ${{ github.workflow }}
+    cancel-in-progress: false
+
 jobs:
-    stale:
+    holiday:
         runs-on: ubuntu-24.04
-        timeout-minutes: 60
+        timeout-minutes: 5
+        outputs:
+            skip: ${{ steps.holiday.outputs.skip }}
         steps:
             - name: Check if holiday period
               id: holiday
@@ -25,20 +35,24 @@ jobs:
                     echo "skip=false" >> $GITHUB_OUTPUT
                   fi
 
+    stale:
+        needs: holiday
+        if: needs.holiday.outputs.skip != 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 60
+        steps:
             # App token gives higher API rate limits (15k/hr vs 1k/hr for GITHUB_TOKEN)
             # and lets a full cycle through every open issue + PR complete in one run,
             # which is required for the action's state model to re-evaluate PRs that
             # were unstaled mid-cycle.
             - name: Get app token
               id: app-token
-              if: steps.holiday.outputs.skip != 'true'
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
 
             - uses: actions/stale@b5d41d4e1d5dceea10e7104786b73624c18a190f # v10.2.0
-              if: steps.holiday.outputs.skip != 'true'
               with:
                   repo-token: ${{ steps.app-token.outputs.token }}
                   days-before-issue-stale: 730
@@ -56,3 +70,67 @@ jobs:
                   exempt-pr-labels: 'waiting'
                   enable-statistics: true
                   operations-per-run: 5000
+
+    stale-branches:
+        needs: holiday
+        if: needs.holiday.outputs.skip != 'true'
+        runs-on: ubuntu-24.04
+        # Its own job so a long branch sweep cannot time out the PR pass above,
+        # which has already made its API calls by then.
+        timeout-minutes: 120
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
+
+            # Runs in dry-run: it reports what it would delete and changes nothing.
+            # Flip to false once a few runs have been reviewed, and check first that
+            # the app installation has contents:write - deletion needs it.
+            #
+            # exempt-branches-regex is the only guard on master. This repo enforces
+            # branch rules through rulesets, and the GraphQL refUpdateRule this action
+            # reads is null for every branch here, so exempt-protected-branches never
+            # fires. The regex also covers Trunk's queue branches, which are deleted
+            # by Trunk itself and must not be touched mid-merge.
+            - name: Remove stale branches
+              id: stale-branches
+              uses: fpicalausa/remove-stale-branches@9b829bc2975ade0c61e64e9613def53ec0732440 # v2.6.1
+              with:
+                  github-token: ${{ steps.app-token.outputs.token }}
+                  dry-run: true
+                  days-before-branch-stale: 90
+                  days-before-branch-delete: 7
+                  # Anchored on purpose: an unanchored ^master also spares the
+                  # master-<sha> snapshot branches, which are exactly what this cleans up.
+                  exempt-branches-regex: '^(main|master)$|^trunk-(merge|temp|conflict-investigation)'
+                  ignore-branches-with-open-prs: true
+                  # A branch costs two operations, one to mark it stale and one to
+                  # delete it a week later. The backlog is in the thousands, so a
+                  # small budget would take months to drain.
+                  operations-per-run: 1000
+
+            - name: Report stale branch scan
+              env:
+                  SCANNED: ${{ steps.stale-branches.outputs.scanned_branches }}
+                  NEW_STALE: ${{ steps.stale-branches.outputs.new_stale_branches_count }}
+                  EXISTING_STALE: ${{ steps.stale-branches.outputs.existing_stale_branches_count }}
+                  REMOVED: ${{ steps.stale-branches.outputs.removed_branches_count }}
+                  REMOVED_LIST: ${{ steps.stale-branches.outputs.removed_branches }}
+              run: |
+                  {
+                    echo "### Stale branches (dry run)"
+                    echo ""
+                    echo "| Metric | Count |"
+                    echo "| --- | --- |"
+                    echo "| Scanned | ${SCANNED:-0} |"
+                    echo "| Newly stale | ${NEW_STALE:-0} |"
+                    echo "| Already stale | ${EXISTING_STALE:-0} |"
+                    echo "| Would delete | ${REMOVED:-0} |"
+                    echo ""
+                    echo "Counts stop at operations-per-run, so they are a floor, not the backlog size."
+                    echo ""
+                    echo "Would delete: ${REMOVED_LIST:-[]}"
+                  } >> "$GITHUB_STEP_SUMMARY"

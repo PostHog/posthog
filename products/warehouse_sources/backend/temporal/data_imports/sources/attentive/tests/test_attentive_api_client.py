@@ -36,22 +36,13 @@ class TestEventsForResources:
 
 class TestValidateCredentials:
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_valid_token(self, mock_session):
-        mock_session.return_value.get.return_value = _response(200, {"companyId": "c1"})
-
-        ok, error = api_client.validate_credentials("key")
-
-        assert ok is True
-        assert error is None
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_invalid_token(self, mock_session):
         mock_session.return_value.get.return_value = _response(401)
 
         ok, error = api_client.validate_credentials("key")
 
         assert ok is False
-        assert "rejected the API key" in (error or "")
+        assert "rejected your API key" in (error or "")
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_falls_back_to_v1_me_on_404(self, mock_session):
@@ -137,7 +128,7 @@ class TestCreateWebhook:
         result = api_client.create_webhook("key", "https://ph.example/webhook", ["sms_sent"])
 
         assert result.success is False
-        assert "denied the request" in (result.error or "")
+        assert "Webhooks permission" in (result.error or "")
 
 
 class TestEnableWebhook:

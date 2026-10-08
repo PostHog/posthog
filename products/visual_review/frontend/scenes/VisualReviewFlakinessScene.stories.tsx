@@ -15,6 +15,7 @@ const repo: RepoApi = {
     repo_full_name: 'PostHog/posthog',
     baseline_file_paths: {},
     enable_pr_comments: true,
+    debt_digest_enabled: false,
     created_at: '2026-06-10T00:00:00Z',
 }
 
@@ -57,6 +58,7 @@ const entry = (overrides: Partial<FlakinessEntryApi>): FlakinessEntryApi => ({
     is_quarantined: false,
     needs_decision: false,
     quarantine: null,
+    owner_team: 'team-replay',
     ...overrides,
 })
 
@@ -95,6 +97,7 @@ const overview: FlakinessOverviewApi = {
             // Absorbed on every run, but its worst diff is a rounding error
             // away from the threshold, so it is one restyle from turning red.
             identifier: 'charts-heatmap--linear-color-scale--light',
+            owner_team: 'team-web-analytics',
             variant_count: 2,
             hard_count: 0,
             soft_count: 705,
@@ -117,7 +120,6 @@ const overview: FlakinessOverviewApi = {
         broken: 18,
         unstable: 231,
         at_risk: 63,
-        noisy: 604,
         clean: 812,
         quarantined: 47,
         // Zero, and deliberately so: none of the three entries needs a decision,
@@ -138,7 +140,6 @@ const emptyOverview: FlakinessOverviewApi = {
         broken: 0,
         unstable: 0,
         at_risk: 0,
-        noisy: 0,
         clean: 0,
         quarantined: 0,
         needs_decision: 0,

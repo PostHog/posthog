@@ -23,7 +23,6 @@ import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import mixins, renderers, serializers, status, viewsets
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -32,6 +31,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import SessionAuthentication
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
@@ -68,11 +68,13 @@ from ..oauth import (
     DcrClientRegistration,
     DCRRegistrationRejectedError,
     OAuthAuthorizeURLError,
+    OAuthMetadataValidationError,
     OAuthTokenExchangeError,
     discover_oauth_metadata,
     exchange_oauth_token,
     generate_pkce,
     oauth_resource,
+    provider_authorize_params,
     register_dcr_client,
     requested_oauth_scopes,
     resolve_template_oauth_credentials,
@@ -82,6 +84,7 @@ from ..policy import GatewayCaller, PolicyContext, ResolvedPolicy, is_policy_sta
 from ..proxy import proxy_mcp_request, record_tool_call_audit, resolve_call_decision, validate_installation_auth
 from ..tasks import sync_installation_tools_task
 from ..tools import ToolCallError, ToolsFetchError, call_upstream_tool, sync_installation_tools
+from .visibility import slack_dev_mcp_ui_enabled
 
 
 class MCPProxyRenderer(renderers.BaseRenderer):
@@ -123,6 +126,13 @@ def _dcr_failed_detail(error: "DCRRegistrationFailedError") -> str:
     if error.detail:
         return f"OAuth registration failed. {error.detail}"
     return "OAuth registration failed."
+
+
+def _oauth_discovery_failed_detail(error: Exception) -> str:
+    # Other discovery errors can carry upstream URLs or response bodies, so only validation messages reach the user.
+    if isinstance(error, OAuthMetadataValidationError):
+        return f"OAuth discovery failed. {error}"
+    return "OAuth discovery failed."
 
 
 def _hash_oauth_state_token(token: str) -> str:
@@ -256,7 +266,11 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
         responses={200: OpenApiResponse(response=MCPServerTemplateSerializer(many=True))},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        queryset = MCPServerTemplate.objects.filter(is_active=True).order_by("name")
+        queryset = MCPServerTemplate.available_for_team(self.team_id).order_by("name")
+        if queryset.filter(oauth_credentials_source="slack_dev_app").exists() and not slack_dev_mcp_ui_enabled(
+            user=cast(User, request.user), team=self.team
+        ):
+            queryset = queryset.exclude(oauth_credentials_source="slack_dev_app")
         serializer = MCPServerTemplateSerializer(queryset, many=True)
         return Response({"results": serializer.data})
 
@@ -1043,6 +1057,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             "state": state_token,
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
+            **provider_authorize_params(metadata),
         }
         try:
             scopes = requested_oauth_scopes(metadata, scope_allowlist)
@@ -1059,7 +1074,14 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if not _is_https(auth_endpoint):
             raise OAuthAuthorizeURLError("Authorization endpoint must use HTTPS")
 
-        return f"{auth_endpoint}?{urlencode(query_params)}"
+        # Some authorization servers (e.g. Railway) advertise authorization_endpoint
+        # with an existing query string. Appending another "?" would bury params like
+        # client_id inside the prior value, so merge instead.
+        parts = urlsplit(auth_endpoint)
+        existing = parse_qsl(parts.query, keep_blank_values=True)
+        merged = [(key, value) for key, value in existing if key not in query_params]
+        merged.extend(query_params.items())
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(merged), parts.fragment))
 
     @validated_request(
         MCPServerInstallationUpdateSerializer,
@@ -1382,7 +1404,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         self._validate_gateway_options(data)
 
         try:
-            template = MCPServerTemplate.objects.get(id=template_id, is_active=True)
+            template = MCPServerTemplate.available_for_team(self.team_id).get(id=template_id)
         except MCPServerTemplate.DoesNotExist:
             return Response({"detail": "Template not found"}, status=status.HTTP_404_NOT_FOUND)
         self._require_server_enabled_for_team(template.url)
@@ -1462,7 +1484,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 )
                 if created:
                     installation.delete()
-                return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"detail": _oauth_discovery_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
 
             try:
                 registration = self._register_dcr_client_or_raise(
@@ -1723,7 +1745,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             logger.exception("OAuth discovery failed", server_url=mcp_url, error=str(e))
             if created:
                 installation.delete()
-            return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": _oauth_discovery_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         issuer_url = metadata.get("issuer", "")
         if not issuer_url:
@@ -1883,7 +1905,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         web_return_path: str = "",
     ) -> HttpResponse:
         try:
-            template = MCPServerTemplate.objects.get(id=template_id, is_active=True)
+            template = MCPServerTemplate.available_for_team(self.team_id).get(id=template_id)
         except MCPServerTemplate.DoesNotExist:
             return Response({"detail": "Template not found"}, status=status.HTTP_404_NOT_FOUND)
         self._require_server_enabled_for_team(template.url)
@@ -1933,7 +1955,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                         server_url=template.url,
                         error=str(e),
                     )
-                    return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
+                    return Response({"detail": _oauth_discovery_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
                 installation.oauth_metadata = metadata
                 installation.save(update_fields=["oauth_metadata", "updated_at"])
         else:

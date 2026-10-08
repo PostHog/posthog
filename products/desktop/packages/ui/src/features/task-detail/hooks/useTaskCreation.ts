@@ -1,3 +1,4 @@
+import { buildTaskSpaceContextProps } from "@posthog/core/canvas/canvasAnalytics";
 import { partitionLocalMcpServersForRun } from "@posthog/core/local-mcp/localMcpImport";
 import {
   getErrorTitle,
@@ -9,7 +10,7 @@ import {
   type TaskService,
 } from "@posthog/core/task-detail/taskService";
 import { pendingPromptRecordFromContent } from "@posthog/core/tasks/pendingPrompts";
-import { useService } from "@posthog/di/react";
+import { useService, useServiceOptional } from "@posthog/di/react";
 import type { HostTrpcClient } from "@posthog/host-router/client";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import {
@@ -18,10 +19,12 @@ import {
   ANALYTICS_EVENTS,
   type ModelAccess,
   PROJECT_BLUEBIRD_FLAG,
+  SERVER_AGENT_INSTRUCTIONS_FLAG,
   type TaskCreationInput,
   type WorkspaceMode,
 } from "@posthog/shared";
 import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
+import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION } from "@posthog/shared/product-engineer-prompt";
 import { getCurrentBrowserTabId } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
@@ -30,6 +33,10 @@ import {
   subscriptionModelAccess,
   useAdapterSubscription,
 } from "@posthog/ui/features/settings/adapterSubscription";
+import {
+  CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
+  type ClaudeSubscriptionTokenSettings,
+} from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
 import { settleFailedPromptRecord } from "@posthog/ui/features/task-detail/pendingPromptActions";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { openTask } from "@posthog/ui/router/useOpenTask";
@@ -58,6 +65,10 @@ import { useTaskInputHistoryStore } from "../../message-editor/taskInputHistoryS
 import type { EditorHandle } from "../../message-editor/types";
 import { toastError } from "../../notifications/errorDetails";
 import { useProvisioningStore } from "../../provisioning/store";
+import {
+  cloudTaskCarriesLocalInstructions,
+  getLocalInstructionsContent,
+} from "../../settings/serverAgentInstructions";
 import {
   getEffectiveCustomInstructions,
   useSettingsStore,
@@ -134,6 +145,7 @@ interface UseTaskCreationReturn {
 
 async function trackTaskCreated(
   input: TaskCreationInput,
+  taskId: string,
   selectedDirectory: string,
   hostClient: HostTrpcClient,
   codexModelAccess?: ModelAccess,
@@ -159,6 +171,7 @@ async function trackTaskCreated(
     }
 
     track(ANALYTICS_EVENTS.TASK_CREATED, {
+      task_id: taskId,
       auto_run: !!input.executionMode,
       created_from: "command-menu",
       repository_provider: input.repository ? "github" : "none",
@@ -180,6 +193,12 @@ async function trackTaskCreated(
       adapter: input.adapter,
       codex_model_access: codexModelAccess,
       claude_model_access: claudeModelAccess,
+      ...buildTaskSpaceContextProps({
+        channelId: input.channelId,
+        channelContextId: input.channelContextId,
+        channelContext: input.channelContext,
+        channelContextPath: input.channelContextPath,
+      }),
     });
   } catch (error) {
     log.warn("Failed to track Task created event", { error });
@@ -256,6 +275,13 @@ export function useTaskCreation({
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
+  const serverInstructionsEnabled = useFeatureFlag(
+    SERVER_AGENT_INSTRUCTIONS_FLAG,
+  );
+  const currentProjectId = useAuthStateValue((state) => state.currentProjectId);
+  const claudeTokenStore = useServiceOptional<ClaudeSubscriptionTokenSettings>(
+    CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
+  );
   const { personalChannel } = useTaskChannels({ enabled: bluebirdEnabled });
 
   const hasRequiredPath = allowNoRepo
@@ -298,11 +324,52 @@ export function useTaskCreation({
       const serializedContent = contentToXml(content).trim();
       const filePaths = extractFilePaths(content);
 
+      // History is where the person recovers a prompt when creation fails, so
+      // it must be written before any preflight call that can fail. The write
+      // persists to local storage, which throws when the quota is full, and
+      // history is only a recovery aid, so it must not block the task.
+      if (plainPromptText) {
+        try {
+          useTaskInputHistoryStore.getState().addPrompt(plainPromptText);
+        } catch (error) {
+          log.warn("Failed to save the prompt to history", { error });
+        }
+      }
+
       // Held for the whole submit, pre-flight awaits included, so a second
       // Enter lands after `canSubmitBase` has already gone false.
       setIsCreatingTask(true);
 
       try {
+        if (
+          workspaceMode === "cloud" &&
+          runtime !== "pi" &&
+          adapter === "claude" &&
+          claudeSubscription.cloudSubscriptionOn
+        ) {
+          if (!claudeSubscription.cloudFlagEnabled) {
+            toast.error("Claude plan billing is unavailable for cloud tasks", {
+              description:
+                "Try again later, or select PostHog in the Billing menu.",
+            });
+            return false;
+          }
+          try {
+            if (!claudeTokenStore || !(await claudeTokenStore.has())) {
+              toast.error("Add your Claude token before starting this task", {
+                description:
+                  "Open Settings > Harness and save a token for cloud tasks.",
+              });
+              return false;
+            }
+          } catch {
+            toast.error("Cannot check your Claude token", {
+              description: "Open Settings > Harness and try again.",
+            });
+            return false;
+          }
+        }
+
         if (workspaceMode === "cloud" && !(await assertCloudUsageAvailable())) {
           return false;
         }
@@ -393,12 +460,6 @@ export function useTaskCreation({
         };
 
         try {
-          if (!contentOverride) {
-            if (plainPromptText) {
-              useTaskInputHistoryStore.getState().addPrompt(plainPromptText);
-            }
-          }
-
           const settings = useSettingsStore.getState();
           const defaultedChannelId =
             bluebirdEnabled && !channelId && !channelName
@@ -433,6 +494,10 @@ export function useTaskCreation({
             adapter,
             codexModelAccess,
             claudeModelAccess,
+            claudeCloudModelAccess:
+              workspaceMode === "cloud" ? claudeModelAccess : undefined,
+            codexCloudModelAccess:
+              workspaceMode === "cloud" ? codexModelAccess : undefined,
             runtime,
             model,
             reasoningLevel,
@@ -448,7 +513,20 @@ export function useTaskCreation({
             channelName,
             channelId: channelId ?? defaultedChannelId,
             channelContextId,
-            customInstructions: getEffectiveCustomInstructions(settings),
+            // The server adds "My instructions" to cloud runs, so a cloud
+            // task in sync carries only the Simplified Technical English line.
+            customInstructions:
+              workspaceMode === "cloud" &&
+              !cloudTaskCarriesLocalInstructions({
+                flagEnabled: serverInstructionsEnabled,
+                projectId: currentProjectId,
+                onServer: settings.customInstructionsOnServer,
+                local: getLocalInstructionsContent(settings),
+              })
+                ? settings.ste100Enabled
+                  ? SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION
+                  : undefined
+                : getEffectiveCustomInstructions(settings),
             autoPublishCloudRuns: settings.autoPublishCloudRuns,
             rtkEnabledCloud: settings.rtkEnabledCloud,
             allowNoRepo,
@@ -569,6 +647,7 @@ export function useTaskCreation({
             }
             void trackTaskCreated(
               input,
+              result.data.task.id,
               selectedDirectory,
               hostClient,
               input.codexModelAccess,
@@ -621,6 +700,8 @@ export function useTaskCreation({
     [
       canSubmit,
       canSubmitBase,
+      serverInstructionsEnabled,
+      currentProjectId,
       editorRef,
       sessionId,
       selectedDirectory,
@@ -669,6 +750,7 @@ export function useTaskCreation({
       claudeSubscription.subscriptionOn,
       claudeSubscription,
       codexSubscription,
+      claudeTokenStore,
     ],
   );
 

@@ -36,6 +36,7 @@ Agent events are wrapped as `{"type": "pi_event", "timestamp": ..., "event": {..
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `user_message`            | `event.content[]` — `{type: "text", text}` items                                                                    |
 | `assistant_thought_chunk` | `event.content.text` — streaming; thousands of tiny chunks per run, coalesce or skip                                |
+| `assistant_message_chunk` | `event.content.text` — the agent's narration, streamed in chunks; join a burst to read one message                  |
 | `tool_call_started`       | `event.toolCall`: `id`, `title` (tool name, e.g. `bash`), `kind` (`execute`/`edit`/…), `rawInput` (the actual args) |
 | `tool_call_updated`       | `event.toolCall`: `id`, `status` (`completed`/`failed`), `rawOutput[]` (`{type:"text", text}`), `content`           |
 | `turn_completed`          | turn boundary; `event.totalTokens` is the completed turn's token total when present                                 |
@@ -68,7 +69,13 @@ Status census:
 jq -r 'select(.event.type=="tool_call_updated") | .event.toolCall.status' <log> | sort | uniq -c
 ```
 
-Largest tool outputs (verbose-output candidates):
+Agent narration, joined per burst (the line is the first chunk of each burst):
+
+```sh
+jq -c 'select(.event.type=="assistant_message_chunk") | {line: input_line_number, text: .event.content.text}' <log> | jq -s -c 'reduce .[] as $c ([]; if length > 0 and .[-1].line + 1 == $c.line then .[:-1] + [{line: .[-1].line, text: (.[-1].text + $c.text)}] else . + [$c] end) | .[] | .text |= .[0:250]' | head -40
+```
+
+Largest tool outputs:
 
 ```sh
 jq -c 'select(.event.type=="tool_call_updated") | {line: input_line_number, bytes: (.event.toolCall.rawOutput | tostring | length)}' <log> | jq -s -c 'sort_by(-.bytes)[0:10][]'
@@ -118,13 +125,13 @@ Agent narration (what the agent said it was doing, and why):
 jq -c 'select(.notification.params.update.sessionUpdate=="agent_message") | {line: input_line_number, text: .notification.params.update.content.text[0:250]}' <log>
 ```
 
-Latest completed-turn usage record (use the span recipe below to measure waste):
+Latest completed-turn usage record:
 
 ```sh
 jq -c 'select(.notification.method=="_posthog/turn_complete") | .notification.params | {stopReason, usage}' <log> | tail -1
 ```
 
-## Both formats: context around a finding
+## Both formats: context around a line
 
 Once a query gives you a `line` anchor, read a bounded window around it:
 
@@ -132,72 +139,62 @@ Once a query gives you a `line` anchor, read a bounded window around it:
 sed -n '<line-3>,<line+3>p' <log> | jq -c '. | tostring | .[0:400]'
 ```
 
-## Both formats: measure a wasted span
+## Both formats: find split points
 
-Bracket the waste with a start and end line number, then measure — never estimate.
+Activities start at user turns, at gaps longer than 4 minutes, and at goal changes. The first two
+come from the log directly. Every line has a top-level `timestamp`.
 
-Wall-clock seconds between two lines (every line has a top-level `timestamp`):
-
-```sh
-sed -n '<start>p;<end>p' <log> | jq -rs '[.[] | .timestamp | gsub("\\.[0-9]+";"") | sub("\\+00:00$";"Z") | fromdateiso8601] | last - first'
-```
-
-Tokens consumed by completed turns wholly inside the span. Pi stores the total on `turn_completed`;
-some ACP adapters store it on `_posthog/turn_complete`. Do not use live `_posthog/usage_update`
-records: they can be repeated snapshots for one turn. The recipe attributes each turn's whole total
-by its completion line, so a span that starts or ends mid-turn borrows a full model request from
-adjacent work or drops one. Anchor boundaries on turn edges; when the span does not hold complete
-turns, or a completion has no usage, omit `tokens`:
+User turns with their line numbers. Pi:
 
 ```sh
-sed -n '<start>,<end>p' <log> | jq -rs 'def token_total: if type == "number" then . elif type == "object" then (.totalTokens // ((.inputTokens // 0) + (.outputTokens // 0) + (.cachedReadTokens // 0) + (.cachedWriteTokens // 0))) else empty end; [.[] | if .type == "pi_event" and .event.type == "turn_completed" then .event.totalTokens elif .notification.method == "_posthog/turn_complete" then (.notification.params.usage | token_total) else empty end | select(type == "number" and . > 0)] | if length > 0 then add else "insufficient completed-turn token records in span" end'
+jq -c 'select(.event.type=="user_message") | {line: input_line_number, text: ([.event.content[]? | .text // ""] | join(" "))[0:200]}' <log> | head -40
 ```
 
-Tool-output bytes across the span — works in both formats, even when the log has no token
-records. Pi:
+ACP (chunks arrive one per line; take the first chunk of each burst as the turn start):
 
 ```sh
-sed -n '<start>,<end>p' <log> | jq -rs '[.[] | select(.event.type=="tool_call_updated") | (.event.toolCall.rawOutput | tostring | length)] | add // "no tool outputs in span"'
+jq -c 'select(.notification.params.update.sessionUpdate=="user_message_chunk") | {line: input_line_number, text: .notification.params.update.content.text[0:200]}' <log> | head -40
 ```
 
-ACP:
+Gaps longer than 4 minutes, with the line that ends each gap:
 
 ```sh
-sed -n '<start>,<end>p' <log> | jq -rs '[.[] | select(.notification.params.update.sessionUpdate=="tool_call_update") | (.notification.params.update.rawOutput | tostring | length)] | add // "no tool outputs in span"'
+jq -r '[input_line_number, (.timestamp // empty)] | @tsv' <log> | python3 -c '
+import sys
+from datetime import datetime
+prev = None
+for row in sys.stdin:
+    line, ts = row.rstrip("\n").split("\t")
+    t = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    if prev is not None and (t - prev).total_seconds() > 240:
+        print(line, int((t - prev).total_seconds()), "s")
+    prev = t
+' | head -40
 ```
 
-When the same pattern occurs in separate, non-contiguous spans, measure each span with these
-recipes and report the sum. Never bracket from the first occurrence to the last — the work in
-between is not waste.
+Line ranges for the tool timeline give you the goal changes. Read the commands in order and mark
+the line where the agent moves from one goal to the next.
 
-### Token-measurement examples
+## Both formats: reach the end of the log
 
-Pi records `totalTokens` with each completed turn. These two complete turns fall inside a measured
-span, so the reported token waste is `1200 + 900 = 2100`:
-
-```jsonl
-{"type":"pi_event","event":{"type":"turn_completed","totalTokens":1200}}
-{"type":"pi_event","event":{"type":"turn_completed","totalTokens":900}}
-```
-
-ACP records finalized usage in `_posthog/turn_complete`. Codex provides `usage.totalTokens`; Claude
-provides component counts. These two complete turns fall inside a measured span, so the reported
-token waste is `800 + (300 + 100 + 150 + 50) = 1400`:
-
-```jsonl
-{"type":"notification","notification":{"method":"_posthog/turn_complete","params":{"usage":{"totalTokens":800}}}}
-{"type":"notification","notification":{"method":"_posthog/turn_complete","params":{"usage":{"inputTokens":300,"outputTokens":100,"cachedReadTokens":150,"cachedWriteTokens":50}}}}
-```
-
-Count distinct tool-call IDs inside the span. ACP emits multiple updates for one call, so counting
-timeline rows can over-report waste:
+Every recipe above caps its rows with `head`. Get the line count first:
 
 ```sh
-sed -n '<start>,<end>p' <log> | jq -r 'if .type == "pi_event" and .event.type == "tool_call_started" then .event.toolCall.id elif .notification.params.update.sessionUpdate == "tool_call_update" then .notification.params.update.toolCallId else empty end' | sort -u | wc -l
+wc -l <log>
 ```
+
+When a recipe returns its full cap, continue from the last line you saw instead of raising the cap:
+
+```sh
+tail -n +<last line seen + 1> <log> | jq -c '...same filter..., line: (input_line_number + <last line seen>)' | head -80
+```
+
+Stop only when the last line you have seen is the last line of the log. The final activity ends on
+that line.
 
 ## Evidence quotes
 
-Quote text exactly as jq printed it — copy from your query output, never from memory.
-The `report_insight` tool verifies each quote against the raw log (it handles JSON escaping),
-and rejects quotes that do not match.
+Quote text exactly as jq printed it. Copy from your query output, never from memory.
+The `report_activity` tool verifies each quote against the raw lines inside your range (it handles
+JSON escaping), and rejects quotes that do not match or that fall outside the range. When a
+`blocker_kind` is set, the quote must also contain `blocker_name` as a whole word.

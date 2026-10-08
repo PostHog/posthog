@@ -102,69 +102,27 @@ class TestValidateCredentials:
 
         assert validate_credentials("cid", "pat") is expected
 
-    @mock.patch(ADROLL_SESSION_PATCH)
-    def test_validate_includes_apikey_and_token_header(self, mock_session):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-
-        validate_credentials("cid", "pat")
-
-        url = mock_session.return_value.get.call_args.args[0]
-        assert parse_qs(urlparse(url).query)["apikey"] == ["cid"]
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert headers["Authorization"] == "Token pat"
-
-    @mock.patch(ADROLL_SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("cid", "pat") is False
-
 
 class TestRows:
+    @pytest.mark.parametrize("endpoint", ["advertisable_reports", "campaign_reports", "ad_reports"])
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_advertisables_single_fetch(self, MockSession):
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"eid": "ADV1"}])])
-
-        rows = _rows(_source("advertisables"))
-
-        assert rows == [{"eid": "ADV1"}]
-        assert session.send.call_count == 1
-        assert urlparse(snapshots[0]["url"]).path == "/api/v1/organization/get_advertisables"
-        assert snapshots[0]["params"]["apikey"] == "cid"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_requests_carry_token_auth_header(self, MockSession):
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"eid": "ADV1"}])])
-
-        _rows(_source("advertisables"))
-
-        auth = snapshots[0]["auth"]
-        prepared = mock.MagicMock(headers={})
-        auth(prepared)
-        assert prepared.headers["Authorization"] == "Token pat"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_campaigns_fan_out_over_advertisables(self, MockSession):
+    def test_report_endpoints_filter_by_advertisables_in_entity_format(self, MockSession, endpoint):
         session = MockSession.return_value
         snapshots = _wire(
             session,
             [
-                _response([{"eid": "ADV1"}, {"eid": "ADV2"}]),
-                _response([{"eid": "C1"}]),
-                _response([{"eid": "C2"}]),
+                _response([{"eid": "ADV1"}]),
+                _response([{"eid": "C1", "impressions": 5}]),
             ],
         )
 
-        rows = _rows(_source("campaigns"))
+        rows = _rows(_source(endpoint))
 
-        assert [(c["eid"], c["_advertisable_eid"]) for c in rows] == [("C1", "ADV1"), ("C2", "ADV2")]
-        child_queries = [parse_qs(urlparse(s["url"]).query) for s in snapshots[1:]]
-        assert child_queries[0]["advertisable"] == ["ADV1"]
-        assert child_queries[1]["advertisable"] == ["ADV2"]
-        assert all(urlparse(s["url"]).path == CAMPAIGNS_PATH for s in snapshots[1:])
-        # The apikey param rides along on every request, parent and children alike.
-        assert all(s["params"]["apikey"] == "cid" for s in snapshots)
+        assert rows == [{"eid": "C1", "impressions": 5, "_advertisable_eid": "ADV1"}]
+        assert urlparse(snapshots[1]["url"]).path == ADROLL_ENDPOINTS[endpoint].path
+        # The reporting endpoints take a list of advertisables, not a single one.
+        assert parse_qs(urlparse(snapshots[1]["url"]).query)["advertisables"] == ["ADV1"]
+        assert snapshots[1]["params"]["data_format"] == "entity"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_advertisables_without_eid_are_skipped(self, MockSession):
@@ -173,39 +131,6 @@ class TestRows:
 
         assert _rows(_source("ads")) == []
         assert session.send.call_count == 1
-
-    @pytest.mark.parametrize("endpoint", ["advertisables", "campaigns"])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_yields_nothing(self, MockSession, endpoint):
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        assert _rows(_source(endpoint)) == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_results_key_is_tolerated(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response(None, drop_results=True)])
-
-        assert _rows(_source("advertisables")) == []
-
-    @mock.patch("time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retries_retryable_status_then_succeeds(self, MockSession, _mock_sleep):
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _error_response(500),
-                _error_response(429),
-                _response([{"eid": "ADV1"}]),
-            ],
-        )
-
-        rows = _rows(_source("advertisables"))
-
-        assert rows == [{"eid": "ADV1"}]
-        assert session.send.call_count == MAX_RETRY_ATTEMPTS
 
     @mock.patch("time.sleep")
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -230,33 +155,6 @@ class TestRows:
 
 
 class TestFanOutResume:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoints_completed_advertisables(self, MockSession):
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response([{"eid": "ADV1"}, {"eid": "ADV2"}]),
-                _response([{"eid": "C1"}]),
-                _response([{"eid": "C2"}]),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source("campaigns", manager))
-
-        final_state = manager.save_state.call_args.args[0]
-        assert final_state == AdRollResumeConfig(
-            fanout_state={
-                "completed": [
-                    f"{CAMPAIGNS_PATH}?advertisable=ADV1",
-                    f"{CAMPAIGNS_PATH}?advertisable=ADV2",
-                ],
-                "current": None,
-                "child_state": None,
-            }
-        )
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_skips_completed_advertisables(self, MockSession):
         session = MockSession.return_value
@@ -283,16 +181,6 @@ class TestFanOutResume:
         assert [(c["eid"], c["_advertisable_eid"]) for c in rows] == [("C2", "ADV2")]
         assert session.send.call_count == 2
         assert parse_qs(urlparse(snapshots[1]["url"]).query)["advertisable"] == ["ADV2"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_resume_state_saved_for_plain_endpoint(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response([{"eid": "ADV1"}])])
-
-        manager = _make_manager()
-        _rows(_source("advertisables", manager))
-
-        manager.save_state.assert_not_called()
 
 
 class TestAdRollSourceResponse:

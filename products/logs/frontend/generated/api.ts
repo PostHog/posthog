@@ -53,6 +53,8 @@ import type {
     PatchedLogsRetentionRuleApi,
     PatchedLogsSamplingRuleApi,
     PatchedLogsViewApi,
+    PatchedTeamLogsConfigApi,
+    TeamLogsConfigApi,
     _LogsAttributesResponseApi,
     _LogsCountRangesRequestApi,
     _LogsCountRangesResponseApi,
@@ -62,6 +64,8 @@ import type {
     _LogsFacetValuesResponseApi,
     _LogsGroupByRequestApi,
     _LogsGroupByResponseApi,
+    _LogsImpactRequestApi,
+    _LogsImpactResponseApi,
     _LogsPatternsDiffRequestApi,
     _LogsPatternsDiffResponseApi,
     _LogsPatternsRequestApi,
@@ -70,8 +74,8 @@ import type {
     _LogsQueryResponseApi,
     _LogsServicesRequestApi,
     _LogsServicesResponseApi,
+    _LogsSparklineBucketApi,
     _LogsSparklineRequestApi,
-    _LogsSparklineResponseApi,
     _LogsValuesResponseApi,
 } from './api.schemas'
 
@@ -91,6 +95,51 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getOrganizationsProjectsLogsConfigRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/logs_config/`
+}
+
+/**
+ * Manage logs product configuration for this project's canonical environment.
+ * Members can read; writing requires project admin, matching the admin-only
+ * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
+ * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
+ */
+export const organizationsProjectsLogsConfigRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<TeamLogsConfigApi> => {
+    return apiMutator<TeamLogsConfigApi>(getOrganizationsProjectsLogsConfigRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getOrganizationsProjectsLogsConfigPartialUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/logs_config/`
+}
+
+/**
+ * Manage logs product configuration for this project's canonical environment.
+ * Members can read; writing requires project admin, matching the admin-only
+ * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
+ * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
+ */
+export const organizationsProjectsLogsConfigPartialUpdate = async (
+    organizationId: string,
+    id: number,
+    patchedTeamLogsConfigApi?: NonReadonly<PatchedTeamLogsConfigApi>,
+    options?: RequestInit
+): Promise<TeamLogsConfigApi> => {
+    return apiMutator<TeamLogsConfigApi>(getOrganizationsProjectsLogsConfigPartialUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTeamLogsConfigApi),
+    })
+}
 
 export const getLogsAlertsListUrl = (projectId: string, params?: LogsAlertsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -203,7 +252,7 @@ export const getLogsAlertsDestinationsCreateUrl = (projectId: string, id: string
 }
 
 /**
- * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.
+ * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically. A PagerDuty destination gets the incident opened and incident closed kinds instead. They follow every start and end of a firing, cooldown included, so each incident it opens is resolved.
  */
 export const logsAlertsDestinationsCreate = async (
     projectId: string,
@@ -493,6 +542,23 @@ export const logsHasLogsRetrieve = async (
     })
 }
 
+export const getLogsImpactCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/impact/`
+}
+
+export const logsImpactCreate = async (
+    projectId: string,
+    _logsImpactRequestApi: _LogsImpactRequestApi,
+    options?: RequestInit
+): Promise<_LogsImpactResponseApi> => {
+    return apiMutator<_LogsImpactResponseApi>(getLogsImpactCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsImpactRequestApi),
+    })
+}
+
 export const getLogsMetricRulesListUrl = (projectId: string, params?: LogsMetricRulesListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -666,6 +732,13 @@ export const getLogsRetentionRulesListUrl = (projectId: string, params?: LogsRet
         : `/api/projects/${projectId}/logs/retention_rules/`
 }
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesList = async (
     projectId: string,
     params?: LogsRetentionRulesListParams,
@@ -681,6 +754,13 @@ export const getLogsRetentionRulesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/retention_rules/`
 }
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesCreate = async (
     projectId: string,
     logsRetentionRuleApi: NonReadonly<LogsRetentionRuleApi>,
@@ -698,6 +778,13 @@ export const getLogsRetentionRulesRetrieveUrl = (projectId: string, id: string) 
     return `/api/projects/${projectId}/logs/retention_rules/${id}/`
 }
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesRetrieve = async (
     projectId: string,
     id: string,
@@ -713,6 +800,13 @@ export const getLogsRetentionRulesUpdateUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/logs/retention_rules/${id}/`
 }
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesUpdate = async (
     projectId: string,
     id: string,
@@ -731,6 +825,13 @@ export const getLogsRetentionRulesPartialUpdateUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/logs/retention_rules/${id}/`
 }
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -749,6 +850,13 @@ export const getLogsRetentionRulesDestroyUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/logs/retention_rules/${id}/`
 }
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesDestroy = async (
     projectId: string,
     id: string,
@@ -1001,8 +1109,8 @@ export const logsSparklineCreate = async (
     projectId: string,
     _logsSparklineRequestApi: _LogsSparklineRequestApi,
     options?: RequestInit
-): Promise<_LogsSparklineResponseApi> => {
-    return apiMutator<_LogsSparklineResponseApi>(getLogsSparklineCreateUrl(projectId), {
+): Promise<_LogsSparklineBucketApi[]> => {
+    return apiMutator<_LogsSparklineBucketApi[]>(getLogsSparklineCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

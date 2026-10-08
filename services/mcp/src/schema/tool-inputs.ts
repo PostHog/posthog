@@ -1,8 +1,33 @@
 import { z } from 'zod'
 
+import {
+    AiObservabilityOfflineExperimentsUploadCreateBody,
+    aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax,
+    aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax,
+} from '../generated/ai_observability/api'
+import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
+
+export const CanvasStateReadLimitSchema = z.number().int().min(1).max(100).default(20)
+export const CanvasStateKeysOnlySchema = z.boolean().default(true)
+export const WikiPageReadLimitSchema = z.number().int().min(1).max(12000).default(12000)
+
+// Mirrors the Django serializer's `validate` rule so a continuation without the revision
+// fails here instead of at the API with a 400.
+export function validateCanvasStateValueContinuation(
+    data: { offset?: number | undefined; revision?: string | undefined },
+    ctx: z.RefinementCtx
+): void {
+    if ((data.offset ?? 0) > 0 && !data.revision) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['revision'],
+            message: 'Read the first chunk and pass its revision to continue.',
+        })
+    }
+}
 
 export const ChannelInstructionsBaseVersionSchema = z
     .number()
@@ -29,6 +54,14 @@ export const DashboardTileCreateSchema = z.object({
         .max(4000)
         .describe(
             'Markdown body. For image, provide exactly one Markdown image. For text, provide Markdown content that is not an image-only body.'
+        ),
+    agent_context: z
+        .string()
+        .max(10000)
+        .nullable()
+        .optional()
+        .describe(
+            'Optional context for AI agents, such as semantic layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.'
         ),
     layouts: z
         .object({
@@ -72,6 +105,32 @@ export const ExternalDataJobsBeforeSchema = z
 export const ExternalDataJobsSchemasSchema = z
     .array(z.string())
     .describe('Filter jobs by table schema names (e.g. ["users", "orders"]). Only returns jobs for these tables.')
+
+export const BillingTeamIdsSchema = z
+    .array(z.number().int().positive())
+    .nullish()
+    .describe(
+        'Project IDs to filter by, e.g. `[1,2]`. Omit for every project this request can see: all organization projects for full billing access, or the member-visible and token-scoped projects for member read-only access.'
+    )
+
+export const BillingUsageTypesSchema = z
+    .array(z.string().min(1))
+    .nullish()
+    .describe(BillingUsageRetrieveQueryParams().shape.usage_types.description!.replace('JSON-encoded array', 'Array'))
+
+export const BillingSpendBreakdownsSchema = z
+    .array(z.enum(['type', 'team']))
+    .nullish()
+    .describe(
+        'Dimensions to break spend down by. Pass `["type"]` for per-product series, `["team"]` for one series per project summed across products, or `["type","team"]` for per-project series within each product. Omit for one aggregate series.'
+    )
+
+export const BillingUsageBreakdownsSchema = z
+    .array(z.enum(['type', 'team']))
+    .nullish()
+    .describe(
+        'Dimensions to break usage down by. Pass `["type"]` for per-usage-type series or `["type","team"]` for per-project series within each usage type. Team breakdowns require `"type"`; do not pass `["team"]` by itself. Omit for one aggregate series.'
+    )
 
 export const ExternalDataSourcePayloadSchema = z
     .record(z.string(), z.unknown())
@@ -166,6 +225,18 @@ const CategoricalScoreDefinitionConfigSchema = z
             .min(1)
             .optional()
             .describe('Maximum selections allowed. Only valid when selection_mode is "multiple".'),
+        passing_rule: z
+            .object({
+                categories: z
+                    .array(z.string().max(128))
+                    .describe('Passing category keys. Every returned category must be included.'),
+            })
+            .strict()
+            .nullable()
+            .optional()
+            .describe(
+                'Optional passing categories. Omit or set null for neutral scores. Each version keeps its own rule.'
+            ),
     })
     .strict()
     .describe('Config shape used when kind is "categorical".')
@@ -175,6 +246,17 @@ const NumericScoreDefinitionConfigSchema = z
         min: z.number().optional().describe('Optional inclusive minimum score.'),
         max: z.number().optional().describe('Optional inclusive maximum score (must be ≥ min).'),
         step: z.number().positive().optional().describe('Optional increment step for numeric input, e.g. 1 or 0.5.'),
+        passing_rule: z
+            .object({
+                operator: z
+                    .enum(['gte', 'lte'])
+                    .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                threshold: z.number().describe('Finite passing threshold within any configured score bounds.'),
+            })
+            .strict()
+            .nullable()
+            .optional()
+            .describe('Optional passing rule. Omit or set null for neutral scores. Each version keeps its own rule.'),
     })
     .strict()
     .describe('Config shape used when kind is "numeric".')
@@ -183,6 +265,11 @@ const BooleanScoreDefinitionConfigSchema = z
     .object({
         true_label: z.string().min(1).optional().describe('Optional label shown for the true branch (e.g. "Yes").'),
         false_label: z.string().min(1).optional().describe('Optional label shown for the false branch (e.g. "No").'),
+        true_is_failure: z
+            .boolean()
+            .nullable()
+            .optional()
+            .describe('Whether true means failure. False, omitted, or null means true passes in offline evaluations.'),
     })
     .strict()
     .describe('Config shape used when kind is "boolean".')
@@ -194,11 +281,53 @@ export const ScoreDefinitionConfigSchema = z
         BooleanScoreDefinitionConfigSchema,
     ])
     .describe(
-        'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode), numeric (min/max/step), or boolean (true_label/false_label). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
+        'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode + optional passing_rule.categories), numeric (min/max/step + optional passing_rule), or boolean (true_label/false_label + optional true_is_failure). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
     )
+
+const OfflineExperimentUploadBody = AiObservabilityOfflineExperimentsUploadCreateBody().shape
+const OfflineExperimentUploadItem = OfflineExperimentUploadBody.items.unwrap().element
+const OfflineExperimentUploadResult = OfflineExperimentUploadBody.results.element
+
+// The API rejects unknown payload keys, but zod drops them before the request. A misnamed key
+// would then upload an incomplete payload, and the immutable item cannot be corrected later.
+export const OfflineExperimentUploadItemsSchema = z
+    .array(
+        OfflineExperimentUploadItem.extend({
+            payload: OfflineExperimentUploadItem.shape.payload
+                .unwrap()
+                .strict()
+                .optional()
+                .describe(OfflineExperimentUploadItem.shape.payload.description!),
+        })
+    )
+    .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax)
+    .optional()
+    .describe(OfflineExperimentUploadBody.items.description!)
+
+export const OfflineExperimentUploadResultsSchema = z
+    .array(
+        OfflineExperimentUploadResult.extend({
+            payload: OfflineExperimentUploadResult.shape.payload
+                .unwrap()
+                .strict()
+                .optional()
+                .describe(OfflineExperimentUploadResult.shape.payload.description!),
+        })
+    )
+    .min(1)
+    .max(aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax)
+    .describe(OfflineExperimentUploadBody.results.description!)
 
 export const PromptListInputSchema = z.object({
     search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
+    label: z
+        .string()
+        .min(1)
+        .max(128)
+        .optional()
+        .describe(
+            "Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned."
+        ),
     content: z
         .enum(['full', 'preview', 'none'])
         .default('none')
@@ -206,43 +335,6 @@ export const PromptListInputSchema = z.object({
             "Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely."
         ),
 })
-
-export const ReportInboxInputSchema = z
-    .object({
-        view: z
-            .enum(['actionable', 'needs_input', 'monitoring', 'resolved', 'dismissed', 'not_actionable', 'all'])
-            .default('actionable')
-            .describe('Inbox section to return. Defaults to actionable reports that are ready to pick up.'),
-        scope: z
-            .enum(['for_me', 'entire_project', 'teammate'])
-            .default('entire_project')
-            .describe('Limit results by suggested reviewer, or search the entire project.'),
-        teammate_uuid: z.string().uuid().optional().describe('PostHog user UUID required when scope is teammate.'),
-        priorities: z
-            .array(z.enum(['P0', 'P1', 'P2', 'P3', 'P4']))
-            .optional()
-            .describe(
-                "Priorities to include. When omitted, uses the requesting user's personal PR-generation threshold, falling back to the project threshold."
-            ),
-        source_products: z.array(z.string()).optional(),
-        scouts: z.array(z.string()).optional().describe('Scout skill_name slugs to include.'),
-        search: z.string().optional().describe('Case-insensitive substring match against report title and summary.'),
-        sort: z.enum(['priority', 'last_updated', 'newest', 'oldest']).default('priority'),
-        limit: z.number().int().min(1).max(10).default(10),
-        offset: z.number().int().min(0).optional(),
-    })
-    .superRefine((data, context) => {
-        if (data.scope === 'teammate' && !data.teammate_uuid) {
-            context.addIssue({ code: 'custom', path: ['teammate_uuid'], message: 'Required when scope is teammate.' })
-        }
-    })
-    .transform(({ priorities, source_products, scouts, ...query }) => ({
-        ...query,
-        priority: priorities?.join(','),
-        use_priority_preference: priorities === undefined ? true : undefined,
-        source_product: source_products?.join(','),
-        scout: scouts?.join(','),
-    }))
 
 export const FeedbackSubmitSchema = z
     .object({
@@ -385,14 +477,24 @@ export const SavedMetricsAttachSchema = z
         "The complete desired set of shared (saved) metrics for the experiment — this REPLACES all existing saved-metric links, it does not append. To add or remove one, first read the experiment's current saved_metrics via experiment-get and resend the full set. Pass an empty array to detach all shared metrics."
     )
 
-export const ExperimentResultsGetSchema = z.object({
-    id: z.number().describe('The ID of the experiment to get comprehensive results for'),
-    refresh: z
-        .boolean()
-        .optional()
-        .default(false)
-        .describe('Force refresh of results instead of using cached values. Defaults to false.'),
-})
+// Agents reach for `experimentId` / `experiment_id` here as often as `id` — the same
+// alias set the generated experiment tools accept via their tools.yaml overrides.
+export const ExperimentResultsGetSchema = z.preprocess(
+    normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+    z.object({
+        id: z.preprocess(
+            castStringToInt,
+            z.number().describe('The ID of the experiment to get comprehensive results for')
+        ),
+        refresh: z
+            .boolean()
+            .optional()
+            .default(false)
+            .describe(
+                'Asks for a blocking calculation. A cached result younger than 24 hours is still returned, so this does not force a recomputation. Defaults to false.'
+            ),
+    })
+)
 
 // Accept the identifier under the aliases agents reach for (`insight-get` &
 // friends return the insight under `id`; UI URLs surface `short_id`), and
@@ -647,6 +749,67 @@ export const ProjectSetActiveSchema = z.object({
     projectId: z.number().int().positive(),
 })
 
+const taskAgentRunOptions = {
+    // Use a pattern because JSON Schema's date-time format requires a timezone offset.
+    scheduled_at: z
+        .string()
+        .regex(z.regexes.datetime({ offset: true, local: true }))
+        .nullish()
+        .describe(
+            'Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 30 days. Times without an offset use UTC. Omit to start immediately.'
+        ),
+    model: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Omit to use saved defaults, or the prior model on resume. For an explicit choice, first call tasks-models-retrieve. The server derives the runtime adapter and saves the choice now.'
+        ),
+    // Mirrors the run serializer's choices, unlike the deliberately loose `model`, so the tool
+    // cannot offer a depth the API rejects.
+    reasoning_effort: z
+        .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+        .optional()
+        .describe('Optional effort supported by the selected model. Requires model. See tasks-models-retrieve.'),
+}
+
+// Mirrors the run serializer's runtime-selection rule. Its 400 also names runtime_adapter, which
+// these tools do not expose, so fail here naming only the field the caller can set.
+function validateTaskAgentRunOptions(
+    data: { model?: string | undefined; reasoning_effort?: string | undefined },
+    ctx: z.RefinementCtx
+): void {
+    if (data.reasoning_effort && !data.model) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['model'],
+            message: 'Required when reasoning_effort is set. Call tasks-models-retrieve to choose a model.',
+        })
+    }
+}
+
+export const TaskAgentCreateSchema = z
+    .object({
+        title: z.string().max(255).optional(),
+        description: z.string().min(1).describe('Instructions for the agent.'),
+        repository: z.string().nullish().describe('Repository in organization/repo format.'),
+        branch: z.string().min(1).max(255).nullish().describe('Base branch for the run.'),
+        ...taskAgentRunOptions,
+    })
+    .superRefine(validateTaskAgentRunOptions)
+    .transform((input) => ({ ...input, start_run: true as const }))
+
+export const TaskAgentRunCreateSchema = z
+    .object({
+        id: z.string().uuid().describe('Task ID.'),
+        branch: z.string().max(255).nullish().describe('Git branch to check out in the sandbox.'),
+        resume_from_run_id: z.string().uuid().optional().describe('ID of a previous run to resume from.'),
+        pending_user_message: z.string().optional().describe('Initial or follow-up message for the run.'),
+        ...taskAgentRunOptions,
+    })
+    .superRefine(validateTaskAgentRunOptions)
+    .transform((input) => ({ ...input, mode: 'background' as const, run_source: 'agent' as const }))
+
 // Debug MCP UI Apps
 export const DebugMcpUiAppsSchema = z.object({
     message: z.string().optional().describe('Optional message to include in the debug data'),
@@ -655,6 +818,12 @@ export const DebugMcpUiAppsSchema = z.object({
 // PostHog AI tools
 export const ExecuteSQLSchema = z.object({
     query: z.string().min(1).describe('The final SQL query to be executed.'),
+    context: z
+        .string()
+        .optional()
+        .describe(
+            'Why this query runs, and the governed-catalog outcome behind it: state "governed catalog consulted: no match" here when no approved metric covered the measure. This rides alongside the query and never reaches the person who asked, so catalog bookkeeping belongs here instead of in the answer.'
+        ),
     truncate: z
         .boolean()
         .optional()
@@ -677,6 +846,9 @@ export const ExecuteSQLSchema = z.object({
 })
 
 const MAX_EVENTS_PAGE_SIZE = 500
+
+const ENTITY_FIELD_DESCRIPTION =
+    'The entity to read: `person`, `session` for the columns of the `sessions` table, or a group type name. The plural form of any of these is accepted too.'
 
 // Every read below is strict so a field it does not have is named back to the caller. Left
 // open, an ignored `search` or `property_name` returns a confident answer to a different
@@ -706,7 +878,7 @@ const ReadEventPropertiesQuerySchema = z
 const ReadEntityPropertiesQuerySchema = z
     .object({
         kind: z.literal('entity_properties'),
-        entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
+        entity: z.string().describe(ENTITY_FIELD_DESCRIPTION),
     })
     .strict()
 
@@ -720,7 +892,7 @@ const ReadActionPropertiesQuerySchema = z
 const ReadEntitySamplePropertyValuesQuerySchema = z
     .object({
         kind: z.literal('entity_property_values'),
-        entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
+        entity: z.string().describe(ENTITY_FIELD_DESCRIPTION),
         property_name: z.string().describe('Verified property name of an entity.'),
     })
     .strict()

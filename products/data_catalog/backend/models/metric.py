@@ -35,7 +35,7 @@ class Metric(
     # db_constraint=False on FKs to hot tables (posthog_team, posthog_user): a real FK constraint
     # takes SHARE ROW EXCLUSIVE on the parent, stalling writes under traffic. Scoping/integrity is
     # enforced at the app layer.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
@@ -76,7 +76,7 @@ class Metric(
     status = models.CharField(
         max_length=32,
         choices=[(s.value, s.value) for s in MetricStatus],
-        default=MetricStatus.PROPOSED,
+        default=MetricStatus.PROPOSED.value,
         help_text="Persisted lifecycle state. drifted is computed at read time, not stored here.",
     )
     approved_by = models.ForeignKey(
@@ -108,7 +108,7 @@ class Metric(
     created_source = models.CharField(
         max_length=32,
         choices=[(s.value, s.value) for s in CreatedSource],
-        default=CreatedSource.USER,
+        default=CreatedSource.USER.value,
         help_text="Whether a human or an agent authored this metric.",
     )
     ai_model = models.CharField(

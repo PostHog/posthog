@@ -64,7 +64,7 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "description": "ISO8601 date string."
+                                    "description": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day."
                                 }
                             },
                             "required": ["date_from"],

@@ -1,5 +1,11 @@
 Aggregate trace span statistics as a call tree — one row per `(parent_service, parent_name) → (service_name, name)` edge.
 
+All parameters go inside `query` — top-level fields are rejected:
+
+```json
+{ "query": { "spanName": "GET /checkout", "serviceName": "api", "dateRange": { "date_from": "-1h" } } }
+```
+
 Requires a `spanName` to bound the matched trace set (the `(trace_id, parent_span_id)` self-join is unsafe at high cardinality without it), and a `serviceName` to scope the returned tree to a single service. All traces that contain at least one span with the given name in the given service are included, and every span in those traces from that service is aggregated against its parent.
 
 Returns rows with:
@@ -23,8 +29,6 @@ Use to answer:
 
 For a flat per-operation view (no parent linkage), use `apm-spans-aggregate` instead.
 
-All parameters must be nested inside a `query` object.
-
 # Comparison window
 
 Set `query.compareFilter.compare: true` to also fetch a comparison window. The response then includes a `compare` array of the same shape as `results`.
@@ -38,7 +42,7 @@ Set `query.compareFilter.compare: true` to also fetch a comparison window. The r
 
 `query.filterGroup` narrows the matched span set. Same filter shape and operators as `apm-spans-aggregate` / `query-apm-spans`:
 
-- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)
+- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). A `duration` filter value is in milliseconds (1 second = `1000`).
 - `span_attribute` — span-level attributes
 - `span_resource_attribute` — resource-level attributes
 
@@ -49,8 +53,6 @@ Use `apm-attributes-list` and `apm-attribute-values-list` to discover available 
 Use `query.dateRange` to control the time window. Default is the last hour (`-1h`).
 
 # Parameters
-
-All parameters go inside `query`.
 
 ## query.spanName (required)
 
@@ -135,7 +137,7 @@ Property filters applied to both windows. See the "Property filters" section.
 
 - `spanName` and `serviceName` are both required. Bound `spanName` to a specific high-level span (avoid generic names like `HTTP`); set `serviceName` to the one service whose call-tree you want.
 - Root spans have `parent_name = "<ROOT>"` and `avg_start_offset_nano = 0`.
-- Duration values are in nanoseconds.
+- Duration values in results are in nanoseconds. A `duration` filter value is in milliseconds.
 - Results are ordered by `total_duration_nano` DESC and capped at 5000 rows.
 - `calls_per_parent_invocation` is derived from the returned rows. If results hit the 5000-row cap (only happens with very high span-name cardinality in one service), a parent's edges can be split across the cut and the ratio can read high — treat it as approximate when the row count is at the cap.
 - For a flat per-operation aggregate without parent linkage, use `apm-spans-aggregate`.

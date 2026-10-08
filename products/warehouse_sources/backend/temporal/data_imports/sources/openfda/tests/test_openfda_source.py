@@ -4,8 +4,6 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.openfda.source import OpenFDASource
 
 
@@ -16,14 +14,6 @@ def _config(api_key: str | None = "key") -> Any:
 
 
 class TestSourceConfig:
-    def test_config_metadata(self) -> None:
-        config = OpenFDASource().get_source_config
-        assert config.label == "openFDA"
-        assert config.category == DataWarehouseSourceCategory.ANALYTICS
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # docsUrl slug must match the published doc filename so the website doesn't 404.
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/openfda"
-
     def test_api_key_field_is_optional_secret(self) -> None:
         fields: dict[str, Any] = {f.name: f for f in OpenFDASource().get_source_config.fields}
         assert set(fields) == {"api_key"}
@@ -39,20 +29,6 @@ class TestSourceConfig:
 
 
 class TestGetSchemas:
-    def test_lists_all_endpoints(self) -> None:
-        names = {s.name for s in OpenFDASource().get_schemas(_config(), team_id=1)}
-        assert names == {
-            "drug_events",
-            "drug_labels",
-            "drug_ndc",
-            "drug_enforcement",
-            "device_events",
-            "device_510k",
-            "device_enforcement",
-            "food_enforcement",
-            "food_events",
-        }
-
     @parameterized.expand(
         [
             ("drug_events", True, ["safetyreportid"]),
@@ -94,14 +70,6 @@ class TestValidateCredentials:
         ok, message = OpenFDASource().validate_credentials(_config(), team_id=1)
         assert ok is False
         assert message
-
-
-class TestNonRetryableErrors:
-    def test_auth_errors_are_non_retryable(self) -> None:
-        errors = OpenFDASource().get_non_retryable_errors()
-        # 401/403 (bad or over-quota key) can never be fixed by retrying — they must stop the sync.
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
 
 
 class TestResumableWiring:

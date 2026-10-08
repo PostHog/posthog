@@ -2,7 +2,6 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { funnelInvalidExclusionError, funnelResult } from 'scenes/funnels/__mocks__/funnelDataLogicMocks'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -25,10 +24,14 @@ import {
     FunnelVizType,
     InsightModel,
     InsightShortId,
-    InsightType,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
+
+import {
+    funnelInvalidExclusionError,
+    funnelResult,
+} from 'products/product_analytics/frontend/insights/funnels/__mocks__/funnelDataLogicMocks'
 
 import { insightDataLogic } from './insightDataLogic'
 
@@ -909,9 +912,6 @@ describe('insightVizDataLogic', () => {
     describe('validationError', () => {
         it('for standard funnel', async () => {
             const insight: Partial<InsightModel> = {
-                filters: {
-                    insight: InsightType.FUNNELS,
-                },
                 result: funnelResult.result,
             }
 
@@ -946,6 +946,27 @@ describe('insightVizDataLogic', () => {
                 } as Record<string, any>)
             }).toMatchValues({ hasRenderableResults: false })
         })
+
+        it.each([
+            ['blocks time series rows under a donut chart', ChartDisplayType.ActionsDonut, { data: [1, 2, 3] }, false],
+            [
+                'renders total value rows under a donut chart',
+                ChartDisplayType.ActionsDonut,
+                { aggregated_value: 6 },
+                true,
+            ],
+            ['renders time series rows under a scatter plot', ChartDisplayType.ScatterPlot, { data: [1, 2, 3] }, true],
+            [
+                'renders time series rows under a two dimensional heatmap',
+                ChartDisplayType.TwoDimensionalHeatmap,
+                { data: [1, 2, 3] },
+                true,
+            ],
+        ])('%s', (_, display, row, expected) => {
+            builtInsightVizDataLogic.actions.updateQuerySource({ ...trendsQueryDefault, trendsFilter: { display } })
+            builtInsightDataLogic.actions.loadDataSuccess({ results: [row] })
+            expect(builtInsightVizDataLogic.values.hasRenderableResults).toBe(expected)
+        })
     })
 
     describe('isSingleSeriesOutput', () => {
@@ -961,6 +982,20 @@ describe('insightVizDataLogic', () => {
                     ],
                 } as Partial<TrendsQuery>)
             }).toMatchValues({ isSingleSeriesOutput: true })
+        })
+
+        it.each([
+            ['a single breakdown', { breakdown: '$browser', breakdown_type: 'event' }, undefined],
+            ['multiple breakdowns', { breakdowns: [{ property: '$browser', type: 'event' }] }, undefined],
+            ['a breakdown and one formula', { breakdowns: [{ property: '$browser', type: 'event' }] }, 'A * 2'],
+        ])('returns false for a single series with %s', (_, breakdownFilter, formula) => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
+                    breakdownFilter,
+                    trendsFilter: formula ? { formula } : undefined,
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeriesOutput: false })
         })
 
         it('returns false for multiple series without formula', () => {
@@ -1197,6 +1232,30 @@ describe('insightVizDataLogic', () => {
         })
     })
 
+    describe('showLegend', () => {
+        const rows = (count: number, compare_label?: string): Record<string, any>[] =>
+            Array.from({ length: count }, (_, i) => ({ breakdown_value: `part ${i}`, compare_label }))
+
+        it.each([
+            ['a proportion bar with few parts', rows(15), true],
+            ['a proportion bar with many parts', rows(25), undefined],
+            [
+                'a proportion bar saved with compare on, counting only the current period',
+                [...rows(15, 'current'), ...rows(15, 'previous')],
+                true,
+            ],
+        ])('%s', async (_name, result, expected) => {
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                ...trendsQueryDefault,
+                trendsFilter: { display: ChartDisplayType.ActionsProportionBar },
+            } as TrendsQuery)
+
+            await expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightDataLogic.actions.loadDataSuccess({ result })
+            }).toMatchValues({ showLegend: expected })
+        })
+    })
+
     describe('supportsCompare', () => {
         const setFunnelVizType = (funnelVizType: FunnelVizType): void => {
             builtInsightVizDataLogic.actions.updateQuerySource({
@@ -1213,6 +1272,18 @@ describe('insightVizDataLogic', () => {
             [FunnelVizType.Flow, false],
         ] as [FunnelVizType, boolean][])('%s viz → %s', (funnelVizType, expected) => {
             setFunnelVizType(funnelVizType)
+
+            expect(builtInsightVizDataLogic.values.supportsCompare).toBe(expected)
+        })
+
+        it.each([
+            [ChartDisplayType.ActionsPie, true],
+            [ChartDisplayType.ActionsProportionBar, false],
+        ])('trends %s display -> %s', (display, expected) => {
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                ...trendsQueryDefault,
+                trendsFilter: { display },
+            } as TrendsQuery)
 
             expect(builtInsightVizDataLogic.values.supportsCompare).toBe(expected)
         })

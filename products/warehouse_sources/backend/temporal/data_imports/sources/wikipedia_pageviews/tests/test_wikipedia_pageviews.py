@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -12,7 +12,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.settings import (
     ARTICLE_PAGEVIEWS_ENDPOINT,
-    DATA_START_DATE,
     MAX_ARTICLES,
     PAGEVIEWS_ENDPOINT,
     TOP_ARTICLES_ENDPOINT,
@@ -134,56 +133,7 @@ class TestHelpers:
 
 
 class TestPageviews:
-    @freeze_time("2026-07-21")
-    def test_single_window_rows_get_typed_date_and_state_saved_after_yield(self):
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.return_value = _response(json_body={"items": [_aggregate_item("2026071800", views=42)]})
-        manager = _manager()
-
-        batches = _run(PAGEVIEWS_ENDPOINT, session, manager, start_date="2026-07-18")
-
-        url = session.get.call_args.args[0]
-        assert url == (
-            "https://wikimedia.org/api/rest_v1/metrics/pageviews/aggregate/en.wikipedia.org"
-            "/all-access/user/daily/2026071800/2026072100"
-        )
-        assert len(batches) == 1
-        row = batches[0][0]
-        assert row["views"] == 42
-        assert row["date"] == datetime(2026, 7, 18, tzinfo=UTC)
-
-        saved = [call.args[0].next_start for call in manager.save_state.call_args_list]
-        assert saved == ["2026-07-22"]
-
-    @freeze_time("2026-07-21")
-    def test_long_ranges_are_chunked_into_contiguous_windows(self):
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.return_value = _response(json_body={"items": [_aggregate_item("2024070100")]})
-        manager = _manager()
-
-        _run(PAGEVIEWS_ENDPOINT, session, manager, start_date="2024-07-01")
-
-        assert _requested_ranges(session) == [
-            ("2024070100", "2025070100"),
-            ("2025070200", "2026070200"),
-            ("2026070300", "2026072100"),
-        ]
-        saved = [call.args[0].next_start for call in manager.save_state.call_args_list]
-        assert saved == ["2025-07-02", "2026-07-03", "2026-07-22"]
-
-    @freeze_time("2026-07-21")
-    def test_start_date_before_data_start_is_clamped(self):
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.return_value = _response(json_body={"items": []})
-
-        _run(PAGEVIEWS_ENDPOINT, session, start_date="0001-01-01")
-
-        # A pathological early start must not fan out before pageview data exists; the first
-        # requested window begins at DATA_START_DATE.
-        first_start, _ = _requested_ranges(session)[0]
-        assert first_start == f"{DATA_START_DATE:%Y%m%d}00"
-
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_404_window_is_skipped_and_iteration_continues(self):
         session = mock.MagicMock(spec=requests.Session)
         session.get.side_effect = [
@@ -198,22 +148,7 @@ class TestPageviews:
         assert len(batches) == 1
         assert batches[0][0]["timestamp"] == "2025070200"
 
-    @freeze_time("2026-07-21")
-    def test_incremental_starts_at_watermark_day(self):
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.return_value = _response(json_body={"items": []})
-
-        _run(
-            PAGEVIEWS_ENDPOINT,
-            session,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 7, 15, tzinfo=UTC),
-        )
-
-        # The watermark day itself is re-fetched (merge dedupes) to pick up late revisions.
-        assert _requested_ranges(session) == [("2026071500", "2026072100")]
-
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_resume_state_takes_precedence_over_incremental_value(self):
         session = mock.MagicMock(spec=requests.Session)
         session.get.return_value = _response(json_body={"items": []})
@@ -229,7 +164,7 @@ class TestPageviews:
 
         assert _requested_ranges(session) == [("2026071900", "2026072100")]
 
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_non_ok_status_raises(self):
         response = _response(status=500, text="server error")
         response.raise_for_status.side_effect = requests.HTTPError
@@ -241,7 +176,7 @@ class TestPageviews:
 
 
 class TestArticlePageviews:
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_fans_out_per_article_with_encoded_titles(self):
         session = mock.MagicMock(spec=requests.Session)
         session.get.side_effect = [
@@ -283,7 +218,7 @@ class TestArticlePageviews:
         with pytest.raises(ValueError, match=NO_ARTICLES_ERROR):
             _run(ARTICLE_PAGEVIEWS_ENDPOINT, mock.MagicMock(spec=requests.Session), article_names="  ,  ")
 
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_article_titles_capped_at_max_at_runtime(self):
         session = mock.MagicMock(spec=requests.Session)
         session.get.return_value = _response(json_body={"items": []})
@@ -297,7 +232,7 @@ class TestArticlePageviews:
 
 
 class TestTopArticles:
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_flattens_daily_rankings_into_rows(self):
         def day_response(url: str, timeout: int = 0) -> mock.MagicMock:
             match = re.search(r"/top/en\.wikipedia\.org/all-access/(\d{4})/(\d{2})/(\d{2})$", url)

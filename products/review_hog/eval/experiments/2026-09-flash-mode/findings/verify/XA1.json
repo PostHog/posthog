@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA1",
+    "cluster": 75,
+    "is_real": true,
+    "severity": "must_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:124-127 accepts every Bot account; 167-214 grants inbox provenance to a native-branch bot PR when the task lookup and opted-in reviewer resolve, without verifying the PostHog Code bot identity. The alleged unrelated-bot linkage is reachable: products/tasks/backend/presentation/views/api.py:1101-1118 permits a task controller to set output, and facade/api.py:1770-1788,2149-2154 permits changing pr_url (only pr_merged is attested). tasks/backend/webhooks.py:41-59 matches that URL; facade/api.py:504-509 only checks team and signal/non-internal task shape. Thus a task controller can point a qualifying run at a native-branch Dependabot/Renovate PR in its repository. A later synchronize passes the generic bot predicate; stamphog tasks.py:944,967-968 then bypasses review mode and author permission. temporal/activities.py:451 passes inbox provenance as self_driving_review, and tools/pr-approval-agent/review_local.py:324-331 bypasses the engine bot refusal for that flag.",
+            "refutation": "I first tried to refute this using exact-repository task linkage, native-head protection, opt-in, and test_tasks.py:875-887's unrelated-bot rejection. They reject an unlinked/fork PR, but the test only supplies no matching task. None proves that a matching caller-writable output.pr_url was authored by PostHog Code. A same-team signal implementation run with an opted-in assignee and a caller-replaced URL satisfies all these guards. Consequently the generic bot predicate really admits a different bot through the privileged review path; the comment promising those bots remain refused is not enforced."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "In /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:124-127 every Bot qualifies; :169-207 only add native-repo, config, task-linkage and reviewer-toggle checks, and :967-969 bypass author write permission for the resulting provenance. A different native-repo bot PR can obtain that linkage: /tmp/frozen-75215/products/tasks/backend/presentation/views/api.py:1101-1118 exposes task:write set_output; /tmp/frozen-75215/products/tasks/backend/facade/api.py:1770-1788 protects only pr_merged and explicitly permits replacing pr_url, while :2139-2154 saves it. /tmp/frozen-75215/products/tasks/backend/webhooks.py:41-56 matches that caller-written URL, and facade/api.py:504-516 accepts a same-team noninternal signal task. Thus a team task writer can point an opted-in signal run at a Renovate/Dependabot PR and its next synchronize bypasses the ordinary bot and author-trust gates.",
+            "refutation": "First checked the positive-identification guards and tests: tasks.py:176-207 rejects forks, missing configs, missing/wrong-team linkage and missing opt-in; tests/test_tasks.py:830-887 covers those cases and an unlinked bot. Also checked forced bot authorship in /tmp/frozen-75215/products/tasks/backend/temporal/process_task/utils.py:1068-1074. These establish normal production authorship but do not attest the linked URL or compare the PR bot to that identity. The writable set_output path above defeats the assumed linkage provenance; the existing tests mock find_signal_implementation_run and do not exercise this mismatch."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "products/stamphog/backend/tasks/tasks.py:124-127 admits any GitHub Bot, and :169-214 uses that generic check plus a native-head/task match to grant inbox provenance; :967-969 then skips author write permission. The task match is production-writable: products/tasks/backend/webhooks.py:41-56 matches TaskRun.output.pr_url, while facade/api.py:504-509 only adds team/signal/non-internal checks. The existing task-run PATCH at presentation/views/api.py:1082-1087 accepts output JSON through presentation/serializers.py:179; facade/api.py:1770-1788,2038-2044,2075 permits changing pr_url. An eligible signal task in the configured repository can therefore be pointed at an unrelated native-head bot PR; its later synchronize event passes these checks when the assigned reviewer opted in. Nothing requires the bot that performed the actual signal implementation.",
+            "refutation": "I first checked the stronger safeguard after the generic bot predicate: verified task linkage is explicitly the intended identity mechanism, not login matching (products/stamphog/AGENTS.md:84-91). This would refute the finding if linkage attested PR creation. However, the implemented PR-URL match uses caller-editable output and does not validate the producer, so a current authorized PATCH can supply the competing bot PR; no future caller or forged GitHub event is needed. The finding survives on this concrete writable-link path, although replacing generic bot recognition alone is not a complete provenance solution."
+        }
+    ]
+}

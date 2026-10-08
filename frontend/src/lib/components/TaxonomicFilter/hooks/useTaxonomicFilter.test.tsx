@@ -1,7 +1,12 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { Provider } from 'kea'
 import { ReactNode } from 'react'
 
+import { teamLogic } from 'scenes/teamLogic'
+
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -42,6 +47,49 @@ describe('useTaxonomicFilter', () => {
     })
 
     afterEach(() => cleanup())
+
+    // Nothing enforces parity between the legacy logic and this rebuild, so the same rule is asserted
+    // on both. The legacy half lives in taxonomicFilterLogic.test.ts.
+    describe('events whose data is moving out of the events table', () => {
+        const HIDDEN_EVENT = '$feature_flag_called'
+
+        const renderFilter = (
+            input: Record<string, any> = {},
+            mode: FlagEvaluationsModeEnumApi = FlagEvaluationsModeEnumApi.Number1
+        ): ReturnType<typeof useTaxonomicFilter> => {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+            const { result } = renderHook(
+                () => useTaxonomicFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events], ...input }),
+                { wrapper }
+            )
+            return result.current
+        }
+
+        const eventsGroupExclusions = (
+            input: Record<string, any> = {},
+            mode?: FlagEvaluationsModeEnumApi
+        ): (string | null)[] =>
+            renderFilter(input, mode).groups.find((g) => g.type === TaxonomicFilterGroupType.Events)
+                ?.excludedProperties ?? []
+
+        it('hides them by default', () => {
+            expect(eventsGroupExclusions()).toContain(HIDDEN_EVENT)
+        })
+
+        it.each([
+            ['a team on the Events mode', {}, FlagEvaluationsModeEnumApi.Number0],
+            ['a picker that opts out', { includeHiddenEvents: true }, FlagEvaluationsModeEnumApi.Number1],
+        ])('offers them to %s', (_label, input, mode) => {
+            expect(eventsGroupExclusions(input, mode)).not.toContain(HIDDEN_EVENT)
+        })
+
+        // The Recent and Pinned tabs and the menu shortcut rows filter against this record rather
+        // than the group's own list, so a pin saved before the event was hidden only drops if the
+        // names reach here too.
+        it('folds them into the record the Recent and Pinned surfaces read', () => {
+            expect(renderFilter().excludedProperties?.[TaxonomicFilterGroupType.Events]).toContain(HIDDEN_EVENT)
+        })
+    })
 
     it('exposes groups in the consumer-requested order, with Recent/Pinned auto-injected', () => {
         const { result } = renderHook(

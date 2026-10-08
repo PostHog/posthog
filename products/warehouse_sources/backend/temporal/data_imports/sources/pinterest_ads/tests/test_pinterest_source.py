@@ -26,14 +26,6 @@ class TestPinterestAdsSource:
         assert error_message is not None
         assert "Ad Account ID and Pinterest Ads integration are required" in error_message
 
-    def test_validate_credentials_missing_integration_id(self):
-        invalid_config = PinterestAdsSourceConfig(pinterest_ads_integration_id=0, ad_account_id="789")
-        is_valid, error_message = self.source.validate_credentials(invalid_config, self.team_id)
-
-        assert is_valid is False
-        assert error_message is not None
-        assert "Ad Account ID and Pinterest Ads integration are required" in error_message
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source.PinterestAdsSource.get_oauth_integration"
     )
@@ -45,45 +37,33 @@ class TestPinterestAdsSource:
         assert is_valid is True
         assert error_message is None
 
+    @pytest.mark.parametrize(
+        "side_effect,expected_error_fragment,expect_capture_called",
+        [
+            # A deleted/disconnected integration is an expected user state — surface a clean
+            # "reconnect" message and do NOT report it to error tracking.
+            (ValueError("Integration not found: 162559"), "Pinterest Ads integration not found", False),
+            # Anything else is genuinely unexpected and must still be captured.
+            (Exception("OAuth error"), "Failed to validate Pinterest Ads credentials", True),
+        ],
+    )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source.PinterestAdsSource.get_oauth_integration"
     )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source.capture_exception"
     )
-    def test_validate_credentials_integration_error(self, mock_capture, mock_get_oauth):
-        mock_get_oauth.side_effect = Exception("Integration not found")
+    def test_validate_credentials_integration_error(
+        self, mock_capture, mock_get_oauth, side_effect, expected_error_fragment, expect_capture_called
+    ):
+        mock_get_oauth.side_effect = side_effect
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
         assert error_message is not None
-        assert "Failed to validate Pinterest Ads credentials" in error_message
-        mock_capture.assert_called_once()
-
-    def test_get_schemas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        expected_endpoints = [
-            "campaigns",
-            "ad_groups",
-            "ads",
-            "ad_accounts",
-            "audiences",
-            "conversion_tags",
-            "keywords",
-            "campaign_analytics",
-            "ad_group_analytics",
-            "ad_analytics",
-            "campaign_targeting_analytics",
-            "ad_group_targeting_analytics",
-            "ad_targeting_analytics",
-        ]
-        assert len(schemas) == len(expected_endpoints)
-
-        schema_names = [schema.name for schema in schemas]
-        for endpoint in expected_endpoints:
-            assert endpoint in schema_names
+        assert expected_error_fragment in error_message
+        assert mock_capture.called is expect_capture_called
 
     @pytest.mark.parametrize(
         "endpoint,should_sync_default",

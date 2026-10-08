@@ -1,16 +1,23 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import type { ReactNode } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
+import {
+    DashboardControl,
+    dashboardControlScopeText,
+    isDashboardControlHidden,
+} from 'scenes/dashboard/dashboardControls'
 import { DashboardEditBarAdvancedFilters } from 'scenes/dashboard/DashboardEditBarAdvancedFilters'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
@@ -20,16 +27,48 @@ import { Scene } from 'scenes/sceneTypes'
 import { groupsModel } from '~/models/groupsModel'
 import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
 import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
-import { DashboardMode, InsightLogicProps, IntervalType } from '~/types'
+import { InsightLogicProps, IntervalType } from '~/types'
+
+import { DashboardMetricLabelFilter } from 'products/metrics/frontend/components/DashboardMetricLabelFilter'
 
 interface DashboardEditBarProps {
     showDateFilter?: boolean
     className?: string
 }
 
+/** Wraps one filter control: hides it when it changes no insight, and says in a tooltip how many insights it changes. */
+function DashboardControlSlot({
+    control,
+    hasValue,
+    className,
+    children,
+}: {
+    control: DashboardControl
+    hasValue: boolean
+    className?: string
+    children: ReactNode
+}): JSX.Element | null {
+    const { dashboardControlScopes } = useValues(dashboardLogic)
+    const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
+
+    if (!controlsEnabled) {
+        return <div className={className}>{children}</div>
+    }
+    const scope = dashboardControlScopes[control]
+    if (isDashboardControlHidden(scope, hasValue)) {
+        return null
+    }
+    const scopeText = dashboardControlScopeText(scope)
+    return (
+        <Tooltip title={scopeText} placement="top" delayMs={300}>
+            <div className={className}>{children}</div>
+        </Tooltip>
+    )
+}
+
 export function DashboardIntervalFilter(): JSX.Element {
-    const { dashboardMode, effectiveEditBarFilters } = useValues(dashboardLogic)
-    const { setInterval, setDashboardMode } = useActions(dashboardLogic)
+    const { dashboardEditing, effectiveEditBarFilters } = useValues(dashboardLogic)
+    const { setInterval, setDashboardEditing } = useActions(dashboardLogic)
 
     return (
         <span className="flex items-center gap-2">
@@ -39,8 +78,8 @@ export function DashboardIntervalFilter(): JSX.Element {
                 value={effectiveEditBarFilters.interval ?? null}
                 dropdownMatchSelectWidth={false}
                 onChange={(interval) => {
-                    if (dashboardMode !== DashboardMode.Edit) {
-                        setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    if (!dashboardEditing?.filters) {
+                        setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
                     }
                     setInterval(interval)
                 }}
@@ -57,8 +96,10 @@ export function DashboardIntervalFilter(): JSX.Element {
 }
 
 export function DashboardEditBar({ showDateFilter = true, className }: DashboardEditBarProps): JSX.Element {
-    const { dashboard, dashboardMode, hasVariables, effectiveEditBarFilters } = useValues(dashboardLogic)
-    const { setDates, setProperties, setBreakdownFilter, setDashboardMode } = useActions(dashboardLogic)
+    const { dashboard, dashboardEditing, hasVariables, effectiveEditBarFilters } = useValues(dashboardLogic)
+    const { setDates, setProperties, setBreakdownFilter, setMetricFilters, setDashboardEditing } =
+        useActions(dashboardLogic)
+    const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
@@ -82,14 +123,18 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                 className ??
                 clsx(
                     'flex gap-2 items-end flex-wrap border',
-                    dashboardMode === DashboardMode.Edit
+                    dashboardEditing?.filters
                         ? '-m-1.5 p-1.5 border-primary border-dashed rounded-lg'
                         : 'border-transparent'
                 )
             }
         >
             {showDateFilter && (
-                <div className={clsx('content-end min-w-0', { 'h-[61px]': hasVariables })}>
+                <DashboardControlSlot
+                    control="dateRange"
+                    hasValue={!!effectiveEditBarFilters.date_from || !!effectiveEditBarFilters.date_to}
+                    className={clsx('content-end min-w-0', { 'h-[61px]': hasVariables })}
+                >
                     <Shortcut
                         name="DashboardDateFilter"
                         keybind={[keyBinds.dateFilter]}
@@ -106,8 +151,11 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                             dateTo={effectiveEditBarFilters.date_to}
                             explicitDate={effectiveEditBarFilters.explicitDate}
                             onChange={(from_date, to_date, explicitDate) => {
-                                if (dashboardMode !== DashboardMode.Edit) {
-                                    setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                                if (!dashboardEditing?.filters) {
+                                    setDashboardEditing(
+                                        { filters: true, layout: false },
+                                        DashboardEventSource.DashboardFilters
+                                    )
                                 }
                                 setDates(from_date, to_date, explicitDate)
                             }}
@@ -119,18 +167,26 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                             )}
                         />
                     </Shortcut>
-                </div>
+                </DashboardControlSlot>
             )}
             {showDateFilter && (
-                <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                <DashboardControlSlot
+                    control="interval"
+                    hasValue={effectiveEditBarFilters.interval != null}
+                    className={clsx('content-end', { 'h-[61px]': hasVariables })}
+                >
                     <DashboardIntervalFilter />
-                </div>
+                </DashboardControlSlot>
             )}
-            <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+            <DashboardControlSlot
+                control="properties"
+                hasValue={(effectiveEditBarFilters.properties?.length ?? 0) > 0}
+                className={clsx('content-end', { 'h-[61px]': hasVariables })}
+            >
                 <PropertyFilters
                     onChange={(properties) => {
-                        if (dashboardMode !== DashboardMode.Edit) {
-                            setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                        if (!dashboardEditing?.filters) {
+                            setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
                         }
                         setProperties(properties)
                     }}
@@ -152,9 +208,12 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                         TaxonomicFilterGroupType.DataWarehousePersonProperties,
                     ]}
                 />
-            </div>
-            {/* Single flex item so the "…" button always wraps together with the breakdown button */}
-            <div className={clsx('content-end flex items-end gap-2', { 'h-[61px]': hasVariables })}>
+            </DashboardControlSlot>
+            <DashboardControlSlot
+                control="breakdown"
+                hasValue={!!effectiveEditBarFilters.breakdown_filter}
+                className={clsx('content-end', { 'h-[61px]': hasVariables })}
+            >
                 <BindLogic logic={insightLogic} props={insightProps}>
                     <TaxonomicBreakdownFilter
                         insightProps={insightProps}
@@ -163,8 +222,11 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                         isFunnels={false}
                         showLabel={false}
                         updateBreakdownFilter={(breakdown_filter) => {
-                            if (dashboardMode !== DashboardMode.Edit) {
-                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                            if (!dashboardEditing?.filters) {
+                                setDashboardEditing(
+                                    { filters: true, layout: false },
+                                    DashboardEventSource.DashboardFilters
+                                )
                             }
                             let saved_breakdown_filter: BreakdownFilter | null = breakdown_filter
                             // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object
@@ -178,10 +240,34 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                         size="small"
                     />
                 </BindLogic>
-                <DashboardEditBarAdvancedFilters />
-            </div>
+            </DashboardControlSlot>
 
             <VariablesForDashboard />
+            <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                <DashboardEditBarAdvancedFilters />
+            </div>
+            {controlsEnabled && (
+                <DashboardControlSlot
+                    control="metricLabels"
+                    hasValue={(effectiveEditBarFilters.metricFilters?.length ?? 0) > 0}
+                    className={clsx('content-end', { 'h-[61px]': hasVariables })}
+                >
+                    <div className="flex min-h-[30px] flex-wrap items-center gap-1 border-l border-primary pl-2">
+                        <DashboardMetricLabelFilter
+                            metricFilters={effectiveEditBarFilters.metricFilters}
+                            onChange={(metricFilters) => {
+                                if (!dashboardEditing?.filters) {
+                                    setDashboardEditing(
+                                        { filters: true, layout: false },
+                                        DashboardEventSource.DashboardFilters
+                                    )
+                                }
+                                setMetricFilters(metricFilters)
+                            }}
+                        />
+                    </div>
+                </DashboardControlSlot>
+            )}
         </div>
     )
 }

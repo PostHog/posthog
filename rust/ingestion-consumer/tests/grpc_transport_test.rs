@@ -5,14 +5,22 @@
 //! failure fences everything outstanding (in order, with the messages handed
 //! back) so the dispatcher's deferral path can replay it.
 
+mod common;
+
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use common::key_table_batcher;
+use common_kafka_consumer::Partition;
+use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
+use ingestion_consumer::routing::RoutingStrategy;
 use ingestion_consumer::transport::TransportError;
-use ingestion_consumer::types::SerializedKafkaMessage;
+use ingestion_consumer::types::{Accumulator, SerializedKafkaMessage};
+use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
 use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_server::{
     WorkerIngest, WorkerIngestServer,
 };
@@ -20,7 +28,7 @@ use ingestion_worker_proto::ingestion::worker::v1::{
     ingest_stream_request, ingest_stream_response, IngestStreamRequest, IngestStreamResponse,
     StreamReady, SubBatch, SubBatchAck, SubBatchStatus,
 };
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status, Streaming};
@@ -230,7 +238,7 @@ fn msg(distinct_id: &str, offset: i64) -> SerializedKafkaMessage {
     headers.insert("token".to_string(), "tok".to_string());
     headers.insert("distinct_id".to_string(), distinct_id.to_string());
     SerializedKafkaMessage {
-        topic: "events".to_string(),
+        topic: "events".into(),
         partition: 0,
         offset,
         timestamp: 0,
@@ -507,6 +515,38 @@ async fn a_failed_chunk_hands_back_the_whole_sub_batch() {
 }
 
 #[tokio::test]
+async fn chunks_acked_out_of_order_then_fenced_hand_back_messages_in_send_order() {
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let mut transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        3,
+        Duration::from_secs(30),
+    );
+    transport.set_max_body_bytes(200);
+    let url = worker_url(mock.addr);
+
+    let pending = transport.begin_send(
+        &url,
+        "batch-1",
+        vec![msg("d1", 1), msg("d2", 2), msg("d3", 3)],
+        false,
+    );
+    wait_for_received(&mock, 3).await;
+    for seq in [3, 2] {
+        ack_tx.send(ManualAck::Ok { seq, accepted: 1 }).unwrap();
+    }
+    ack_tx.send(ManualAck::Nack(1)).unwrap();
+
+    let err = pending
+        .wait()
+        .await
+        .expect_err("a nacked chunk fails the send");
+    let offsets: Vec<i64> = err.messages.iter().map(|m| m.offset).collect();
+    assert_eq!(offsets, vec![1, 2, 3]);
+}
+
+#[tokio::test]
 async fn a_nack_fences_everything_outstanding_in_order() {
     // Regression: on a failure, every un-acked and queued sub-batch must fail
     // back to the caller with its messages (for the deferral path), and
@@ -739,4 +779,295 @@ async fn a_busy_status_fences_as_retriable_with_messages() {
     assert_eq!(err.messages.len(), 1, "messages come back for deferral");
     assert!(err.error.is_retriable(), "busy is retriable backpressure");
     assert!(matches!(err.error, TransportError::WorkerStreamBusy(_)));
+}
+
+enum ControlledReply {
+    Busy,
+    Ok,
+}
+
+struct BusyAttempt {
+    worker: usize,
+    reply: oneshot::Sender<ControlledReply>,
+}
+
+struct ControlledBusyWorker {
+    worker: usize,
+    attempts: mpsc::UnboundedSender<BusyAttempt>,
+}
+
+#[tonic::async_trait]
+impl WorkerIngest for ControlledBusyWorker {
+    type IngestStreamStream = UnboundedReceiverStream<Result<IngestStreamResponse, Status>>;
+
+    async fn ingest_stream(
+        &self,
+        request: Request<Streaming<IngestStreamRequest>>,
+    ) -> Result<Response<Self::IngestStreamStream>, Status> {
+        let mut inbound = request.into_inner();
+        let attempts = self.attempts.clone();
+        let worker = self.worker;
+        let (tx, rx) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let _ = tx.send(Ok(IngestStreamResponse {
+                msg: Some(ingest_stream_response::Msg::Ready(StreamReady {})),
+            }));
+            while let Some(Ok(frame)) = inbound.next().await {
+                let Some(ingest_stream_request::Msg::SubBatch(sub_batch)) = frame.msg else {
+                    continue;
+                };
+                let (reply, wait_for_reply) = oneshot::channel();
+                let Some(reply) = async {
+                    attempts.send(BusyAttempt { worker, reply }).ok()?;
+                    wait_for_reply.await.ok()
+                }
+                .await
+                else {
+                    return;
+                };
+                let (status, accepted, error) = match reply {
+                    ControlledReply::Busy => {
+                        (SubBatchStatus::Busy as i32, 0, "at capacity".to_string())
+                    }
+                    ControlledReply::Ok => (
+                        SubBatchStatus::Ok as i32,
+                        sub_batch.messages.len() as u32,
+                        String::new(),
+                    ),
+                };
+                let _ = tx.send(Ok(IngestStreamResponse {
+                    msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
+                        seq: sub_batch.seq,
+                        status,
+                        accepted,
+                        error,
+                    })),
+                }));
+            }
+        });
+        Ok(Response::new(UnboundedReceiverStream::new(rx)))
+    }
+}
+
+async fn start_controlled_busy_worker(
+    worker: usize,
+    attempts: mpsc::UnboundedSender<BusyAttempt>,
+) -> SocketAddr {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(
+                WorkerIngestServer::new(ControlledBusyWorker { worker, attempts })
+                    .accept_compressed(tonic::codec::CompressionEncoding::Gzip)
+                    .send_compressed(tonic::codec::CompressionEncoding::Gzip),
+            )
+            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+            .await
+            .unwrap();
+    });
+    addr
+}
+
+fn registry_config() -> WorkerRegistryConfig {
+    WorkerRegistryConfig {
+        probe_interval: Duration::from_secs(60),
+        dead_declaration: Duration::from_secs(60),
+        passive_window: Duration::from_secs(60),
+        passive_error_threshold: 1.0,
+        passive_min_samples: usize::MAX,
+        degraded_hold: Duration::ZERO,
+        min_state_duration: Duration::ZERO,
+        probe_failure_threshold: u32::MAX,
+        drain_timeout: Duration::from_secs(60),
+    }
+}
+
+#[tokio::test]
+async fn key_table_watchdog_bounds_overlapping_busy_retries() {
+    let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
+    let first_addr = start_controlled_busy_worker(0, attempts_tx.clone()).await;
+    let second_addr = start_controlled_busy_worker(1, attempts_tx).await;
+    let worker_urls = vec![
+        format!("http://{first_addr}"),
+        format!("http://{second_addr}"),
+    ];
+    let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
+    let dispatcher = Arc::new(Dispatcher::with_strategy(
+        registry,
+        RoutingStrategy::BinPack,
+    ));
+    let transport = Arc::new(GrpcTransport::new(
+        GrpcPort::OffsetFromHttp(0),
+        1,
+        Duration::from_secs(30),
+    ));
+    let (batcher, mut outputs) = key_table_batcher(
+        &dispatcher,
+        transport,
+        Duration::from_millis(100),
+        Duration::from_millis(20),
+    );
+
+    let mut accumulator = Accumulator::default();
+    accumulator.push(Partition(0), msg("a", 1).into());
+    accumulator.push(Partition(0), msg("b", 2).into());
+    batcher.submit(accumulator);
+
+    let first = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
+        .await
+        .expect("first key reaches a worker")
+        .expect("attempt channel stays open");
+    let second = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
+        .await
+        .expect("second key reaches a worker")
+        .expect("attempt channel stays open");
+    assert_ne!(
+        first.worker, second.worker,
+        "the two keys must occupy different workers"
+    );
+
+    // Always leave one request outstanding while rejecting the other. If a
+    // retry does not arrive, release the held request after a bounded delay:
+    // the watchdog may wait for a slow in-flight attempt to settle, but must
+    // then diagnose the scheduler-wide lack of acceptance.
+    let busy_replies = Arc::new(AtomicUsize::new(0));
+    let replies = Arc::clone(&busy_replies);
+    let final_attempt_released = Arc::new(AtomicBool::new(false));
+    let released = Arc::clone(&final_attempt_released);
+    let controller = tokio::spawn(async move {
+        let mut reject = first;
+        let mut held = second;
+        loop {
+            let _ = reject.reply.send(ControlledReply::Busy);
+            replies.fetch_add(1, Ordering::Relaxed);
+            match tokio::time::timeout(Duration::from_millis(750), attempts_rx.recv()).await {
+                Ok(Some(next)) => {
+                    reject = held;
+                    held = next;
+                }
+                _ => {
+                    let _ = held.reply.send(ControlledReply::Busy);
+                    replies.fetch_add(1, Ordering::Relaxed);
+                    released.store(true, Ordering::Relaxed);
+                    return;
+                }
+            }
+        }
+    });
+    let error = tokio::time::timeout(Duration::from_secs(3), outputs.errors.recv())
+        .await
+        .expect("watchdog must bound retries that make no acceptance progress")
+        .expect("batcher error channel stays open");
+    assert_eq!(
+        error,
+        "pending work made no progress within the stall timeout"
+    );
+    assert!(
+        final_attempt_released.load(Ordering::Relaxed),
+        "an in-flight attempt may settle after the deadline before the watchdog fails"
+    );
+    assert!(
+        busy_replies.load(Ordering::Relaxed) >= 2,
+        "the reproduction must overlap busy retry rounds"
+    );
+    controller.await.unwrap();
+}
+
+#[tokio::test]
+async fn key_table_retries_a_busy_send_until_it_completes() {
+    let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
+    let addr = start_controlled_busy_worker(0, attempts_tx).await;
+    let worker_urls = vec![format!("http://{addr}")];
+    let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
+    let dispatcher = Arc::new(Dispatcher::with_strategy(
+        registry,
+        RoutingStrategy::BinPack,
+    ));
+    let transport = Arc::new(GrpcTransport::new(
+        GrpcPort::OffsetFromHttp(0),
+        1,
+        Duration::from_secs(30),
+    ));
+    let (batcher, mut outputs) = key_table_batcher(
+        &dispatcher,
+        transport,
+        Duration::from_millis(500),
+        Duration::from_millis(20),
+    );
+
+    let mut accumulator = Accumulator::default();
+    accumulator.push(Partition(0), msg("a", 1).into());
+    batcher.submit(accumulator);
+
+    let first = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
+        .await
+        .expect("initial send reaches the worker")
+        .expect("attempt channel stays open");
+    assert!(first.reply.send(ControlledReply::Busy).is_ok());
+    let retry = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
+        .await
+        .expect("the retry reaches the worker")
+        .expect("attempt channel stays open");
+    assert!(retry.reply.send(ControlledReply::Ok).is_ok());
+
+    let completion = tokio::time::timeout(Duration::from_secs(1), outputs.completions.recv())
+        .await
+        .expect("successful retry completes")
+        .expect("completion channel stays open");
+    assert_eq!(completion.accepted, 1);
+    tokio::time::sleep(Duration::from_millis(550)).await;
+    assert!(
+        outputs.errors.try_recv().is_err(),
+        "accepted retry resets the watchdog and idle work stays healthy"
+    );
+}
+
+#[tokio::test]
+async fn key_table_watchdog_allows_in_flight_success_after_the_deadline() {
+    let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
+    let addr = start_controlled_busy_worker(0, attempts_tx).await;
+    let worker_urls = vec![format!("http://{addr}")];
+    let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
+    let dispatcher = Arc::new(Dispatcher::with_strategy(
+        registry,
+        RoutingStrategy::BinPack,
+    ));
+    let transport = Arc::new(GrpcTransport::new(
+        GrpcPort::OffsetFromHttp(0),
+        1,
+        Duration::from_secs(30),
+    ));
+    let (batcher, mut outputs) = key_table_batcher(
+        &dispatcher,
+        transport,
+        Duration::from_millis(100),
+        Duration::from_millis(20),
+    );
+
+    let mut accumulator = Accumulator::default();
+    accumulator.push(Partition(0), msg("a", 1).into());
+    batcher.submit(accumulator);
+
+    let attempt = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
+        .await
+        .expect("send reaches the worker")
+        .expect("attempt channel stays open");
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(
+        outputs.errors.try_recv().is_err(),
+        "the watchdog must wait for an in-flight send after its deadline"
+    );
+    assert!(attempt.reply.send(ControlledReply::Ok).is_ok());
+    let completion = tokio::time::timeout(Duration::from_secs(1), outputs.completions.recv())
+        .await
+        .expect("late successful send completes")
+        .expect("completion channel stays open");
+    assert_eq!(completion.accepted, 1);
+
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(
+        outputs.errors.try_recv().is_err(),
+        "late acceptance resets the watchdog and idle work stays healthy"
+    );
 }

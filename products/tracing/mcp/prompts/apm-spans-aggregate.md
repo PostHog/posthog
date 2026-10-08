@@ -1,5 +1,11 @@
 Aggregate trace span statistics grouped by `(service_name, name)` over a date window.
 
+All parameters go inside `query` — top-level fields are rejected:
+
+```json
+{ "query": { "serviceNames": ["api"], "dateRange": { "date_from": "-1h" } } }
+```
+
 Returns one row per `(service_name, name)` pair with the following metrics:
 
 - `count` — number of spans matched
@@ -16,8 +22,6 @@ Use to answer:
 - "Did `POST /orders` get slower this week vs last week?" (with `compareFilter`)
 
 For per-call-tree breakdowns (parent → child relationships), use `apm-spans-tree` instead. For time-bucketed trends ("when did it change?"), use `apm-spans-sparkline` instead — `compareFilter` only contrasts two static windows.
-
-All parameters must be nested inside a `query` object.
 
 # Comparison window
 
@@ -36,7 +40,7 @@ Use `query.filterGroup` to narrow results to spans matching specific attributes.
 
 Filter `type` values:
 
-- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)
+- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). A `duration` filter value is in milliseconds (1 second = `1000`).
 - `span_attribute` — span-level attributes (e.g. "http.method", "http.status_code")
 - `span_resource_attribute` — resource-level attributes (e.g. k8s labels, deployment info)
 
@@ -53,8 +57,6 @@ Supported operators:
 Use `query.dateRange` to control the time window. Default is the last hour (`-1h`). Examples: `-1h`, `-6h`, `-1d`, `-7d`.
 
 # Parameters
-
-All parameters go inside `query`.
 
 ## query.dateRange
 
@@ -155,7 +157,7 @@ Returns `results` for the last hour and `compare` for the hour before. Diff `tot
 
 # Reminders
 
-- Duration values are in nanoseconds. Divide by 1,000,000 for ms, 1,000,000,000 for seconds.
+- Duration values in results are in nanoseconds. Divide by 1,000,000 for ms, 1,000,000,000 for seconds. A `duration` filter value is in milliseconds.
 - Results are ordered by `total_duration_nano` DESC and default to the top 100 rows. Check `has_more`/`next_offset` to page; raise `limit` (max 5000) only when you truly need the long tail.
 - Use `apm-attributes-list` and `apm-attribute-values-list` to discover attribute keys/values before filtering.
 - Use `apm-services-list` to discover services before filtering by service name.

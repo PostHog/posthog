@@ -6,13 +6,8 @@ funnel / retention judges in shape but lives outside ``product_analytics/``
 because ``execute-sql`` is a general-purpose tool, not a product-analytics
 one.
 
-The judge prompt is forked from the CI ``SQL_SEMANTICS_CORRECTNESS_PROMPT``
-in ``ee/hogai/eval/scorers/sql.py`` — same HogQL guidance, but graded on
-the six-bucket ``GRADED_ALIGNMENT_*`` scale used by the rest of the
-sandboxed evals instead of binary Pass/Fail. The ``database_schema``
-placeholder is dropped: the sandboxed run doesn't surface a schema dump
-to scorers, and the judge has the user prompt + reference SQL to anchor
-on without it.
+The judge uses the ``GRADED_ALIGNMENT_*`` scale and compares the query with the user prompt and reference SQL.
+The sandbox run does not provide a schema dump to scorers.
 
 The shared judge plumbing (``JudgedScorer``, alignment constants,
 ``JUDGE_MODEL``) lives in ``products/posthog_ai/eval_harness/scorers/``; only the
@@ -24,11 +19,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from products.posthog_ai.eval_harness.log_parser import EXECUTE_SQL_TOOL_NAME, is_schema_discovery_call
 from products.posthog_ai.eval_harness.scorers import GRADED_ALIGNMENT_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 from products.posthog_ai.evals.product_analytics.scorers import GRADED_ALIGNMENT_RUBRIC, parser_for, user_prompt
 
-QUERY_SQL_TOOL_NAME = "execute-sql"
+QUERY_SQL_TOOL_NAME = EXECUTE_SQL_TOOL_NAME
 _MAX_RESULT_CHARS_FOR_JUDGE = 12_000
 
 
@@ -52,7 +48,7 @@ def extract_last_execute_sql_call(output: dict[str, Any] | None) -> dict[str, st
     successful = [
         call
         for call in parser.get_tool_calls(QUERY_SQL_TOOL_NAME)
-        if not call.is_error and not _is_schema_discovery_query(call.input.get("query"))
+        if not call.is_error and not is_schema_discovery_call(call)
     ]
     if not successful:
         return None
@@ -62,11 +58,6 @@ def extract_last_execute_sql_call(output: dict[str, Any] | None) -> dict[str, st
     if not isinstance(query, str) or not query.strip():
         return None
     return {"query": query, "result": call.output}
-
-
-def _is_schema_discovery_query(query: Any) -> bool:
-    """True when the query is an ``information_schema`` schema-discovery lookup, not an answer."""
-    return isinstance(query, str) and "information_schema" in query.lower()
 
 
 class AnswerQueryRan(Scorer):

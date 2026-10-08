@@ -21,8 +21,11 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
 )
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
     assert_clickhouse_records_in_s3,
+    has_valid_credentials,
     run_activity,
 )
+
+pytestmark = [pytest.mark.requires_vendor_credentials(check=has_valid_credentials)]
 
 
 @pytest.fixture(scope="module")

@@ -6,7 +6,7 @@ import collections.abc
 from types import SimpleNamespace
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from django.core.cache import cache
@@ -28,6 +28,7 @@ from posthog.models.integration import Integration
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
     GoogleAdsIsMccAccountConfig,
     GoogleAdsSourceConfig,
@@ -38,11 +39,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     format_customer_id,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
+    GOOGLE_ADS_CALL_TIMEOUT_SECONDS,
     GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS,
+    GoogleAdsCallDeadlineExceeded,
     GoogleAdsColumn,
     GoogleAdsSearchService,
     GoogleAdsTable,
     _get_integration,
+    _is_deadline_exceeded_error,
     _is_permission_denied_error,
     _is_rejected_page_token_error,
     _is_stale_page_token_error,
@@ -51,6 +55,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     _load_client_with_transient_retry,
     _resolve_protobuf_message_type_url,
     _search_as_arrow_tables,
+    _search_by_campaign,
     _search_fields_with_transient_retry,
     get_schemas,
     google_ads_source,
@@ -351,12 +356,14 @@ class TestGoogleAdsRetryableErrors:
             # `_call_with_transient_retry`'s in-process retry budget (see google_ads.py) is
             # exhausted on a quota/rate-limit RESOURCE_EXHAUSTED.
             "Resource has been exhausted (e.g. check quota).",
+            # str(GoogleAdsCallDeadlineExceeded) raised when a single call runs past
+            # GOOGLE_ADS_CALL_TIMEOUT_SECONDS (see google_ads.py).
+            f"Google Ads call did not finish within {GOOGLE_ADS_CALL_TIMEOUT_SECONDS} seconds",
         ],
     )
-    def test_quota_exhausted_is_retryable(self, error_msg):
-        # If this pattern drops out of get_retryable_errors(), a quota window that outlasts the
-        # in-process retry budget starts polluting error tracking even though Temporal's activity
-        # retry still recovers once the quota clears.
+    def test_known_self_recovering_errors_are_retryable(self, error_msg):
+        # If either pattern drops out of get_retryable_errors(), a condition Temporal's activity
+        # retry already recovers from on its own starts polluting error tracking as noise.
         assert any(pattern in error_msg for pattern in self.retryable)
 
     def test_receive_limit_exhausted_is_not_retryable(self):
@@ -509,6 +516,25 @@ class TestValidateCredentials:
         assert "216.239.36.223" not in (message or "")
         assert "StatusCode" not in (message or "")
 
+    def test_insufficient_scope_tells_the_user_to_reconnect(self):
+        # Google raises this when the stored OAuth token was granted without the adwords scope.
+        # A user cannot act on "the required scopes" because they never choose scopes, so the
+        # wizard has to ask for the same reconnect the sync path asks for.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        client = mock.Mock()
+        client.get_service.return_value.list_accessible_customers.side_effect = Exception(
+            "ACCESS_TOKEN_SCOPE_INSUFFICIENT: Request had insufficient authentication scopes"
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            return_value=client,
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert "Reconnect your Google Ads account" in (message or "")
+        assert "scopes" not in (message or "")
+
     def test_transient_google_side_error_returns_retry_message(self):
         # A transient INTERNAL/UNAVAILABLE blip from Google stringifies as a raw gRPC status plus a
         # protobuf failure dump. Surface a clean retry prompt instead of leaking that to the wizard.
@@ -631,7 +657,7 @@ class _FakeService:
         self.error_on_token = error_on_token or _google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN)
         self.calls: list[str] = []
 
-    def search(self, request: dict):
+    def search(self, request: dict, timeout: float | None = None):
         self.calls.append(request["page_token"])
         if request["page_token"]:
             raise self.error_on_token
@@ -774,7 +800,7 @@ class TestSearchPageTokenResumption:
             calls=[],
         )
 
-        def _always_raise(request: dict):
+        def _always_raise(request: dict, timeout: float | None = None):
             always_failing.calls.append(request["page_token"])
             raise _google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN)
 
@@ -977,6 +1003,10 @@ class TestTransientGrpcErrorDetection:
             # A bare UNKNOWN status carrying Google's own auth-backend hiccup message is a confirmed
             # transient backend incident, not a rejected credential — ride it out in-process.
             (google_api_exceptions.Unknown("Authentication backend unknown error."), True),
+            # A bare UNKNOWN status carrying "Stream removed" is a peer-initiated HTTP/2 stream reset
+            # (e.g. a load balancer recycling the connection), not an application failure — ride it
+            # out in-process the same way.
+            (google_api_exceptions.Unknown("Stream removed"), True),
             # Any other UNKNOWN-status error must not be retried blindly — the status alone is too
             # broad a signal, so only the specific known message is treated as transient.
             (google_api_exceptions.Unknown("Some other unrelated backend failure."), False),
@@ -1001,7 +1031,7 @@ class _FlakyService:
         self.fail_times = fail_times
         self.calls = 0
 
-    def search(self, request: dict):
+    def search(self, request: dict, timeout: float | None = None):
         self.calls += 1
         if self.calls <= self.fail_times:
             raise self.error
@@ -1123,7 +1153,7 @@ class _FakeSearchService:
         # The header is baked in when the service is built, as the real SDK does.
         self._login_customer_id = login_customer_id
 
-    def search(self, request: dict):
+    def search(self, request: dict, timeout: float | None = None):
         customer_id = request["customer_id"]
         self._client.searches.append((customer_id, self._login_customer_id))
 
@@ -1155,7 +1185,7 @@ class _FakeGoogleAdsClient:
     def get_service(self, name: str, version: str | None = None, interceptors: object = None):
         if name == "CustomerService":
             return SimpleNamespace(
-                list_accessible_customers=lambda: SimpleNamespace(
+                list_accessible_customers=lambda timeout=None: SimpleNamespace(
                     resource_names=[f"customers/{customer_id}" for customer_id in self.accessible]
                 )
             )
@@ -1245,7 +1275,7 @@ class _FlakyFieldService:
         self.fail_times = fail_times
         self.calls = 0
 
-    def search_google_ads_fields(self, query: str):
+    def search_google_ads_fields(self, query: str, timeout: float | None = None):
         self.calls += 1
         if self.calls <= self.fail_times:
             raise self.error
@@ -1567,7 +1597,7 @@ class TestGoogleAdsQueryConstruction:
     def test_established_cursor_drains_in_bounded_windows(self):
         # An established cursor on a report table is drained in bounded date windows, not the
         # open-ended `< 2100` scan that re-extracted the whole backlog every run and OOM-spiralled.
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             response, queries = self._run_source(
                 self._stats_table(),
                 should_use_incremental_field=True,
@@ -1587,7 +1617,7 @@ class TestGoogleAdsQueryConstruction:
     def test_lookback_overlap_cannot_consume_a_whole_run(self):
         # Spending the whole budget on lookback overlap leaves the cursor unmoved, so the next run
         # repeats it and a schema behind by more than its lookback never advances.
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             # A budget of zero: the overlap alone would end the run before any new ground.
             with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", 0):
                 _response, queries = self._run_source(
@@ -1629,7 +1659,7 @@ class TestGoogleAdsQueryConstruction:
         data_past_gap = cursor + dt.timedelta(days=w * 22)  # 2026-06-04, after a run of empty windows
         # One second per window drained against a two-second budget: it is spent long before the
         # walk reaches the data, so only refusing to arm on the straddle keeps the run going.
-        with freeze_time("2026-12-31"):
+        with time_machine.travel("2026-12-31", tick=False):
             with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", 2):
                 _response, queries = self._run_source(
                     self._stats_table(),
@@ -1652,7 +1682,7 @@ class TestGoogleAdsQueryConstruction:
         ],
     )
     def test_drain_starts_at_the_schema_history_start(self, history_start, expected_start: str) -> None:
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             _response, queries = self._run_source(
                 self._stats_table(),
                 should_use_incremental_field=True,
@@ -1687,7 +1717,7 @@ class TestGoogleAdsQueryConstruction:
     def test_a_stated_start_date_is_clamped_to_the_span_that_holds_rows(
         self, requested: str, earliest_date: str | None, expected: str
     ) -> None:
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             _response, queries = self._run_source(
                 self._stats_table(),
                 should_use_incremental_field=True,
@@ -1708,7 +1738,7 @@ class TestGoogleAdsQueryConstruction:
         # Validation rejects these at setup, so reaching the sync means a value stored before that
         # check existed. Failing the sync over it is worse than importing the range this source
         # would have had without the field.
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             _response, queries = self._run_source(
                 self._stats_table(),
                 should_use_incremental_field=True,
@@ -1729,7 +1759,7 @@ class TestGoogleAdsQueryConstruction:
     ) -> None:
         # A schema that predates the recorded range reads unbounded: one request locates the start,
         # and an account holding nothing has no range to walk.
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             _response, queries = self._run_source(
                 self._stats_table(),
                 should_use_incremental_field=True,
@@ -1753,7 +1783,7 @@ class TestGoogleAdsQueryConstruction:
         table = self._stats_table()
         table.extra_where = "metrics.impressions > 0"
 
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             _response, queries = self._run_source(
                 table,
                 should_use_incremental_field=True,
@@ -1774,7 +1804,7 @@ class TestGoogleAdsQueryConstruction:
         # A full-refresh pipeline persists no cursor, so a budgeted windowed drain restarts from
         # the same backfill date every run and the refresh replaces the whole table with that same
         # first slice of history. The run must stay a single open-ended scan over the full range.
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             _response, queries = self._run_source(
                 self._stats_table(),
                 should_use_incremental_field=False,
@@ -1796,7 +1826,7 @@ class TestGoogleAdsQueryConstruction:
             (cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * i)).isoformat(): 1 for i in range(40)
         }
         # One second of drain per window, so an N-second budget buys N windows.
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", budget):
                 _response, queries = self._run_source(
                     self._stats_table(),
@@ -1818,7 +1848,7 @@ class TestGoogleAdsQueryConstruction:
         data_window_start = cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * 3)
         window_rows = {data_window_start.isoformat(): 1}
 
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             _response, queries = self._run_source(
                 self._stats_table(),
                 window_rows=window_rows,
@@ -1876,10 +1906,23 @@ class TestVersionDeclaration:
 
 
 class TestReportTableMissingIncrementalField:
-    def test_incremental_report_table_without_incremental_field_defaults_to_segments_date(self):
-        # A report table's schema can arrive flagged incremental but with no incremental field
-        # (a config inconsistency). Its only valid field is always segments.date, so the sync must
-        # default to it and run rather than crashing with "incremental_field ... can't be None".
+    @pytest.mark.parametrize(
+        "incremental_field,incremental_field_type",
+        [
+            pytest.param(None, None, id="missing"),
+            # A stored config can also carry the underscore-joined synced column name
+            # (`segments_date`) instead of the queryable `segments.date` — e.g. a stale value from
+            # before a schema was reconciled. Google rejects that field name outright, so it must be
+            # corrected the same way a missing field is.
+            pytest.param("segments_date", IncrementalFieldType.Date, id="stale_underscore_value"),
+        ],
+    )
+    def test_incremental_report_table_with_bad_incremental_field_defaults_to_segments_date(
+        self, incremental_field, incremental_field_type
+    ):
+        # A report table's schema can arrive flagged incremental but with no, or an invalid,
+        # incremental field. Its only valid field is always segments.date, so the sync must use it
+        # rather than crashing or sending Google a field it will reject.
         table = _stats_table()
         assert table.alias is not None
         config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
@@ -1895,15 +1938,36 @@ class TestReportTableMissingIncrementalField:
                 resumable_source_manager=mock.Mock(),
                 api_version="v25",
                 should_use_incremental_field=True,
-                incremental_field=None,
-                incremental_field_type=None,
+                incremental_field=incremental_field,
+                incremental_field_type=incremental_field_type,
                 db_incremental_field_last_value=dt.date.today(),
             )
             list(typing.cast(collections.abc.Iterable, response.items()))
 
-        # The windowed drain ran (no crash) and queried on the defaulted segments.date field.
+        # The windowed drain ran (no crash) and queried on the corrected segments.date field.
         assert search.call_count >= 1
         assert "segments.date" in search.call_args_list[0].args[2]
+        assert "segments_date" not in search.call_args_list[0].args[2]
+
+
+class TestUnknownResource:
+    def test_resource_the_worker_does_not_know_raises_a_named_error(self):
+        # The web pods and the workers deploy separately, so a newly shipped table is selectable in
+        # the schema picker about an hour before every worker can resolve it. A bare KeyError there
+        # reports as a bug and reaches the customer as raw Python; the named error is classified
+        # retryable instead.
+        table = _stats_table()
+        assert table.alias is not None
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        with mock.patch(f"{_GOOGLE_ADS_MODULE}.get_schemas", return_value={table.alias: table}):
+            with pytest.raises(UnknownResourceError, match="a_future_report_table"):
+                google_ads_source(
+                    config,
+                    "a_future_report_table",
+                    team_id=1,
+                    resumable_source_manager=mock.Mock(),
+                    api_version="v25",
+                )
 
 
 class TestApiVersionDispatch:
@@ -2063,10 +2127,9 @@ class TestCriterionTablesReachNegatives:
 
 
 class TestBreakdownStatsDefaultOff:
-    # These tables fan a day of spend out across placements, landing pages, product groups, hours and
+    # These tables fan a day of spend out across placements, product groups, hours and
     # demographics, so they are orders of magnitude larger than the campaign and ad group reports.
-    # Defaulting one of them on would silently start syncing it for every account on the next schema
-    # reconcile, so each must stay opt-in and explain its size in the picker.
+    # Keep them opt-in so new connections do not start these large imports without a table selection.
     @pytest.mark.parametrize(
         "alias",
         [
@@ -2077,7 +2140,6 @@ class TestBreakdownStatsDefaultOff:
             "campaign_hourly_stats",
             "detail_placement_stats",
             "gender_stats",
-            "landing_page_stats",
             "location_stats",
             "product_group_stats",
             "user_location_stats",
@@ -2090,3 +2152,185 @@ class TestBreakdownStatsDefaultOff:
 
         assert contents["should_sync_default"] is False
         assert contents["description"]
+
+
+@pytest.mark.parametrize("alias", ["keyword", "keyword_stats", "landing_page_stats"])
+def test_search_performance_tables_are_preselected(alias: str) -> None:
+    assert RESOURCE_SCHEMAS[alias].get("should_sync_default", True) is True
+
+
+class TestGrpcKeepalive:
+    def test_channel_options_enable_keepalive_once(self):
+        from google.ads.googleads import client as google_ads_client_module
+
+        from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
+            _ensure_grpc_receive_limit,
+        )
+
+        _ensure_grpc_receive_limit()
+        _ensure_grpc_receive_limit()
+
+        keys = [key for key, _ in google_ads_client_module._GRPC_CHANNEL_OPTIONS]
+        options = dict(google_ads_client_module._GRPC_CHANNEL_OPTIONS)
+        for key in ("grpc.keepalive_time_ms", "grpc.keepalive_timeout_ms", "grpc.keepalive_permit_without_calls"):
+            assert keys.count(key) == 1
+        assert options["grpc.keepalive_time_ms"] > options["grpc.keepalive_timeout_ms"] > 0
+
+
+class TestCallDeadline:
+    @pytest.mark.parametrize(
+        "error, expected",
+        [
+            (google_api_exceptions.DeadlineExceeded("504 Deadline Exceeded"), True),
+            (_StatusCodeRpcError(grpc.StatusCode.DEADLINE_EXCEEDED), True),
+            (_google_ads_exception_wrapping(_StatusCodeRpcError(grpc.StatusCode.DEADLINE_EXCEEDED)), True),
+            (_grpc_unavailable_error(), False),
+            (google_api_exceptions.ServiceUnavailable("502:Bad Gateway"), False),
+            (ValueError("boom"), False),
+        ],
+    )
+    def test_is_deadline_exceeded_error(self, error, expected):
+        assert _is_deadline_exceeded_error(error) is expected
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            google_api_exceptions.DeadlineExceeded("504 Deadline Exceeded"),
+            _google_ads_exception_wrapping(_StatusCodeRpcError(grpc.StatusCode.DEADLINE_EXCEEDED)),
+        ],
+    )
+    def test_deadline_is_raised_without_in_process_retry(self, error):
+        service = _FlakyService(_single_page(), error=error, fail_times=10)
+        manager = _FakeResumableManager(saved_token=None)
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.time.sleep"
+        ) as sleep:
+            with pytest.raises(GoogleAdsCallDeadlineExceeded):
+                list(
+                    _search_as_arrow_tables(
+                        service=service,  # type: ignore[arg-type]
+                        customer_id="1234567890",
+                        query="SELECT campaign.name FROM campaign",
+                        table=_single_row_table(),
+                        resumable_source_manager=manager,  # type: ignore[arg-type]
+                    )
+                )
+
+        assert service.calls == 1
+        sleep.assert_not_called()
+
+    def test_every_search_call_carries_the_deadline(self):
+        timeouts: list[float | None] = []
+
+        class _Recorder:
+            def search(self, request: dict, timeout: float | None = None):
+                timeouts.append(timeout)
+                return SimpleNamespace(pages=iter([_single_page()]))
+
+        list(
+            _search_as_arrow_tables(
+                service=_Recorder(),  # type: ignore[arg-type]
+                customer_id="1234567890",
+                query="SELECT campaign.name FROM campaign",
+                table=_single_row_table(),
+                resumable_source_manager=_FakeResumableManager(saved_token=None),  # type: ignore[arg-type]
+            )
+        )
+
+        assert timeouts == [GOOGLE_ADS_CALL_TIMEOUT_SECONDS]
+
+
+class _ShardedManager:
+    def __init__(self, saved: GoogleAdsResumeConfig | None = None):
+        self._saved = saved
+        self.saved_states: list[tuple[str, str | None]] = []
+
+    def can_resume(self) -> bool:
+        return self._saved is not None
+
+    def load_state(self) -> GoogleAdsResumeConfig | None:
+        return self._saved
+
+    def save_state(self, data: GoogleAdsResumeConfig) -> None:
+        self.saved_states.append((data.page_token, data.campaign_id))
+
+
+class _ShardedService:
+    """Serves a campaign id list, then one one-row page per campaign-filtered query."""
+
+    def __init__(self, campaign_ids: list[str]):
+        self.campaign_ids = campaign_ids
+        self.queries: list[tuple[str, str]] = []
+
+    def search(self, request: dict, timeout: float | None = None):
+        query = request["query"]
+        self.queries.append((query, request["page_token"]))
+        if query.startswith("SELECT campaign.id FROM campaign"):
+            results = [SimpleNamespace(campaign=SimpleNamespace(id=int(i))) for i in self.campaign_ids]
+            page = SimpleNamespace(results=results, next_page_token="")
+        else:
+            campaign_id = query.rsplit("campaign.id = ", 1)[1]
+            page = SimpleNamespace(
+                field_mask=SimpleNamespace(paths=["campaign.name"]),
+                results=[SimpleNamespace(campaign=SimpleNamespace(name=f"c{campaign_id}"))],
+                next_page_token="",
+            )
+        return SimpleNamespace(pages=iter([page]))
+
+
+class TestCampaignShardedSearch:
+    def _compose(self, lower, upper, extra=None) -> str:
+        return (
+            f"SELECT campaign.name FROM keyword_view WHERE {extra}"
+            if extra
+            else "SELECT campaign.name FROM keyword_view"
+        )
+
+    def _run(self, service: _ShardedService, manager: _ShardedManager) -> list[str]:
+        tables = _search_by_campaign(
+            service,  # type: ignore[arg-type]
+            "1234567890",
+            self._compose,
+            _single_row_table(),
+            manager,  # type: ignore[arg-type]
+        )
+        return [row["campaign_name"] for t in tables for row in t.to_pylist()]
+
+    @pytest.mark.parametrize(
+        "saved, expected_names",
+        [
+            (None, ["c1", "c2", "c3"]),
+            (GoogleAdsResumeConfig(page_token="", campaign_id="2"), ["c2", "c3"]),
+            (GoogleAdsResumeConfig(page_token="", campaign_id="3"), ["c3"]),
+            # State from before sharding, or naming a deleted campaign, restarts the whole resource.
+            (GoogleAdsResumeConfig(page_token="TOKEN"), ["c1", "c2", "c3"]),
+            (GoogleAdsResumeConfig(page_token="TOKEN", campaign_id="99"), ["c1", "c2", "c3"]),
+        ],
+    )
+    def test_resumes_at_saved_campaign(self, saved, expected_names):
+        service = _ShardedService(["1", "2", "3"])
+
+        assert self._run(service, _ShardedManager(saved)) == expected_names
+
+    def test_checkpoints_next_campaign_and_filters_each_query(self):
+        service = _ShardedService(["1", "2", "3"])
+        manager = _ShardedManager()
+
+        self._run(service, manager)
+
+        assert manager.saved_states == [("", "2"), ("", "3")]
+        shard_queries = [q for q, _ in service.queries if "keyword_view" in q]
+        assert shard_queries == [self._compose(None, None, f"campaign.id = {i}") for i in (1, 2, 3)]
+
+    def test_saved_page_token_is_only_sent_for_its_own_campaign(self):
+        service = _ShardedService(["1", "2"])
+        manager = _ShardedManager(GoogleAdsResumeConfig(page_token="TOKEN", campaign_id="1"))
+
+        self._run(service, manager)
+
+        shard_calls = [(q.rsplit("= ", 1)[1], token) for q, token in service.queries if "keyword_view" in q]
+        assert shard_calls == [("1", "TOKEN"), ("2", "")]
+
+    def test_no_campaigns_yields_nothing(self):
+        assert self._run(_ShardedService([]), _ShardedManager()) == []

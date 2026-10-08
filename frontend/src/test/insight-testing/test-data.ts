@@ -117,6 +117,18 @@ export const trendsSeries = {
         { label: 'Conker', data: [0, 0, 0, 0, 0], days, labels, breakdown_value: 'Conker' },
         { label: 'Prickles', data: [0, 0, 1, 1, 0], days, labels, breakdown_value: 'Prickles' },
     ] satisfies CannedSeries[],
+    // A part that sums negative, as a trends formula like `A - B` can.
+    napsByHedgehogWithNegativePart: [
+        { label: 'Spike', data: [10, 0, 0, 0, 0], days, labels, breakdown_value: 'Spike' },
+        { label: 'Bramble', data: [-4, 0, 0, 0, 0], days, labels, breakdown_value: 'Bramble' },
+    ] satisfies CannedSeries[],
+    napsByManyHedgehogs: Array.from({ length: 21 }, (_, i) => ({
+        label: `Hedgehog ${i + 1}`,
+        data: [1, 0, 0, 0, 0],
+        days,
+        labels,
+        breakdown_value: `Hedgehog ${i + 1}`,
+    })) satisfies CannedSeries[],
     pageviewsByHedgehog: [
         { label: 'Spike', data: [30, 50, 90, 140, 60], days, labels, breakdown_value: 'Spike' },
         { label: 'Bramble', data: [15, 32, 44, 70, 35], days, labels, breakdown_value: 'Bramble' },
@@ -179,6 +191,18 @@ const seriesByEvent: Record<string, EventSeriesConfig> = {
         default: trendsSeries.napped,
         breakdowns: {
             hedgehog: trendsSeries.napsByHedgehog,
+        },
+    },
+    NappedWithNegativePart: {
+        default: trendsSeries.napped,
+        breakdowns: {
+            hedgehog: trendsSeries.napsByHedgehogWithNegativePart,
+        },
+    },
+    NappedByManyHedgehogs: {
+        default: trendsSeries.napped,
+        breakdowns: {
+            hedgehog: trendsSeries.napsByManyHedgehogs,
         },
     },
     ZeroCounts: { default: trendsSeries.withZeroCounts[0], multi: trendsSeries.withZeroCounts },
@@ -287,6 +311,9 @@ export interface FunnelStepData {
     breakdown_value?: string | number
     // The funnels runner tags compare rows with `compare_label` (it doesn't set `compare`).
     compare_label?: 'current' | 'previous'
+    // Per-period conversion counts, index-aligned with `data`. Absent where a fixture stands in for a cached result.
+    reached_from_step_count?: number[]
+    reached_to_step_count?: number[]
 }
 
 export const funnelTrendsSteps = {
@@ -296,6 +323,8 @@ export const funnelTrendsSteps = {
         days,
         labels,
         name: '$pageview → Napped',
+        reached_from_step_count: [200, 200, 200, 200, 200],
+        reached_to_step_count: [20, 50, 80, 120, 70],
     } satisfies FunnelStepData,
     byBreakdown: {
         hedgehog: [

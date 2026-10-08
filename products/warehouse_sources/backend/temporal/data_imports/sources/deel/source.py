@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -25,16 +23,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deel.deel 
     deel_source,
     validate_credentials as validate_deel_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.deel.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.deel.settings import (
+    DEEL_API_VERSION_2026_01_01,
+    DEEL_API_VERSION_V2,
+    endpoints_for_version,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deel import DeelSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class DeelSource(ResumableSource[DeelSourceConfig, DeelResumeConfig]):
-    supported_versions = ("v2",)
-    default_version = "v2"
-    api_docs_url = "https://developer.deel.com"
+    supported_versions = (DEEL_API_VERSION_V2, DEEL_API_VERSION_2026_01_01)
+    default_version = DEEL_API_VERSION_2026_01_01
+    api_docs_url = "https://developer.deel.com/api/api-versioning"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -46,17 +48,18 @@ class DeelSource(ResumableSource[DeelSourceConfig, DeelResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url: https://api.letsdeel.com": "Deel authentication failed. Please check your API token.",
             "403 Client Error: Forbidden for url: https://api.letsdeel.com": "Deel denied access. Please check that your API token has the read scope for this dataset.",
+            "410 Client Error: Gone for url: https://api.letsdeel.com": "Deel has retired the API version this source uses. Contact PostHog support to move the source to a supported version.",
         }
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DEEL,
+            name=ExternalDataSourceType.DEEL,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Deel",
             caption="""Enter your Deel API token to pull your Deel workforce and payroll data into the PostHog Data warehouse.
 
-Create an organization token in [Deel](https://app.deel.com/developer-center) under More > Developer with read scopes for the data you want to sync (e.g. `people:read`, `contracts:read`, `accounting:read`). Prefer an organization token over a personal token — personal tokens stop working when the user leaves the organization.""",
+Create an organization token in [Deel](https://app.deel.com/developer-center) under More > Developer with read scopes for the data you want to sync (`people:read`, `contracts:read`, `accounting:read`, `timesheets:read`, `time-off:read`, `legal-entity:read`, `organizations:read`, `groups:read`, `global-payroll:read`, `payslips:read`, `it-seats:read`, `it-service-requests:read`, `equities:read`). Prefer an organization token over a personal token — personal tokens stop working when the user leaves the organization.""",
             iconPath="/static/services/deel.png",
             docsUrl="https://posthog.com/docs/cdp/sources/deel",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -93,12 +96,12 @@ Create an organization token in [Deel](https://app.deel.com/developer-center) un
     ) -> list[SourceSchema]:
         # Core Deel objects have no updated-since filter, so every stream is an
         # honest full refresh (no incremental fields).
-        return build_endpoint_schemas(ENDPOINTS, {}, names)
+        return build_endpoint_schemas(endpoints_for_version(self.resolve_api_version(api_version)), {}, names)
 
     def validate_credentials(
         self, config: DeelSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
-        return validate_deel_credentials(config.api_token)
+        return validate_deel_credentials(config.api_token, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[DeelResumeConfig]:
         return ResumableSourceManager[DeelResumeConfig](inputs, DeelResumeConfig)
@@ -115,5 +118,6 @@ Create an organization token in [Deel](https://app.deel.com/developer-center) un
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             db_incremental_field_last_value=None,  # every Deel endpoint is full refresh
         )

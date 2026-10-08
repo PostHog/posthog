@@ -172,9 +172,10 @@ export interface MCPIntentClusterToolEntryApi {
  * * `completed` - Completed
  * * `error` - Error
  */
-export type OutcomeEnumApi = (typeof OutcomeEnumApi)[keyof typeof OutcomeEnumApi]
+export type MCPIntentClusterJourneyPathOutcomeEnumApi =
+    (typeof MCPIntentClusterJourneyPathOutcomeEnumApi)[keyof typeof MCPIntentClusterJourneyPathOutcomeEnumApi]
 
-export const OutcomeEnumApi = {
+export const MCPIntentClusterJourneyPathOutcomeEnumApi = {
     Completed: 'completed',
     Error: 'error',
 } as const
@@ -186,7 +187,7 @@ export interface MCPIntentClusterJourneyPathApi {
      *
      * * `completed` - Completed
      * * `error` - Error */
-    readonly outcome: OutcomeEnumApi
+    readonly outcome: MCPIntentClusterJourneyPathOutcomeEnumApi
     /** Number of sessions in this cluster that followed this exact path. */
     readonly count: number
 }
@@ -476,6 +477,8 @@ export interface MCPSessionApi {
     readonly session_id: string
     /** Total number of $mcp_tool_call events in the session. */
     readonly tool_calls: number
+    /** Number of the session's $mcp_tool_call events with $mcp_is_error true, counted over the same properties / filter_test_accounts matches as tool_calls. */
+    readonly error_calls: number
     /** Timestamp of the first $mcp_tool_call event in the session. */
     readonly session_start: string
     /** Timestamp of the most recent $mcp_tool_call event in the session. */
@@ -672,6 +675,15 @@ export type McpAnalyticsSessionsListParams = {
      */
     date_to?: string
     /**
+     * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
+     */
+    filter_test_accounts?: boolean
+    /**
+     * Filter by session outcome. true keeps sessions with at least one errored tool call ($mcp_is_error), false keeps sessions with none. Omit to list both.
+     * @nullable
+     */
+    has_errors?: boolean | null
+    /**
      * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
      * @minimum 1
      * @maximum 500
@@ -686,6 +698,10 @@ export type McpAnalyticsSessionsListParams = {
      * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
      */
     order_by?: string
+    /**
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     */
+    properties?: string
     /**
      * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
      */
@@ -705,6 +721,10 @@ export type McpAnalyticsSessionsToolCallsParams = {
      */
     date_from?: string
     /**
+     * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
+     */
+    filter_test_accounts?: boolean
+    /**
      * Maximum tool calls to return per page (1–500). Defaults to 500 — the whole page — so a session's calls come back in one request; pass a smaller value for a lighter response. Values above the cap are rejected.
      * @minimum 1
      * @maximum 500
@@ -715,4 +735,19 @@ export type McpAnalyticsSessionsToolCallsParams = {
      * @minimum 0
      */
     offset?: number
+    /**
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     */
+    properties?: string
+}
+
+export type McpAnalyticsSessionsActivityOverviewParams = {
+    /**
+     * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
+     */
+    filter_test_accounts?: boolean
+    /**
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     */
+    properties?: string
 }

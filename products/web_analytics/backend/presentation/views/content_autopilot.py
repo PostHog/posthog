@@ -24,21 +24,28 @@ from posthog.rate_limit import (
 from posthog.security.url_validation import has_authority_bypass_chars
 
 from products.web_analytics.backend.facade.content_autopilot import (
+    MAX_DRAFTS_PER_RUN,
     MAX_PROPOSAL_MARKDOWN_CHARS,
+    MAX_REFRESHED_OPPORTUNITIES,
     ContentAutopilotExportError,
     ContentAutopilotLifecycleError,
     PublicUrlFetchError,
     cancel_run,
+    delete_profile,
     discover_site,
+    dismiss_opportunity,
+    draft_opportunities,
     edit_proposal,
     export_proposal,
     has_same_public_origin,
     normalize_site_origin,
+    refresh_opportunities,
     regenerate_proposal,
     reject_proposal,
     start_run,
 )
 from products.web_analytics.backend.facade.models import (
+    ContentAutopilotOpportunity,
     ContentAutopilotProposal,
     ContentAutopilotRun,
     ContentAutopilotSiteProfile,
@@ -167,6 +174,102 @@ class ContentAutopilotPackageSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Portable source notes included with the export.",
     )
+    json_ld = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="JSON-LD structured data to embed in the page, such as an FAQPage document.",
+    )
+    llms_txt_line = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Suggested llms.txt entry for the page.",
+    )
+
+
+class ContentAutopilotBriefCompetitorSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Product to compare against.")
+    url = serializers.CharField(help_text="The product's own page to research.")
+
+
+class ContentAutopilotBriefSerializer(serializers.Serializer):
+    intent = serializers.CharField(required=False, help_text="What the person asking wants to know or decide.")
+    audience = serializers.CharField(required=False, help_text="Who the content is for.")
+    recommended_type = serializers.CharField(
+        required=False, help_text="Whether the brief recommends new_content or page_improvement."
+    )
+    target_page = serializers.CharField(
+        required=False, allow_blank=True, help_text="Site page the brief chose to improve. Empty for a new page."
+    )
+    site_pages_to_read = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Site pages the brief asked to read for facts."
+    )
+    competitors_to_research = ContentAutopilotBriefCompetitorSerializer(
+        many=True, required=False, help_text="Products the brief asked to research for a comparison."
+    )
+    working_title = serializers.CharField(required=False, help_text="Working title for the page.")
+    outline = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Planned sections, in order."
+    )
+    questions_to_answer = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Questions the page must answer."
+    )
+    competitor_coverage = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Topics the cited competitor pages cover that the site's pages don't.",
+    )
+    engine_answer_summary = serializers.CharField(
+        required=False, help_text="What AI answer engines currently say, including what they get wrong."
+    )
+    disambiguation = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="What the question means, when AI answer engines misread which product or company it asks about.",
+    )
+
+
+class ContentAutopilotSourceLedgerEntrySerializer(serializers.Serializer):
+    claim = serializers.CharField(help_text="Factual claim the draft makes.")
+    source_url = serializers.CharField(help_text="Page that supports the claim.")
+    quote = serializers.CharField(help_text="Short quote from the source page.")
+    kind = serializers.ChoiceField(
+        choices=["site", "competitor"],
+        required=False,
+        help_text="Whether the source is one of the site's pages or a competitor's own page.",
+    )
+
+
+class ContentAutopilotEngineAnswerSerializer(serializers.Serializer):
+    engine = serializers.CharField(help_text="Answer engine that gave the answer.")
+    answer_text = serializers.CharField(help_text="The engine's most recent answer. Third-party text.")
+    checked_at = serializers.CharField(help_text="When the answer was recorded, in ISO 8601.")
+
+
+class ContentAutopilotCitationGapSerializer(serializers.Serializer):
+    checks = serializers.IntegerField(help_text="Successful citation checks in the lookback window.")
+    cited_checks = serializers.IntegerField(help_text="Checks whose answer cited the site.")
+    mentioned_checks = serializers.IntegerField(
+        help_text="Checks whose answer named the site's brand or cited the site.", default=0
+    )
+    citation_rate = serializers.FloatField(help_text="Share of checks that cited the site, from 0 to 1.")
+    engines = serializers.ListField(child=serializers.CharField(), help_text="Engines that answered the prompt.")
+    engines_not_citing = serializers.ListField(
+        child=serializers.CharField(), help_text="Engines that never cited the site in the window."
+    )
+    competitor_urls = serializers.ListField(
+        child=serializers.CharField(), help_text="Other sites' pages the engines cited, most frequent first."
+    )
+    competitor_domains = serializers.ListField(
+        child=serializers.CharField(), help_text="Domains the engines cited instead, most frequent first."
+    )
+    engine_search_queries = serializers.ListField(
+        child=serializers.CharField(), help_text="Web searches the engines ran while answering."
+    )
+    our_cited_urls = serializers.ListField(
+        child=serializers.CharField(), help_text="Site pages the engines cited when they did cite the site."
+    )
+    latest_answers = ContentAutopilotEngineAnswerSerializer(many=True, help_text="Most recent answer per engine.")
+    last_checked_at = serializers.CharField(help_text="When the prompt was last checked, in ISO 8601.")
 
 
 class ContentAutopilotSiteProfileSerializer(serializers.ModelSerializer):
@@ -320,6 +423,10 @@ class ContentAutopilotProposalSerializer(ContentAutopilotProposalBaseSerializer)
     content_package = ContentAutopilotPackageSerializer(
         help_text="Structured package that accompanies the exported Markdown."
     )
+    brief = ContentAutopilotBriefSerializer(help_text="Content brief the draft was written from.")
+    source_ledger = ContentAutopilotSourceLedgerEntrySerializer(
+        many=True, help_text="Factual claims in the draft and the site pages that support them."
+    )
 
     class Meta:
         model = ContentAutopilotProposal
@@ -336,6 +443,8 @@ class ContentAutopilotProposalSerializer(ContentAutopilotProposalBaseSerializer)
             "content_package",
             "original_markdown",
             "proposed_markdown",
+            "brief",
+            "source_ledger",
             "created_at",
             "updated_at",
         ]
@@ -399,10 +508,70 @@ class ContentAutopilotExportResponseSerializer(serializers.Serializer):
     content_package = ContentAutopilotPackageSerializer(help_text="Structured JSON package for a CMS adapter.")
 
 
+class ContentAutopilotOpportunitySerializer(serializers.ModelSerializer):
+    evidence = ContentAutopilotEvidenceSerializer(many=True, help_text="Why this opportunity was selected.")
+    gap = ContentAutopilotCitationGapSerializer(help_text="Citation check results behind this opportunity.")
+
+    class Meta:
+        model = ContentAutopilotOpportunity
+        fields = [
+            "id",
+            "profile_id",
+            "run_id",
+            "proposal_id",
+            "kind",
+            "title",
+            "score",
+            "recommended_type",
+            "target_url",
+            "evidence",
+            "gap",
+            "status",
+            "last_refreshed_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "profile_id": {"help_text": "Site profile this opportunity belongs to."},
+            "run_id": {"help_text": "Latest run that drafted this opportunity."},
+            "proposal_id": {"help_text": "Latest proposal drafted for this opportunity."},
+            "kind": {"help_text": "Type of visibility gap."},
+            "title": {"help_text": "The prompt the site isn't cited for."},
+            "score": {"help_text": "Priority from 0 to 1. Higher means a clearer, more consistent gap."},
+            "recommended_type": {
+                "help_text": "`page_improvement` when the engines cited a site page for the prompt. Otherwise `new_content`, and drafting decides between a new page and an existing one."
+            },
+            "target_url": {
+                "help_text": "Site page the engines cited for the prompt, to improve. Empty when no page was cited."
+            },
+            "status": {"help_text": "Where the opportunity is in the drafting workflow."},
+            "last_refreshed_at": {"help_text": "When the citation data was last read."},
+        }
+
+
+class ContentAutopilotOpportunityListQuerySerializer(serializers.Serializer):
+    profile_id = serializers.UUIDField(help_text="Site profile to list opportunities for.")
+
+
+class ContentAutopilotOpportunityRefreshRequestSerializer(serializers.Serializer):
+    profile_id = serializers.UUIDField(help_text="Site profile to refresh opportunities for.")
+
+
+class ContentAutopilotOpportunityDraftRequestSerializer(serializers.Serializer):
+    profile_id = serializers.UUIDField(help_text="Site profile the opportunities belong to.")
+    opportunity_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=MAX_DRAFTS_PER_RUN,
+        help_text=f"Opportunities to draft, up to {MAX_DRAFTS_PER_RUN} at a time.",
+    )
+
+
 class ContentAutopilotSiteProfileViewSet(ContentAutopilotViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ContentAutopilotSiteProfileSerializer
     queryset = ContentAutopilotSiteProfile.objects.unscoped()
-    http_method_names = ["get", "post", "patch", "head", "options"]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def get_throttles(self) -> list[BaseThrottle]:
         if self.action == "discover":
@@ -415,7 +584,10 @@ class ContentAutopilotSiteProfileViewSet(ContentAutopilotViewSetMixin, viewsets.
     def safely_get_queryset(
         self, queryset: QuerySet[ContentAutopilotSiteProfile]
     ) -> QuerySet[ContentAutopilotSiteProfile]:
-        return ContentAutopilotSiteProfile.objects.for_team(self.team_id).order_by("created_at")
+        return ContentAutopilotSiteProfile.objects.for_team(self.team_id).filter(deleted=False).order_by("created_at")
+
+    def perform_destroy(self, instance: ContentAutopilotSiteProfile) -> None:
+        delete_profile(team=self.team, profile_id=str(instance.id))
 
     @validated_request(
         request_serializer=ContentAutopilotSiteDiscoveryRequestSerializer,
@@ -440,7 +612,7 @@ class ContentAutopilotRunViewSet(ContentAutopilotViewSetMixin, viewsets.ReadOnly
     queryset = ContentAutopilotRun.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[ContentAutopilotRun]) -> QuerySet[ContentAutopilotRun]:
-        queryset = ContentAutopilotRun.objects.for_team(self.team_id)
+        queryset = ContentAutopilotRun.objects.for_team(self.team_id).filter(profile__deleted=False)
         if self.action == "list":
             filters = self.validated_query_params(ContentAutopilotRunListQuerySerializer)
             if profile_id := filters.get("profile_id"):
@@ -493,14 +665,14 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
         return ContentAutopilotProposalSerializer
 
     def safely_get_queryset(self, queryset: QuerySet[ContentAutopilotProposal]) -> QuerySet[ContentAutopilotProposal]:
-        queryset = ContentAutopilotProposal.objects.for_team(self.team_id)
+        queryset = ContentAutopilotProposal.objects.for_team(self.team_id).filter(run__profile__deleted=False)
         if self.action == "list":
             filters = self.validated_query_params(ContentAutopilotProposalListQuerySerializer)
             if run_id := filters.get("run_id"):
                 queryset = queryset.filter(run_id=run_id)
             if profile_id := filters.get("profile_id"):
                 queryset = queryset.filter(run__profile_id=profile_id)
-            queryset = queryset.defer("original_markdown", "proposed_markdown")
+            queryset = queryset.defer("original_markdown", "proposed_markdown", "brief", "source_ledger", "research")
         return queryset.order_by("-created_at")
 
     @validated_request(
@@ -551,3 +723,70 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
     def export(self, request: Request, **kwargs: Any) -> Response:
         exported = export_proposal(team=self.team, proposal_id=str(self.get_object().id))
         return Response(ContentAutopilotExportResponseSerializer(instance=exported).data)
+
+
+@extend_schema_view(list=extend_schema(parameters=[ContentAutopilotOpportunityListQuerySerializer]))
+class ContentAutopilotOpportunityViewSet(ContentAutopilotViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    serializer_class = ContentAutopilotOpportunitySerializer
+    queryset = ContentAutopilotOpportunity.objects.unscoped()
+
+    def safely_get_queryset(
+        self, queryset: QuerySet[ContentAutopilotOpportunity]
+    ) -> QuerySet[ContentAutopilotOpportunity]:
+        queryset = ContentAutopilotOpportunity.objects.for_team(self.team_id).filter(profile__deleted=False)
+        if self.action == "list":
+            filters = self.validated_query_params(ContentAutopilotOpportunityListQuerySerializer)
+            queryset = queryset.filter(profile_id=filters["profile_id"])
+        return queryset.order_by("-score", "title")
+
+    @validated_request(
+        request_serializer=ContentAutopilotOpportunityRefreshRequestSerializer,
+        operation_id="web_analytics_content_autopilot_opportunities_refresh",
+        summary="Refresh content opportunities",
+        description="Re-reads AI citation checks and updates the site's content opportunities. Makes no model calls.",
+        responses={200: OpenApiResponse(response=ContentAutopilotOpportunitySerializer(many=True))},
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["post"], required_scopes=["web_analytics:write"], pagination_class=None)
+    def refresh(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        profile_id = str(request.validated_data["profile_id"])
+        refresh_opportunities(team=self.team, profile_id=profile_id)
+        opportunities = (
+            ContentAutopilotOpportunity.objects.for_team(self.team_id)
+            .filter(profile_id=profile_id, profile__deleted=False)
+            .order_by("-score", "title")[:MAX_REFRESHED_OPPORTUNITIES]
+        )
+        return Response(self.get_serializer(opportunities, many=True).data)
+
+    @validated_request(
+        operation_id="web_analytics_content_autopilot_opportunities_dismiss",
+        summary="Dismiss a content opportunity",
+        description="Marks an opportunity as dismissed. It stays dismissed across refreshes, and list responses still include it with status `dismissed`.",
+        responses={200: OpenApiResponse(response=ContentAutopilotOpportunitySerializer)},
+        tags=["web_analytics"],
+    )
+    @action(detail=True, methods=["post"], required_scopes=["web_analytics:write"])
+    def dismiss(self, request: Request, **kwargs: Any) -> Response:
+        opportunity = self.get_object()
+        dismiss_opportunity(team=self.team, opportunity_id=str(opportunity.id))
+        opportunity.refresh_from_db()
+        return Response(self.get_serializer(opportunity).data)
+
+    @validated_request(
+        request_serializer=ContentAutopilotOpportunityDraftRequestSerializer,
+        operation_id="web_analytics_content_autopilot_opportunities_draft",
+        summary="Draft content for opportunities",
+        description="Starts a run that researches and drafts content for the selected opportunities.",
+        responses={202: OpenApiResponse(response=ContentAutopilotRunSerializer)},
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["post"], required_scopes=["web_analytics:write"])
+    def draft(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        run_id = draft_opportunities(
+            team=self.team,
+            profile_id=str(request.validated_data["profile_id"]),
+            opportunity_ids=[str(opportunity_id) for opportunity_id in request.validated_data["opportunity_ids"]],
+            triggered_by_id=getattr(request.user, "id", None),
+        )
+        run = ContentAutopilotRun.objects.for_team(self.team_id).get(id=run_id)
+        return Response(ContentAutopilotRunSerializer(run).data, status=status.HTTP_202_ACCEPTED)

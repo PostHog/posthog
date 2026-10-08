@@ -111,7 +111,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Survey appearance customization."
+            "description": "Optional appearance customization. Omit this to preserve current styling. When changing it, fetch the survey first and preserve existing appearance fields. whiteLabel=true requires the organization to have the white-labelling entitlement (Enterprise); leave it unset unless requested and available. surveyPopupDelaySeconds must be non-negative."
         },
         "archived": {
             "description": "Archive state for the survey.",
@@ -1209,7 +1209,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Update an in-app survey's person, group, or cohort property targeting. Pass rules in groups[].properties[], each with key, value, operator, and an optional type. Use this instead of conditions for property targeting. Complete replacement: fetch the survey first, start from targeting_flag.filters, and send the full groups list — omitted groups are removed. Do not use this for external_survey forms."
+            "description": "Update an in-app survey's person, group, or cohort property targeting. Pass rules in groups[].properties[], each with key, value, operator, and an optional type. Use this instead of conditions for property targeting. Complete replacement: fetch the survey first, start from targeting_flag.filters, and send the full groups list — omitted groups are removed. Do not use this for external_survey forms. Cohorts with behavioral filters cannot be used directly. Use a supported static cohort snapshot only with user approval; never remove targeting rules to work around validation."
         },
         "targeting_flag_id": {
             "description": "An existing targeting flag to use for this survey.",

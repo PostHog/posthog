@@ -1,8 +1,8 @@
 import time
+import socket
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
-
-from django.conf import settings
+from urllib.parse import urlparse
 
 from requests import Response
 from requests.exceptions import (
@@ -11,6 +11,11 @@ from requests.exceptions import (
     Timeout as RequestsTimeout,
 )
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.deadline import (
+    DeadlineExceededError,
+    run_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 
@@ -80,6 +85,40 @@ class SalesforceAuthRequestError(Exception):
         raise cls(error_message, response=response)
 
 
+# Matched by `SalesforceSource.get_non_retryable_errors`. It carries no host, so it is safe to store.
+INSTANCE_HOST_NOT_FOUND_ERROR = "Salesforce instance host does not resolve"
+_INSTANCE_HOST_LOOKUP_TIMEOUT_SECONDS = 10
+
+
+class SalesforceInstanceNotFoundError(Exception):
+    """The org's instance host has no DNS record, so no attempt can reach the token endpoint."""
+
+
+def _instance_host_missing(instance_url: str) -> bool:
+    """Whether DNS answers that the instance host does not exist.
+
+    The egress proxy reports a host it cannot resolve as a 502 on CONNECT, the same as a real proxy
+    blip. A lookup of our own tells the two apart. A resolver that fails or times out is no answer,
+    so it counts as not missing and the error stays retryable.
+    """
+    host = urlparse(instance_url).hostname
+    if not host:
+        return False
+    try:
+        run_with_deadline(
+            lambda: socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP),
+            timeout_seconds=_INSTANCE_HOST_LOOKUP_TIMEOUT_SECONDS,
+            thread_name="salesforce-instance-resolve",
+        )
+    except socket.gaierror as e:
+        # Only NXDOMAIN is an answer about the name. Every other errno, EAI_FAIL included, is the
+        # resolver failing, which says nothing about the org.
+        return e.errno == socket.EAI_NONAME
+    except (DeadlineExceededError, UnicodeError):
+        return False
+    return False
+
+
 # Salesforce serializes OAuth token requests per connected app: when a refresh for the same app
 # arrives while another is still in flight (parallel schema syncs sharing one connection commonly
 # do this), it rejects the duplicate with a 400 "token request is already being processed". The
@@ -89,11 +128,23 @@ _TRANSIENT_TOKEN_REQUEST_ERROR = "token request is already being processed"
 _MAX_TOKEN_REFRESH_ATTEMPTS = 4
 
 
+def _salesforce_app_credentials() -> dict[str, str]:
+    """PostHog's own Salesforce connected-app key and secret, named as the token endpoint wants."""
+    resolved = integration_secrets.get_secrets(["SALESFORCE_CONSUMER_KEY", "SALESFORCE_CONSUMER_SECRET"])
+    return {
+        "client_id": resolved["SALESFORCE_CONSUMER_KEY"],
+        "client_secret": resolved["SALESFORCE_CONSUMER_SECRET"],
+    }
+
+
 def salesforce_refresh_access_token(refresh_token: str, instance_url: str, *, capture: bool = True) -> str:
     # capture=False lets a caller keep this exchange out of HTTP sample capture: the request body
     # carries the refresh token and the shared client secret, and the response carries a freshly
     # minted access token, none of which the name-based scrubbers reliably redact.
     session = make_tracked_session(redact_values=(refresh_token,), capture=capture)
+    # Resolved once, outside the loop: a retry is for a transient token-endpoint failure, and
+    # re-reading the same credential on each attempt would add a hop per attempt for nothing.
+    app_credentials = _salesforce_app_credentials()
     attempt = 0
     while True:
         try:
@@ -101,8 +152,7 @@ def salesforce_refresh_access_token(refresh_token: str, instance_url: str, *, ca
                 f"{instance_url}/services/oauth2/token",
                 data={
                     "grant_type": "refresh_token",
-                    "client_id": settings.SALESFORCE_CONSUMER_KEY,
-                    "client_secret": settings.SALESFORCE_CONSUMER_SECRET,
+                    **app_credentials,
                     "refresh_token": refresh_token,
                 },
             )
@@ -113,6 +163,10 @@ def salesforce_refresh_access_token(refresh_token: str, instance_url: str, *, ca
             # activity before it reads a row, and the sync restarts from scratch.
             attempt += 1
             if attempt >= _MAX_TOKEN_REFRESH_ATTEMPTS:
+                # A deleted org, or one whose My Domain was renamed, leaves an instance host with no
+                # DNS record. That fails the same way on every run, so it must not stay retryable.
+                if _instance_host_missing(instance_url):
+                    raise SalesforceInstanceNotFoundError(INSTANCE_HOST_NOT_FOUND_ERROR) from None
                 raise
             time.sleep(min(0.5 * attempt, 5))
             continue
@@ -121,7 +175,10 @@ def salesforce_refresh_access_token(refresh_token: str, instance_url: str, *, ca
             SalesforceAuthRequestError.raise_from_response(res)
         except SalesforceAuthRequestError as err:
             attempt += 1
-            if attempt >= _MAX_TOKEN_REFRESH_ATTEMPTS or _TRANSIENT_TOKEN_REQUEST_ERROR not in str(err):
+            # A 5xx from the token endpoint (Salesforce's own maintenance page, an outage) never
+            # minted a token either, so it's as safe to reissue as the connection failures above.
+            transient = _TRANSIENT_TOKEN_REQUEST_ERROR in str(err) or err.response.status_code >= 500
+            if attempt >= _MAX_TOKEN_REFRESH_ATTEMPTS or not transient:
                 raise
             time.sleep(min(0.5 * attempt, 5))
             continue
@@ -134,8 +191,7 @@ def get_salesforce_access_token_from_code(code: str, redirect_uri: str, instance
         f"{instance_url}/services/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": settings.SALESFORCE_CONSUMER_KEY,
-            "client_secret": settings.SALESFORCE_CONSUMER_SECRET,
+            **_salesforce_app_credentials(),
             "redirect_uri": redirect_uri,
             "code": code,
         },

@@ -18,6 +18,7 @@ import type {
     TraceSpansAttributeBreakdownQueryResponse,
     TraceSpansQueryResponse,
 } from '../../queries/schema/schema-general'
+import type { TraceSpansTreeQueryResponse } from '../../queries/schema/schema-general'
 
 export type CohortCountWarningLogicProps = {
     cohort: CohortType
@@ -41,6 +42,7 @@ export interface cohortCountWarningLogicValues {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse
         | null // dataNodeLogic
     shouldShowCountWarning: boolean
 }
@@ -64,6 +66,7 @@ export interface cohortCountWarningLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             query: DataTableNode
         ) => boolean
@@ -83,7 +86,15 @@ export const cohortCountWarningLogic = kea<cohortCountWarningLogicType>([
     path(['scenes', 'cohorts', 'cohortCountWarningLogic']),
 
     connect((props: CohortCountWarningLogicProps) => ({
-        values: [dataNodeLogic({ key: props.dataNodeLogicKey, query: props.query }), ['response']],
+        values: [
+            dataNodeLogic({
+                key: props.dataNodeLogicKey,
+                query: props.query,
+                // A draft cohort has no id to filter on, so the query would list every person.
+                doNotLoad: typeof props.cohort.id !== 'number',
+            }),
+            ['response'],
+        ],
     })),
 
     selectors(({ props }) => ({

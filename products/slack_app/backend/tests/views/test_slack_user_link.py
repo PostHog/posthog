@@ -175,10 +175,14 @@ class TestCallbackView:
             patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
             patch("products.slack_app.backend.views.slack_user_link.exchange_code", return_value=self._identity()),
             patch("posthog.models.integration.slack.WebClient"),
+            patch("products.slack_app.backend.analytics.ph_background_capture") as mock_ph,
         ):
             response = client.get(f"/complete/slack-link/?code=abc&state={state}")
 
         self._assert_settings_redirect_success(response)
+        mock_ph.return_value.alias.assert_called_once_with(
+            previous_id=user.distinct_id, distinct_id=f"slack:{SLACK_TEAM_ID}:{SLACK_USER_ID}"
+        )
         link = UserIntegration.objects.get(user=user, kind=UserIntegration.IntegrationKind.SLACK)
         assert link.integration_id == SLACK_USER_ID
         assert link.config["slack_team_id"] == SLACK_TEAM_ID
@@ -259,8 +263,13 @@ class TestCallbackView:
         with (
             patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
             patch("products.slack_app.backend.views.slack_user_link.exchange_code", return_value=self._identity()),
+            patch("products.slack_app.backend.views.slack_user_link.capture_slack_event") as mock_capture,
         ):
             response = client.get(f"/complete/slack-link/?code=abc&state={state}")
 
         self._assert_settings_redirect_error(response, "org_mismatch")
         assert not UserIntegration.objects.filter(user=outsider).exists()
+        # The session check has passed here, so the failure keys to the same distinct id
+        # a later success would use; otherwise one person's linking funnel splits in two.
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.kwargs["posthog_user"] == outsider

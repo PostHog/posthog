@@ -93,7 +93,10 @@ pub struct State {
     pub feature_flags_billing_limiter: FeatureFlagsLimiter,
     pub session_replay_billing_limiter: SessionReplayLimiter,
     pub cookieless_manager: Arc<CookielessManager>,
-    pub(crate) flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    pub(crate) flag_definitions_full_limiter: FlagDefinitionsRateLimiter,
+    /// Per-team limiter for flag definitions requests with an ETag in If-None-Match.
+    /// Separate budget so ETag revalidation polls don't consume the full-response budget.
+    pub(crate) flag_definitions_conditional_limiter: FlagDefinitionsRateLimiter,
     /// Per-credential limiter (keyed on the personal API key id) for the remote_config endpoint,
     /// mirroring Django's RemoteConfigThrottle. Separate budget from flag definitions.
     pub(crate) remote_config_limiter: RemoteConfigRateLimiter,
@@ -136,6 +139,22 @@ pub struct State {
 }
 
 impl State {
+    /// The Redis cluster the flags namespace lives in: the dedicated flags cluster when its
+    /// client exists, and the shared cluster when it does not. `server.rs` repeats this
+    /// derivation inline for the flags.json, team_metadata, and remote-config readers and for
+    /// the auth token cache, because those are built before `State` exists.
+    ///
+    /// The client is absent for two different reasons. `FLAGS_REDIS_URL` can be unset, and the
+    /// dedicated cluster can be unreachable at process start (`create_dedicated_readwrite_client`
+    /// in `server.rs`, which logs that failure at error level). Only the first reason keeps this
+    /// process and Django on one cluster. The second sends every caller here to the shared
+    /// cluster for the life of the process, while Django keeps using the dedicated one.
+    pub(crate) fn flags_namespace_redis_client(&self) -> Arc<dyn RedisClient + Send + Sync> {
+        self.dedicated_redis_client
+            .clone()
+            .unwrap_or_else(|| self.redis_client.clone())
+    }
+
     /// Builds a `FlagService` from shared state. Centralized so every endpoint gets the
     /// same caching/fallback config instead of copying the constructor per handler.
     pub(crate) fn flag_service(&self) -> FlagService {
@@ -260,7 +279,7 @@ where
     C: clock::Clock + Clone + Send + Sync + 'static,
 {
     // Initialize flag definitions rate limiter with default and custom team rates
-    let flag_definitions_limiter = FlagDefinitionsRateLimiter::new(
+    let flag_definitions_full_limiter = FlagDefinitionsRateLimiter::new(
         config.flag_definitions_default_rate_per_minute,
         config.flag_definitions_rate_limits.0.clone(),
         config.rate_limiting_allow_list_teams.0.clone(),
@@ -268,7 +287,20 @@ where
         FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
         FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
     )
-    .expect("Failed to initialize flag definitions rate limiter");
+    .expect("Failed to initialize flag definitions rate limiter")
+    .with_labels(&[("budget", "full")]);
+
+    // Both limiters share metric names, so dashboards that sum the counters still see every request.
+    let flag_definitions_conditional_limiter = FlagDefinitionsRateLimiter::new(
+        config.flag_definitions_conditional_rate_per_minute,
+        config.flag_definitions_conditional_rate_limits.0.clone(),
+        config.rate_limiting_allow_list_teams.0.clone(),
+        FLAG_DEFINITIONS_REQUESTS_COUNTER,
+        FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
+        FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
+    )
+    .expect("Failed to initialize flag definitions conditional rate limiter")
+    .with_labels(&[("budget", "conditional")]);
 
     // Per-credential limiter for the remote_config endpoint (mirrors Django's
     // RemoteConfigThrottle, which buckets per hashed bearer token). The team allowlist is
@@ -332,7 +364,8 @@ where
     spawn_rate_limiter_cleanup_task(
         flags_rate_limiter.clone(),
         ip_rate_limiter.clone(),
-        flag_definitions_limiter.clone(),
+        flag_definitions_full_limiter.clone(),
+        flag_definitions_conditional_limiter.clone(),
         remote_config_limiter.clone(),
         config.rate_limiter_cleanup_interval_secs,
     );
@@ -384,7 +417,8 @@ where
         feature_flags_billing_limiter,
         session_replay_billing_limiter,
         cookieless_manager,
-        flag_definitions_limiter,
+        flag_definitions_full_limiter,
+        flag_definitions_conditional_limiter,
         remote_config_limiter,
         config: config.clone(),
         flags_hypercache_reader,
@@ -611,7 +645,8 @@ fn resolve_rate_limit_capacities(
 fn spawn_rate_limiter_cleanup_task<C>(
     flags_rate_limiter: FlagsRateLimiter<C>,
     ip_rate_limiter: IpRateLimiter<C>,
-    flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    flag_definitions_full_limiter: FlagDefinitionsRateLimiter,
+    flag_definitions_conditional_limiter: FlagDefinitionsRateLimiter,
     remote_config_limiter: RemoteConfigRateLimiter,
     cleanup_interval_secs: u64,
 ) where
@@ -626,21 +661,25 @@ fn spawn_rate_limiter_cleanup_task<C>(
                 // Remove stale entries and reclaim memory
                 flags_rate_limiter.cleanup();
                 ip_rate_limiter.cleanup();
-                flag_definitions_limiter.cleanup();
+                flag_definitions_full_limiter.cleanup();
+                flag_definitions_conditional_limiter.cleanup();
                 remote_config_limiter.cleanup();
 
                 // Report metrics for monitoring
                 gauge!("flags_rate_limiter_token_entries").set(flags_rate_limiter.len() as f64);
                 gauge!("flags_rate_limiter_ip_entries").set(ip_rate_limiter.len() as f64);
-                gauge!("flags_rate_limiter_definitions_entries")
-                    .set(flag_definitions_limiter.len() as f64);
+                gauge!("flags_rate_limiter_definitions_entries", "budget" => "full")
+                    .set(flag_definitions_full_limiter.len() as f64);
+                gauge!("flags_rate_limiter_definitions_entries", "budget" => "conditional")
+                    .set(flag_definitions_conditional_limiter.len() as f64);
                 gauge!("flags_rate_limiter_remote_config_entries")
                     .set(remote_config_limiter.len() as f64);
 
                 tracing::debug!(
                     token_entries = flags_rate_limiter.len(),
                     ip_entries = ip_rate_limiter.len(),
-                    definitions_entries = flag_definitions_limiter.len(),
+                    definitions_full_entries = flag_definitions_full_limiter.len(),
+                    definitions_conditional_entries = flag_definitions_conditional_limiter.len(),
                     remote_config_entries = remote_config_limiter.len(),
                     "Rate limiter cleanup completed"
                 );

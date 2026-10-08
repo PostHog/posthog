@@ -3,7 +3,6 @@ import json
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
@@ -14,7 +13,12 @@ from rest_framework.views import APIView
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
+from posthog.auth import (
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+    SessionAuthentication,
+)
 from posthog.permissions import APIScopePermission, is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
@@ -433,9 +437,13 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if is_authenticated_via_project_secret_api_key(request):
             # PSAK is project-wide (it can already trigger any loop), so its readback skips the
             # personal/team visibility split, same as the trigger path.
-            page = loops_facade.list_loop_runs_for_service(pk, self.team_id, cursor=cursor, limit=limit)
+            page = loops_facade.list_loop_runs_for_service(
+                pk, self.team_id, cursor=cursor, limit=limit, status=query.get("status")
+            )
         else:
-            page = loops_facade.list_loop_runs(pk, self.team_id, request.user, cursor=cursor, limit=limit)
+            page = loops_facade.list_loop_runs(
+                pk, self.team_id, request.user, cursor=cursor, limit=limit, status=query.get("status")
+            )
         if page is None:
             raise NotFound()
         return Response(LoopRunPageSerializer({"results": page.runs, "next_cursor": page.next_cursor}).data)

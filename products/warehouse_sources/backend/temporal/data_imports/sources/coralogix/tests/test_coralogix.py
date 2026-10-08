@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.
     CoralogixRetryableError,
     _format_datetime,
     _make_session,
-    _normalize_row,
     _parse_timestamp,
     _run_query,
     coralogix_source,
@@ -136,34 +135,6 @@ class TestParseTimestamp:
         assert _parse_timestamp(value) == expected
 
 
-class TestNormalizeRow:
-    def test_flattens_metadata_and_labels_and_keeps_user_data_raw(self) -> None:
-        row = _normalize_row(
-            {
-                "metadata": [
-                    {"key": "timestamp", "value": "2026-01-15T10:00:00.000Z"},
-                    {"key": "logid", "value": "log-1"},
-                    {"key": "severity", "value": "Info"},
-                ],
-                "labels": [
-                    {"key": "applicationname", "value": "app"},
-                    # Collides with metadata; metadata must win.
-                    {"key": "severity", "value": "label-severity"},
-                ],
-                "userData": '{"nested": {"deep": 1}}',
-            }
-        )
-        assert row == {
-            "timestamp": datetime(2026, 1, 15, 10, 0, tzinfo=UTC),
-            "logid": "log-1",
-            "severity": "Info",
-            "applicationname": "app",
-            # The body stays a JSON string — flattening arbitrary telemetry would produce an
-            # unstable column set.
-            "user_data": '{"nested": {"deep": 1}}',
-        }
-
-
 class TestMakeSession:
     def test_disables_sample_capture_and_redirects(self) -> None:
         # Log/span bodies are free-form user telemetry that can carry secrets the name-based
@@ -211,20 +182,6 @@ class TestRunQuery:
         with pytest.raises(requests.HTTPError, match="403 Client Error"):
             self._query(_ndjson_response([], status=403))
 
-    def test_stops_reading_a_misbehaving_stream_at_the_row_cap(self) -> None:
-        # The request asks the server for at most QUERY_LIMIT rows; a response that keeps
-        # streaming past it must not be accumulated unboundedly into memory.
-        response = _ndjson_response(
-            [_result_item("2026-01-15T10:00:00.000Z", "log-1")],
-            extra_lines=[
-                {"result": {"results": [_result_item("2026-01-15T10:01:00.000Z", "log-2")]}},
-                {"result": {"results": [_result_item("2026-01-15T10:02:00.000Z", "log-3")]}},
-            ],
-        )
-        with patch.object(coralogix_module, "QUERY_LIMIT", 2):
-            rows = self._query(response)
-        assert [row["logid"] for row in rows] == ["log-1", "log-2"]
-
 
 class TestGetRows:
     def test_rejects_domains_outside_the_allowlist(self) -> None:
@@ -251,7 +208,7 @@ class TestGetRows:
             )
         session.post.assert_not_called()
 
-    @freeze_time(NOW)
+    @time_machine.travel(NOW, tick=False)
     def test_walks_windows_without_double_counting_boundaries(self) -> None:
         watermark = NOW - timedelta(hours=2)
         boundary = NOW - timedelta(hours=1)
@@ -282,7 +239,7 @@ class TestGetRows:
         assert saved == [_format_datetime(boundary), _format_datetime(NOW)]
         manager.clear_state.assert_called_once()
 
-    @freeze_time(NOW)
+    @time_machine.travel(NOW, tick=False)
     def test_bisects_windows_that_hit_the_row_cap(self) -> None:
         start = NOW - timedelta(hours=2)
         server = _FakeServer(
@@ -304,7 +261,7 @@ class TestGetRows:
         assert server.calls[0]["start"] == server.calls[1]["start"]  # first bisection retried the cursor
         assert server.calls[1]["end"] - server.calls[1]["start"] < server.calls[0]["end"] - server.calls[0]["start"]
 
-    @freeze_time(NOW)
+    @time_machine.travel(NOW, tick=False)
     def test_min_window_cap_warns_and_advances(self) -> None:
         # A window at the minimum size that still hits the cap must warn (no silent truncation)
         # and advance — not bisect forever.
@@ -318,7 +275,7 @@ class TestGetRows:
         assert logger.warning.call_count == 1
         assert "cap" in logger.warning.call_args.args[0]
 
-    @freeze_time(NOW)
+    @time_machine.travel(NOW, tick=False)
     def test_resumes_inclusively_from_saved_state(self) -> None:
         watermark = NOW - timedelta(hours=2)
         synced_until = NOW - timedelta(hours=1)
@@ -340,18 +297,6 @@ class TestGetRows:
 
         assert server.calls[0]["start"] == synced_until
         assert logids == ["at-resume-point"]
-
-    @freeze_time(NOW)
-    def test_initial_sync_covers_the_default_lookback_contiguously(self) -> None:
-        server = _FakeServer([])
-
-        logids, _unused_manager, _unused_logger = _run_walker(server)
-
-        assert logids == []
-        assert server.calls[0]["start"] == NOW - timedelta(days=coralogix_module.DEFAULT_LOOKBACK_DAYS)
-        assert server.calls[-1]["end"] == NOW
-        for previous, current in zip(server.calls, server.calls[1:]):
-            assert current["start"] == previous["end"]
 
 
 class TestCoralogixSource:

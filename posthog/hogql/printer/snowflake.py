@@ -225,10 +225,8 @@ class SnowflakePrinter(PostgresPrinter):
         raise QueryError(f"Array slices are not supported {self._dialect_error_suffix()}; use ARRAY_SLICE().")
 
     def visit_call(self, node: ast.Call) -> str:
-        # dateDiff / formatDateTime can't be plain handlers: their first argument
-        # (date part / format string) must be inlined as a literal, but by the time
-        # a handler runs it has already been bound as a parameter. Intercept here,
-        # where the raw AST Constant is still available.
+        # Validate dateDiff units and translate formatDateTime formats before
+        # generic handlers bind their AST constants as parameters.
         name = node.name.lower()
         if name == "datediff":
             return self._visit_date_diff(node)
@@ -257,11 +255,8 @@ class SnowflakePrinter(PostgresPrinter):
             raise QueryError(f"formatDateTime requires a literal format string {self._dialect_error_suffix()}.")
         snowflake_format = self._translate_strftime_format(format_node.value)
         time_sql = self.visit(node.args[0])
-        # The format is inlined into a single-quoted SQL literal, so any `'` it carries (a literal
-        # quote the user escaped as `''` in HogQL) must be re-escaped as `''` — otherwise it closes
-        # the string early, breaking the query or allowing injection.
-        escaped_format = snowflake_format.replace("'", "''")
-        return f"TO_CHAR({time_sql}, '{escaped_format}')"
+        format_sql = self.context.add_value(snowflake_format)
+        return f"TO_CHAR({time_sql}, {format_sql})"
 
     def _translate_strftime_format(self, fmt: str) -> str:
         # Translate ClickHouse/strftime %-specifiers to Snowflake TO_CHAR elements.

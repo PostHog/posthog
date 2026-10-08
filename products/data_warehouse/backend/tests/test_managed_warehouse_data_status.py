@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import cast
 from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 
 from django.db.models import QuerySet
 from django.test import SimpleTestCase, TestCase
@@ -87,7 +87,7 @@ class TestSourceTableReadiness(SimpleTestCase):
         assert readiness == "waiting"
 
 
-@freeze_time("2026-07-13")
+@time_machine.travel("2026-07-13", tick=False)
 class TestDatasetStatus(SimpleTestCase):
     def _partition(
         self,

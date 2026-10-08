@@ -4,9 +4,12 @@ Facade API for mcp_store.
 This is the ONLY module other apps are allowed to import.
 """
 
+import json
 import uuid
 from collections import Counter, defaultdict
 from collections.abc import Iterable
+from typing import Any
+from urllib.parse import urlsplit
 
 from django.db.models import Q
 
@@ -19,7 +22,12 @@ from products.mcp_store.backend.agents import (
     get_built_in_agent,
     is_builtin_agent_enforcement_enabled,
 )
-from products.mcp_store.backend.facade.contracts import ActiveInstallation
+from products.mcp_store.backend.connector_approvals import (
+    ConnectorApprovalBinding,
+    consume_connector_approval,
+    issue_connector_approval,
+)
+from products.mcp_store.backend.facade.contracts import ActiveInstallation, ConnectorCallOutcome, ConnectorTool
 from products.mcp_store.backend.gateway import (
     agent_grant_owner_label,
     agent_grant_proxy_path,
@@ -27,12 +35,25 @@ from products.mcp_store.backend.gateway import (
     reachable_agent_grants,
 )
 from products.mcp_store.backend.models import (
+    MCPMemberServerRevocation,
     MCPServerInstallation,
     MCPServerInstallationTool,
     MCPServiceAccount,
     MCPServiceAccountServerAccess,
 )
-from products.mcp_store.backend.policy import GatewayCaller, PolicyContext
+from products.mcp_store.backend.policy import (
+    GatewayCaller,
+    PolicyContext,
+    is_policy_state_allowed,
+    is_read_only_connector_tool,
+)
+from products.mcp_store.backend.proxy import record_tool_call_audit, resolve_call_decision, validate_installation_auth
+from products.mcp_store.backend.tools import (
+    ToolCallError,
+    ToolsFetchError,
+    call_upstream_tool,
+    resync_installation_tools,
+)
 
 # Re-exported for the presentation layer ("presentation must use facade"
 # import-linter contract): the single MCP URL policy entry point — shared SSRF
@@ -47,6 +68,8 @@ def resolve_member_tool_states(
     team_id: int,
     gateway_server_id: uuid.UUID | None,
     user_id: int | None = None,
+    *,
+    block_locked_approvals: bool = False,
 ) -> dict[str, str]:
     """Return a {tool_name: effective_state} map for an installation.
 
@@ -57,7 +80,11 @@ def resolve_member_tool_states(
     call them even if the cached approval state was previously `approved` —
     if the tool is gone upstream, it's gone. Anything not in the map is
     treated as `needs_approval` by the caller (explicit opt-in for freshly
-    discovered tools)."""
+    discovered tools).
+
+    With `block_locked_approvals`, a `needs_approval` state that an org rule
+    locks surfaces as `"do_not_use"`. Use it for callers that approve calls
+    on the member's behalf, because the member cannot approve a locked state."""
     rows = MCPServerInstallationTool.objects.filter(installation_id=installation_id).values(
         "tool_name", "annotations", "approval_state", "removed_at"
     )
@@ -77,8 +104,54 @@ def resolve_member_tool_states(
         if row["removed_at"]:
             resolved[row["tool_name"]] = "do_not_use"
         else:
-            resolved[row["tool_name"]] = context.resolve(row["tool_name"], row["annotations"]).state
+            resolved[row["tool_name"]] = _member_tool_state(
+                context, row["tool_name"], row["annotations"], block_locked_approvals=block_locked_approvals
+            )
     return resolved
+
+
+def resolve_member_unlisted_tool_state(
+    installation_id: str,
+    team_id: int,
+    gateway_server_id: uuid.UUID,
+    user_id: int,
+    tool_name: str,
+) -> str:
+    """Return the effective state of a tool the installation has no row for.
+
+    The installation re-lists its tools once, so a tool the upstream server
+    added later resolves with its real annotations. Without a row the
+    annotations are unknown, so the tool resolves as if it were destructive.
+    The result is never looser than `needs_approval`, the default for
+    unknown tools."""
+    installation = MCPServerInstallation.objects.filter(id=installation_id, team_id=team_id).first()
+    tool = _registered_tool(installation, tool_name) if installation is not None else None
+    context = PolicyContext(
+        team_id=team_id,
+        caller=GatewayCaller(kind="member", user_id=user_id),
+        gateway_server_id=gateway_server_id,
+        legacy_rows={},
+    )
+    if tool is not None and tool.removed_at is None:
+        state = _member_tool_state(context, tool_name, tool.annotations, block_locked_approvals=True)
+    else:
+        as_listed = _member_tool_state(context, tool_name, None, block_locked_approvals=True)
+        as_destructive = _member_tool_state(context, tool_name, {"destructiveHint": True}, block_locked_approvals=True)
+        state = as_destructive if is_policy_state_allowed(as_destructive, as_listed) else as_listed
+    return state if state == "do_not_use" else "needs_approval"
+
+
+def _member_tool_state(
+    context: PolicyContext,
+    tool_name: str,
+    annotations: dict[str, Any] | None,
+    *,
+    block_locked_approvals: bool,
+) -> str:
+    resolved = context.resolve(tool_name, annotations)
+    if block_locked_approvals and resolved.locked and resolved.state == "needs_approval":
+        return "do_not_use"
+    return resolved.state
 
 
 def unauthorized_installation_ids(team_id: int, user_id: int, candidate_ids: Iterable[str]) -> list[str]:
@@ -508,3 +581,204 @@ def resolve_agent_gateway_server_ids(
     for installation_id, server_id in installations:
         resolved[legacy_ids[installation_id]] = str(server_id)
     return resolved
+
+
+def _installation_host(url: str) -> str:
+    return (urlsplit(url).hostname or "").lower()
+
+
+def member_installation_for_host(team_id: int, user_id: int, server_host: str) -> MCPServerInstallation | None:
+    """The member's own enabled connection to the server at ``server_host``,
+    else the team's shared one. A member never rides another member's
+    personal credential."""
+    host = server_host.lower()
+    candidates = (
+        MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True, url__icontains=host)
+        .filter(Q(user_id=user_id, scope="personal") | Q(scope="shared"))
+        .select_related("gateway_server")
+        .order_by("created_at")
+    )
+    matching = [installation for installation in candidates if _installation_host(installation.url) == host]
+    own = next((installation for installation in matching if installation.scope == "personal"), None)
+    if own is not None:
+        return own
+    return next((installation for installation in matching if installation.scope == "shared"), None)
+
+
+def _connector_tool(tool: MCPServerInstallationTool) -> ConnectorTool:
+    annotations = tool.annotations or {}
+    return ConnectorTool(
+        name=tool.tool_name,
+        description=tool.description or "",
+        input_schema=tool.input_schema or {},
+        read_only=is_read_only_connector_tool(tool.tool_name, annotations),
+    )
+
+
+def member_server_tools(team_id: int, user_id: int, server_host: str) -> list[ConnectorTool] | None:
+    """The tools the member's connection to ``server_host`` exposes, or None
+    when the member has no usable connection to that server."""
+    installation = member_installation_for_host(team_id, user_id, server_host)
+    if installation is None:
+        return None
+    seen: set[str] = set()
+    tools: list[ConnectorTool] = []
+    for tool in installation.tools.filter(removed_at__isnull=True).order_by("tool_name", "-last_seen_at", "-id"):
+        if tool.tool_name in seen:
+            continue
+        seen.add(tool.tool_name)
+        tools.append(_connector_tool(tool))
+    return tools
+
+
+def _registered_tool(installation: MCPServerInstallation, tool_name: str) -> MCPServerInstallationTool | None:
+    """The installation's row for one tool, re-listing upstream once on a miss.
+
+    A connection whose connect-time listing never landed holds no rows at all,
+    and a call it cannot resolve against policy is refused. A row marked removed
+    counts as a miss too, so a tool the upstream server brings back under the
+    same name is picked up here rather than waiting for "Refresh tools".
+    """
+
+    rows = installation.tools.filter(tool_name=tool_name).order_by("-last_seen_at", "-id")
+    tool = rows.first()
+    if (tool is None or tool.removed_at is not None) and resync_installation_tools(installation):
+        tool = rows.first()
+    return tool
+
+
+def _member_access_outcome(
+    installation: MCPServerInstallation, team_id: int, user_id: int
+) -> ConnectorCallOutcome | None:
+    """The gates the member proxy applies before any call: the admin kill
+    switch, per-member revocation, and credential health."""
+    gateway_server = installation.gateway_server
+    if gateway_server is not None:
+        if not gateway_server.is_team_enabled:
+            return ConnectorCallOutcome(status="blocked", detail="This server is turned off for the team.")
+        if (
+            MCPMemberServerRevocation.objects.for_team(team_id)
+            .filter(gateway_server=gateway_server, user_id=user_id)
+            .exists()
+        ):
+            return ConnectorCallOutcome(status="blocked", detail="An admin turned this server off for you.")
+    ok, error_response = validate_installation_auth(installation)
+    if ok or error_response is None:
+        return None
+    detail = json.loads(error_response.content).get("error", "The connection cannot be used.")
+    if error_response.status_code == 401:
+        return ConnectorCallOutcome(status="needs_reauth", detail=detail)
+    return ConnectorCallOutcome(status="blocked", detail=detail)
+
+
+def call_member_server_tool(
+    team_id: int,
+    user_id: int,
+    server_host: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+    *,
+    actor_label: str = "",
+    allow_writes: bool = True,
+    approval_token: str | None = None,
+    approval_context: str = "",
+) -> ConnectorCallOutcome:
+    """Call one tool on the server at ``server_host`` with the member's own
+    connection (or the team's shared one). Runs the same policy resolution
+    and audit as the member proxy, so a canvas cannot reach a tool the member
+    could not call from the MCP settings page."""
+    installation = member_installation_for_host(team_id, user_id, server_host)
+    if installation is None:
+        return ConnectorCallOutcome(status="not_connected", detail=f"You have not connected {server_host}.")
+    access_outcome = _member_access_outcome(installation, team_id, user_id)
+    if access_outcome is not None:
+        return access_outcome
+
+    tool = _registered_tool(installation, tool_name)
+    if tool is None:
+        return ConnectorCallOutcome(
+            status="tool_missing", detail=f"Tool '{tool_name}' is not registered for this connection."
+        )
+    if not allow_writes and not _connector_tool(tool).read_only:
+        return ConnectorCallOutcome(
+            status="write_blocked", detail=f"Tool '{tool_name}' may write; only reads are allowed."
+        )
+
+    gateway_server = installation.gateway_server
+    caller = GatewayCaller(kind="member", user_id=user_id)
+    policy_context = (
+        PolicyContext(team_id=team_id, caller=caller, gateway_server=gateway_server, installation=installation)
+        if gateway_server is not None
+        else None
+    )
+    decision, block_reason = resolve_call_decision(tool, policy_context)
+    pending_approval_token = None
+    if block_reason == "needs_approval":
+        if policy_context is not None and policy_context.resolve(tool.tool_name, tool.annotations).locked:
+            decision, block_reason = "blocked", "disabled"
+        else:
+            binding = ConnectorApprovalBinding(
+                team_id=team_id,
+                user_id=user_id,
+                installation_id=str(installation.id),
+                server_url=installation.url,
+                tool_name=tool_name,
+                arguments=arguments,
+                scope=approval_context,
+            )
+            if approval_token is None:
+                pending_approval_token = issue_connector_approval(binding)
+            elif consume_connector_approval(approval_token, binding):
+                decision, block_reason = "approved", None
+            else:
+                decision, block_reason = "blocked", "invalid_approval"
+    if gateway_server is not None:
+        record_tool_call_audit(installation, gateway_server, caller, actor_label, tool_name, decision)
+    if block_reason == "removed":
+        return ConnectorCallOutcome(status="tool_missing", detail=f"Tool '{tool_name}' is no longer available.")
+    if block_reason == "needs_approval":
+        return ConnectorCallOutcome(
+            status="needs_approval",
+            detail=f"Tool '{tool_name}' needs your approval before this call can run.",
+            approval_token=pending_approval_token,
+        )
+    if block_reason == "invalid_approval":
+        return ConnectorCallOutcome(
+            status="blocked",
+            detail="Approval expired, was already used, or does not match this call. Request approval again.",
+        )
+    if block_reason is not None:
+        return ConnectorCallOutcome(status="blocked", detail=f"Tool '{tool_name}' is turned off by team policy.")
+
+    try:
+        result = call_upstream_tool(installation, tool_name, arguments)
+    except (ToolCallError, ToolsFetchError) as exc:
+        logger.warning(
+            "mcp_store member tool call failed",
+            team_id=team_id,
+            installation_id=str(installation.id),
+            tool_name=tool_name,
+            error=str(exc),
+        )
+        return ConnectorCallOutcome(status="upstream_error", detail=f"The server could not run '{tool_name}': {exc}")
+
+    # The upstream server is untrusted input: a malformed `content` degrades
+    # to no blocks instead of raising.
+    content = result.get("content")
+    blocks = tuple(block for block in content if isinstance(block, dict)) if isinstance(content, list) else ()
+    return ConnectorCallOutcome(
+        status="ok",
+        content=blocks,
+        structured_content=result.get("structuredContent"),
+        is_error=bool(result.get("isError")),
+    )
+
+
+def member_server_hosts(team_id: int, user_id: int) -> list[str]:
+    """Hosts of every enabled server the member can call: their own connections and the team's shared ones."""
+    urls = (
+        MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True)
+        .filter(Q(user_id=user_id, scope="personal") | Q(scope="shared"))
+        .values_list("url", flat=True)
+    )
+    return sorted({host for url in urls if (host := _installation_host(url))})

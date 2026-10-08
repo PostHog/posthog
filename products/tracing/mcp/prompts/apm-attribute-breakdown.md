@@ -1,5 +1,11 @@
 Group spans by one attribute's value — the "what is different about the bad spans?" tool.
 
+All parameters go inside `query` — top-level fields are rejected:
+
+```json
+{ "query": { "breakdownKey": "server.address", "breakdownType": "span_attribute" } }
+```
+
 Returns one row per distinct value of the chosen attribute, across the spans matching the filters:
 
 - `value` — the attribute's value (`''` for spans that don't carry the attribute)
@@ -18,8 +24,6 @@ Use to answer:
 
 For aggregates grouped by operation, use `apm-spans-aggregate`. For trends over time, use `apm-spans-sparkline`.
 
-All parameters must be nested inside a `query` object.
-
 # "What's different" workflow
 
 1. Scope to the bad spans with `filterGroup` (e.g. `status_code = Error`) or `serviceNames`.
@@ -28,8 +32,6 @@ All parameters must be nested inside a `query` object.
 4. To confirm over-representation, re-run without the bad-spans filter (or check `error_count / count` per row): a value at 95% of errors but 10% of all traffic is the smoking gun.
 
 # Parameters
-
-All parameters go inside `query`.
 
 ## query.breakdownKey (required)
 
@@ -63,7 +65,7 @@ List of service names to restrict the breakdown to. Use `apm-services-list` to d
 
 Property filters scoping the spans the breakdown runs over. Same filter shape and operators as `query-apm-spans`:
 
-- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)
+- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). A `duration` filter value is in milliseconds (1 second = `1000`).
 - `span_attribute` — span-level attributes
 - `span_resource_attribute` — resource-level attributes
 
@@ -112,6 +114,6 @@ Property filters scoping the spans the breakdown runs over. Same filter shape an
 # Reminders
 
 - `value: ''` groups the spans that don't carry the attribute at all — often itself a signal.
-- Duration values are in nanoseconds (1s = 1,000,000,000).
+- Duration values in results are in nanoseconds (1s = 1,000,000,000). A `duration` filter value is in milliseconds.
 - Use `apm-attributes-list` / `apm-attribute-values-list` to discover keys before guessing.
 - `error_count / count` per row is the error rate for that value — compute it when judging over-representation.

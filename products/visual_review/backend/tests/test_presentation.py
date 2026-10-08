@@ -1,20 +1,35 @@
 """Integration tests for visual_review DRF views."""
 
+from datetime import timedelta
 from urllib.parse import quote, urlencode
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
 
 from products.visual_review.backend.facade import api
-from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
-from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
-from products.visual_review.backend.logic import artifact_store, quarantine, runs
+from products.visual_review.backend.facade.contracts import (
+    AGENT_QUARANTINE_MAX_DAYS,
+    CreateRunInput,
+    SnapshotManifestItem,
+)
+from products.visual_review.backend.facade.enums import (
+    ActorType,
+    ReviewState,
+    RunPurpose,
+    RunStatus,
+    RunType,
+    SnapshotResult,
+)
+from products.visual_review.backend.logic import artifact_store, errors, github_api, quarantine, runs
 from products.visual_review.backend.models import Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
 
@@ -54,6 +69,20 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["repo_full_name"], "org/test")
 
+    def test_patch_repo_applies_every_setting_in_the_body(self):
+        repo = api.create_repo(team_id=self.team.id, repo_external_id=555, repo_full_name="org/settings")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/",
+            {"enable_pr_comments": True, "debt_digest_enabled": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["enable_pr_comments"])
+        self.assertTrue(data["debt_digest_enabled"])
+
     def test_retrieve_project_not_found(self):
         import uuid
 
@@ -61,8 +90,101 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_expire_quarantine_takes_only_an_identifier(self):
+    @parameterized.expand(
+        [
+            ("head_known", True, "head_known", status.HTTP_204_NO_CONTENT, None, []),
+            (
+                "head_unknown",
+                True,
+                "head_unknown",
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "lift_commit_unknown",
+                ["Button"],
+            ),
+            ("no_integration", True, "no_integration", status.HTTP_400_BAD_REQUEST, None, ["Button"]),
+            ("rate_limited", True, "rate_limited", status.HTTP_429_TOO_MANY_REQUESTS, "rate_limited", ["Button"]),
+            ("repeat_lift_while_head_unknown", False, "head_unknown", status.HTTP_204_NO_CONTENT, None, []),
+        ]
+    )
+    def test_expire_quarantine_takes_only_an_identifier(
+        self, _name, quarantined, github_state, expected_status, expected_code, expected_active
+    ):
         repo = api.create_repo(team_id=self.team.id, repo_external_id=444, repo_full_name="org/expire")
+        if quarantined:
+            quarantine.quarantine_identifier(
+                repo_id=repo.id,
+                identifier="Button",
+                run_type=RunType.STORYBOOK,
+                reason="flaky",
+                user_id=self.user.id,
+                team_id=self.team.id,
+            )
+        github = MagicMock()
+        github.get_default_branch.return_value = "master"
+        github.api_request.return_value = MagicMock(status_code=200, json=lambda: {"sha": "abc123"})
+        integration_error = None
+        if github_state == "head_unknown":
+            github.api_request.return_value = MagicMock(status_code=502)
+        elif github_state == "no_integration":
+            integration_error = errors.GitHubIntegrationNotFoundError("none")
+        elif github_state == "rate_limited":
+            github.get_default_branch.side_effect = GitHubRateLimitError("limited", retry_after=30)
+
+        with patch.object(
+            github_api, "get_github_integration_for_repo", return_value=github, side_effect=integration_error
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}/expire",
+                {"identifier": "Button"},
+                format="json",
+            )
+
+        assert response.status_code == expected_status
+        if expected_code:
+            assert response.json()["code"] == expected_code
+        active = quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id)
+        assert [entry.identifier for entry in active] == expected_active
+
+    @parameterized.expand(
+        [
+            ("agent_without_expiry", ActorType.AGENT, None, AGENT_QUARANTINE_MAX_DAYS),
+            ("agent_past_the_cap", ActorType.AGENT, 365, AGENT_QUARANTINE_MAX_DAYS),
+            ("agent_within_the_cap", ActorType.AGENT, 7, 7),
+            ("human_without_expiry", ActorType.HUMAN, None, None),
+            ("human_past_the_cap", ActorType.HUMAN, 365, 365),
+        ]
+    )
+    def test_an_agent_quarantine_always_expires_within_the_cap(self, _name, source, requested_days, expected_days):
+        repo = api.create_repo(team_id=self.team.id, repo_external_id=666, repo_full_name="org/agent")
+        before = timezone.now()
+        requested = None if requested_days is None else before + timedelta(days=requested_days)
+
+        entry = quarantine.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+            user_id=self.user.id,
+            team_id=self.team.id,
+            expires_at=requested,
+            source=source,
+        )
+
+        if expected_days is None:
+            assert entry.expires_at is None
+        else:
+            window = timedelta(days=expected_days)
+            assert entry.expires_at is not None
+            assert before + window <= entry.expires_at <= timezone.now() + window
+
+    @parameterized.expand(
+        [
+            ("without_a_reason", {}),
+            ("with_a_past_expiry", {"reason": "flaky", "expires_at": "2020-01-01T00:00:00Z"}),
+        ]
+    )
+    def test_opening_a_quarantine_rejects_bad_input(self, _name, body):
+        repo = api.create_repo(team_id=self.team.id, repo_external_id=555, repo_full_name="org/open")
         quarantine.quarantine_identifier(
             repo_id=repo.id,
             identifier="Button",
@@ -73,24 +195,15 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         )
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}/expire",
-            {"identifier": "Button"},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id) == []
-
-    def test_opening_a_quarantine_still_needs_a_reason(self):
-        repo = api.create_repo(team_id=self.team.id, repo_external_id=555, repo_full_name="org/open")
-
-        response = self.client.post(
             f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}",
-            {"identifier": "Button"},
+            {"identifier": "Button", **body},
             format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert [
+            entry.identifier for entry in quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id)
+        ] == ["Button"]
 
 
 class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
@@ -132,13 +245,48 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         upload_hashes = {u["content_hash"] for u in data["uploads"]}
         self.assertEqual(upload_hashes, {"hash1", "hash2"})
 
+    @patch("products.visual_review.backend.storage.StoryIndexStorage.get_presigned_upload_url")
+    @patch("products.visual_review.backend.storage.StoryIndexStorage.exists", return_value=False)
+    @patch("products.visual_review.backend.storage.ArtifactStorage.get_presigned_upload_url")
+    def test_add_snapshots_records_the_story_index_and_asks_for_the_map(
+        self, mock_artifact_presigned, _mock_exists, mock_index_presigned
+    ):
+        mock_artifact_presigned.return_value = {"url": "https://s3.example.com/upload", "fields": {"key": "png"}}
+        mock_index_presigned.return_value = {"url": "https://s3.example.com/upload", "fields": {"key": "map"}}
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=self.vr_project.id, run_type=RunType.STORYBOOK, commit_sha="abc", branch="main", snapshots=[]
+            ),
+            team_id=self.team.id,
+        )
+        story_index_hash = "a" * 64
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/add-snapshots/",
+            {
+                "snapshots": [{"identifier": "Button-primary", "content_hash": "hash1", "width": 100, "height": 200}],
+                "story_index_hash": story_index_hash,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["story_index_upload"],
+            {"content_hash": story_index_hash, "url": "https://s3.example.com/upload", "fields": {"key": "map"}},
+        )
+        run = Run.objects.get(id=create_result.run_id)
+        self.assertEqual(run.metadata["story_index_hash"], story_index_hash)
+
     def test_retrieve_run(self):
         create_result = api.create_run(
             CreateRunInput(
                 repo_id=self.vr_project.id,
                 run_type=RunType.STORYBOOK,
                 commit_sha="abc123",
-                branch="main",
+                branch="trunk-merge/pr-42",
+                pr_number=42,
+                purpose=RunPurpose.OBSERVE,
                 snapshots=[],
             ),
             team_id=self.team.id,
@@ -150,6 +298,7 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         data = response.json()
         self.assertEqual(data["commit_sha"], "abc123")
         self.assertEqual(data["status"], "pending")
+        self.assertEqual(data["purpose"], "observe")
 
     def test_get_run_snapshots(self):
         create_result = api.create_run(
@@ -166,6 +315,23 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
+        # The row shift the diff pipeline stored has to survive the trip
+        # through the facade DTO and the serializer, because the badge and the
+        # band overlays are built from it.
+        RunSnapshot.objects.filter(run_id=create_result.run_id, identifier="Button").update(
+            diff_metadata={
+                "row_shift": {
+                    "inserted_rows": 1,
+                    "deleted_rows": 0,
+                    "changed_rows": 0,
+                    "residual_pixel_count": 0,
+                    "residual_percentage": 0.0,
+                    "raw_diff_percentage": 2.4,
+                    "bands": [{"y": 210, "rows": 1, "kind": "inserted"}],
+                }
+            }
+        )
+
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/snapshots/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -175,13 +341,14 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         identifiers = {s["identifier"] for s in results}
         self.assertEqual(identifiers, {"Button", "Card"})
 
-    @parameterized.expand(
-        [
-            ("excluded_by_default", "", {"Card"}),
-            ("included_when_requested", "?include_quarantined=true", {"Button", "Card"}),
-        ]
-    )
-    def test_get_run_snapshots_quarantine_visibility(self, _name, query, expected_identifiers):
+        by_identifier = {s["identifier"]: s for s in results}
+        row_shift = by_identifier["Button"]["row_shift"]
+        self.assertEqual(row_shift["inserted_rows"], 1)
+        self.assertEqual(row_shift["raw_diff_percentage"], 2.4)
+        self.assertEqual(row_shift["bands"], [{"y": 210, "rows": 1, "kind": "inserted"}])
+        self.assertIsNone(by_identifier["Card"]["row_shift"])
+
+    def _create_run_with_results(self, results: dict[str, str]) -> tuple[str, dict[str, str]]:
         create_result = api.create_run(
             CreateRunInput(
                 repo_id=self.vr_project.id,
@@ -189,29 +356,102 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
                 commit_sha="abc123",
                 branch="main",
                 snapshots=[
-                    SnapshotManifestItem(identifier="Button", content_hash="h1"),
-                    SnapshotManifestItem(identifier="Card", content_hash="h2"),
+                    SnapshotManifestItem(identifier=identifier, content_hash=f"hash-{identifier}")
+                    for identifier in results
                 ],
             ),
             team_id=self.team.id,
         )
+        run_id = str(create_result.run_id)
+        for identifier, result in results.items():
+            artifact, _ = artifact_store.get_or_create_artifact(
+                repo_id=self.vr_project.id,
+                content_hash=f"hash-{identifier}",
+                storage_path=f"visual_review/hash-{identifier}",
+            )
+            RunSnapshot.objects.filter(run_id=run_id, identifier=identifier).update(
+                result=result, current_artifact=artifact
+            )
+        snapshot_ids = {
+            str(identifier): str(snapshot_id)
+            for identifier, snapshot_id in RunSnapshot.objects.filter(run_id=run_id).values_list("identifier", "id")
+        }
+        return run_id, snapshot_ids
+
+    @parameterized.expand(
+        [
+            ("quarantined_excluded_by_default", "Button", {}, {"Card", "Dialog"}, 1),
+            (
+                "quarantined_included_when_requested",
+                "Button",
+                {"include_quarantined": "true"},
+                {"Button", "Card", "Dialog"},
+                1,
+            ),
+            (
+                "unchanged_excluded",
+                "Button",
+                {"include_quarantined": "true", "exclude_unchanged": "true"},
+                {"Button", "Card"},
+                1,
+            ),
+            ("unchanged_and_quarantined_excluded", "Button", {"exclude_unchanged": "true"}, {"Card"}, 1),
+            ("one_snapshot_by_id", "Button", {"include_quarantined": "true", "snapshot_id": "Dialog"}, {"Dialog"}, 0),
+            (
+                "only_quarantined_with_unchanged",
+                "Dialog",
+                {"include_quarantined": "true", "quarantined_only": "true"},
+                {"Dialog"},
+                1,
+            ),
+        ]
+    )
+    def test_get_run_snapshots_filters(
+        self, _name, quarantined_identifier, params, expected_identifiers, expected_quarantined_count
+    ):
+        run_id, snapshot_ids = self._create_run_with_results(
+            {"Button": SnapshotResult.CHANGED, "Card": SnapshotResult.CHANGED, "Dialog": SnapshotResult.UNCHANGED}
+        )
         quarantine.quarantine_identifier(
             repo_id=self.vr_project.id,
-            identifier="Button",
+            identifier=quarantined_identifier,
             run_type=RunType.STORYBOOK,
             reason="flaky",
             user_id=self.user.id,
             team_id=self.team.id,
         )
+        if "snapshot_id" in params:
+            params = {**params, "snapshot_id": snapshot_ids[params["snapshot_id"]]}
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/snapshots/{query}"
+            f"/api/projects/{self.team.id}/visual_review/runs/{run_id}/snapshots/?{urlencode(params)}"
         )
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert {s["identifier"] for s in data["results"]} == expected_identifiers
-        assert data["quarantined_count"] == 1
+        assert data["count"] == len(expected_identifiers)
+        assert data["quarantined_count"] == expected_quarantined_count
+
+    @patch(
+        "products.visual_review.backend.storage.ArtifactStorage.get_presigned_download_url",
+        return_value="https://s3.example.com/download",
+    )
+    def test_get_run_snapshots_signs_urls_only_for_the_page(self, mock_presigned_download):
+        run_id, _ = self._create_run_with_results(
+            {"Button": SnapshotResult.CHANGED, "Card": SnapshotResult.UNCHANGED, "Dialog": SnapshotResult.UNCHANGED}
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/visual_review/runs/{run_id}/snapshots/?limit=1&offset=1"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["count"] == 3
+        assert [s["identifier"] for s in data["results"]] == ["Card"]
+        assert data["next"] is not None
+        assert mock_presigned_download.call_count == 1
 
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
     def test_complete_run_no_changes(self, mock_delay):
@@ -227,11 +467,18 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
-        response = self.client.post(f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/complete/")
+        complete_url = f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/complete/"
+        response = self.client.post(complete_url, {"check_run_id": "111"}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "completed")
         mock_delay.assert_not_called()
+
+        response = self.client.post(complete_url, {"check_run_id": "222"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run = Run.objects.get(id=create_result.run_id)
+        self.assertEqual(run.metadata["github_check_run_id"], "222")
 
     def test_approve_run(self):
         # Create artifact directly via logic (API no longer exposes register_artifact)
@@ -402,6 +649,63 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
 
+    @parameterized.expand(
+        [
+            ("unchanged_picture", "", SnapshotResult.UNCHANGED, status.HTTP_201_CREATED),
+            ("unapproved_change", ReviewState.PENDING, SnapshotResult.CHANGED, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_lift_on_merge_records_a_request_or_explains_the_refusal(
+        self, _name: str, review_state: str, result: str, expected_status: int
+    ):
+        quarantined = quarantine.quarantine_identifier(
+            repo_id=self.vr_project.id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+            user_id=self.user.id,
+            team_id=self.team.id,
+        )
+        run = Run.objects.create(
+            team_id=self.team.id,
+            repo_id=self.vr_project.id,
+            run_type=RunType.STORYBOOK,
+            branch="fix-flake",
+            commit_sha="abc123",
+            pr_number=7,
+            status=RunStatus.COMPLETED,
+        )
+        snapshot = RunSnapshot.objects.create(
+            team_id=self.team.id,
+            run=run,
+            identifier="Button",
+            current_hash="h1",
+            baseline_hash="h1" if result == SnapshotResult.UNCHANGED else "h0",
+            result=result,
+            review_state=review_state,
+            is_quarantined=True,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/runs/{run.id}/lift_on_merge/",
+            {"identifier": snapshot.identifier},
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_201_CREATED:
+            body = response.json()
+            assert (body["quarantine_id"], body["pr_number"], body["expected_hash"], body["state"]) == (
+                str(quarantined.id),
+                7,
+                "h1",
+                "pending",
+            )
+            listed = self.client.get(f"/api/projects/{self.team.id}/visual_review/runs/{run.id}/quarantine_lifts/")
+            assert [entry["id"] for entry in listed.json()] == [body["id"]]
+        else:
+            assert "Approve the new picture first" in response.json()["detail"]
+
     def _seed_history_row(
         self,
         sha: str,
@@ -412,6 +716,7 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         run_type: str = RunType.STORYBOOK,
         run_status: str = RunStatus.COMPLETED,
         result: str = SnapshotResult.UNCHANGED,
+        diff_metadata: dict | None = None,
     ) -> RunSnapshot:
         """Create one Run + one RunSnapshot directly, with full control over result and status."""
         artifact, _ = artifact_store.get_or_create_artifact(
@@ -451,6 +756,7 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             current_artifact=artifact,
             baseline_artifact=baseline_artifact,
             result=result,
+            diff_metadata=diff_metadata if diff_metadata is not None else {},
         )
 
     def _history_url(self, identifier: str, run_type: str = RunType.STORYBOOK) -> str:
@@ -482,9 +788,83 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         )
         # Tolerated drift on master: current_ flickers, baseline stays at
         # base-2 — must NOT create a new entry (the prod bug behind 252
-        # fake events on a single tolerated-drift story).
+        # fake events on a single tolerated-drift story). The pair aligned
+        # with nothing moved, which is a row shift of zero, not a shift.
         self._seed_history_row(
-            sha="ddd0000", branch="master", content_hash="hash-jitter", baseline_content_hash="base-2"
+            sha="ddd0000",
+            branch="master",
+            content_hash="hash-jitter",
+            baseline_content_hash="base-2",
+            diff_metadata={
+                "row_shift": {
+                    "inserted_rows": 0,
+                    "deleted_rows": 0,
+                    "changed_rows": 3,
+                    "residual_pixel_count": 40,
+                    "residual_percentage": 0.01,
+                    "raw_diff_percentage": 0.01,
+                    "bands": [],
+                }
+            },
+        )
+        # Absorbed shift on master: baseline stays at base-2, but the rows
+        # moved, and that trace only lives in history — must be an entry.
+        self._seed_history_row(
+            sha="ddd0001",
+            branch="master",
+            content_hash="hash-shift",
+            baseline_content_hash="base-2",
+            diff_metadata={
+                "row_shift": {
+                    "inserted_rows": 1,
+                    "deleted_rows": 0,
+                    "changed_rows": 0,
+                    "residual_pixel_count": 0,
+                    "residual_percentage": 0.0,
+                    "raw_diff_percentage": 3.2,
+                    "bands": [{"y": 20, "rows": 1, "kind": "inserted"}],
+                }
+            },
+        )
+        # Master keeps absorbing a shift against the same baseline, with jitter
+        # giving every run its own image: one entry per baseline period, not
+        # one per run.
+        self._seed_history_row(
+            sha="ddd0002",
+            branch="master",
+            content_hash="hash-shift-jitter",
+            baseline_content_hash="base-2",
+            diff_metadata={
+                "row_shift": {
+                    "inserted_rows": 1,
+                    "deleted_rows": 0,
+                    "changed_rows": 0,
+                    "residual_pixel_count": 0,
+                    "residual_percentage": 0.0,
+                    "raw_diff_percentage": 3.2,
+                    "bands": [{"y": 20, "rows": 1, "kind": "inserted"}],
+                }
+            },
+        )
+        # An actionable layout change recurs on every run until its baseline
+        # moves, so it rides the baseline transition instead of its shift.
+        self._seed_history_row(
+            sha="ddd0003",
+            branch="master",
+            content_hash="hash-layout",
+            baseline_content_hash="base-2",
+            result=SnapshotResult.CHANGED,
+            diff_metadata={
+                "row_shift": {
+                    "inserted_rows": 40,
+                    "deleted_rows": 0,
+                    "changed_rows": 0,
+                    "residual_pixel_count": 0,
+                    "residual_percentage": 0.0,
+                    "raw_diff_percentage": 12.0,
+                    "bands": [{"y": 80, "rows": 40, "kind": "inserted"}],
+                }
+            },
         )
 
         # PR-branch run — filtered out by branch.
@@ -515,12 +895,13 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         body = response.json()
         results = body["results"]
         # Two baseline transitions: aaa1111 (inception, base-1) and bbb1111
-        # (transition to base-2). aaa2222 collapses into aaa1111's period;
-        # ddd0000 collapses into bbb1111's.
-        self.assertEqual(body["count"], 2)
+        # (transition to base-2), plus the absorbed shift ddd0001. aaa2222
+        # collapses into aaa1111's period; ddd0000 collapses into bbb1111's.
+        self.assertEqual(body["count"], 3)
         # Output is newest-first.
-        self.assertEqual(results[0]["commit_sha"], "bbb1111")
-        self.assertEqual(results[1]["commit_sha"], "aaa1111")
+        self.assertEqual([entry["commit_sha"] for entry in results], ["ddd0001", "bbb1111", "aaa1111"])
+        self.assertEqual(results[0]["row_shift"]["inserted_rows"], 1)
+        self.assertIsNone(results[1]["row_shift"])
         for entry in results:
             self.assertIn("snapshot_id", entry)
             self.assertIn("review_state", entry)
@@ -638,6 +1019,19 @@ class TestRepoRunsSearch(VisualReviewTeamScopedTestMixin, APIBaseTest):
         # A run that exists but is not in the requested state is excluded even on a match.
         other_state = self.client.get(self._runs_url(review_state="processing", search="feature"))
         self.assertEqual(self._branches(other_state.json()), set())
+
+    @parameterized.expand(
+        [
+            ("repo_runs_unknown", "_runs_url", "approved"),
+            ("repo_runs_empty", "_runs_url", ""),
+            ("team_runs_unknown", "_team_runs_url", "approved"),
+        ]
+    )
+    def test_unknown_review_state_is_rejected(self, _name: str, url_builder: str, review_state: str):
+        response = self.client.get(getattr(self, url_builder)(review_state=review_state))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("needs_review", str(response.json()))
 
     def test_team_wide_endpoint_supports_search(self):
         # The project-wide endpoint (exposed as the MCP tool) shares the same search path.

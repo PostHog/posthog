@@ -1,4 +1,4 @@
-import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
+import { isAiEventName } from '~/ingestion/common/ai-event-types'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -60,7 +60,7 @@ export function createValidateAiEventTokensStep<T extends { event: PipelineEvent
     return async function validateAiEventTokensStep(input) {
         const { event } = input
 
-        if (!AI_EVENT_TYPES.has(event.event)) {
+        if (!isAiEventName(event.event)) {
             return Promise.resolve(ok(input))
         }
 

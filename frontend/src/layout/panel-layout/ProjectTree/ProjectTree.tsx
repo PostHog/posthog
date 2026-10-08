@@ -1,11 +1,20 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { RefObject, useEffect, useRef, useState } from 'react'
+import { ReactNode, RefObject, useEffect, useRef, useState } from 'react'
 
-import { IconCheckbox, IconChevronRight, IconEllipsis, IconFolderPlus, IconPlusSmall, IconStar } from '@posthog/icons'
+import {
+    IconCheckbox,
+    IconChevronDown,
+    IconEllipsis,
+    IconFolderPlus,
+    IconHome,
+    IconPlusSmall,
+    IconStar,
+} from '@posthog/icons'
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -22,7 +31,6 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneConfigurations } from 'scenes/scenes'
 
@@ -32,19 +40,35 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
+import { getSidebarProduct } from './defaultTree'
+import { isHomeFolder, withHomeFolderEmptyState } from './homeFolderUtils'
 import { MenuItems } from './menus/MenuItems'
 import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
-import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
-import { calculateMovePath } from './utils'
+import { TreeSortMenuItems } from './TreeSortMenuItems'
+import { calculateMovePath, isProjectTreeItemActive, resolveProjectTreeDrop } from './utils'
+
+// Product menus that open on a create action or a picker show a matching hint instead of the ellipsis
+const PRODUCT_MENU_BUTTON_ICONS: Record<string, JSX.Element> = {
+    'Product analytics': <IconPlusSmall className="text-tertiary" />,
+    Dashboards: <IconPlusSmall className="text-tertiary" />,
+    'Session replay': <IconChevronDown className="text-tertiary" />,
+}
 
 interface ProjectTreeBaseProps {
+    layout?: 'panel' | 'inline'
+    beforeTree?: ReactNode
+    renderTree?: (tree: JSX.Element) => ReactNode
+    showShortcutHelp?: boolean
     logicKey?: string // key override?
     root?: string
+    shortcutScope?: 'products' | 'files'
+    shareDragAndDropContext?: boolean
     showRecents?: boolean // whether to show recents in the tree
     searchPlaceholder?: string
     treeSize?: LemonTreeSize
+    disableScroll?: boolean
     /** Override the select mode from the internal logic */
     selectModeOverride?: LemonTreeSelectMode
     /** Override the checked items from the internal logic */
@@ -56,6 +80,10 @@ interface ProjectTreeBaseProps {
      * the tree inside a larger surface uses this to report the click in that surface's own terms.
      */
     onItemClicked?: (item: TreeDataItem | undefined) => void
+    /** Replaces the tree's own tooltip, so a caller can match the tooltips of the rows around the tree. */
+    renderItemTooltip?: (item: TreeDataItem) => ReactNode | undefined
+    /** A docs link under the item's tooltip, for callers whose rows link to a product's docs. */
+    renderItemTooltipDocLink?: (item: TreeDataItem) => string | undefined
     /** True while this tree's nav panel is active — refocuses search on panel re-activation. */
     isActiveInPanel?: boolean
 }
@@ -76,40 +104,13 @@ let counter = 0
 
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
 
-// Show active state for items that are active in the URL
-const isItemActive = (item: TreeDataItem): boolean => {
-    if (!item.record?.href) {
-        return false
-    }
-
-    const currentPath = removeProjectIdIfPresent(window.location.pathname)
-    const itemHref = typeof item.record.href === 'string' ? item.record.href : ''
-
-    if (currentPath === itemHref) {
-        return true
-    }
-
-    // Current path is a sub-path of item (e.g., /insights/new under /insights)
-    if (currentPath.startsWith(itemHref + '/')) {
-        return true
-    }
-
-    // Special handling for products with child pages on distinct paths (e.g., /replay/home and /replay/playlists)
-    if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
-        return true
-    }
-    if (item.name === 'Workflows' && currentPath.startsWith('/workflows')) {
-        return true
-    }
-
-    return false
-}
-
 export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     const {
         logicKey,
         root,
+        shortcutScope,
         onlyTree = false,
+        disableScroll = onlyTree || !!props.beforeTree || !!props.renderTree,
         searchPlaceholder,
         treeSize = 'default',
         showRecents,
@@ -120,12 +121,14 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         isActiveInPanel,
     } = props
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
-    const { viableItems, shortcutEntryIdMap } = useValues(projectTreeDataLogic)
-    const { reorderShortcutByDrag } = useActions(projectTreeDataLogic)
-    const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
+    const { viableItems, shortcutData, shortcutEntryIdMap, currentHomeFolder } = useValues(projectTreeDataLogic)
+    const { addShortcutItem, moveShortcutToFolder, reorderShortcutByDrag, setStarredNavigationRef } =
+        useActions(projectTreeDataLogic)
+    const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root, shortcutScope, isActiveInPanel }
     const {
         fullFileSystemFiltered,
         lastViewedId,
+        projectTreeRef,
         expandedFolders,
         expandedSearchFolders,
         searchTerm,
@@ -153,7 +156,6 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         setEditingItemId,
         setSortMethod,
         setSelectMode,
-        setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
 
     const selectMode = selectModeOverride ?? projectTreeSelectMode
@@ -170,9 +172,9 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     )
 
     const showFilterDropdown = root === 'project://'
-    const showSortDropdown = root === 'project://'
+    const showSortMenuItems = root === 'project://'
 
-    let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
+    let treeData: TreeDataItem[] = withHomeFolderEmptyState([...fullFileSystemFiltered], currentHomeFolder)
 
     // Apply checked items override for external control (e.g. product selection)
     if (checkedItemsOverride) {
@@ -186,7 +188,11 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     }
 
     if (fullFileSystemFiltered.length <= 5) {
-        if (root === 'shortcuts://' && (fullFileSystemFiltered.length === 0 || !shortcutHelperDismissed)) {
+        if (
+            props.showShortcutHelp !== false &&
+            root === 'shortcuts://' &&
+            (fullFileSystemFiltered.length === 0 || !shortcutHelperDismissed)
+        ) {
             treeData.push({
                 id: 'products/shortcuts-helper-category',
                 name: 'Starred items',
@@ -235,11 +241,13 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
             data={treeData}
             selectMode={selectMode}
             defaultSelectedFolderOrNodeId={lastViewedId || undefined}
-            isItemActive={isItemActive}
+            isItemActive={(item) =>
+                isProjectTreeItemActive(item, removeProjectIdIfPresent(window.location.pathname), projectTreeRef)
+            }
             size={treeSize}
             onItemChecked={onItemChecked}
             checkedItemCount={checkedItemCountNumeric}
-            disableScroll={onlyTree ? true : false}
+            disableScroll={disableScroll}
             onItemClick={(item, event) => {
                 event.preventDefault()
                 if (item?.type === 'empty-folder' || item?.type === 'loading-indicator') {
@@ -265,9 +273,15 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 onItemClicked?.(item)
 
                 if (item?.record?.href) {
-                    router.actions.push(
+                    const href =
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
+                    setStarredNavigationRef(
+                        root === 'shortcuts://' && shortcutScope === 'files' && item.record.type && item.record.ref
+                            ? { type: item.record.type, ref: item.record.ref }
+                            : null,
+                        href
                     )
+                    router.actions.push(href)
                 }
 
                 if (item?.record?.path) {
@@ -275,10 +289,10 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 }
 
                 if (item?.id.startsWith('shortcuts')) {
-                    eventUsageLogic.actions.reportNavbarStarredItemClicked(
-                        item?.record?.type || 'unknown',
-                        item?.name || 'unknown'
-                    )
+                    posthog.capture('navbar starred item clicked', {
+                        item_type: item?.record?.type || 'unknown',
+                        item_name: item?.name || 'unknown',
+                    })
                 }
 
                 // False, because we handle focus of content in LemonTree with mainContentRef prop
@@ -307,40 +321,37 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
             expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
             onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
             enableDragAndDrop={!sortMethod || sortMethod === 'folder'}
+            dragAndDropScope={props.shareDragAndDropContext ? (logicKey ?? uniqueKey) : undefined}
+            rootDropId={root === 'shortcuts://' ? 'shortcuts://' : ''}
             onDragEnd={(dragEvent) => {
-                const itemToId = (item: FileSystemEntry): string =>
-                    item.type === 'folder' ? 'project://' + item.path : 'project/' + item.id
-                const oldId = dragEvent.active.id as string
-                const newId = dragEvent.over?.id
-                if (oldId === newId) {
-                    return false
-                }
-
-                // Sibling reorder within the Starred (shortcuts://) list. All the index/position
-                // math lives in the kea logic so the component can stay focused on rendering.
-                if (
-                    typeof oldId === 'string' &&
-                    typeof newId === 'string' &&
-                    shortcutEntryIdMap.has(oldId) &&
-                    shortcutEntryIdMap.has(newId)
-                ) {
-                    const position = dragEvent.position === 'after' ? 'after' : 'before'
-                    reorderShortcutByDrag(oldId, newId, position)
+                const oldId = String(dragEvent.active.id)
+                const drop = resolveProjectTreeDrop(
+                    oldId,
+                    dragEvent.over ? String(dragEvent.over.id) : null,
+                    searchTerm && searchResults.results ? [...searchResults.results, ...viableItems] : viableItems,
+                    shortcutData,
+                    dragEvent.position
+                )
+                if (!drop) {
                     return
                 }
-
-                const items = searchTerm && searchResults.results ? searchResults.results : viableItems
-                const oldItem = items.find((i) => itemToId(i) === oldId)
-                const newItem = items.find((i) => itemToId(i) === newId)
-                if (oldItem === newItem || !oldItem) {
-                    return false
+                if (drop.type === 'reorder') {
+                    reorderShortcutByDrag(
+                        drop.activeId,
+                        drop.overId,
+                        dragEvent.position === 'after' ? 'after' : 'before'
+                    )
+                    return
                 }
-
-                const folder = newItem
-                    ? newItem.path || ''
-                    : newId && String(newId).startsWith('project://')
-                      ? String(newId).substring(10)
-                      : ''
+                if (drop.type === 'move-shortcut') {
+                    moveShortcutToFolder(drop.item, drop.folder, logicKey ?? uniqueKey)
+                    return
+                }
+                if (drop.type === 'star') {
+                    addShortcutItem(drop.item)
+                    return
+                }
+                const { item: oldItem, folder } = drop
 
                 if (checkedItems[oldId]) {
                     moveCheckedItems(folder)
@@ -362,7 +373,15 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 }
                 return (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path
             }}
-            getItemDropMode={(item) => (shortcutEntryIdMap.has(item.id) ? 'reorder' : 'onto')}
+            getItemDropMode={(item, activeId) =>
+                shortcutEntryIdMap.has(item.id)
+                    ? item.record?.type === 'folder'
+                        ? 'onto-or-reorder'
+                        : activeId && shortcutEntryIdMap.has(activeId)
+                          ? 'reorder'
+                          : 'onto'
+                    : 'onto'
+            }
             isItemDroppable={(item) => {
                 const path = item.record?.path || ''
 
@@ -396,7 +415,14 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
 
                 return (
                     <ContextMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
-                        <MenuItems item={item} type="context" root={root} onlyTree={onlyTree} logicKey={logicKey} />
+                        <MenuItems
+                            item={item}
+                            type="context"
+                            root={root}
+                            onlyTree={onlyTree}
+                            logicKey={logicKey}
+                            isActiveInPanel={isActiveInPanel}
+                        />
                     </ContextMenuGroup>
                 )
             }}
@@ -410,7 +436,14 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
 
                 return (
                     <DropdownMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
-                        <MenuItems item={item} type="dropdown" root={root} onlyTree={onlyTree} logicKey={logicKey} />
+                        <MenuItems
+                            item={item}
+                            type="dropdown"
+                            root={root}
+                            onlyTree={onlyTree}
+                            logicKey={logicKey}
+                            isActiveInPanel={isActiveInPanel}
+                        />
                     </DropdownMenuGroup>
                 )
             }}
@@ -422,22 +455,20 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 const showDropdownMenu =
                     root === 'products://' ||
                     root === 'custom-products://' ||
-                    (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
+                    (root === 'shortcuts://' && !!getSidebarProduct(item.record?.href))
 
-                if (showDropdownMenu) {
-                    if (item.name === 'Product analytics') {
-                        return (
-                            <ButtonPrimitive iconOnly isSideActionRight className="z-2 -outline-offset-2">
-                                <IconPlusSmall className="text-tertiary" />
-                            </ButtonPrimitive>
-                        )
-                    } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
-                        return (
-                            <ButtonPrimitive iconOnly isSideActionRight className="z-2 -outline-offset-2">
-                                <IconChevronRight className="size-3 text-tertiary rotate-90" />
-                            </ButtonPrimitive>
-                        )
-                    }
+                const menuButtonIcon = showDropdownMenu ? PRODUCT_MENU_BUTTON_ICONS[item.name] : undefined
+                if (menuButtonIcon) {
+                    return (
+                        <ButtonPrimitive
+                            iconOnly
+                            isSideActionRight
+                            className="z-2 -outline-offset-2"
+                            data-attr={`menu-item-${item.name.toLowerCase().replace(/\s+/g, '-')}-menu-button`}
+                        >
+                            {menuButtonIcon}
+                        </ButtonPrimitive>
+                    )
                 }
             }}
             emptySpaceContextMenu={() => {
@@ -455,7 +486,11 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                     </ContextMenuGroup>
                 )
             }}
+            renderItemTooltipDocLink={props.renderItemTooltipDocLink}
             renderItemTooltip={(item) => {
+                if (props.renderItemTooltip) {
+                    return props.renderItemTooltip(item)
+                }
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
 
                 if (
@@ -474,49 +509,12 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                                 </>
                             )}
                             {sceneConfigurations[key]?.description || item.name}
-
-                            {item.tags?.length && (
-                                <>
-                                    {item.tags?.map((tag) => (
-                                        <LemonTag
-                                            key={tag}
-                                            type={
-                                                tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'
-                                            }
-                                            size="small"
-                                            className="ml-2 relative top-[-1px]"
-                                        >
-                                            {tag.toUpperCase()}
-                                        </LemonTag>
-                                    ))}
-                                </>
-                            )}
                         </>
                     )
                 }
 
                 if (root === 'persons://') {
-                    return (
-                        <>
-                            {nameNode}
-                            {item.record?.protocol === 'products://' && item.tags?.length && (
-                                <>
-                                    {item.tags?.map((tag) => (
-                                        <LemonTag
-                                            key={tag}
-                                            type={
-                                                tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'
-                                            }
-                                            size="small"
-                                            className="ml-2 relative top-[-1px]"
-                                        >
-                                            {tag.toUpperCase()}
-                                        </LemonTag>
-                                    ))}
-                                </>
-                            )}
-                        </>
-                    )
+                    return nameNode
                 }
 
                 if (root === 'new://') {
@@ -547,52 +545,47 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                                 className="ml-[4px]"
                             />
                         )}
-                        <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
+                        <TreeNodeDisplayIcon
+                            item={item}
+                            expandedItemIds={expandedFolders}
+                            defaultFolderIcon={isHomeFolder(item, currentHomeFolder) ? <IconHome /> : undefined}
+                        />
                     </>
                 )
             }}
             renderItem={(item) => {
-                const isCustomProduct = root === 'custom-products://'
+                if (item.type === 'empty-folder') {
+                    return item.displayName
+                }
+                // A shortcut's created_at is when it was starred, not when the item was created.
                 const isNew =
-                    !isCustomProduct &&
+                    root !== 'custom-products://' &&
+                    root !== 'shortcuts://' &&
                     item.record?.created_at &&
                     dayjs().diff(dayjs(item.record?.created_at), 'minutes') < 3
 
                 return (
-                    <span className="truncate">
-                        <span
-                            className={cn('truncate', {
-                                'font-semibold': item.record?.type === 'folder' && item.type !== 'empty-folder',
-                            })}
-                        >
-                            {item.displayName}{' '}
-                            {isNew ? (
-                                <LemonTag type="highlight" size="small" className="ml-1 relative top-[-1px]">
-                                    New
-                                </LemonTag>
-                            ) : null}
-                        </span>
-
-                        {sortMethod === 'recent' && item.type !== 'loading-indicator' && (
-                            <span className="text-tertiary text-xxs pt-[3px] ml-1">
-                                {dayjs(item.record?.created_at).fromNow()}
-                            </span>
-                        )}
-
-                        {item.tags?.length && (
-                            <>
-                                {item.tags?.map((tag) => (
-                                    <LemonTag
-                                        key={tag}
-                                        type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
-                                        size="small"
-                                        className="ml-2 relative top-[-1px]"
-                                    >
-                                        {tag.toUpperCase()}
+                    <span className="flex w-full min-w-0 items-center gap-1.5">
+                        <span className="flex-1 truncate">
+                            <span
+                                className={cn('truncate', {
+                                    'font-semibold': item.record?.type === 'folder',
+                                })}
+                            >
+                                {item.displayName}{' '}
+                                {isNew ? (
+                                    <LemonTag type="highlight" size="small" className="ml-1 relative top-[-1px]">
+                                        New
                                     </LemonTag>
-                                ))}
-                            </>
-                        )}
+                                ) : null}
+                            </span>
+
+                            {sortMethod === 'recent' && item.type !== 'loading-indicator' && (
+                                <span className="text-tertiary text-xxs pt-[3px] ml-1">
+                                    {dayjs(item.record?.created_at).fromNow()}
+                                </span>
+                            )}
+                        </span>
                     </span>
                 )
             }}
@@ -606,6 +599,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     return (
         <PanelLayoutPanel
             panelName={props.panelName}
+            layout={props.layout}
             searchField={
                 <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
                     <TreeSearchField
@@ -616,13 +610,9 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                     />
                 </BindLogic>
             }
-            filterDropdown={
-                showFilterDropdown ? (
-                    <TreeFiltersDropdownMenu setSearchTerm={setSearchTerm} searchTerm={searchTerm} />
-                ) : null
-            }
-            sortDropdown={
-                showSortDropdown ? <TreeSortDropdownMenu sortMethod={sortMethod} setSortMethod={setSortMethod} /> : null
+            filterDropdown={showFilterDropdown ? <TreeFiltersDropdownMenu logicProps={projectTreeLogicProps} /> : null}
+            panelMenuItems={
+                showSortMenuItems ? <TreeSortMenuItems sortMethod={sortMethod} setSortMethod={setSortMethod} /> : null
             }
             panelActionsNewSceneLayout={[
                 {
@@ -694,7 +684,14 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 </>
             )}
 
-            {tree}
+            {props.beforeTree || props.renderTree ? (
+                <ScrollableShadows direction="vertical" className="flex-1 min-h-0" styledScrollbars>
+                    {props.beforeTree}
+                    {props.renderTree ? props.renderTree(tree) : tree}
+                </ScrollableShadows>
+            ) : (
+                tree
+            )}
         </PanelLayoutPanel>
     )
 }

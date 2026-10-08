@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock
 
 # reviewer.py is imported by a uv-script; its `claude_agent_sdk` dep is
@@ -13,7 +14,13 @@ sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
 import policy  # noqa: E402
 from github import PRData  # noqa: E402
-from reviewer import Reviewer, _load_review_guidance, _sanitize_untrusted, _truncate_inline_comments  # noqa: E402
+from reviewer import (  # noqa: E402
+    Reviewer,
+    _load_review_guidance,
+    _sanitize_untrusted,
+    _truncate_inline_comments,
+    _verdict_from_facts,
+)
 
 
 def _pr(**overrides: object) -> PRData:
@@ -186,6 +193,68 @@ def test_inline_truncation_keeps_unresolved_drops_resolved(
     assert {c["body"] for c in shown} == kept_ids
     assert all(c["body"] != dropped_id for c in shown)
     assert line == omission
+
+
+_CLEAN_FACTS = {
+    "risky_areas": [],
+    "reviews_on_current_head": [],
+    "owning_team_author": False,
+    "strong_familiarity": False,
+    "unresolved_substantive_concerns": [],
+    "other_refusal_grounds": [],
+    "reasoning": "No showstoppers.",
+    "change_summary": "Trend charts can now be given a fixed y-axis range.",
+}
+
+
+_RISKY_FACTS = {**_CLEAN_FACTS, "risky_areas": ["posthog/models/team.py: adds a column"]}
+_ON_OWNING_TEAM = {"ownership": {"teams": ["@PostHog/team-core"]}, "author_on_owning_team": True}
+
+
+@pytest.mark.parametrize(
+    "output, classification, head_reviewed, verdict",
+    [
+        pytest.param(_CLEAN_FACTS, {}, False, "APPROVE", id="valid"),
+        pytest.param(
+            {k: v for k, v in _CLEAN_FACTS.items() if k != "other_refusal_grounds"}, {}, False, "ESCALATE", id="missing"
+        ),
+        pytest.param({**_CLEAN_FACTS, "risky_areas": "none"}, {}, False, "ESCALATE", id="wrong-type"),
+        pytest.param(
+            {**_RISKY_FACTS, "owning_team_author": True, "strong_familiarity": True},
+            {"ownership": {"teams": []}},
+            False,
+            "ESCALATE",
+            id="model-claimed-author-assurance-ignored",
+        ),
+        pytest.param(
+            {**_RISKY_FACTS, "owning_team_author": True}, _ON_OWNING_TEAM, False, "APPROVE", id="owning-team-assures"
+        ),
+        pytest.param(_RISKY_FACTS, _ON_OWNING_TEAM, False, "ESCALATE", id="risky-part-owned-by-another-team"),
+        pytest.param(
+            {**_RISKY_FACTS, "reviews_on_current_head": ["alice: APPROVED"]},
+            {},
+            True,
+            "APPROVE",
+            id="head-review-assures",
+        ),
+        pytest.param(
+            {**_RISKY_FACTS, "reviews_on_current_head": ["alice: APPROVED"]},
+            {},
+            False,
+            "ESCALATE",
+            id="claimed-review-github-does-not-show",
+        ),
+    ],
+)
+def test_verdict_from_facts_keeps_the_consumer_contract(
+    output: dict, classification: dict, head_reviewed: bool, verdict: str
+) -> None:
+    result = _verdict_from_facts(output, classification, head_reviewed=head_reviewed)
+    assert set(result) == {"verdict", "reasoning", "risk", "issues", "change_summary", "facts"}
+    assert result["verdict"] == verdict
+    assert result["reasoning"] == "No showstoppers."
+    assert result["change_summary"] == _CLEAN_FACTS["change_summary"]
+    assert bool(result["issues"]) is (verdict == "ESCALATE")
 
 
 def test_explore_root_defaults_to_repo_root() -> None:
@@ -379,3 +448,37 @@ def test_prompt_provenance_renders_only_for_self_driving_runs() -> None:
     # untrusted PR content. rindex: the anti-injection notice at the top of the prompt also quotes
     # the marker text, so the real delimiter is the last occurrence.
     assert self_driving_prompt.index("Provenance:") < self_driving_prompt.rindex("--- BEGIN UNTRUSTED CONTENT ---")
+
+
+@time_machine.travel("2026-01-01T12:00:00Z", tick=False)
+def test_prompt_hides_bot_eyes_that_aged_past_the_in_flight_window() -> None:
+    # The guidance tells the reviewer that every 👀 it sees is an in-flight review, so a reviewer
+    # bot that fails without clearing its 👀 would make the reviewer refuse that PR forever. Nobody
+    # can remove another app's reaction, so the prompt must hide the abandoned one, exactly as the
+    # wait gate does.
+    stale = "2025-12-30T12:00:00Z"
+    fresh = "2026-01-01T11:58:00Z"
+    pr = _pr(
+        pr_reactions=[
+            {"user": "greptile-apps[bot]", "emoji": "👀", "created_at": stale},
+            {"user": "veria-ai[bot]", "emoji": "👀", "created_at": fresh},
+            {"user": "greptile-apps[bot]", "emoji": "👍", "created_at": stale},
+            {"user": "alice", "emoji": "👀", "created_at": stale},
+        ],
+        review_comments=[
+            {
+                "user": "bob",
+                "body": "b",
+                "path": "p.py",
+                "reactions": [{"user": "greptile-apps[bot]", "emoji": "👀", "created_at": stale}],
+            }
+        ],
+    )
+
+    prompt = _prompt(pr)
+
+    assert "👀 @greptile-apps[bot]" not in prompt
+    assert "👀 @veria-ai[bot]" in prompt
+    assert "👍 @greptile-apps[bot]" in prompt
+    # A human can clear their own reaction, so age tells us nothing about whether they are done.
+    assert "👀 @alice" in prompt

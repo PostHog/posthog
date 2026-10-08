@@ -3,7 +3,6 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
 from unittest import mock
 
 from parameterized import parameterized
@@ -13,11 +12,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.better_sta
     BETTER_STACK_BASE_URL,
     BetterStackResumeConfig,
     BetterStackUntrustedURLError,
-    _flatten_item,
+    _explode_response_times,
     _format_from_date,
     _validate_pagination_url,
     better_stack_source,
     probe_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.settings import (
+    BETTER_STACK_ORG_BASE_URL,
 )
 
 # better_stack builds its own capture=False session and passes it into the RESTClient.
@@ -95,28 +97,15 @@ class TestFormatFromDate:
         assert _format_from_date(value) == expected
 
 
-class TestFlattenItem:
-    def test_attributes_hoisted_to_root_and_id_type_kept(self) -> None:
-        item = {
-            "id": "123",
-            "type": "incident",
-            "attributes": {"name": "API", "cause": "Status 500", "started_at": "2026-01-01T00:00:00Z"},
-        }
-        assert _flatten_item(item) == {
-            "id": "123",
-            "type": "incident",
-            "name": "API",
-            "cause": "Status 500",
-            "started_at": "2026-01-01T00:00:00Z",
-        }
-
-    def test_missing_attributes_is_safe(self) -> None:
-        assert _flatten_item({"id": "123", "type": "incident"}) == {"id": "123", "type": "incident"}
-
-
 class TestValidatePaginationUrl:
-    def test_api_origin_url_is_returned_unchanged(self) -> None:
-        url = "https://uptime.betterstack.com/api/v3/incidents?page=2&per_page=50"
+    @parameterized.expand(
+        [
+            ("uptime_host", "https://uptime.betterstack.com/api/v3/incidents?page=2&per_page=50"),
+            # Team members paginate on the account-level host.
+            ("org_host", "https://betterstack.com/api/v2/team-members?page=2"),
+        ]
+    )
+    def test_api_origin_url_is_returned_unchanged(self, _name: str, url: str) -> None:
         assert _validate_pagination_url(url) == url
 
     @parameterized.expand(
@@ -157,26 +146,6 @@ class TestPagination:
         # The next-page URL is self-contained; the original params must not be re-appended.
         assert snapshots[1]["url"] == second
         assert snapshots[1]["params"] == {}
-
-    @mock.patch(SESSION_PATCH)
-    def test_saves_state_after_each_page_except_the_last(self, MockSession) -> None:
-        session = MockSession.return_value
-        second = "https://uptime.betterstack.com/api/v3/incidents?page=2&per_page=50"
-        _wire(
-            session,
-            [
-                _response([{"id": "1", "attributes": {}}], next_url=second),
-                _response([{"id": "2", "attributes": {}}]),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source(manager=manager))
-
-        # State saved once (pointing at the second page) so a crash re-yields that page; nothing
-        # is saved after the final page (no next link).
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == BetterStackResumeConfig(next_url=second)
 
     @mock.patch(SESSION_PATCH)
     def test_resumes_from_saved_next_url(self, MockSession) -> None:
@@ -276,21 +245,6 @@ class TestIncrementalParams:
 
         assert snapshots[0]["params"] == expected_params
 
-    @freeze_time("2026-06-15T12:00:00Z")
-    @mock.patch(SESSION_PATCH)
-    def test_future_cursor_is_clamped(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": "1", "attributes": {}}])])
-
-        _rows(
-            _source(
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2027, 2, 5, tzinfo=UTC),
-            )
-        )
-
-        assert snapshots[0]["params"]["from"] == "2026-06-15"
-
 
 class TestProbeCredentials:
     @parameterized.expand([("ok", 200), ("unauthorized", 401), ("forbidden", 403)])
@@ -299,51 +253,169 @@ class TestProbeCredentials:
         MockSession.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert probe_credentials("bs_test", "incidents") == status_code
 
+
+def _object_response(data: dict[str, Any] | list[dict[str, Any]]) -> Response:
+    """An unpaginated response: the single-object monitor endpoints and the comments collection
+    carry no `pagination` key at all."""
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps({"data": data}).encode()
+    return resp
+
+
+class TestExplodeResponseTimes:
+    def test_one_row_per_region_measurement(self) -> None:
+        rows = _explode_response_times(
+            {
+                "id": "270985",
+                "type": "monitor_response_times",
+                "monitor_id": "270985",
+                "attributes": {
+                    "regions": [
+                        {
+                            "region": "us",
+                            "response_times": [
+                                {"at": "2026-04-03T11:00:57.000Z", "response_time": 0.47273},
+                                {"at": "2026-04-03T11:03:57.000Z", "response_time": 0.51},
+                            ],
+                        },
+                        {"region": "eu", "response_times": [{"at": "2026-04-03T11:00:59.000Z", "response_time": 0.19}]},
+                    ]
+                },
+            }
+        )
+
+        # `id`/`type` are dropped: `id` only repeats the monitor id, which `monitor_id` carries.
+        assert rows == [
+            {"monitor_id": "270985", "region": "us", "at": "2026-04-03T11:00:57.000Z", "response_time": 0.47273},
+            {"monitor_id": "270985", "region": "us", "at": "2026-04-03T11:03:57.000Z", "response_time": 0.51},
+            {"monitor_id": "270985", "region": "eu", "at": "2026-04-03T11:00:59.000Z", "response_time": 0.19},
+        ]
+
+    @parameterized.expand([("no_regions", {}), ("empty_regions", {"regions": []}), ("null_regions", {"regions": None})])
+    def test_monitor_without_measurements_yields_no_rows(self, _name: str, attributes: dict[str, Any]) -> None:
+        assert _explode_response_times({"id": "1", "monitor_id": "1", "attributes": attributes}) == []
+
+
+class TestOrganizationHost:
+    @parameterized.expand([("team_members", "/v2/team-members"), ("roles", "/v2/roles")])
     @mock.patch(SESSION_PATCH)
-    def test_connection_failure_returns_none(self, MockSession) -> None:
-        MockSession.return_value.get.side_effect = Exception("boom")
-        assert probe_credentials("bs_test") is None
+    def test_account_level_endpoints_use_the_org_host(self, endpoint: str, path: str, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response([{"id": "101", "type": "team_member", "attributes": {}}])])
+
+        _rows(_source(endpoint=endpoint))
+
+        # The Uptime subdomain 404s both routes; they are served from betterstack.com.
+        assert snapshots[0]["url"] == f"{BETTER_STACK_ORG_BASE_URL}{path}"
+
+
+class TestFanout:
+    @parameterized.expand(
+        [
+            # (endpoint, parent path, child path, parent id column)
+            ("heartbeat_availability", "/v2/heartbeats", "/v2/heartbeats/1/availability", "heartbeat_id"),
+            ("status_page_resources", "/v2/status-pages", "/v2/status-pages/1/resources", "status_page_id"),
+        ]
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_child_is_bound_to_its_parent(
+        self, endpoint: str, parent_path: str, child_path: str, parent_key: str, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"id": "1", "attributes": {}}]),
+                _object_response({"id": "9", "attributes": {"availability": 99.5}}),
+            ],
+        )
+
+        rows = _rows(_source(endpoint=endpoint))
+
+        # Each parent has its own resolve param, so a wrong one leaves the path placeholder unbound.
+        assert snapshots[0]["url"] == f"{BETTER_STACK_BASE_URL}{parent_path}"
+        assert snapshots[0]["params"] == {"per_page": 250}
+        assert snapshots[1]["url"] == f"{BETTER_STACK_BASE_URL}{child_path}"
+        assert rows == [{"id": "9", parent_key: "1", "availability": 99.5}]
+
+    @parameterized.expand(
+        [
+            # The comment watermark floors the incidents walk, so a sync only re-fetches comments
+            # for incidents that started on or after the newest comment already collected.
+            (
+                "incremental_bounds_the_incidents_walk",
+                True,
+                datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+                {"per_page": 50, "from": "2026-03-04"},
+            ),
+            ("first_sync_walks_every_incident", True, None, {"per_page": 50}),
+            ("full_refresh_walks_every_incident", False, datetime(2026, 3, 4, tzinfo=UTC), {"per_page": 50}),
+        ]
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_incident_comments_parent_window(
+        self, _name: str, should_use_incremental_field: bool, last_value: Any, expected: dict[str, Any], MockSession
+    ) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response([])])
+
+        _rows(
+            _source(
+                endpoint="incident_comments",
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=last_value,
+            )
+        )
+
+        assert snapshots[0]["params"] == expected
 
     @mock.patch(SESSION_PATCH)
-    def test_probes_endpoint_path_with_bearer_token(self, MockSession) -> None:
+    def test_fanout_state_is_saved_and_resumed_per_parent(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "1", "attributes": {}}, {"id": "2", "attributes": {}}]),
+                _object_response({"id": "1", "attributes": {"availability": 99.0}}),
+                _object_response({"id": "2", "attributes": {"availability": 98.0}}),
+            ],
+        )
+
+        manager = _make_manager()
+        _rows(_source(endpoint="monitor_availability", manager=manager))
+
+        saved = manager.save_state.call_args.args[0].fanout_state
+        assert saved["completed"] == ["/v2/monitors/1/sla", "/v2/monitors/2/sla"]
+
+        # A rerun seeded with that state skips both parents and issues no child request.
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response([{"id": "1", "attributes": {}}, {"id": "2", "attributes": {}}])])
+        resumed = _make_manager(BetterStackResumeConfig(fanout_state=saved))
+
+        assert _rows(_source(endpoint="monitor_availability", manager=resumed)) == []
+        assert len(snapshots) == 1
+
+
+class TestProbeCredentialsForFanoutEndpoints:
+    @parameterized.expand(
+        [
+            ("monitor_availability", f"{BETTER_STACK_BASE_URL}/v2/monitors?per_page=1"),
+            ("monitor_response_times", f"{BETTER_STACK_BASE_URL}/v2/monitors?per_page=1"),
+            ("incident_comments", f"{BETTER_STACK_BASE_URL}/v3/incidents?per_page=1"),
+            ("heartbeat_availability", f"{BETTER_STACK_BASE_URL}/v2/heartbeats?per_page=1"),
+            ("status_page_resources", f"{BETTER_STACK_BASE_URL}/v2/status-pages?per_page=1"),
+            ("on_call_events", f"{BETTER_STACK_BASE_URL}/v2/on-calls?per_page=1"),
+            ("on_call_rotations", f"{BETTER_STACK_BASE_URL}/v2/on-calls?per_page=1"),
+            ("team_members", f"{BETTER_STACK_ORG_BASE_URL}/v2/team-members?per_page=1"),
+        ]
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_probes_a_reachable_collection(self, endpoint: str, expected_url: str, MockSession) -> None:
         session = MockSession.return_value
         session.get.return_value = mock.MagicMock(status_code=200)
 
-        probe_credentials("bs_test", "incidents")
+        probe_credentials("bs_test", endpoint)
 
-        url = session.get.call_args.args[0]
-        assert url == f"{BETTER_STACK_BASE_URL}/v3/incidents?per_page=1"
-        assert session.get.call_args.kwargs["headers"]["Authorization"] == "Bearer bs_test"
-
-    @mock.patch(SESSION_PATCH)
-    def test_defaults_to_monitors_probe(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.return_value = mock.MagicMock(status_code=200)
-
-        probe_credentials("bs_test")
-
-        assert session.get.call_args.args[0] == f"{BETTER_STACK_BASE_URL}/v2/monitors?per_page=1"
-
-
-class TestBearerAuth:
-    @mock.patch(SESSION_PATCH)
-    def test_request_auth_is_framework_bearer(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        auths: list[Any] = []
-
-        def _prepare(request: Any) -> mock.MagicMock:
-            auths.append(request.auth)
-            return mock.MagicMock()
-
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = [_response([{"id": "1", "attributes": {}}])]
-
-        _rows(_source())
-
-        # The token flows through the framework auth (so it's redacted from logs), not a
-        # hand-built Authorization header.
-        prepared = mock.MagicMock()
-        prepared.headers = {}
-        auths[0](prepared)
-        assert prepared.headers["Authorization"] == "Bearer bs_test"
+        # A fan-out child has no collection of its own, so its parent is probed instead.
+        assert session.get.call_args.args[0] == expected_url

@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
+import React from 'react'
 
-import { IconGear } from '@posthog/icons'
+import { IconExternal, IconGear } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonSwitchProps } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -34,18 +35,25 @@ type TestAccountFilterProps = Partial<LemonSwitchProps> & {
     /** When set, the toggle is disabled with an explanatory reason unless the team has at least one
      * test account filter of one of these types. Omit to accept every filter type (events etc.). */
     applicableFilterTypes?: string[]
+    /** Runs instead of navigating to project settings when the gear is clicked. Surfaces that hold
+     * unsaved state, such as a wizard step, use this to configure the filters without leaving. */
+    onConfigure?: () => void
+    settingsLinkIcon?: 'gear' | 'new-tab'
 }
 
 export function TestAccountFilterSwitch({
     checked,
     onChange,
     applicableFilterTypes,
+    onConfigure,
+    settingsLinkIcon = 'gear',
     ...props
 }: TestAccountFilterProps): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const filters = currentTeam?.test_account_filters || []
     const hasFilters = filters.length > 0
     const unusedReason = applicableFilterTypes ? getUnusedTestAccountFilterReason(filters, applicableFilterTypes) : null
+    const showNewTabIcon = settingsLinkIcon === 'new-tab' && !onConfigure
     return (
         <LemonSwitch
             id="test-account-filter"
@@ -53,7 +61,7 @@ export function TestAccountFilterSwitch({
             {...props}
             disabledReason={
                 !hasFilters
-                    ? "You haven't set any internal test filters. Click the gear icon to configure."
+                    ? `You haven't set any internal test filters. Click the ${showNewTabIcon ? 'link' : 'gear'} icon to configure.`
                     : (unusedReason ?? props.disabledReason)
             }
             checked={checked}
@@ -61,18 +69,32 @@ export function TestAccountFilterSwitch({
             label={
                 <div className="flex items-center">
                     <span>Filter out internal and test users</span>
-                    {/* Opens in a new tab: this switch sits inside forms that hold unsaved work (a
+                    {/* Opens in a new tab by default: this switch sits inside forms that hold unsaved work (a
                         half-built scanner, an unsaved cohort, an insight in progress), and the
-                        disabledReason below actively sends people here when no filters are set up. */}
+                        disabledReason below actively sends people here when no filters are set up.
+                        Callers that can configure the filters in place pass onConfigure instead. */}
                     <LemonButton
-                        icon={<IconGear />}
+                        icon={showNewTabIcon ? <IconExternal className="size-3.5" /> : <IconGear />}
                         size="small"
                         noPadding
                         className="ml-1"
-                        to={urls.settings('environment-customization', 'internal-user-filtering')}
-                        targetBlank
-                        hideExternalLinkIcon
-                        tooltip="Configure internal and test users. Opens in a new tab."
+                        {...(onConfigure
+                            ? {
+                                  // The gear sits inside the switch's <label htmlFor>, which forwards clicks to the
+                                  // switch button. Stop it here so opening settings can't also flip the filter.
+                                  onClick: (e: React.MouseEvent) => {
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                      onConfigure()
+                                  },
+                                  tooltip: 'Configure internal and test users.',
+                              }
+                            : {
+                                  to: urls.settings('environment-customization', 'internal-user-filtering'),
+                                  targetBlank: true,
+                                  hideExternalLinkIcon: true,
+                                  tooltip: 'Configure internal and test users. Opens in a new tab.',
+                              })}
                     />
                 </div>
             }

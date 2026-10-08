@@ -16,6 +16,7 @@ from posthog.schema import ClickhouseQueryProgress, QueryStatus
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.api_queries_budget import QueryCost, record_request_query_cost
 from posthog.clickhouse.client import (
     execute_async as client,
     sync_execute,
@@ -28,7 +29,7 @@ from posthog.direct_query_cancellation import (
     build_direct_query_cancellation_token,
     is_direct_query_cancellation_requested,
 )
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
 from posthog.models import Organization, Team
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -210,6 +211,7 @@ class TestExecuteProcessQuery(TestCase):
 
         mock_redis_client.assert_called_once()
         mock_process_query_dict.assert_called_once()
+        self.assertEqual(mock_process_query_dict.call_args.kwargs["query_id"], self.query_id)
         self.assertEqual(get_query_tags().celery_task_id, task_id)
 
         # Assert that Redis set method was called with the correct arguments
@@ -217,6 +219,28 @@ class TestExecuteProcessQuery(TestCase):
         args, kwargs = mock_redis.set.call_args
         args_loaded = json.loads(args[1])
         self.assertEqual(args_loaded["results"], [None, None, None, 1.0, "👍"])
+
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_execute_process_query_stores_the_query_cost(self, mock_process_query_dict, mock_redis_client):
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+
+        def run_and_meter(**kwargs):
+            record_request_query_cost(QueryCost(bytes_read=1234, remaining_bytes=99.9))
+            return {"results": []}
+
+        mock_process_query_dict.side_effect = run_and_meter
+
+        execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
+
+        args, _kwargs = mock_redis.set.call_args
+        stored = json.loads(args[1])
+        assert stored["bytes_read"] == 1234
+        assert stored["budget_remaining_bytes"] == 99
 
     @parameterized.expand(
         [
@@ -284,6 +308,43 @@ class TestExecuteProcessQuery(TestCase):
             assert user.sharing_configuration.id == sharing_configuration.id
         else:
             assert user is None
+
+    @parameterized.expand(
+        [
+            ("a real user", True, True),
+            # A shared link is read from outside the project, and the scan reports how much data
+            # the project holds, so neither it nor the key that addresses it may be stored.
+            ("a shared link viewer", False, False),
+        ]
+    )
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_a_killed_run_stores_its_scan_only_for_a_real_user(
+        self, _name, real_user, expect_scan, mock_process_query_dict, mock_redis_client
+    ):
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+        error = ExposedCHQueryError("query timed out")
+        error.cache_key = "cache_key_1"
+        error.query_scan = {"rows_read": 41_200, "duration_ms": 19_000, "killed": True, "analysis_requested": True}
+        mock_process_query_dict.side_effect = error
+        sharing_configuration = None if real_user else SharingConfiguration.objects.create(team=self.team, enabled=True)
+
+        execute_process_query(
+            self.team.id,
+            self.user.id if real_user else None,
+            self.query_id,
+            self.query_json,
+            self.limit_context,
+            sharing_configuration_id=sharing_configuration.id if sharing_configuration else None,
+        )
+
+        stored = json.loads(mock_redis.set.call_args.args[1])
+        assert (stored.get("cache_key") == "cache_key_1") is expect_scan
+        assert (stored.get("query_scan") is not None) is expect_scan
 
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
@@ -362,6 +423,83 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertTrue(result.complete)
         assert result.error_message
         self.assertEqual(result.error_code, ClickHouseQueryMemoryLimitExceeded.default_code)
+
+    @parameterized.expand(
+        [
+            ("unknown_identifier", 47, "unknown_identifier"),
+            ("unsupported_method", 1, "unsupported_method"),
+            ("syntax_error", 62, None),
+            ("query_was_cancelled", 394, None),
+            ("temporary_server_fault", 252, "too_many_parts"),
+            ("unknown_server_fault", 999_999, None),
+        ]
+    )
+    def test_async_query_internal_ch_error_code(self, _name, code, expected_code):
+        query = build_query("SELECT * FROM events")
+        query_id = uuid.uuid4().hex
+        # code_name can be lost when an internal error is re-raised from another thread.
+        error = InternalCHQueryError("DB::Exception: stored-secret", code=code)
+
+        with (
+            patch("posthog.api.services.query.process_query_dict", side_effect=error),
+            patch("posthog.clickhouse.client.execute_async.capture_exception") as mock_capture,
+        ):
+            client.enqueue_process_query_task(
+                self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+            )
+
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertTrue(result.error)
+        self.assertIsNone(result.error_message)
+        self.assertEqual(result.error_code, expected_code)
+        mock_capture.assert_called_once_with(error)
+
+    @parameterized.expand(
+        [
+            (
+                "staff_internal_rejection",
+                True,
+                InternalCHQueryError("Unknown column", code=47),
+                "unknown_identifier",
+                "Code: 47.\nUnknown column",
+                True,
+            ),
+            (
+                "exposed_rejection",
+                False,
+                ExposedCHQueryError("Expected an integer argument", code=43),
+                "illegal_type_of_argument",
+                "Expected an integer argument",
+                False,
+            ),
+            (
+                "staff_exposed_rejection",
+                True,
+                ExposedCHQueryError("Expected an integer argument", code=43),
+                "illegal_type_of_argument",
+                "Expected an integer argument",
+                False,
+            ),
+        ]
+    )
+    def test_async_query_rejection_code_is_independent_of_message_exposure(
+        self, _name, is_staff, error, expected_code, expected_message, captured
+    ):
+        self.user.is_staff = is_staff
+        self.user.save(update_fields=["is_staff"])
+        query_id = uuid.uuid4().hex
+        with (
+            patch("posthog.api.services.query.process_query_dict", side_effect=error),
+            patch("posthog.clickhouse.client.execute_async.capture_exception") as mock_capture,
+        ):
+            client.enqueue_process_query_task(
+                self.team, self.user.id, build_query("SELECT 1"), query_id=query_id, _test_only_bypass_celery=True
+            )
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertTrue(result.error)
+        self.assertEqual(result.error_code, expected_code)
+        self.assertEqual(result.error_message, expected_message)
+        self.assertEqual(mock_capture.called, captured)
 
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")

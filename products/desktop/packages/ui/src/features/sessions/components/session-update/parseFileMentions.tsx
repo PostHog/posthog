@@ -1,4 +1,8 @@
 import { File, Folder, Warning } from "@phosphor-icons/react";
+import {
+  hasMentionTags,
+  SLASH_COMMAND_START,
+} from "@posthog/core/sessions/promptContent";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@posthog/quill";
 import { unescapeXmlAttr } from "@posthog/shared";
 import { Text } from "@radix-ui/themes";
@@ -11,12 +15,11 @@ import {
   baseComponents,
   defaultRemarkPlugins,
 } from "../../../editor/components/MarkdownRenderer";
+import { CommentContextPreview } from "../../../message-editor/components/CommentContextPreview";
+import { CommentContextThumbnail } from "../../../message-editor/components/CommentContextThumbnail";
 
 const MENTION_TAG_REGEX =
-  /<file\s+path="([^"]+)"\s*\/>|<(github_issue|github_pr)\s+number="([^"]+)"(?:\s+title="([^"]*)")?(?:\s+url="([^"]*)")?\s*\/>|<error_context\s+label="([^"]*)">[\s\S]*?<\/error_context>|<folder\s+path="([^"]+)"\s*\/>/g;
-const MENTION_TAG_TEST =
-  /<(?:file\s+path|folder\s+path|github_issue\s+number|github_pr\s+number|error_context\s+label)="[^"]+"/;
-const SLASH_COMMAND_START = /^\/([a-zA-Z][\w-]*)(?=\s|$)/;
+  /<file\s+path="([^"]+)"\s*\/>|<(github_issue|github_pr)\s+number="([^"]+)"(?:\s+title="([^"]*)")?(?:\s+url="([^"]*)")?\s*\/>|<error_context\s+label="([^"]*)">[\s\S]*?<\/error_context>|<folder\s+path="([^"]+)"\s*\/>|<comment_context\s+label="([^"]*)"(?:\s+screenshot="([^"]*)")?>([\s\S]*?)<\/comment_context>/g;
 
 const inlineComponents: Components = {
   ...baseComponents,
@@ -42,14 +45,10 @@ const InlineMarkdown = memo(function InlineMarkdown({
   );
 });
 
-function hasMentionTags(content: string): boolean {
-  return MENTION_TAG_TEST.test(content) || SLASH_COMMAND_START.test(content);
-}
-
 export const hasFileMentions = hasMentionTags;
 
 const chipClass =
-  "inline-flex min-w-0 max-w-full items-center gap-1 rounded-[var(--radius-1)] bg-[var(--accent-a3)] px-1 py-px align-middle font-medium text-[var(--accent-11)]";
+  "inline-block max-w-full truncate rounded-[var(--radius-1)] bg-[var(--accent-a3)] px-1 py-px align-middle font-medium text-[var(--accent-11)]";
 
 export function MentionChip({
   icon,
@@ -60,14 +59,16 @@ export function MentionChip({
   icon: ReactNode;
   label: string;
   onClick?: () => void;
-  tooltip?: string;
+  tooltip?: ReactNode;
 }) {
   const style = { margin: "0 2px" };
 
   const content = (
     <>
-      {icon}
-      <span className="truncate">{label}</span>
+      {icon && (
+        <span className="mr-1 inline-block align-[-0.125em]">{icon}</span>
+      )}
+      {label}
     </>
   );
 
@@ -96,7 +97,11 @@ export function MentionChip({
   return (
     <Tooltip>
       <TooltipTrigger render={chip} />
-      <TooltipContent className="max-w-64">{tooltip}</TooltipContent>
+      <TooltipContent
+        className={typeof tooltip === "string" ? "max-w-64" : "max-w-none"}
+      >
+        {tooltip}
+      </TooltipContent>
     </Tooltip>
   );
 }
@@ -104,6 +109,16 @@ export function MentionChip({
 function parseMentionTags(content: string): ReactNode[] {
   const parts: ReactNode[] = [];
   let lastIndex = 0;
+
+  const pushText = (text: string, chipFollows: boolean): void => {
+    if (!text.trim()) {
+      if (parts.length > 0) parts.push(" ");
+      return;
+    }
+    if (parts.length > 0 && /^\s/.test(text)) parts.push(" ");
+    parts.push(<InlineMarkdown key={`text-${lastIndex}`} content={text} />);
+    if (chipFollows && /\s$/.test(text)) parts.push(" ");
+  };
 
   const slashMatch = content.match(SLASH_COMMAND_START);
   if (slashMatch) {
@@ -118,12 +133,7 @@ function parseMentionTags(content: string): ReactNode[] {
     if (matchIndex < lastIndex) continue;
 
     if (matchIndex > lastIndex) {
-      parts.push(
-        <InlineMarkdown
-          key={`text-${lastIndex}`}
-          content={content.slice(lastIndex, matchIndex)}
-        />,
-      );
+      pushText(content.slice(lastIndex, matchIndex), true);
     }
 
     if (match[1]) {
@@ -164,6 +174,26 @@ function parseMentionTags(content: string): ReactNode[] {
           label={unescapeXmlAttr(match[6])}
         />,
       );
+    } else if (match[8] !== undefined) {
+      const label = unescapeXmlAttr(match[8]) || "Comment";
+      const imagePath = match[9] ? unescapeXmlAttr(match[9]) : undefined;
+      if (parts.length > 0) {
+        parts.push(<br key={`comment-break-${matchIndex}`} />);
+      }
+      parts.push(
+        <MentionChip
+          key={`comment-ctx-${matchIndex}`}
+          icon={<CommentContextThumbnail imagePath={imagePath} />}
+          label={label}
+          tooltip={
+            <CommentContextPreview
+              label={label}
+              body={unescapeXmlAttr(match[10].trim())}
+              imagePath={imagePath}
+            />
+          }
+        />,
+      );
     } else if (match[7]) {
       const folderPath = unescapeXmlAttr(match[7]);
       const segments = folderPath.split("/").filter(Boolean);
@@ -181,12 +211,7 @@ function parseMentionTags(content: string): ReactNode[] {
   }
 
   if (lastIndex < content.length) {
-    parts.push(
-      <InlineMarkdown
-        key={`text-${lastIndex}`}
-        content={content.slice(lastIndex)}
-      />,
-    );
+    pushText(content.slice(lastIndex), false);
   }
 
   return parts;

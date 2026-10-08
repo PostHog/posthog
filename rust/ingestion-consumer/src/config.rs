@@ -1,10 +1,16 @@
+use std::time::{Duration, Instant};
+
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::info;
 
+use crate::batcher::retry_policy::RetryPolicy;
+use crate::batcher::state_machine::BatcherStateMachine;
+use crate::batcher::worker_assigner::WorkerAssigner;
 use crate::discovery::DiscoveryMode;
-use crate::routing::RoutingStrategy;
+use crate::routing::{Router, RoutingStrategy};
+use crate::scheduler::SchedulerKind;
 use common_kafka_consumer::config::ConsumerConfigBuilder;
 
 /// Configuration for the ingestion consumer.
@@ -163,6 +169,14 @@ pub struct Config {
     #[envconfig(default = "60000")]
     pub consumer_deferred_flush_timeout_ms: u64,
 
+    /// How long the key-table scheduler waits before it retries a failed
+    /// send, and how often a request with no routable worker tries again
+    /// (milliseconds). Matches the flush driver's retry cadence, so the
+    /// scheduler switch does not regress recovery latency. Only read under
+    /// `INGESTION_SCHEDULER=key_table`.
+    #[envconfig(from = "INGESTION_PARKED_RETRY_INTERVAL_MS", default = "200")]
+    pub parked_retry_interval_ms: u64,
+
     /// Maximum Kafka batches to process concurrently. Matches the Node.js
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
@@ -272,6 +286,13 @@ pub struct Config {
     /// (power-of-two-choices — herd-resistant for a shared worker pool).
     #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
     pub routing_strategy: RoutingStrategy,
+
+    /// Which scheduler orders and places runs: `pin_stash` (default, sticky
+    /// pins with a per-batch stash) or `key_table` (the batcher state
+    /// machine: at most one in-flight request per key, with packing). The
+    /// switch back is the rollback.
+    #[envconfig(from = "INGESTION_SCHEDULER", default = "pin_stash")]
+    pub scheduler: SchedulerKind,
 
     /// Minimum aperture width for `INGESTION_ROUTING_STRATEGY=aperture`: how
     /// many workers this dispatcher's ring slice spans. The effective width
@@ -387,6 +408,23 @@ fn parse_kafka_consumer_env_overrides() -> Vec<(String, String)> {
 impl Config {
     pub fn bind_address(&self) -> String {
         format!("{}:{}", self.bind_host, self.bind_port)
+    }
+
+    /// The key-table scheduler's state machine. It reuses the stream's
+    /// un-acked cap as its per-worker request cap, the parked-retry interval
+    /// for every retry, and the deferred-flush timeout as its stall timeout.
+    pub fn batcher_state_machine(&self) -> Result<BatcherStateMachine, String> {
+        let assigner = WorkerAssigner::new(
+            Router::new(self.routing_strategy),
+            self.ingestion_worker_concurrent_batches,
+        )?;
+        let retry = RetryPolicy::uniform(Duration::from_millis(self.parked_retry_interval_ms))?;
+        BatcherStateMachine::new(
+            assigner,
+            retry,
+            Duration::from_millis(self.consumer_deferred_flush_timeout_ms),
+            Instant::now(),
+        )
     }
 
     pub fn worker_urls(&self) -> Vec<String> {

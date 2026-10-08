@@ -199,7 +199,8 @@ A `delay` waits either a fixed span or until a date carried by the person or the
 - The `…conversion` variants require a `conversion` goal with two slots plus a window:
   - `filters` — **property conditions only**, an array `[{key, value, operator, type}, ...]` (empty array = any event in the window converts).
   - `events` — **event-based goals**, `[{ "filters": { "events": [{ "id": "<event>", "name": "<event>", "type": "events" }] } }]`.
-  - `window_minutes` — minutes after entry (`null` = no window).
+  - `window` — how long after entry a conversion still counts, as a duration string (`"7d"`, `"12h"`, `"30m"`, `"45s"`), max `"365d"`. Omit it (or `null`) for the default 90-day window.
+  - There is no minutes form. The server drops a `window_minutes` key without an error, so a window sent that way silently becomes the 90-day default.
 - **An event goal goes in `events`, never in `filters`.** An event object stuffed into `filters` is invisible to the conversion matcher and breaks the conversion picker. Without a goal the `…conversion` exit is a silent no-op. Server compiles the bytecode.
 
 ## Pre-submit checklist

@@ -20,7 +20,9 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-# Two-tier classification thresholds, applied by `diffing.classify_compare_result`:
+from .enums import QuarantineLiftState, ShiftBandKind
+
+# Classification thresholds, applied by `diffing.classify_compare_result`:
 #
 # 1. Pixel diff ratio — fast path for obvious changes. Snapshots above
 #    this are immediately classified as CHANGED.
@@ -29,6 +31,8 @@ from pydantic.dataclasses import dataclass
 #    a measurable structural shift that SSIM catches.
 #
 # Only when both are below threshold is the snapshot reclassified as UNCHANGED.
+# When the pair aligned, both are measured after alignment, so a vertical
+# shift is judged on what actually changed rather than on everything below it.
 #
 # They live here rather than next to the classifier because they are also what
 # `FlakinessEntry.headroom` is measured against, so a consumer reading that
@@ -36,6 +40,21 @@ from pydantic.dataclasses import dataclass
 # libraries onto the web request path.
 PIXEL_DIFF_THRESHOLD_PERCENT = 2.5
 SSIM_DISSIMILARITY_THRESHOLD = 0.01  # 1% structural difference
+
+# How many inserted or deleted rows the classifier absorbs as noise before it
+# calls the change a layout change.
+#
+# Every run measures its shift against the committed baseline, not against the
+# previous run, so an absorbed shift cannot accumulate into a page that has
+# quietly moved by twenty rows. Two rows is also the point where the change
+# stops being actionable: a reviewer cannot do anything about one or two pixels
+# of spacing, but a taller band is a block that appeared or disappeared and
+# somebody should look at it.
+SHIFT_ABSORB_MAX_ROWS = 2
+
+# The CLI uploads only .png files, so the backend decodes snapshots as PNG and nothing else.
+# Image.open without formats= tries every format Pillow can parse.
+SNAPSHOT_IMAGE_FORMATS = ("PNG",)
 
 # --- Input DTOs ---
 
@@ -135,6 +154,7 @@ class AddSnapshotsInput:
 
     snapshots: list[SnapshotManifestItem]
     baseline_hashes: dict[str, str] = field(default_factory=dict)
+    story_index_hash: str = ""
 
 
 @dataclass(frozen=True)
@@ -143,6 +163,7 @@ class AddSnapshotsResult:
 
     added: int
     uploads: list[UploadTarget]
+    story_index_upload: UploadTarget | None = None
 
 
 @dataclass(frozen=True)
@@ -206,6 +227,49 @@ class ClusterSummary:
 
 
 @dataclass(frozen=True)
+class ShiftBand:
+    """One run of rows the current image gained or lost.
+
+    A deleted band has no rows of its own in the current image, so `y` is the
+    seam the removed rows left behind and `rows` counts what went away.
+    """
+
+    y: int
+    rows: int
+    kind: ShiftBandKind
+
+
+@dataclass(frozen=True)
+class RowShift:
+    """A vertical shift between baseline and current, separated from the real change.
+
+    Row alignment pairs the rows that exist in both images, so the pixels
+    below an inserted row stop counting as differences. `residual_percentage`
+    is what survives that pairing. The snapshot's `diff_percentage` adds the
+    area of the rows the shift added or removed, and that combined number is
+    what the pixel threshold judges. `raw_diff_percentage` is what the same
+    pair measured without alignment, which is how the UI can say what the
+    shift would otherwise have cost.
+    """
+
+    inserted_rows: int
+    deleted_rows: int
+    residual_percentage: float
+    raw_diff_percentage: float
+    bands: list[ShiftBand]
+
+    @property
+    def shifted_rows(self) -> int:
+        """How far the rows moved. What the absorb cap judges.
+
+        A page that grew has only inserts and one that shrank has only deletes.
+        A same-height translation shows up as both, so the larger side is the
+        movement, not the sum.
+        """
+        return max(self.inserted_rows, self.deleted_rows)
+
+
+@dataclass(frozen=True)
 class Snapshot:
     """A snapshot with its comparison results."""
 
@@ -239,19 +303,25 @@ class Snapshot:
     change_kind: str = ""
     cluster_summary: ClusterSummary | None = None
     size_mismatch: bool = False
+    # The vertical shift the diff pipeline measured, if it could align the
+    # pair. Present on absorbed (UNCHANGED) snapshots as well, because a shift
+    # small enough to absorb is still the only trace of why the pixels moved.
+    row_shift: RowShift | None = None
 
 
 @dataclass(frozen=True)
 class RunSnapshots:
-    """A run's snapshots plus the count of its currently-quarantined identifiers.
+    """One page of a run's snapshots plus the counts a caller needs around it.
 
-    `quarantined_count` always reflects the full run regardless of whether
-    quarantined snapshots were filtered out of `snapshots`, so callers can
-    surface "N hidden" without a second fetch.
+    `quarantined_count` counts the quarantined snapshots that match the other
+    filters, whether or not they were left out of `snapshots`, so callers can
+    surface "N hidden" without a second fetch. `total_count` counts every
+    snapshot that matches the filters, across all pages.
     """
 
     snapshots: list[Snapshot]
     quarantined_count: int
+    total_count: int
 
 
 @dataclass(frozen=True)
@@ -284,6 +354,7 @@ class Run:
     error_message: str | None
     created_at: datetime
     completed_at: datetime | None
+    purpose: str = "review"
     is_stale: bool = False
     superseded_by_id: UUID | None = None
     approved_by: UserBasicInfo | None = None
@@ -378,6 +449,37 @@ class QuarantineInput:
     # "what was wrong" later. Omitted when quarantining from the snapshot
     # history page where no run is in context.
     source_run_id: UUID | None = None
+    notify_owners: bool = False
+
+
+@dataclass(frozen=True)
+class LiftOnMergeInput:
+    """Request body for lifting a quarantine when the run's pull request merges. run_id comes from the URL."""
+
+    identifier: str
+
+
+@dataclass(frozen=True)
+class QuarantineLiftEntry:
+    """A request to lift one quarantine event once a pull request merges."""
+
+    id: UUID
+    quarantine_id: UUID
+    identifier: str
+    run_type: str
+    pr_number: int
+    # The picture a default-branch run must render, against a baseline entry that holds it too.
+    expected_hash: str
+    state: QuarantineLiftState
+    detail: str
+    source: str
+    created_at: datetime
+    updated_at: datetime
+    resolved_at: datetime | None = None
+    source_run_id: UUID | None = None
+    requested_by: UserBasicInfo | None = None
+    merge_commit_sha: str | None = None
+    lifted_at_sha: str | None = None
 
 
 @dataclass(frozen=True)
@@ -386,6 +488,7 @@ class UpdateRepoRequestInput:
 
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
+    debt_digest_enabled: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -395,6 +498,7 @@ class UpdateRepoInput:
     repo_id: UUID
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
+    debt_digest_enabled: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -419,6 +523,9 @@ class SnapshotHistoryEntry:
     ssim_score: float | None = None
     change_kind: str = ""
     size_mismatch: bool = False
+    # Same meaning as on `Snapshot`, and present on absorbed rows too, so the
+    # history view can show which runs only moved rather than changed.
+    row_shift: RowShift | None = None
 
 
 @dataclass(frozen=True)
@@ -431,20 +538,32 @@ class Repo:
     repo_full_name: str
     baseline_file_paths: dict[str, str]
     enable_pr_comments: bool
+    debt_digest_enabled: bool
     created_at: datetime
 
 
 # Hard cap on entries returned by the baselines overview endpoint. Above this,
 # truncate (newest by run completion) and surface `truncated: True` so the UI
 # can flag it. The whole flow is sized for this — the FE filters/sorts client-
-# side and ships ~600 KB gzipped at the cap.
-BASELINE_OVERVIEW_MAX_ENTRIES = 5000
+# side and ships ~900 KB gzipped at the cap. Sized above the largest repo's
+# universe, so the cap is a backstop rather than a filter that hides stories.
+BASELINE_OVERVIEW_MAX_ENTRIES = 7500
 
 # Number of most-recent default-branch completed runs that feed the
 # `recent_drift_avg` smoothing window. Bounded by run count rather than time
 # so a busy repo doesn't drag in proportionally more rows. ~10 runs is enough
 # to wash out a single jittery render while staying responsive on real changes.
 BASELINE_DRIFT_RECENT_RUN_COUNT = 10
+
+# Accepted variants against one current baseline at which the baseline stops describing one
+# rendering and starts describing a set. Three is the point where a reader can no longer hold what
+# "the baseline" means for that snapshot, and the same floor the frequently-tolerated stat uses.
+VARIANT_PILEUP_MIN = 3
+
+# Rolling window for counting a snapshot's tolerations across baselines. The debt digest flags
+# `VARIANT_PILEUP_MIN` intentional tolerations in this window. The Tolerate dialog's quarantine
+# suggestion in the frontend (`lib/quarantineNudge.ts`) uses the same window and floor.
+TOLERATION_PILEUP_WINDOW_DAYS = 30
 
 
 @dataclass(frozen=True)
@@ -481,6 +600,11 @@ class BaselineEntry:
     height: int | None
     tolerate_count_30d: int
     tolerate_count_90d: int
+    # Accepted variants still recorded against the hash this baseline currently holds. Distinct
+    # from the two counts above, which measure how often somebody accepted drift in a rolling
+    # window. A baseline change drops this to zero, because a toleration is recorded against the
+    # baseline hash it was decided for and stops matching when that hash moves.
+    active_variants_current_baseline: int
     is_quarantined: bool
     last_run_at: datetime
     # Lifetime count of YAML baseline flips on master/main for this identifier.
@@ -511,6 +635,8 @@ class BaselineTotals:
     recently_tolerated: int
     frequently_tolerated: int
     currently_quarantined: int
+    # Baselines carrying at least `VARIANT_PILEUP_MIN` accepted variants of their current hash.
+    variant_pileups: int
     by_run_type: dict[str, int]
 
 
@@ -559,6 +685,10 @@ FLAKINESS_MIN_HEADROOM = 0.2
 # A quarantine this close to running out needs a human to extend it or let it
 # lapse, so it counts toward `needs_decision`.
 FLAKINESS_EXPIRY_SOON_DAYS = 7
+
+# Latest expiry an agent's quarantine gets, and the one it gets when the call names
+# none. A quarantine without an expiry never lifts itself, and no agent comes back to lift it.
+AGENT_QUARANTINE_MAX_DAYS = 30
 
 # Safety cap on rows returned by the flakiness endpoint. The population is
 # already narrow (only identifiers carrying variants or a quarantine), so this
@@ -632,6 +762,9 @@ class FlakinessEntry:
     # between extending it and lifting it.
     needs_decision: bool
     quarantine: BaselineQuarantineSummary | None = None
+    # Team that owns the story file, `UNOWNED_TEAM` when no entry covers it, and None when
+    # ownership is unknown.
+    owner_team: str | None = None
 
 
 @dataclass(frozen=True)
@@ -646,10 +779,6 @@ class FlakinessTotals:
     broken: int
     unstable: int
     at_risk: int
-    noisy: int
-    # Listed, but nothing failing or absorbed inside the rate span. A row
-    # reaches this state by carrying live variants, or history further back in
-    # the read window, so it is reported rather than silently unreachable.
     clean: int
     quarantined: int
     needs_decision: int
@@ -662,5 +791,37 @@ class FlakinessOverview:
 
     entries: list[FlakinessEntry]
     totals: FlakinessTotals
+    truncated: bool
+    generated_at: datetime
+
+
+@dataclass(frozen=True)
+class RunScope:
+    """Where a run's snapshots live: its repo and run type."""
+
+    repo_id: UUID
+    run_type: str
+
+
+@dataclass(frozen=True)
+class TolerationPileupEntry:
+    """One snapshot identity that keeps getting tolerated."""
+
+    identifier: str
+    run_type: str
+    intentional_count: int
+    automatic_count: int
+    is_quarantined: bool
+
+
+@dataclass(frozen=True)
+class TolerationPileups:
+    """Result of the toleration pile-ups endpoint, with the rule it applied."""
+
+    entries: list[TolerationPileupEntry]
+    window_days: int
+    min_tolerations: int
+    min_automatic_tolerations: int | None
+    total: int
     truncated: bool
     generated_at: datetime

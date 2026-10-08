@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useRef } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonModal, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
@@ -13,7 +13,6 @@ import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { getAccessControlDisabledReason, accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -23,6 +22,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
@@ -85,6 +86,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         assignee,
         tags,
         chatMessages,
+        deliveryStatusByMessageId,
         messagesLoading,
         messageSending,
         hasMoreMessages,
@@ -103,16 +105,17 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         draftModeEnabled,
         replyRecipientDescription,
         snoozedUntil,
-        knowledgeGaps,
-        knowledgeGapsLoading,
         emailReplyBlockedReason,
         latestAiMessage,
+        latestAiDraftId,
         feedbackByMessageId,
         editingMessageId,
         discussionsEnabled,
         fullEmailContent,
         fullEmailContentLoading,
         fullEmailMessageId,
+        composerPrefillAt,
+        aiDraftApplying,
     } = useValues(logic)
     // The list's filters / saved view ride along in this page's query string
     // (the ticket row carries them through on navigation). Preserve them on the
@@ -131,13 +134,13 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setDraftContent,
         setDraftIsPrivate,
         setDraftModeEnabled,
-        dismissKnowledgeGap,
         submitAiReplyFeedback,
         startEditingMessage,
         cancelEditingMessage,
         deleteMessage,
         loadFullEmail,
         closeFullEmail,
+        applyAiDraft,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
@@ -195,6 +198,10 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     // Above the early returns below: this scene renders a spinner and a not-found state before the
     // thread, and a hook can't be called on only some of those paths.
     const discussionExtras = useDiscussionTimelineExtras(ticket?.id, discussionsEnabled)
+    const threadExtras = useMemo(
+        () => [...reportTimelineExtras(linkedReports), ...discussionExtras],
+        [discussionExtras, linkedReports]
+    )
 
     if (ticketLoading) {
         return (
@@ -261,7 +268,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         fillParent
                         collapseUntilActive
                         threadId={ticketId}
-                        threadExtras={[...reportTimelineExtras(linkedReports), ...discussionExtras]}
+                        threadExtras={threadExtras}
                         messages={chatMessages}
                         messagesLoading={messagesLoading}
                         messageSending={messageSending}
@@ -271,8 +278,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onLoadOlderMessages={loadOlderMessages}
                         channel={ticket?.channel_source}
                         showPrivateOption
-                        unreadCustomerCount={ticket?.unread_customer_count}
-                        showDeliveryStatus={ticket?.channel_source === 'widget'}
+                        deliveryStatusByMessageId={deliveryStatusByMessageId}
                         draftContent={draftContent}
                         onDraftChange={setDraftContent}
                         isPrivate={draftIsPrivate}
@@ -285,6 +291,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         replyDisabledReason={replyDisabledReason}
                         sendDisabledReason={sendDisabledReason}
                         latestAiMessageId={latestAiMessage?.id ?? null}
+                        latestAiDraftId={latestAiDraftId}
                         feedbackByMessageId={feedbackByMessageId}
                         showAiReplyFeedback={aiSuggestionsEnabled}
                         aiReplyFeedbackDisabledReason={sendDisabledReason}
@@ -297,6 +304,10 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onCancelEdit={cancelEditingMessage}
                         fullEmailLoadingMessageId={fullEmailContentLoading ? fullEmailMessageId : null}
                         onViewFullEmail={loadFullEmail}
+                        composerPrefillAt={composerPrefillAt}
+                        aiSources={ticket?.ai_triage?.sources}
+                        aiDraftApplying={aiDraftApplying}
+                        onApplyAiDraft={applyAiDraft}
                     />
                     <div className="hidden @min-[48rem]/main-content:block">
                         <Resizer {...resizerLogicProps} className="z-20" />
@@ -596,14 +607,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     {user?.is_staff && ticket && <StaffActionsPanel />}
 
                     {/* AI Triage Panel */}
-                    {aiSuggestionsEnabled && ticket && (
-                        <AIPanel
-                            aiTriage={ticket.ai_triage}
-                            knowledgeGaps={knowledgeGaps}
-                            knowledgeGapsLoading={knowledgeGapsLoading}
-                            onDismissGap={dismissKnowledgeGap}
-                        />
-                    )}
+                    {aiSuggestionsEnabled && ticket && <AIPanel aiTriage={ticket.ai_triage} />}
 
                     {ticket?.channel_source === 'widget' && (
                         <>

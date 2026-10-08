@@ -47,7 +47,6 @@ from products.review_hog.backend.models import ReviewUserSettings
 from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.report_generation.priority import persisted_report_priority
-from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.stamphog.backend.facade.inbox_hooks import register_inbox_acting_reviewer_resolver
 
 # This module loads during django.setup() (AppConfig.ready() wires the receiver), and
@@ -228,6 +227,13 @@ def _resolve_assigned_reviewers(team_id: int, signal_report_id: Any) -> list[Any
     ]
     if not logins:
         return []
+
+    # Function-local: pulls the signals contracts module (pydantic dataclasses), which the
+    # startup-import-budget test forbids at django.setup() — see the module-top comment.
+    from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415
+        resolve_org_github_login_to_users,
+    )
+
     login_to_user = resolve_org_github_login_to_users(team_id, logins)
     return [login_to_user[login] for login in logins if login in login_to_user]
 

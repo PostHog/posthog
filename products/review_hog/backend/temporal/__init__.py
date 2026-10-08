@@ -5,16 +5,20 @@ from products.review_hog.backend.temporal.activities import (
     fail_status_comment_activity,
     fetch_pr_data_activity,
     finalize_status_comment_activity,
+    gate_push_activity,
     generate_schemas_activity,
+    lens_review_activity,
     load_blind_spots_skill_activity,
     load_perspectives_activity,
     load_validation_skill_activity,
     post_status_comment_activity,
     publish_review_activity,
+    record_turn_marker_activity,
     remove_trigger_label_activity,
     resolve_acting_user_activity,
     review_chunk_activity,
     select_perspectives_activity,
+    single_agent_review_activity,
     split_chunks_activity,
     sync_review_skills_activity,
     track_review_completed_activity,
@@ -33,6 +37,7 @@ from products.review_hog.backend.temporal.resolution import (
     fail_resolution_activity,
     resolve_threads_activity,
 )
+from products.review_hog.backend.temporal.scheduling import ReviewPRQueueWorkflow, review_resolution_running_activity
 from products.review_hog.backend.temporal.workflow import (
     ReviewPerspectivesWorkflow,
     ReviewPRWorkflow,
@@ -40,6 +45,7 @@ from products.review_hog.backend.temporal.workflow import (
 )
 
 WORKFLOWS = [
+    ReviewPRQueueWorkflow,
     ReviewPRWorkflow,
     ReviewPerspectivesWorkflow,
     ValidateIssuesWorkflow,
@@ -48,9 +54,11 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    review_resolution_running_activity,
     validate_github_integration_activity,
     fetch_pr_data_activity,
     resolve_acting_user_activity,
+    gate_push_activity,
     sync_review_skills_activity,
     generate_schemas_activity,
     split_chunks_activity,
@@ -58,11 +66,14 @@ ACTIVITIES = [
     select_perspectives_activity,
     load_blind_spots_skill_activity,
     review_chunk_activity,
+    single_agent_review_activity,
+    lens_review_activity,
     dedup_activity,
     load_validation_skill_activity,
     validate_chunk_activity,
     build_body_activity,
     publish_review_activity,
+    record_turn_marker_activity,
     remove_trigger_label_activity,
     post_status_comment_activity,
     finalize_status_comment_activity,

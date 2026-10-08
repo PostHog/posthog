@@ -37,6 +37,7 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     database = models.CharField(max_length=255, default="ducklake")
     username = models.CharField(max_length=255)
     password = EncryptedTextField(max_length=500)
+    trino_password = EncryptedTextField(max_length=500, null=True, blank=True)
 
     # DuckLake catalog Postgres connection — a separate metadata store from the
     # query server above. Nullable: an org may have a provisioned server before its
@@ -124,11 +125,7 @@ class ManagedWarehouseSourceJob(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
         db_constraint=False,
     )
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     environment_id = models.BigIntegerField()
     schema_id = models.UUIDField()

@@ -10,7 +10,9 @@
         "@posthog/quill-primitives": "workspace:*",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:"
+        "kea-router": "catalog:",
+        "posthog-js": "catalog:",
+        "react-intersection-observer": "9.5.3"
     },
     "devDependencies": {
         "kea-test-utils": "catalog:"

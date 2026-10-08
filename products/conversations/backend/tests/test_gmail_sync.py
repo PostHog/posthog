@@ -1,4 +1,5 @@
 import base64
+from datetime import UTC, datetime
 
 import pytest
 from posthog.test.base import BaseTest
@@ -131,6 +132,38 @@ class TestGmailSync(BaseTest):
         imported = EmailThreadMessage.objects.for_team(self.team.id).select_related("comment").get()
         assert imported.comment.content == "Attachment-backed message body"
 
+    def test_html_only_body_keeps_paragraphs_and_links(self) -> None:
+        message = _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.email)
+        html = (
+            b"<html><head><style>p { margin: 0 }</style></head><body>"
+            b"<p>Hey team,</p>\n<p>It goes quickly, so start early.</p>"
+            b'<p>See <a href="https://app.example.com/billing">your billing page</a>.<br>Cheers</p>'
+            b"<p>Ref &#0;0&#0;</p>"
+            b"<pre>def run():\n    return 1</pre>"
+            b"</body></html>"
+        )
+        message["payload"]["mimeType"] = "text/html"
+        message["payload"]["body"] = {"data": base64.urlsafe_b64encode(html).decode().rstrip("=")}
+
+        with patch.object(
+            gmail_sync,
+            "google_workspace_request",
+            side_effect=[
+                _response({"emailAddress": self.user.email, "historyId": "100"}),
+                _response({"messages": [{"id": "gmail-1"}]}),
+                _response(message),
+            ],
+        ):
+            gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+
+        imported = EmailThreadMessage.objects.for_team(self.team.id).select_related("comment").get()
+        assert imported.comment.content == (
+            "Hey team,\n\nIt goes quickly, so start early.\n\n"
+            "See [your billing page](https://app.example.com/billing).\nCheers\n\n"
+            "Ref 0\n\n"
+            "def run():\n    return 1"
+        )
+
     def test_message_with_too_many_attachment_backed_bodies_is_skipped(self) -> None:
         message = _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.email)
         message["payload"]["mimeType"] = "multipart/alternative"
@@ -157,6 +190,55 @@ class TestGmailSync(BaseTest):
         assert not EmailThread.objects.for_team(self.team.id).exists()
         self.integration.refresh_from_db()
         assert self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] == "100"
+
+    def test_backfill_pages_through_the_range_without_changing_history_state(self) -> None:
+        start_at = datetime(2026, 7, 1, tzinfo=UTC)
+        end_at = datetime(2026, 8, 1, tzinfo=UTC)
+        first_message = _gmail_message(
+            label="INBOX", sender="first@example.com", recipient=self.user.email, message_id="gmail-1"
+        )
+        second_message = _gmail_message(
+            label="SENT", sender=self.user.email, recipient="second@example.com", message_id="gmail-2"
+        )
+
+        with patch.object(
+            gmail_sync,
+            "google_workspace_request",
+            side_effect=[
+                _response({"messages": [{"id": "gmail-1"}], "nextPageToken": "page-2"}),
+                _response(first_message),
+                _response({"messages": [{"id": "gmail-2"}]}),
+                _response(second_message),
+            ],
+        ) as mock_request:
+            next_page_token, first_count = gmail_sync.sync_gmail_backfill_batch(
+                self.integration.id,
+                self.team.id,
+                start_at=start_at,
+                end_at=end_at,
+            )
+            final_page_token, second_count = gmail_sync.sync_gmail_backfill_batch(
+                self.integration.id,
+                self.team.id,
+                start_at=start_at,
+                end_at=end_at,
+                page_token=next_page_token,
+            )
+
+        assert next_page_token == "page-2"
+        assert final_page_token is None
+        assert first_count == second_count == 1
+        first_list_params = mock_request.call_args_list[0].kwargs["params"]
+        second_list_params = mock_request.call_args_list[2].kwargs["params"]
+        assert first_list_params == {
+            "q": f"{{in:inbox in:sent}} after:{int(start_at.timestamp()) - 1} before:{int(end_at.timestamp())}",
+            "maxResults": gmail_sync.BACKFILL_PAGE_SIZE,
+        }
+        assert second_list_params["pageToken"] == "page-2"
+        self.integration.refresh_from_db()
+        assert gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY not in self.integration.config
+        assert gmail_sync.GMAIL_LAST_SYNCED_AT_CONFIG_KEY not in self.integration.config
+        assert EmailThreadMessage.objects.for_team(self.team.id).count() == 2
 
     def test_incremental_sync_checkpoints_each_imported_message(self) -> None:
         self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] = "100"
@@ -349,3 +431,8 @@ class TestGmailSync(BaseTest):
             gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
 
         assert not EmailThread.objects.for_team(self.team.id).exists()
+
+
+class TestHtmlToText:
+    def test_many_sibling_paragraphs_flatten_in_one_pass(self) -> None:
+        assert gmail_sync._html_to_text("<p>x</p>" * 20_000) == "\n\n".join(["x"] * 20_000)

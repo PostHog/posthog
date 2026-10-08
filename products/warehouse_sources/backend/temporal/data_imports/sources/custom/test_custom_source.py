@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import quote
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -122,16 +122,25 @@ class TestValidateManifest(SimpleTestCase):
             validate_manifest(manifest)
         assert expected_substring in str(ctx.exception)
 
-    def test_empty_required_strings_give_plain_message(self):
-        # Empty required fields used to surface pydantic's raw "String should have at
-        # least 1 character" with positional paths; assert the friendlier, JSON-mirroring form.
-        manifest = {"client": {"base_url": ""}, "resources": [{"name": "", "endpoint": {"path": ""}}]}
+    @parameterized.expand(
+        [
+            (
+                {"client": {"base_url": ""}, "resources": [{"name": "", "endpoint": {"path": ""}}]},
+                "These required fields are empty: base URL, table 1 name, table 1 path. Fill them in, then try again.",
+            ),
+            (
+                {
+                    "client": {"base_url": "https://x"},
+                    "resources": [{"name": "users", "endpoint": {"path": "/users"}}, {"name": "", "endpoint": {}}],
+                },
+                "resources[1].name: must not be empty; resources[1].endpoint.path: Field required",
+            ),
+        ]
+    )
+    def test_empty_required_strings_give_plain_message(self, manifest, expected_message):
         with self.assertRaises(ManifestValidationError) as ctx:
             validate_manifest(manifest)
-        message = str(ctx.exception)
-        assert "client.base_url: must not be empty" in message
-        assert "resources[0].name: must not be empty" in message
-        assert "resources[0].endpoint.path: must not be empty" in message
+        assert str(ctx.exception) == expected_message
 
     def test_rejects_duplicate_resource_names(self):
         manifest = _minimal_manifest()
@@ -323,6 +332,22 @@ class TestValidateManifestUrls(SimpleTestCase):
         ok, err = validate_manifest_urls(manifest, team_id=999)
         assert not ok
         assert "Remove the HTTP method" in (err or "")
+
+    @parameterized.expand(
+        [
+            ("leading", '"https://api.example.com/v1'),
+            ("wrapped", '"https://api.example.com/v1"'),
+            ("single", "'https://api.example.com/v1'"),
+        ]
+    )
+    def test_rejects_base_url_with_quote_marks(self, _name: str, base_url: str):
+        # A quote kept from a copied code sample used to surface an unhelpful "missing a hostname"
+        # that echoed the pasted value back — the message must name the quote instead.
+        manifest = _minimal_manifest(base_url=base_url)
+        ok, err = validate_manifest_urls(manifest, team_id=999)
+        assert not ok
+        assert "Remove the quote marks" in (err or "")
+        assert base_url not in (err or "")
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch(
@@ -585,7 +610,7 @@ class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
         fresh = CustomOAuth2Integration.objects.for_team(self.team.pk).get(pk=integration.pk)
         assert fresh.sensitive_config["refresh_token"] == "rotated-RT"
 
-    @freeze_time("2025-01-01T00:00:00Z")
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
     @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_reuses_cached_token_without_minting(self, mock_session):
         # A still-valid cached token means no mint at all — the manifest is seeded straight from the row.
@@ -602,7 +627,7 @@ class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
         # No refresh material is seeded — the engine treats it as a static bearer and never mints.
         assert "refresh_token" not in auth
 
-    @freeze_time("2025-01-01T00:00:00Z")
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
     @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_post_injection_manifest_builds_static_bearer_that_never_mints(self, mock_session):
         # End-to-end seam: feed the injected client.auth through the engine's own auth construction
@@ -878,7 +903,7 @@ class TestCustomSourceOAuth2SecretAdoption(BaseTest):
         # expiry, or the row would just reuse the still-valid cached access token without minting.
         self._mock_mint(mock_token_session, mock_probe_session, rotated="rotated-RT-1")
         first_config = self._static_config()
-        with freeze_time("2025-01-01T00:00:00Z"):
+        with time_machine.travel("2025-01-01T00:00:00Z", tick=False):
             ok, err = CustomSource().validate_credentials(
                 first_config, team_id=self.team.pk, owner_user_id=self.user.pk
             )
@@ -886,7 +911,7 @@ class TestCustomSourceOAuth2SecretAdoption(BaseTest):
 
         self._mock_mint(mock_token_session, mock_probe_session, rotated="rotated-RT-2")
         second_config = self._static_config()
-        with freeze_time("2025-01-01T02:00:00Z"):
+        with time_machine.travel("2025-01-01T02:00:00Z", tick=False):
             ok, err = CustomSource().validate_credentials(
                 second_config, team_id=self.team.pk, owner_user_id=self.user.pk
             )
@@ -1133,7 +1158,7 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert ok, err
         mock_session.assert_not_called()
 
-    @freeze_time("2025-01-01T00:00:00Z")
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
     def test_oauth2_minted_token_joins_probe_redaction(self, mock_session):
         # The pre-mint runs before the probe session is built, so the freshly-minted access token
@@ -1655,6 +1680,29 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         with self.assertRaises(NonRetryableException):
             source.source_for_pipeline(config, inputs)
 
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_manifest_cannot_raise_retry_limits(self, mock_resources):
+        # Fails if a user-authored manifest can set the retry limits, which would let its own endpoint
+        # hold a shared source thread for as long as it likes.
+        mock_resources.return_value = [_fake_resource("users")]
+        manifest = _minimal_manifest()
+        manifest["client"]["retry_budget_seconds"] = 172800
+        manifest["client"]["retry_after_max_seconds"] = 86400
+
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        CustomSource().source_for_pipeline(CustomSourceConfig(manifest_json=json.dumps(manifest)), inputs)
+
+        client_config = mock_resources.call_args.args[0]["client"]
+        assert "retry_budget_seconds" not in client_config
+        assert "retry_after_max_seconds" not in client_config
+        assert client_config["base_url"] == manifest["client"]["base_url"]
+
     @parameterized.expand(
         [("default_asc", None, "asc"), ("explicit_asc", "asc", "asc"), ("explicit_desc", "desc", "desc")]
     )
@@ -1738,18 +1786,21 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         threaded_config = mock_resources.call_args.args[0]
         assert threaded_config["client"]["paginator"] == paginator_config
 
+    @parameterized.expand([("on_resource",), ("in_resource_defaults",)])
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
-    def test_cursor_type_stripped_before_rest_engine(self, mock_resources):
+    def test_cursor_type_stripped_before_rest_engine(self, location, mock_resources):
         # cursor_type informs schema field typing but is not a valid kwarg for the
         # engine's Incremental(**config) — it must be removed before the manifest
-        # reaches the REST engine, while the other incremental keys survive.
+        # reaches the REST engine, while the other incremental keys survive. The engine
+        # merges resource_defaults into each resource itself, so the defaults must not
+        # carry it either.
         mock_resources.return_value = [_fake_resource("users")]
         manifest = _minimal_manifest()
-        manifest["resources"][0]["endpoint"]["incremental"] = {
-            "cursor_path": "updated_at",
-            "start_param": "since",
-            "cursor_type": "integer",
-        }
+        incremental = {"cursor_path": "updated_at", "start_param": "since", "cursor_type": "integer"}
+        if location == "on_resource":
+            manifest["resources"][0]["endpoint"]["incremental"] = incremental
+        else:
+            manifest["resource_defaults"] = {"endpoint": {"incremental": incremental}}
 
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
@@ -1762,8 +1813,12 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         )
         source.source_for_pipeline(config, inputs)
 
-        threaded_incremental = mock_resources.call_args.args[0]["resources"][0]["endpoint"]["incremental"]
-        assert threaded_incremental == {"cursor_path": "updated_at", "start_param": "since"}
+        threaded_manifest = mock_resources.call_args.args[0]
+        assert threaded_manifest["resources"][0]["endpoint"]["incremental"] == {
+            "cursor_path": "updated_at",
+            "start_param": "since",
+        }
+        assert "incremental" not in threaded_manifest.get("resource_defaults", {}).get("endpoint", {})
 
 
 class TestCustomSourceNonRetryableErrors(SimpleTestCase):
@@ -2604,6 +2659,34 @@ class TestCustomSourceIncrementalUnsupportedKeys(SimpleTestCase):
         assert ok is False
         assert err is not None and "upstream_row_order" in err and "'users'" in err
 
+    @parameterized.expand(
+        [
+            (
+                "endpoint_incremental",
+                {"incremental": {"cursor_path": "updated_at", "start_param": "since", "cursor_type": "integer"}},
+            ),
+            (
+                "params_incremental",
+                {"params": {"since": {"type": "incremental", "cursor_path": "updated_at", "cursor_type": "integer"}}},
+            ),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_incremental_in_resource_defaults_rejected(self, _name, default_endpoint, mock_resources):
+        manifest = _minimal_manifest()
+        manifest["resource_defaults"] = {"endpoint": default_endpoint}
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+
+        with self.assertRaises(ManifestValidationError) as ctx:
+            source.preview_resource(config, team_id=999, resource_name="users")
+        assert "resource_defaults" in str(ctx.exception)
+        mock_resources.assert_not_called()
+
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok is False
+        assert err is not None and "resource_defaults" in err
+
 
 class TestCustomSourcePaginatorUnsupportedKeys(SimpleTestCase):
     def _manifest(self) -> dict:
@@ -2732,9 +2815,11 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         assert result.row_count == PREVIEW_MAX_ROWS
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
-    def test_engine_manifest_is_single_page_incremental_stripped_session_injected(self, mock_resources):
+    def test_engine_manifest_is_single_page_resource_incremental_stripped_session_injected(self, mock_resources):
         mock_resources.return_value = [_PageResource("users", [[]])]
         manifest = _minimal_manifest()
+        # Default endpoint incrementals are invalid; their rejection is covered by
+        # test_incremental_in_resource_defaults_rejected.
         manifest["resources"][0]["endpoint"]["incremental"] = {"cursor_path": "updated_at", "start_param": "since"}
         manifest["resources"][0]["endpoint"]["paginator"] = {"type": "offset", "limit": 100}
         source = CustomSource()

@@ -27,6 +27,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { ProjectTimezoneHint } from 'lib/components/ScheduledRunStatus'
 import { TZLabel } from 'lib/components/TZLabel'
 import { describeCron } from 'lib/cron'
 import { dayjs } from 'lib/dayjs'
@@ -39,7 +40,7 @@ import { urls } from 'scenes/urls'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
 import {
-    FeatureFlagType,
+    FeatureFlagWithV1Config,
     MultivariateFlagVariant,
     RecurrenceInterval,
     ScheduledChangeOperationType,
@@ -60,40 +61,21 @@ import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseCon
 import { groupFilters } from './FeatureFlags'
 import { featureFlagScheduleEditLogic } from './featureFlagScheduleEditLogic'
 import { FeatureFlagVariantsForm } from './FeatureFlagVariantsForm'
-import { isSchedulePaused, maxRolloutPercentage } from './scheduleOccurrences'
+import {
+    isSchedulePaused,
+    maxRolloutPercentage,
+    maxUntargetedRolloutPercentage,
+    projectedRolloutPercentage,
+    sharedAggregationTarget,
+} from './scheduleOccurrences'
 import { ScheduleTimeline } from './ScheduleTimeline'
 
 export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
-/** Shows the project timezone abbreviation (e.g. "PST") with a tooltip linking to settings. */
-function ScheduleTimezoneHint(): JSX.Element | null {
-    const { currentTeam } = useValues(teamLogic)
-    if (!currentTeam) {
-        return null
-    }
-    const tz = shortTimeZone(currentTeam.timezone) ?? currentTeam.timezone
-    return (
-        <Tooltip
-            interactive
-            title={
-                <>
-                    Times are in the{' '}
-                    <Link to={urls.settings('environment-customization', 'date-and-time')} target="_blank">
-                        project's timezone
-                    </Link>{' '}
-                    ({currentTeam.timezone})
-                </>
-            }
-        >
-            <span className="text-muted font-normal">({tz})</span>
-        </Tooltip>
-    )
-}
-
 type AggregationLabel = (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
 
 function getScheduledVariantsPayloads(
-    featureFlag: FeatureFlagType,
+    featureFlag: FeatureFlagWithV1Config,
     schedulePayload: { variants?: MultivariateFlagVariant[]; payloads?: Record<string, any>; filters?: any }
 ): { variants: MultivariateFlagVariant[]; payloads: Record<string, any> } {
     const currentVariants = featureFlag.filters.multivariate?.variants || []
@@ -437,7 +419,7 @@ function ScheduleCard({
 
 export default function FeatureFlagSchedule(): JSX.Element {
     const {
-        featureFlag,
+        featureFlag: loadedFeatureFlag,
         scheduledChangesLoading,
         scheduledChangeOperation,
         scheduleDateMarker,
@@ -461,6 +443,8 @@ export default function FeatureFlagSchedule(): JSX.Element {
         scheduleFormState,
         scheduleFormCollapsible,
     } = useValues(featureFlagLogic)
+    // The Schedule tab is not offered for another config version (availableTabs), so the document is v1.
+    const featureFlag = loadedFeatureFlag as FeatureFlagWithV1Config
     const {
         deleteScheduledChange,
         setScheduleDateMarker,
@@ -508,6 +492,34 @@ export default function FeatureFlagSchedule(): JSX.Element {
 
     const aggregationGroupTypeIndex = featureFlag.filters.aggregation_group_type_index
     const scheduleFilters = { ...schedulePayload.filters, aggregation_group_type_index: aggregationGroupTypeIndex }
+
+    // Release condition sets are OR'd. The sets that bucket on one identifier share a hash. A condition
+    // at or below a rollout the flag already serves to everyone therefore reaches nobody new.
+    const scheduledAggregationTarget = sharedAggregationTarget(
+        schedulePayload.filters?.groups,
+        aggregationGroupTypeIndex
+    )
+    const servedOnSharedTarget = maxUntargetedRolloutPercentage(
+        featureFlag.filters.groups,
+        aggregationGroupTypeIndex,
+        scheduledAggregationTarget
+    )
+    const scheduledConditionRollout = maxRolloutPercentage(schedulePayload.filters?.groups)
+    const conditionReachesNobodyNew =
+        scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition &&
+        servedOnSharedTarget !== null &&
+        scheduledConditionRollout !== null &&
+        // An untouched form starts at 0%, where nobody has said what they want yet.
+        scheduledConditionRollout > 0 &&
+        scheduledConditionRollout <= servedOnSharedTarget
+    // The banner splits these across elements to survive a page translator, so it cannot also be the
+    // announced string. Both read these three parts, so the wording cannot drift between them.
+    const coveredLead = featureFlag.active
+        ? 'This flag already serves'
+        : 'This flag is disabled, but it is already set to serve'
+    const coveredTarget = aggregationLabel(scheduledAggregationTarget, true).plural
+    const coveredTail =
+        'will not change who sees the flag. To stage a rollout, lower the existing condition first, then schedule the increases.'
 
     const { variants: displayVariants, payloads: displayPayloads } = getScheduledVariantsPayloads(
         featureFlag,
@@ -584,7 +596,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         </div>
                         <ScheduleTimeline
                             occurrences={scheduleTimelineOccurrences}
-                            currentRolloutPercentage={maxRolloutPercentage(featureFlag.filters.groups)}
+                            currentRolloutPercentage={projectedRolloutPercentage(featureFlag.filters)}
                             timezone={scheduleTimezone}
                         />
                     </div>
@@ -643,7 +655,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                         </Tooltip>
                                     ) : (
                                         <>
-                                            Date and time <ScheduleTimezoneHint />
+                                            Date and time <ProjectTimezoneHint />
                                         </>
                                     )}
                                 </label>
@@ -902,7 +914,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 {scheduleDateMarker ? (
                                     <>
                                         {` on ${scheduleDateMarker.format(DAYJS_FORMAT)} `}
-                                        <ScheduleTimezoneHint />
+                                        <ProjectTimezoneHint />
                                     </>
                                 ) : (
                                     ' on the scheduled date'
@@ -983,6 +995,26 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 />
                             </div>
                         )}
+
+                    {/* The banner mounts and unmounts as the rollout field changes, and a live region that
+                        appears already populated is not announced. This one stays mounted and only its text
+                        changes, so each change is a mutation a screen reader reads out. sr-only takes it out
+                        of flow, so the empty case adds no gap to the column. */}
+                    <span aria-live="polite" aria-atomic="true" className="sr-only">
+                        {conditionReachesNobodyNew
+                            ? `${coveredLead} ${servedOnSharedTarget}% of all ${coveredTarget}, and release conditions are combined with OR. A condition at ${scheduledConditionRollout}% ${coveredTail}`
+                            : ''}
+                    </span>
+                    {conditionReachesNobodyNew && (
+                        <LemonBanner type="warning">
+                            {/* These values move while the banner stays up. Each one is therefore its own element
+                                rather than a bare text node among siblings. A page-translation extension swaps such a
+                                node for a <font>. React then writes the new value to the detached node. */}
+                            <span>{coveredLead}</span> <span translate="no">{`${servedOnSharedTarget}%`}</span> of all{' '}
+                            <span>{coveredTarget}</span>, and release conditions are combined with OR. A condition at{' '}
+                            <span translate="no">{`${scheduledConditionRollout}%`}</span> {coveredTail}
+                        </LemonBanner>
+                    )}
 
                     {/* Warning when updating variants won't actually change what anyone sees */}
                     {scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
@@ -1150,7 +1182,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 'Next run'
                             ) : (
                                 <>
-                                    Date and time <ScheduleTimezoneHint />
+                                    Date and time <ProjectTimezoneHint />
                                 </>
                             )}
                         </label>

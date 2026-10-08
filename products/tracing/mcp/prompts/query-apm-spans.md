@@ -1,5 +1,11 @@
 Query trace spans with filtering by service name, status code, date range, and structured attribute filters. Supports cursor-based pagination. Returns spans with uuid, trace_id, span_id, parent_span_id, name, kind, service_name, status_code, timestamp, end_time, duration_nano, is_root_span, matched_filter, and attributes (the span-level OTel attribute map, e.g. db.statement, http.url).
 
+All parameters go inside `query` — top-level fields are rejected:
+
+```json
+{ "query": { "serviceNames": ["api"], "dateRange": { "date_from": "-1h" } } }
+```
+
 Use 'apm-attributes-list' and 'apm-attribute-values-list' to discover available attributes before building filters. Use 'apm-services-list' to discover available services.
 
 # Return shape
@@ -13,8 +19,6 @@ To collapse each matching trace to a **single row — its root span**, set `root
 
 CRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.
 
-All parameters must be nested inside a `query` object.
-
 # Data narrowing
 
 ## Property filters
@@ -24,7 +28,7 @@ Use property filters via the `query.filterGroup` field to narrow results. Only i
 When using a property filter, you should:
 
 - **Choose the right type.** Span property types are:
-  - `span` — filters built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span).
+  - `span` — filters built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). A `duration` filter value is in milliseconds (1 second = `1000`).
   - `span_attribute` — filters span-level attributes (e.g. "http.method", "http.status_code").
   - `span_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).
 - **Use `apm-attributes-list` to discover available attribute keys** before building filters.
@@ -44,8 +48,6 @@ The `value` field accepts a string, number, or array of strings depending on the
 Use the `query.dateRange` field to control the time window. If the question doesn't mention time, the default is the last hour (`-1h`). Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.
 
 # Parameters
-
-All parameters go inside `query`.
 
 ## query.serviceNames
 
@@ -137,7 +139,7 @@ Set `true` to drop the per-span `attributes` map from results (the map stays pre
 ```json
 {
   "query": {
-    "filterGroup": [{ "key": "duration", "operator": "gt", "type": "span", "value": "1000000000" }],
+    "filterGroup": [{ "key": "duration", "operator": "gt", "type": "span", "value": "1000" }],
     "dateRange": { "date_from": "-1d" }
   }
 }
@@ -170,4 +172,4 @@ Set `true` to drop the per-span `attributes` map from results (the map stays pre
 - Ensure that any property filters are directly relevant to the user's question. Avoid unnecessary filtering.
 - Use `apm-attributes-list` and `apm-attribute-values-list` to discover attributes before guessing filter keys/values.
 - Use `apm-services-list` to discover available services before filtering by service name.
-- Duration values are in nanoseconds (1 second = 1,000,000,000 nanoseconds).
+- A `duration` filter value is in milliseconds (1 second = `1000`). The `duration_nano` response field is in nanoseconds (1 second = 1,000,000,000).

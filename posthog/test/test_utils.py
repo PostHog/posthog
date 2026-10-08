@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import call, patch
 
@@ -19,6 +19,8 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
 from django.utils.timezone import now
 
+import posthoganalytics
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from rest_framework.request import Request
 
@@ -53,6 +55,7 @@ from posthog.utils import (
     get_js_url,
     get_self_capture_team_id,
     get_short_user_agent,
+    initialize_self_capture_api_token,
     load_data_from_request,
     refresh_requested_by_client,
     relative_date_parse,
@@ -333,7 +336,7 @@ class TestGeneralUtils(TestCase):
 
 
 class TestRelativeDateParse(TestCase):
-    @freeze_time("2020-01-31T12:22:23")
+    @time_machine.travel("2020-01-31T12:22:23", tick=False)
     def test_hour(self):
         self.assertEqual(
             relative_date_parse("-24h", ZoneInfo("UTC")).isoformat(),
@@ -344,7 +347,7 @@ class TestRelativeDateParse(TestCase):
             "2020-01-29T12:22:23+00:00",
         )
 
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_day(self):
         self.assertEqual(
             relative_date_parse("dStart", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
@@ -368,7 +371,7 @@ class TestRelativeDateParse(TestCase):
             "2020-01-30T23:59:59.999999+00:00",
         )
 
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_month(self):
         self.assertEqual(
             relative_date_parse("-1m", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
@@ -413,21 +416,21 @@ class TestRelativeDateParse(TestCase):
             ("minus_two_end", "-2qEnd", "2019-09-30"),
         ]
     )
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_quarter(self, _name, input, expected_date):
         self.assertEqual(
             relative_date_parse(input, ZoneInfo("UTC")).strftime("%Y-%m-%d"),
             expected_date,
         )
 
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_quarter_human_friendly_comparison_periods_keeps_week_alignment(self):
         self.assertEqual(
             relative_date_parse("-1q", ZoneInfo("UTC"), human_friendly_comparison_periods=True).strftime("%Y-%m-%d"),
             "2019-11-01",
         )
 
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_year(self):
         self.assertEqual(
             relative_date_parse("-1y", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
@@ -456,14 +459,14 @@ class TestRelativeDateParse(TestCase):
             ("monday_start", 1, "2020-01-27"),
         ]
     )
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_week_start(self, _name, week_start_day, expected_date):
         self.assertEqual(
             relative_date_parse("wStart", ZoneInfo("UTC"), team_week_start_day=week_start_day).strftime("%Y-%m-%d"),
             expected_date,
         )
 
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_normal_date(self):
         self.assertEqual(
             relative_date_parse("2019-12-31", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
@@ -1404,6 +1407,33 @@ class TestBuildFlagProvider(TestCase):
     @override_settings(SELF_CAPTURE=False, E2E_TESTING=False, CLOUD_DEPLOYMENT="EU")
     def test_explicit_env_team_id_wins_over_eu_region(self):
         assert _build_flag_provider()._resolve_team_id() == 5
+
+
+class TestInitializeSelfCaptureHost(SimpleTestCase):
+    def setUp(self):
+        for name in ("disabled", "api_key", "host"):
+            self.addCleanup(setattr, posthoganalytics, name, getattr(posthoganalytics, name))
+        for target, value in (
+            ("posthog.utils.resolve_self_capture_team", Team(api_token="phc_self_capture_test")),
+            ("posthog.utils._build_flag_provider", None),
+            ("posthoganalytics.feature_flag_definitions", {}),
+        ):
+            mocked = patch(target, return_value=value)
+            mocked.start()
+            self.addCleanup(mocked.stop)
+
+    @parameterized.expand(
+        [
+            ("explicit host", "http://static-proxy:8000", "http://static-proxy:8000"),
+            ("falls back to site url", "", "https://preview.example.com"),
+        ]
+    )
+    def test_backend_sends_to_self_capture_host(self, _name, self_capture_host, expected_host):
+        with override_settings(SELF_CAPTURE_HOST=self_capture_host, SITE_URL="https://preview.example.com"):
+            async_to_sync(initialize_self_capture_api_token)()
+
+        assert posthoganalytics.host == expected_host
+        assert posthoganalytics.api_key == "phc_self_capture_test"
 
 
 class TestSelfCaptureBrowserFlagToken(TestCase):

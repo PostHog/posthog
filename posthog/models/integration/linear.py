@@ -7,6 +7,7 @@ import structlog
 from rest_framework.exceptions import ValidationError
 
 from . import common, model
+from .assignees import MAX_ASSIGNEES, Assignee, AssigneeLookupFailed
 
 logger = structlog.get_logger(__name__)
 
@@ -28,14 +29,40 @@ class LinearIntegration:
         teams = common.dot_get(body, "data.teams.nodes")
         return teams
 
+    def list_assignees(self, team_id: str, search: str = "") -> list[Assignee]:
+        """Active members of the team, filtered by name when ``search`` is set."""
+        search = search.strip()
+        user_filter = (
+            {"or": [{"name": {"containsIgnoreCase": search}}, {"displayName": {"containsIgnoreCase": search}}]}
+            if search
+            else None
+        )
+        body = self.query(
+            """
+            query TeamMembers($teamId: String!, $first: Int!, $filter: UserFilter) {
+                team(id: $teamId) { members(first: $first, filter: $filter) { nodes { id name displayName active } } }
+            }
+            """,
+            variables={"teamId": team_id, "first": MAX_ASSIGNEES, "filter": user_filter},
+        )
+        if body.get("errors"):
+            raise AssigneeLookupFailed("Failed to list the Linear team members")
+        members = common.dot_get(body, "data.team.members.nodes") or []
+        return [
+            Assignee(id=member["id"], name=member.get("displayName") or member["name"])
+            for member in members
+            if member.get("active", True)
+        ]
+
     def create_issue(self, attachment_url: str, config: dict[str, str]) -> dict[str, str]:
         title: str = config.pop("title")
         description: str = config.pop("description")
         linear_team_id = config.pop("team_id")
+        assignee_id = config.pop("assignee", None)
 
         issue_create_query = """
-        mutation IssueCreate($title: String!, $description: String!, $teamId: String!) {
-            issueCreate(input: { title: $title, description: $description, teamId: $teamId }) {
+        mutation IssueCreate($title: String!, $description: String!, $teamId: String!, $assigneeId: String) {
+            issueCreate(input: { title: $title, description: $description, teamId: $teamId, assigneeId: $assigneeId }) {
                 success
                 issue { identifier }
             }
@@ -43,7 +70,12 @@ class LinearIntegration:
         """
         body = self.query(
             issue_create_query,
-            variables={"title": title, "description": description, "teamId": linear_team_id},
+            variables={
+                "title": title,
+                "description": description,
+                "teamId": linear_team_id,
+                "assigneeId": assignee_id or None,
+            },
         )
         linear_issue_id = common.dot_get(body, "data.issueCreate.issue.identifier")
         # Linear reports failures in a 200 body; without this check a failed create would
@@ -79,6 +111,34 @@ class LinearIntegration:
         )
         if body.get("errors") or not common.dot_get(body, "data.attachmentCreate.success"):
             raise ValidationError("Failed to attach the PostHog link to the Linear issue")
+
+    def close_issue(self, issue_id: str, *, completed: bool = False) -> None:
+        """Move an issue to its team's completed or canceled state. Raises on failure.
+
+        Linear has no generic "close" verb: an issue closes by moving to a workflow state, and
+        the state ids differ per team. So read the issue's own team states first.
+        """
+        state_type = "completed" if completed else "canceled"
+        states_query = """
+        query IssueCloseState($id: String!, $stateType: String!) {
+            issue(id: $id) {
+                team { states(filter: { type: { eq: $stateType } }) { nodes { id } } }
+            }
+        }
+        """
+        body = self.query(states_query, variables={"id": issue_id, "stateType": state_type})
+        nodes = common.dot_get(body, "data.issue.team.states.nodes") or []
+        if body.get("errors") or not nodes:
+            raise ValidationError(f"Failed to find a {state_type} state for the Linear issue")
+
+        update_query = """
+        mutation IssueClose($id: String!, $stateId: String!) {
+            issueUpdate(id: $id, input: { stateId: $stateId }) { success }
+        }
+        """
+        body = self.query(update_query, variables={"id": issue_id, "stateId": nodes[0]["id"]})
+        if body.get("errors") or not common.dot_get(body, "data.issueUpdate.success"):
+            raise ValidationError(f"Failed to move the Linear issue to a {state_type} state")
 
     def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
         """Search existing Linear issues by title / identifier for the link-existing flow.

@@ -14,6 +14,7 @@ from datetime import timedelta
 
 from django.db.models import Q, QuerySet
 
+from products.data_modeling.backend.facade.contracts import SavedQueryNodeState, SuspensionMarker
 from products.data_modeling.backend.logic.cohort_scheduling import MINUTES_PER_WEEK
 from products.data_modeling.backend.logic.freshness import (
     STREAMING,
@@ -24,9 +25,10 @@ from products.data_modeling.backend.logic.freshness import (
     intersect_target_bounds,
     normalize_seed_target,
 )
+from products.data_modeling.backend.logic.node_suspension import merged_suspension_state
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
-from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, Node, NodeType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
 # Declared target lives here, mirroring properties["system"]["suspended"] (circuit breaker).
@@ -77,20 +79,56 @@ def get_declared_target(node: Node) -> timedelta | None:
 def declared_targets_by_saved_query(team_id: int, saved_query_ids: Iterable[str | uuid.UUID]) -> dict[str, timedelta]:
     """Declared freshness target per saved query id, for those whose node carries one.
 
-    Batched for callers that render many saved queries at once. A saved query can hold nodes in
-    several DAGs, but `apply_saved_query_frequency_target` writes the same target to all of them,
-    so the first one found wins.
+    Batched for callers that render many saved queries at once.
     """
     ids = [str(saved_query_id) for saved_query_id in saved_query_ids]
     if not ids:
         return {}
 
+    return declared_targets_from_nodes(
+        Node.objects.filter(team_id=team_id, saved_query_id__in=ids).only("saved_query_id", "properties")
+    )
+
+
+def declared_targets_from_nodes(nodes: Iterable[Node]) -> dict[str, timedelta]:
+    """Declared freshness target per saved query id, from nodes the caller already loaded.
+
+    A saved query can hold nodes in several DAGs, but `apply_saved_query_frequency_target` writes
+    the same target to all of them, so the first one found wins.
+    """
     targets: dict[str, timedelta] = {}
-    for node in Node.objects.filter(team_id=team_id, saved_query_id__in=ids).only("saved_query_id", "properties"):
+    for node in nodes:
         target = get_declared_target(node)
         if target is not None:
             targets.setdefault(str(node.saved_query_id), target)
     return targets
+
+
+def node_states_by_saved_query(
+    team_id: int, saved_query_ids: Iterable[str | uuid.UUID]
+) -> dict[str, SavedQueryNodeState]:
+    """Declared target and suspension per saved query id, from one read of their nodes.
+
+    Batched for callers that render many saved queries at once.
+    """
+    ids = [str(saved_query_id) for saved_query_id in saved_query_ids]
+    if not ids:
+        return {}
+
+    nodes_by_query: dict[str, list[Node]] = {}
+    for node in Node.objects.filter(team_id=team_id, saved_query_id__in=ids).only("saved_query_id", "properties"):
+        nodes_by_query.setdefault(str(node.saved_query_id), []).append(node)
+    targets = declared_targets_from_nodes(node for nodes in nodes_by_query.values() for node in nodes)
+    return {
+        query_id: SavedQueryNodeState(
+            declared_target=targets.get(query_id),
+            suspended={
+                engine: SuspensionMarker(at=marker["at"], reason=marker["reason"], job_id=marker["job_id"])
+                for engine, marker in merged_suspension_state(nodes).items()
+            },
+        )
+        for query_id, nodes in nodes_by_query.items()
+    }
 
 
 def set_declared_target(node: Node, target: timedelta | None) -> None:
@@ -224,7 +262,7 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         for source_id, target_id in Edge.objects.filter(dag=dag).values_list("source_id", "target_id")
     ]
 
-    schedulable = {str(node.id) for node in nodes if node.type != NodeType.TABLE}
+    schedulable = {str(node.id) for node in nodes if node.type in SAVED_QUERY_NODE_TYPES}
     declared_targets: dict[str, timedelta] = {}
     declared_anchors: dict[str, int] = {}
     for node in nodes:
@@ -308,7 +346,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
 def schedulable_nodes(dag: DAG) -> QuerySet[Node]:
     """The DAG's schedulable nodes: everything that carries a live saved query (not a source
     table, not a soft-deleted query). The one definition of "what gets a freshness target"."""
-    return Node.objects.filter(dag=dag).exclude(type=NodeType.TABLE).exclude(saved_query__deleted=True)
+    return Node.objects.filter(dag=dag, type__in=SAVED_QUERY_NODE_TYPES).exclude(saved_query__deleted=True)
 
 
 def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:

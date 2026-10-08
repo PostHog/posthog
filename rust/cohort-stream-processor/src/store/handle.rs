@@ -181,14 +181,17 @@ impl StoreHandle {
         self.offload(op, LANE_WRITE, None, f).await
     }
 
-    /// Run a whole infallible sync section (reads + writes mixed) under the [`LANE_SECTION`] label:
-    /// offloads under Maintenance and All, inline under Off. `permits` is the lane the section draws
-    /// from — the maintenance lane for [`Self::run_section`], `None` for the permit-free
-    /// observability snapshot ([`Self::stats_snapshot`]). Keeping stats on this executor is what lets
-    /// `mode` stay matched in exactly the three executors (`read`, `write`, `section`).
+    /// Run a whole infallible sync section (reads + writes mixed): offloads under Maintenance and
+    /// All, inline under Off. `permits` is the lane the section draws from, and `lane_label` is how
+    /// the in-flight gauge names it: the maintenance lane for [`Self::run_section`], `None` under
+    /// [`LANE_SECTION`] for the permit-free observability snapshot ([`Self::stats_snapshot`]). The
+    /// label follows the permit so that `store_offload_inflight{lane="maintenance"}` counts every
+    /// holder of a maintenance permit, sections included. Keeping stats on this executor is what
+    /// lets `mode` stay matched in exactly the three executors (`read`, `write`, `section`).
     async fn section<T, F>(
         &self,
         op: &'static str,
+        lane_label: &'static str,
         permits: Option<Arc<Semaphore>>,
         f: F,
     ) -> Result<T, StoreError>
@@ -201,7 +204,7 @@ impl StoreHandle {
         }
         // A section's closure is infallible (it returns `T`, not `Result`); wrap it so it shares the
         // one offload path. Only teardown cancellation can then make the outer result an `Err`.
-        self.offload(op, LANE_SECTION, permits, move |store| Ok(f(store)))
+        self.offload(op, lane_label, permits, move |store| Ok(f(store)))
             .await
     }
 
@@ -503,8 +506,8 @@ impl StoreHandle {
 
     /// Run a self-contained sync store state machine (mixed reads and writes) on the blocking pool:
     /// the sanctioned context for merge drain/apply and GC, whose deep sync cores are not worth
-    /// async-ifying. Draws a maintenance permit. The result is `Err` only on runtime-teardown
-    /// cancellation ([`StoreError::OffloadCancelled`]).
+    /// async-ifying. Draws a maintenance permit, and counts on the in-flight gauge under that lane.
+    /// The result is `Err` only on runtime-teardown cancellation ([`StoreError::OffloadCancelled`]).
     ///
     /// Keep each section individually short: a started blocking task cannot be cancelled, and
     /// shutdown joins started tasks — a long section extends the effective drain time.
@@ -513,7 +516,8 @@ impl StoreHandle {
         T: Send + 'static,
         F: FnOnce(&CohortStore) -> T + Send + 'static,
     {
-        self.section(op, self.maintenance_permits.clone(), f).await
+        self.section(op, LANE_MAINTENANCE, self.maintenance_permits.clone(), f)
+            .await
     }
 
     /// Snapshot the store's cache tickers and per-CF sizes. No permit — observability must not queue
@@ -523,8 +527,10 @@ impl StoreHandle {
     pub async fn stats_snapshot(&self) -> Result<StoreStats, StoreError> {
         // Routed through `section` with the `None` lane (no permit) so the mode match stays in the
         // three executors rather than being open-coded here.
-        self.section("stats_snapshot", None, |store| store.stats_snapshot())
-            .await
+        self.section("stats_snapshot", LANE_SECTION, None, |store| {
+            store.stats_snapshot()
+        })
+        .await
     }
 
     /// SYNCHRONOUS escape hatch: delete one partition's state on the caller's thread, bypassing the

@@ -22,15 +22,24 @@ from datetime import timedelta
 import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    TimeoutError as ActivityTimeoutError,
+)
 from temporalio.workflow import ParentClosePolicy
 
 from products.review_hog.backend.reviewer.constants import (
     BLIND_SPOT_PASS_NUMBER,
     FAN_OUT_FAILURE_FLOOR,
+    FLASH_LENS_SESSION_TIMEOUT,
+    FLASH_LENSES,
     MAX_CONCURRENT_SANDBOXES,
+    REVIEW_MODE_FLASH,
     VALIDATION_MAX_ATTEMPTS,
 )
+from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO, apply_selection
 from products.review_hog.backend.temporal.activities import (
@@ -38,7 +47,10 @@ from products.review_hog.backend.temporal.activities import (
     BuildBodyInput,
     DedupResult,
     FetchPRDataInput,
+    FlashSessionStats,
+    GatePushInput,
     GenerateSchemasInput,
+    LensReviewInput,
     LoadBlindSpotsInput,
     LoadedBlindSpotsSkillDTO,
     LoadedPerspectiveDTO,
@@ -47,6 +59,7 @@ from products.review_hog.backend.temporal.activities import (
     LoadValidationInput,
     PublishInput,
     PublishResult,
+    RecordTurnMarkerInput,
     RemoveTriggerLabelInput,
     ResolveActingUserInput,
     ReviewChunkInput,
@@ -67,16 +80,20 @@ from products.review_hog.backend.temporal.activities import (
     fail_status_comment_activity,
     fetch_pr_data_activity,
     finalize_status_comment_activity,
+    gate_push_activity,
     generate_schemas_activity,
+    lens_review_activity,
     load_blind_spots_skill_activity,
     load_perspectives_activity,
     load_validation_skill_activity,
     post_status_comment_activity,
     publish_review_activity,
+    record_turn_marker_activity,
     remove_trigger_label_activity,
     resolve_acting_user_activity,
     review_chunk_activity,
     select_perspectives_activity,
+    single_agent_review_activity,
     split_chunks_activity,
     sync_review_skills_activity,
     track_review_completed_activity,
@@ -85,10 +102,13 @@ from products.review_hog.backend.temporal.activities import (
     validate_chunk_activity,
     validate_github_integration_activity,
 )
+from products.review_hog.backend.temporal.scheduling import ReviewPRQueueWorkflow, ReviewRequestQueue
 from products.review_hog.backend.temporal.types import (
+    TRIGGER_AUTOMATIC,
     TRIGGER_INBOX,
     TRIGGER_LABEL,
     ResolvePRWorkflowInputs,
+    ReviewPRQueueInputs,
     ReviewPRWorkflowInputs,
     resolve_pr_workflow_id,
 )
@@ -188,6 +208,8 @@ class ReviewPerspectivesWorkflow:
                         repository=inputs.repository,
                         branch=inputs.branch,
                         run_index=inputs.run_index,
+                        review_mode=inputs.review_mode,
+                        flash_reasoning_effort=inputs.flash_reasoning_effort,
                         perspectives=ordered,
                     ),
                     start_to_close_timeout=_SANDBOX_TIMEOUT,
@@ -217,6 +239,8 @@ class ReviewPerspectivesWorkflow:
                         repository=inputs.repository,
                         branch=inputs.branch,
                         run_index=inputs.run_index,
+                        review_mode=inputs.review_mode,
+                        flash_reasoning_effort=inputs.flash_reasoning_effort,
                         chunk_id=chunk_id,
                         pass_number=pass_number,
                         skill_name=skill_name,
@@ -332,6 +356,8 @@ class ValidateIssuesWorkflow:
                         repository=inputs.repository,
                         branch=inputs.branch,
                         run_index=inputs.run_index,
+                        review_mode=inputs.review_mode,
+                        flash_reasoning_effort=inputs.flash_reasoning_effort,
                         chunk_id=chunk_id,
                         issue_ids=chunk_issue_ids,
                         skill_name=skill.skill_name,
@@ -355,6 +381,14 @@ class ValidateIssuesWorkflow:
 @temporalio.workflow.defn(name="review-pr")
 class ReviewPRWorkflow:
     """Single-turn PR review: setup → split → review → dedup (incl. combine) → validate → build → publish."""
+
+    @workflow.init
+    def __init__(self, inputs: ReviewPRWorkflowInputs) -> None:
+        self._requests = ReviewRequestQueue(active=inputs)
+
+    @workflow.signal
+    def request_review(self, request: ReviewPRWorkflowInputs) -> None:
+        self._requests.add(request)
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> ReviewPRWorkflowInputs:
@@ -393,6 +427,11 @@ class ReviewPRWorkflow:
                     )
                 except Exception:
                     workflow.logger.warning("Could not remove the ReviewHog trigger label")
+            if self._requests.pending:
+                requests = list(self._requests.pending.values())
+                if not completed and not terminal:
+                    requests.insert(0, inputs)
+                workflow.continue_as_new(ReviewPRQueueInputs(requests=requests), workflow=ReviewPRQueueWorkflow.run)
 
     async def _run(self, inputs: ReviewPRWorkflowInputs) -> str:
         repository = inputs.repository
@@ -421,6 +460,7 @@ class ReviewPRWorkflow:
                 signal_report_id=inputs.signal_report_id,
                 trigger_source=inputs.trigger_source,
                 signal_priority=inputs.signal_priority,
+                review_mode=inputs.review_mode,
             ),
             start_to_close_timeout=_FETCH_TIMEOUT,
             retry_policy=_RETRY,
@@ -448,6 +488,9 @@ class ReviewPRWorkflow:
             workflow.logger.info(
                 f"Branch '{branch}' has no reviewable diff against its base (pushed nothing); skipping"
             )
+            return report_id
+        if inputs.trigger_source == TRIGGER_AUTOMATIC and (meta.already_completed or not meta.pr_open):
+            workflow.logger.info("Automatic review skipped: the PR is closed or this head is already complete")
             return report_id
 
         # Resolve the acting user whose enabled perspectives apply: the PR author, or the explicit
@@ -486,7 +529,46 @@ class ReviewPRWorkflow:
         if inputs.trigger_source == TRIGGER_INBOX and not acting.review_inbox_prs:
             workflow.logger.info(f"Acting user {acting.acting_user_id} has inbox reviews turned off; skipping review")
             return report_id
+        if inputs.trigger_source == TRIGGER_AUTOMATIC and not acting.review_authored_prs:
+            workflow.logger.info("Automatic reviews are disabled for the author; skipping review")
+            return report_id
         acting_user_id = acting.acting_user_id
+
+        # Only an automatic follow-up is gated. The first automatic review of a PR and every human
+        # trigger always run. The gate fails open: an activity failure reviews the push.
+        if (
+            workflow.patched("reviewhog-push-gate-2026-10")
+            and inputs.trigger_source == TRIGGER_AUTOMATIC
+            and meta.automatic_reviewed_head_sha is not None
+        ):
+            try:
+                gate = await workflow.execute_activity(
+                    gate_push_activity,
+                    GatePushInput(
+                        team_id=inputs.team_id,
+                        report_id=report_id,
+                        repository=repository,
+                        previous_head_sha=meta.automatic_reviewed_head_sha,
+                        head_sha=head_sha,
+                        run_index=meta.run_index,
+                        review_mode=inputs.review_mode,
+                    ),
+                    start_to_close_timeout=_QUICK_TIMEOUT,
+                    retry_policy=_RETRY,
+                )
+                if gate.skip:
+                    workflow.logger.info(f"Automatic review skipped by the push gate ({gate.reason})")
+                    return report_id
+            except ActivityError:
+                workflow.logger.warning("The push gate failed; reviewing the push")
+
+        # The design comes off the recorded fetch result. The patch keeps a history that reached this
+        # point before the single-agent design existed on the pipeline when it replays.
+        review_design = (
+            REVIEW_DESIGN_SINGLE_AGENT
+            if meta.review_design == REVIEW_DESIGN_SINGLE_AGENT and workflow.patched("flash-single-agent-2026-10")
+            else REVIEW_DESIGN_PIPELINE
+        )
 
         # The turn passed every gate and is about to spend sandboxes: one started event per turn,
         # the counterpart of the completed/failed pair below. Best-effort like both of them.
@@ -500,6 +582,10 @@ class ReviewPRWorkflow:
                         head_sha=head_sha,
                         run_index=meta.run_index,
                         turn_trigger_source=inputs.trigger_source,
+                        review_mode=inputs.review_mode,
+                        flash_reasoning_effort=acting.flash_reasoning_effort,
+                        review_design=review_design,
+                        review_design_reason=meta.review_design_reason,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,
@@ -519,7 +605,12 @@ class ReviewPRWorkflow:
             try:
                 await workflow.execute_activity(
                     post_status_comment_activity,
-                    StatusCommentInput(team_id=inputs.team_id, report_id=report_id),
+                    StatusCommentInput(
+                        team_id=inputs.team_id,
+                        report_id=report_id,
+                        review_mode=inputs.review_mode,
+                        review_design=review_design,
+                    ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,
                 )
@@ -527,6 +618,9 @@ class ReviewPRWorkflow:
                 workflow.logger.warning("Could not post the status comment; continuing without it")
 
         publish_result: PublishResult | None = None
+        marker: ReviewHogMarker | None = None
+        flash_sessions: FlashSessionStats | None = None
+        dedup: DedupResult | None = None
         try:
             await workflow.execute_activity(
                 sync_review_skills_activity,
@@ -540,6 +634,26 @@ class ReviewPRWorkflow:
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
             )
+            # After the skill sync and schema generation, so the fingerprint hashes what the stages use.
+            if workflow.patched("record-turn-marker-2026-10"):
+                try:
+                    marker = await workflow.execute_activity(
+                        record_turn_marker_activity,
+                        RecordTurnMarkerInput(
+                            team_id=inputs.team_id,
+                            report_id=report_id,
+                            head_sha=head_sha,
+                            run_index=meta.run_index,
+                            acting_user_id=acting_user_id,
+                            review_mode=inputs.review_mode,
+                            flash_reasoning_effort=acting.flash_reasoning_effort,
+                            review_design=review_design,
+                        ),
+                        start_to_close_timeout=_QUICK_TIMEOUT,
+                        retry_policy=_RETRY,
+                    )
+                except ActivityError:
+                    workflow.logger.warning("Could not record the turn marker; continuing without it")
 
             stage = SandboxStageInput(
                 team_id=inputs.team_id,
@@ -549,41 +663,20 @@ class ReviewPRWorkflow:
                 repository=repository,
                 branch=branch,
                 run_index=meta.run_index,
+                review_mode=inputs.review_mode,
+                flash_reasoning_effort=acting.flash_reasoning_effort,
+                review_design=review_design,
             )
 
-            workflow.logger.info("STAGE 2/7 · Split into chunks")
-            chunk_ids: list[int] = await workflow.execute_activity(
-                split_chunks_activity,
-                stage,
-                start_to_close_timeout=_SANDBOX_TIMEOUT,
-                heartbeat_timeout=_SANDBOX_HEARTBEAT,
-                retry_policy=_ONESHOT_RETRY,
-            )
-
-            parent_id = workflow.info().workflow_id
-
-            workflow.logger.info("STAGE 3/7 · Review chunks (perspective wave + blind-spot check)")
-            await workflow.execute_child_workflow(
-                ReviewPerspectivesWorkflow.run,
-                ReviewPerspectivesInputs(
-                    team_id=stage.team_id,
-                    user_id=stage.user_id,
-                    report_id=stage.report_id,
-                    head_sha=stage.head_sha,
-                    repository=stage.repository,
-                    branch=stage.branch,
-                    run_index=stage.run_index,
-                    chunk_ids=chunk_ids,
-                    acting_user_id=acting_user_id,
-                ),
-                id=f"{parent_id}/review",
-                retry_policy=_RETRY,
-            )
+            if review_design == REVIEW_DESIGN_SINGLE_AGENT:
+                flash_sessions = await self._review_with_single_agent(stage, meta.lens_chunk_count)
+            else:
+                await self._review_with_pipeline(stage, acting_user_id)
 
             # Combine + scope-clean run inside the dedup activity (local flatten over the persisted
             # perspective results) — only the survivors' ids come back, never the issue JSON.
             workflow.logger.info("STAGE 4/7 · Combine, scope-clean & deduplicate issues")
-            dedup: DedupResult = await workflow.execute_activity(
+            dedup = await workflow.execute_activity(
                 dedup_activity,
                 stage,
                 start_to_close_timeout=_SANDBOX_TIMEOUT,
@@ -592,23 +685,26 @@ class ReviewPRWorkflow:
             )
             workflow.logger.info(f"Persisted {len(dedup.issue_ids)} finding(s) to the review report")
 
-            workflow.logger.info("STAGE 5/7 · Validate issues")
-            await workflow.execute_child_workflow(
-                ValidateIssuesWorkflow.run,
-                ValidateIssuesInputs(
-                    team_id=stage.team_id,
-                    user_id=stage.user_id,
-                    report_id=stage.report_id,
-                    head_sha=stage.head_sha,
-                    repository=stage.repository,
-                    branch=stage.branch,
-                    run_index=stage.run_index,
-                    issue_ids=dedup.issue_ids,
-                    acting_user_id=acting_user_id,
-                ),
-                id=f"{parent_id}/validate",
-                retry_policy=_RETRY,
-            )
+            if review_design != REVIEW_DESIGN_SINGLE_AGENT:
+                workflow.logger.info("STAGE 5/7 · Validate issues")
+                await workflow.execute_child_workflow(
+                    ValidateIssuesWorkflow.run,
+                    ValidateIssuesInputs(
+                        team_id=stage.team_id,
+                        user_id=stage.user_id,
+                        report_id=stage.report_id,
+                        head_sha=stage.head_sha,
+                        repository=stage.repository,
+                        branch=stage.branch,
+                        run_index=stage.run_index,
+                        review_mode=stage.review_mode,
+                        flash_reasoning_effort=stage.flash_reasoning_effort,
+                        issue_ids=dedup.issue_ids,
+                        acting_user_id=acting_user_id,
+                    ),
+                    id=f"{workflow.info().workflow_id}/validate",
+                    retry_policy=_RETRY,
+                )
 
             workflow.logger.info("STAGE 6/7 · Build report")
             await workflow.execute_activity(
@@ -643,6 +739,8 @@ class ReviewPRWorkflow:
                         # for a branch target.
                         pr_number=meta.pr_number,
                         urgency_threshold=acting.urgency_threshold,
+                        review_mode=inputs.review_mode,
+                        trigger_source=inputs.trigger_source,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,
@@ -659,7 +757,12 @@ class ReviewPRWorkflow:
                 try:
                     await workflow.execute_activity(
                         fail_status_comment_activity,
-                        StatusCommentInput(team_id=inputs.team_id, report_id=report_id),
+                        StatusCommentInput(
+                            team_id=inputs.team_id,
+                            report_id=report_id,
+                            review_mode=inputs.review_mode,
+                            review_design=review_design,
+                        ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
                     )
@@ -682,6 +785,9 @@ class ReviewPRWorkflow:
                             report_id=report_id,
                             run_index=meta.run_index,
                             turn_trigger_source=inputs.trigger_source,
+                            review_mode=inputs.review_mode,
+                            flash_reasoning_effort=acting.flash_reasoning_effort,
+                            review_design=review_design,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
@@ -704,6 +810,12 @@ class ReviewPRWorkflow:
                     published=posted,
                     workflow_started_at=workflow.info().start_time.isoformat(),
                     turn_trigger_source=inputs.trigger_source,
+                    review_mode=inputs.review_mode,
+                    flash_reasoning_effort=acting.flash_reasoning_effort,
+                    marker=marker,
+                    review_design=review_design,
+                    flash_turn=dedup.flash_stats if dedup is not None else None,
+                    flash_sessions=flash_sessions,
                 ),
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
@@ -724,6 +836,10 @@ class ReviewPRWorkflow:
                         urgency_threshold=acting.urgency_threshold,
                         review_url=publish_result.review_url if publish_result is not None else None,
                         resolved_from=acting.resolved_from,
+                        review_mode=inputs.review_mode,
+                        celebrate_clean_reviews=acting.celebrate_clean_reviews,
+                        marker=marker,
+                        capped_lens_parts=meta.lens_chunk_count if meta.lens_chunks_capped else None,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,
@@ -755,6 +871,11 @@ class ReviewPRWorkflow:
             if inputs.resolve_comments is not None
             else (inputs.publish and acting.resolve_comments)
         )
+        # A flash turn never writes code, whatever the override or the setting says: the trigger pins
+        # the override off, and this is the guarantee for any other producer of a flash input.
+        if resolve_after and inputs.review_mode == REVIEW_MODE_FLASH:
+            workflow.logger.info("Flash review: the resolution stage is never chained")
+            resolve_after = False
         if resolve_after and meta.pr_number is not None:
             workflow.logger.info("Dispatching the resolution stage for this PR")
             try:
@@ -784,6 +905,128 @@ class ReviewPRWorkflow:
 
         workflow.logger.info(f"ReviewHog complete · report stored on ReviewReport {report_id}")
         return report_id
+
+    @staticmethod
+    async def _review_with_single_agent(stage: SandboxStageInput, lens_chunk_count: int) -> FlashSessionStats | None:
+        """Stages 2 and 3 of the single-agent design: the main session and every lens session in parallel.
+
+        A failed lens session costs only its own findings. A failed main session fails the turn. Returns
+        how the sessions went, for the completed event.
+        """
+        if not workflow.patched("flash-lens-sessions-2026-10"):
+            workflow.logger.info("STAGE 2-3/7 · Single-agent review of the whole PR")
+            await workflow.execute_activity(
+                single_agent_review_activity,
+                stage,
+                start_to_close_timeout=_SANDBOX_TIMEOUT,
+                heartbeat_timeout=_SANDBOX_HEARTBEAT,
+                retry_policy=_RETRY,
+            )
+            return None
+
+        lens_units = [(lens, chunk_id) for lens in FLASH_LENSES for chunk_id in range(1, lens_chunk_count + 1)]
+        workflow.logger.info(
+            f"STAGE 2-3/7 · Single-agent review: the main session and {len(lens_units)} lens session(s)"
+        )
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)
+        # Workflow time, so a replay measures the same durations.
+        session_seconds: list[float] = []
+
+        async def _main_session() -> None:
+            async with semaphore:
+                started = workflow.now()
+                try:
+                    await workflow.execute_activity(
+                        single_agent_review_activity,
+                        stage,
+                        start_to_close_timeout=_SANDBOX_TIMEOUT,
+                        heartbeat_timeout=_SANDBOX_HEARTBEAT,
+                        retry_policy=_RETRY,
+                    )
+                finally:
+                    session_seconds.append((workflow.now() - started).total_seconds())
+
+        async def _lens_session(lens: str, chunk_id: int) -> None:
+            async with semaphore:
+                started = workflow.now()
+                try:
+                    await workflow.execute_activity(
+                        lens_review_activity,
+                        LensReviewInput(
+                            team_id=stage.team_id,
+                            user_id=stage.user_id,
+                            report_id=stage.report_id,
+                            head_sha=stage.head_sha,
+                            repository=stage.repository,
+                            branch=stage.branch,
+                            run_index=stage.run_index,
+                            review_mode=stage.review_mode,
+                            flash_reasoning_effort=stage.flash_reasoning_effort,
+                            review_design=stage.review_design,
+                            lens=lens,
+                            chunk_id=chunk_id,
+                        ),
+                        # Schedule-to-close bounds the retry too, so a timed-out lens session gets no second full window.
+                        schedule_to_close_timeout=FLASH_LENS_SESSION_TIMEOUT,
+                        heartbeat_timeout=_SANDBOX_HEARTBEAT,
+                        retry_policy=_RETRY,
+                    )
+                finally:
+                    session_seconds.append((workflow.now() - started).total_seconds())
+
+        # The main session goes first, so it never waits for a semaphore slot behind a lens session.
+        main_result, *lens_results = await asyncio.gather(
+            _main_session(), *(_lens_session(lens, chunk_id) for lens, chunk_id in lens_units), return_exceptions=True
+        )
+        if isinstance(main_result, BaseException):
+            raise main_result
+        lens_failures = lens_timeouts = 0
+        for (lens, chunk_id), result in zip(lens_units, lens_results):
+            if isinstance(result, BaseException):
+                workflow.logger.warning(
+                    f"Lens session {lens} part {chunk_id} failed or timed out; its findings are missing: {result!r}"
+                )
+                if isinstance(result, ActivityError) and isinstance(result.cause, ActivityTimeoutError):
+                    lens_timeouts += 1
+                else:
+                    lens_failures += 1
+        return FlashSessionStats(
+            lens_failures=lens_failures,
+            lens_timeouts=lens_timeouts,
+            slowest_session_seconds=round(max(session_seconds, default=0.0), 1),
+        )
+
+    @staticmethod
+    async def _review_with_pipeline(stage: SandboxStageInput, acting_user_id: int) -> None:
+        """Stages 2 and 3 of the pipeline design: split into chunks, then the perspective wave."""
+        workflow.logger.info("STAGE 2/7 · Split into chunks")
+        chunk_ids: list[int] = await workflow.execute_activity(
+            split_chunks_activity,
+            stage,
+            start_to_close_timeout=_SANDBOX_TIMEOUT,
+            heartbeat_timeout=_SANDBOX_HEARTBEAT,
+            retry_policy=_ONESHOT_RETRY,
+        )
+
+        workflow.logger.info("STAGE 3/7 · Review chunks (perspective wave + blind-spot check)")
+        await workflow.execute_child_workflow(
+            ReviewPerspectivesWorkflow.run,
+            ReviewPerspectivesInputs(
+                team_id=stage.team_id,
+                user_id=stage.user_id,
+                report_id=stage.report_id,
+                head_sha=stage.head_sha,
+                repository=stage.repository,
+                branch=stage.branch,
+                run_index=stage.run_index,
+                review_mode=stage.review_mode,
+                flash_reasoning_effort=stage.flash_reasoning_effort,
+                chunk_ids=chunk_ids,
+                acting_user_id=acting_user_id,
+            ),
+            id=f"{workflow.info().workflow_id}/review",
+            retry_policy=_RETRY,
+        )
 
     @staticmethod
     async def _append_code_review_receipt(

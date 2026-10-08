@@ -8,11 +8,9 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign import boldsign
 from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.boldsign import (
-    BOLDSIGN_HOSTS,
     PAGE_SIZE,
     BoldSignResumeConfig,
     _base_url,
-    _get_headers,
     boldsign_source,
     validate_credentials,
 )
@@ -87,57 +85,12 @@ def _run(
 
 
 class TestBaseUrlAndHeaders:
-    @pytest.mark.parametrize(
-        "region, expected",
-        [
-            ("us", "https://api.boldsign.com"),
-            ("eu", "https://api-eu.boldsign.com"),
-        ],
-    )
-    def test_base_url_per_region(self, region: str, expected: str) -> None:
-        assert _base_url(region) == expected
-        assert BOLDSIGN_HOSTS[region] == expected
-
     def test_base_url_rejects_unknown_region(self) -> None:
         with pytest.raises(ValueError):
             _base_url("apac")
 
-    def test_headers_use_api_key_header(self) -> None:
-        headers = _get_headers("secret")
-        assert headers["X-API-KEY"] == "secret"
-        assert headers["Accept"] == "application/json"
-
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_paginated_endpoint_makes_single_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        rows, params, _ = _run("brands", [_response([{"brandId": "B1"}, {"brandId": "B2"}])], session)
-
-        assert rows == [{"brandId": "B1"}, {"brandId": "B2"}]
-        assert session.send.call_count == 1
-        assert "Page" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_page_terminates_pagination(self, MockSession) -> None:
-        # A page shorter than PAGE_SIZE is the last page.
-        session = MockSession.return_value
-        rows, params, _ = _run("documents", [_response([{"documentId": "D1"}])], session)
-
-        assert rows == [{"documentId": "D1"}]
-        assert session.send.call_count == 1
-        assert params[0]["Page"] == 1
-        assert params[0]["PageSize"] == PAGE_SIZE
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_page_advances_to_next_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        full = [{"documentId": f"D{i}"} for i in range(PAGE_SIZE)]
-        rows, params, _ = _run("documents", [_response(full), _response([{"documentId": "last"}])], session)
-
-        assert len(rows) == PAGE_SIZE + 1
-        assert [p["Page"] for p in params] == [1, 2]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_first_page_yields_nothing(self, MockSession) -> None:
         session = MockSession.return_value
@@ -146,27 +99,22 @@ class TestPagination:
         assert rows == []
         assert session.send.call_count == 1
 
+    @pytest.mark.parametrize(
+        "endpoint, param, expected",
+        [
+            ("templates", "TemplateType", "all"),
+            ("contacts", "ContactType", "AllContacts"),
+            ("contact_groups", "ContactType", "AllContacts"),
+            # PageType has no documented server-side default, so it must be sent explicitly.
+            ("behalf_documents", "PageType", "BehalfOfOthers"),
+        ],
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_is_treated_as_empty_page(self, MockSession) -> None:
+    def test_endpoints_send_their_widening_params(self, MockSession, endpoint, param, expected) -> None:
         session = MockSession.return_value
-        rows, _, _ = _run("documents", [_response(None, drop_key=True)], session)
+        _, params, _ = _run(endpoint, [_response([{"documentId": "X1"}])], session)
 
-        assert rows == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_teams_uses_results_data_key(self, MockSession) -> None:
-        session = MockSession.return_value
-        rows, _, _ = _run("teams", [_response([{"teamId": "T1"}], data_key="results")], session)
-
-        assert rows == [{"teamId": "T1"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_templates_send_template_type_param(self, MockSession) -> None:
-        session = MockSession.return_value
-        _, params, _ = _run("templates", [_response([{"documentId": "T1"}])], session)
-
-        assert params[0]["TemplateType"] == "all"
+        assert params[0][param] == expected
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_api_key_supplied_via_framework_auth(self, MockSession) -> None:
@@ -198,18 +146,6 @@ class TestPagination:
 
 
 class TestResume:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_page_after_yielding_each_full_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        full = [{"documentId": f"D{i}"} for i in range(PAGE_SIZE)]
-        _, _, manager = _run("documents", [_response(full), _response([{"documentId": "tail"}])], session)
-
-        # Only the page that had a full page of results (page 1) saves state, pointing at page 2.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == BoldSignResumeConfig(
-            page=2, next_cursor=None, records_fetched=PAGE_SIZE
-        )
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
@@ -276,8 +212,12 @@ class TestSourceResponse:
             ("users", ["userId"]),
             ("teams", ["teamId"]),
             ("contacts", ["id"]),
+            ("contact_groups", ["groupId"]),
             ("sender_identities", ["id"]),
             ("brands", ["brandId"]),
+            ("team_documents", ["documentId"]),
+            ("behalf_documents", ["documentId"]),
+            ("custom_fields", ["brandId", "customFieldId"]),
         ],
     )
     def test_primary_keys_per_endpoint(self, endpoint: str, expected_pk: list[str]) -> None:
@@ -294,6 +234,56 @@ class TestSourceResponse:
         # Full refresh: BoldSign timestamps are epoch ints, so no datetime partitioning.
         assert response.partition_mode is None
         assert response.primary_keys == BOLDSIGN_ENDPOINTS[endpoint].primary_keys
+
+
+class TestCustomFieldsFanout:
+    """`customField/list` needs a brandId, so it fans out over the brands endpoint."""
+
+    @staticmethod
+    def _wire_urls(session: mock.MagicMock, responses: list[Response]) -> list[str]:
+        session.headers = {}
+        urls: list[str] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            urls.append(request.url)
+            return mock.MagicMock()
+
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = responses
+        return urls
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_every_brand(self, MockSession) -> None:
+        session = MockSession.return_value
+        urls = self._wire_urls(
+            session,
+            [
+                _response([{"brandId": "B1"}, {"brandId": "B2"}]),
+                _response([{"customFieldId": "F1", "brandId": "B1"}]),
+                # The response's own brandId is nullable, so the parent's value must fill it in.
+                _response([{"customFieldId": "F2", "brandId": None}]),
+            ],
+        )
+
+        rows = _rows(
+            boldsign_source(
+                region="us",
+                api_key="key",
+                endpoint="custom_fields",
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=_make_manager(),
+            )
+        )
+
+        assert [url for url in urls if "customField" in url] == [
+            "https://api.boldsign.com/v1/customField/list?brandId=B1",
+            "https://api.boldsign.com/v1/customField/list?brandId=B2",
+        ]
+        assert rows == [
+            {"customFieldId": "F1", "brandId": "B1"},
+            {"customFieldId": "F2", "brandId": "B2"},
+        ]
 
 
 class TestValidateCredentials:

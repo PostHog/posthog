@@ -107,7 +107,7 @@ describe("taskInputPrefillStore.consumePrompt", () => {
     useTaskInputPrefillStore.setState({ prefill: {} });
   });
 
-  it("retires the prompt it was given", () => {
+  it("retires the prompt but keeps the key for delayed config", () => {
     useTaskInputPrefillStore.setState({
       prefill: { requestId: "r1", initialPrompt: "hello", folderId: "f1" },
     });
@@ -116,7 +116,7 @@ describe("taskInputPrefillStore.consumePrompt", () => {
 
     const { prefill } = useTaskInputPrefillStore.getState();
     expect(prefill.initialPrompt).toBeUndefined();
-    expect(prefill.requestId).toBeUndefined();
+    expect(prefill.requestId).toBe("r1");
     // Folder scoping is not a one-shot prompt; it must survive.
     expect(prefill.folderId).toBe("f1");
   });

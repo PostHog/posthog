@@ -42,6 +42,23 @@ def _response(data_key: str, items: list[dict[str, Any]], total_pages: int = 1) 
     return resp
 
 
+def _raw_response(body: dict[str, Any]) -> mock.MagicMock:
+    resp = mock.MagicMock()
+    resp.json.return_value = body
+    resp.status_code = 200
+    resp.ok = True
+    return resp
+
+
+def _lookup_response(data_key: str, items: list[dict[str, Any]]) -> mock.MagicMock:
+    # The stage lookups answer with just the rows: no page params echoed, no pagination object.
+    resp = mock.MagicMock()
+    resp.json.return_value = {data_key: items}
+    resp.status_code = 200
+    resp.ok = True
+    return resp
+
+
 def _rate_limited(retry_after: str | None = None) -> mock.MagicMock:
     resp = mock.MagicMock()
     resp.status_code = 429
@@ -95,23 +112,6 @@ class TestValidateCredentials:
 
 class TestGetRows:
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_paginates_until_total_pages(self, mock_session):
-        mock_session.return_value.post.side_effect = [
-            _response("contacts", [{"id": "c1", "updated_at": "2024-01-02T00:00:00Z"}], total_pages=2),
-            _response("contacts", [{"id": "c2", "updated_at": "2024-01-01T00:00:00Z"}], total_pages=2),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("key", "contacts", mock.MagicMock(), manager))
-
-        assert [item["id"] for batch in batches for item in batch] == ["c1", "c2"]
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].page == 2
-        bodies = [call.kwargs["json"] for call in mock_session.return_value.post.call_args_list]
-        assert bodies[0]["page"] == 1
-        assert bodies[1]["page"] == 2
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_incremental_sorts_desc_and_stops_at_watermark(self, mock_session):
         page = [
             {"id": "new", "updated_at": "2024-06-01T00:00:00Z"},
@@ -138,25 +138,72 @@ class TestGetRows:
         assert body["sort_by_field"] == "contact_updated_at"
         assert body["sort_ascending"] is False
 
+    @pytest.mark.parametrize("endpoint", ["tasks", "emailer_campaigns"])
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_opportunities_have_no_sort_fields(self, mock_session):
-        mock_session.return_value.post.return_value = _response("opportunities", [])
+    def test_query_param_post_endpoints_paginate_in_the_query_string(self, mock_session, endpoint):
+        # These POSTs only read page params from the query string. Sent in the JSON body they
+        # are ignored, so every request comes back as page 1 and the walk re-yields it until
+        # the 500-page cap.
+        mock_session.return_value.post.side_effect = [
+            _response(endpoint, [{"id": "a1"}], total_pages=2),
+            _response(endpoint, [{"id": "a2"}], total_pages=2),
+        ]
+
+        batches = list(get_rows("key", endpoint, mock.MagicMock(), _make_manager()))
+
+        assert [item["id"] for batch in batches for item in batch] == ["a1", "a2"]
+        calls = mock_session.return_value.post.call_args_list
+        assert [call.kwargs["params"]["page"] for call in calls] == [1, 2]
+        assert calls[0].kwargs["params"]["per_page"] == PAGE_SIZE
+        assert calls[0].kwargs["json"] == {}
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_emailer_messages_stops_without_a_pagination_object(self, mock_session):
+        # This endpoint answers with no pagination object at all, so there is no total_pages
+        # to break on — the walk has to end on the first empty page instead of running to the cap.
+        page = {"emailer_messages": [{"id": "m1", "created_at": "2024-01-01T00:00:00Z"}], "emailer_steps": []}
+        empty: dict[str, list[Any]] = {"emailer_messages": [], "emailer_steps": []}
+        mock_session.return_value.get.side_effect = [
+            _raw_response(page),
+            _raw_response(empty),
+        ]
+
+        batches = list(get_rows("key", "emailer_messages", mock.MagicMock(), _make_manager()))
+
+        assert [item["id"] for batch in batches for item in batch] == ["m1"]
+        assert mock_session.return_value.get.call_count == 2
+
+    @pytest.mark.parametrize("endpoint", ["contact_stages", "account_stages", "opportunity_stages"])
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_lookup_endpoints_read_one_unpaginated_page(self, mock_session, endpoint):
+        # Without the single-page stop these would loop forever: the response carries no
+        # total_pages to break on, so every pass re-yields the same rows.
+        mock_session.return_value.get.return_value = _lookup_response(endpoint, [{"id": "s1"}])
 
         manager = _make_manager()
-        list(get_rows("key", "opportunities", mock.MagicMock(), manager))
+        batches = list(get_rows("key", endpoint, mock.MagicMock(), manager))
 
-        body = mock_session.return_value.post.call_args.kwargs["json"]
-        assert "sort_by_field" not in body
+        assert [item["id"] for batch in batches for item in batch] == ["s1"]
+        assert mock_session.return_value.get.call_count == 1
+        assert mock_session.return_value.post.call_count == 0
+        assert mock_session.return_value.get.call_args.kwargs["params"] == {}
+        manager.save_state.assert_not_called()
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resumes_from_saved_page(self, mock_session):
-        mock_session.return_value.post.return_value = _response("contacts", [])
+    def test_users_paginates_with_query_params(self, mock_session):
+        # Page params have to ride the query string on this GET; sent as a body they are
+        # ignored and every page comes back as page 1.
+        mock_session.return_value.get.side_effect = [
+            _response("users", [{"id": "u1"}], total_pages=2),
+            _response("users", [{"id": "u2"}], total_pages=2),
+        ]
 
-        manager = _make_manager(ApolloResumeConfig(page=7))
-        list(get_rows("key", "contacts", mock.MagicMock(), manager))
+        batches = list(get_rows("key", "users", mock.MagicMock(), _make_manager()))
 
-        body = mock_session.return_value.post.call_args.kwargs["json"]
-        assert body["page"] == 7
+        assert [item["id"] for batch in batches for item in batch] == ["u1", "u2"]
+        pages = [call.kwargs["params"]["page"] for call in mock_session.return_value.get.call_args_list]
+        assert pages == [1, 2]
+        assert mock_session.return_value.get.call_args.kwargs["params"]["per_page"] == PAGE_SIZE
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_search_cap_is_logged(self, mock_session):
@@ -212,16 +259,6 @@ class TestGetRows:
         assert [item["id"] for batch in batches for item in batch] == ["new", "no-ts"]
         assert mock_session.return_value.post.call_count == 1
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_empty_response_stops_without_saving_state(self, mock_session):
-        mock_session.return_value.post.return_value = _response("contacts", [])
-
-        manager = _make_manager()
-        batches = list(get_rows("key", "contacts", mock.MagicMock(), manager))
-
-        assert batches == []
-        manager.save_state.assert_not_called()
-
 
 class TestApolloSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
@@ -240,8 +277,10 @@ class TestApolloSourceResponse:
 
     @pytest.mark.parametrize("config", list(APOLLO_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
+        # A partition key that moves (updated_at, last_activity_date) rewrites partitions
+        # on every sync. Only fields fixed when the record is written belong here.
         if config.partition_key:
-            assert config.partition_key == "created_at"
+            assert config.partition_key in {"created_at", "start_time"}
 
 
 class TestRetryAfter:

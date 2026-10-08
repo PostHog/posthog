@@ -23,6 +23,8 @@ import { randomUUID } from 'node:crypto'
 import { mapErrorToAuthResponse } from '@/lib/auth-errors'
 import { isLegacyDialectOnlyClient } from '@/lib/client-detection'
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
+import { McpSessionResetRequiredError, SESSION_RESET_REQUIRED_REASON } from '@/lib/errors'
+import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import {
     isModernRequest,
@@ -37,11 +39,12 @@ import {
 
 import { trackInitEvent } from './analytics'
 import type { RedisLike } from './cache/RedisCache'
-import { getEnv } from './constants'
+import { getEnv, MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import { InstructionsBuilder } from './instructions'
 import { initDurationSeconds, initTotal } from './metrics'
 import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
+import { SkillCatalogService } from './skill-catalog-service'
 import { ToolCatalog } from './tool-catalog'
 import { ToolExecutor } from './tool-executor'
 
@@ -135,6 +138,7 @@ class McpDispatcher {
     private readonly stateResolver: RequestStateResolver
     private readonly toolExecutor: ToolExecutor
     private readonly instructionsBuilder: InstructionsBuilder
+    private readonly skillCatalogService: SkillCatalogService
 
     private warmupPromise: Promise<void> | undefined
 
@@ -144,7 +148,8 @@ class McpDispatcher {
         this.resourceCatalog = new ResourceCatalog(env, redis)
         this.stateResolver = new RequestStateResolver(catalog, redis, env)
         this.instructionsBuilder = new InstructionsBuilder(GUIDELINES)
-        this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder)
+        this.skillCatalogService = new SkillCatalogService(redis, { archiveUrl: env.POSTHOG_MCP_SKILLS_URL })
+        this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder, this.skillCatalogService)
     }
 
     async warmup(): Promise<void> {
@@ -154,7 +159,16 @@ class McpDispatcher {
 
     private async doWarmup(): Promise<void> {
         await this.catalog.warmup()
-        await this.resourceCatalog.warmup()
+        const skillsEnabled = resolveFeatureFlagOverrides()[MCP_EXEC_SKILLS_FEATURE_FLAG] !== false
+        await Promise.all([
+            this.resourceCatalog.warmup(),
+            skillsEnabled ? this.skillCatalogService.warmup() : undefined,
+        ])
+        if (skillsEnabled) {
+            // Skills refresh on a timer, never on a request: the July incident was every
+            // handshake re-reading the archive from Redis.
+            this.skillCatalogService.start()
+        }
     }
 
     async handleRequest(req: Request, props: RequestProperties): Promise<Response> {
@@ -245,6 +259,19 @@ class McpDispatcher {
             // surfaces as a 401/403/500 upstream via handleCatchError.
             if (hasInit) {
                 initTotal.inc({ status: mapErrorToAuthResponse(error) ? 'auth_error' : 'error' })
+            }
+            // A JSON-RPC error with HTTP 200 reaches the agent, which can tell the user to
+            // reconnect. Some transports, such as mcp-remote, treat any non-2xx status as fatal.
+            if (error instanceof McpSessionResetRequiredError) {
+                const errors = requests.map((r) =>
+                    jsonRpcMethodError(r.id, ErrorCode.InvalidRequest, error.message, {
+                        reason: SESSION_RESET_REQUIRED_REASON,
+                    })
+                )
+                return new Response(JSON.stringify(!wasArray && errors.length === 1 ? errors[0] : errors), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                })
             }
             throw error
         }

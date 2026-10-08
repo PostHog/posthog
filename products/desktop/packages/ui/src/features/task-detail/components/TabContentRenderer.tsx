@@ -11,10 +11,9 @@ import { PostHogObjectPage } from "../../posthog-objects/PostHogObjectPage";
 import { ArtifactPreview } from "../../sessions/components/ArtifactPreview";
 import { useIsCloudTask } from "../../workspace/useWorkspace";
 import { ActionPanel } from "./ActionPanel";
-import { CanvasInstructionsTab } from "./CanvasInstructionsTab";
 import { ChangesPanel } from "./ChangesPanel";
-import { ChannelContextTab } from "./ChannelContextTab";
 import { FileTreePanel } from "./FileTreePanel";
+import { InjectedBlockTab } from "./InjectedBlockTab";
 import { TaskLogsPanel } from "./TaskLogsPanel";
 import { TaskShellPanel } from "./TaskShellPanel";
 
@@ -72,13 +71,8 @@ export function TabContentRenderer({
         />
       );
 
-    case "context":
-      return (
-        <ChannelContextTab channelName={data.channelName} body={data.body} />
-      );
-
-    case "canvas-instructions":
-      return <CanvasInstructionsTab body={data.body} />;
+    case "injected-block":
+      return <InjectedBlockTab block={data.block} />;
 
     case "autoresearch":
       return <AutoresearchPanel taskId={taskId} />;

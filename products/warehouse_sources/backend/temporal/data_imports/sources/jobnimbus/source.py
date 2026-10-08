@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class JobNimbusSource(ResumableSource[JobNimbusSourceConfig, JobNimbusResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    api_docs_url = "https://documenter.getpostman.com/view/3919598/S11PpG7g"
+    api_docs_url = "https://documenter.getpostman.com/view/3919598/S11PpG4x"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -48,13 +46,13 @@ class JobNimbusSource(ResumableSource[JobNimbusSourceConfig, JobNimbusResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.JOB_NIMBUS,
+            name=ExternalDataSourceType.JOBNIMBUS,
             category=DataWarehouseSourceCategory.CRM,
             label="JobNimbus",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your JobNimbus API key to pull your CRM data into the PostHog Data warehouse.
 
-You can create an API key under **Settings → API** in [JobNimbus](https://app.jobnimbus.com). The key grants access to your contacts, jobs, tasks, and activities.
+You can create an API key under **Settings → API** in [JobNimbus](https://app.jobnimbus.com). The key grants access to your contacts, jobs, tasks, activities, estimates, invoices, payments, budgets, products, users, groups, and account settings.
 """,
             iconPath="/static/services/jobnimbus.png",
             docsUrl="https://posthog.com/docs/cdp/sources/jobnimbus",

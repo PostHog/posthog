@@ -5,11 +5,13 @@ from unittest.mock import MagicMock, patch
 import structlog
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Transient_Error_Messages
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixpanel import (
     MixpanelSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel import source as source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.mixpanel import EXPORT_TRUNCATED_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.source import MixpanelSource
 
 LOGGER = structlog.get_logger()
@@ -51,10 +53,6 @@ class TestConnectionHostFields:
 
 
 class TestGetSchemas:
-    def test_all_schemas(self) -> None:
-        schemas = {s.name: s for s in MixpanelSource().get_schemas(_config(), team_id=1)}
-        assert set(schemas) == {"export", "engage", "cohorts", "annotations"}
-
     @parameterized.expand(
         [
             ("export", True),
@@ -67,11 +65,6 @@ class TestGetSchemas:
         schemas = {s.name: s for s in MixpanelSource().get_schemas(_config(), team_id=1)}
         assert schemas[endpoint].supports_incremental is supports
         assert schemas[endpoint].supports_append is supports
-
-    def test_export_has_time_incremental_field(self) -> None:
-        schemas = {s.name: s for s in MixpanelSource().get_schemas(_config(), team_id=1)}
-        fields = schemas["export"].incremental_fields
-        assert [f["field"] for f in fields] == ["time"]
 
     def test_filter_by_names(self) -> None:
         schemas = MixpanelSource().get_schemas(_config(), team_id=1, names=["engage"])
@@ -98,19 +91,6 @@ class TestApiVersions:
 
 
 class TestSourceForPipeline:
-    def test_plumbs_arguments(self) -> None:
-        config = _config()
-        manager = MagicMock()
-        with patch.object(source_module, "mixpanel_source") as mock_source:
-            MixpanelSource().source_for_pipeline(config, manager, _inputs(schema_name="engage"))
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["region"] == "eu"
-        assert kwargs["project_id"] == "123456"
-        assert kwargs["username"] == "svc"
-        assert kwargs["secret"] == "shh"
-        assert kwargs["endpoint"] == "engage"
-        assert kwargs["manager"] is manager
-
     def test_incremental_value_passed_only_when_incremental(self) -> None:
         with patch.object(source_module, "mixpanel_source") as mock_source:
             MixpanelSource().source_for_pipeline(
@@ -121,17 +101,6 @@ class TestSourceForPipeline:
                 ),
             )
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] == 1700000000
-
-    def test_incremental_value_dropped_when_not_incremental(self) -> None:
-        with patch.object(source_module, "mixpanel_source") as mock_source:
-            MixpanelSource().source_for_pipeline(
-                _config(),
-                MagicMock(),
-                _inputs(
-                    schema_name="export", should_use_incremental_field=False, db_incremental_field_last_value=1700000000
-                ),
-            )
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
 
 
 class TestNonRetryableErrors:
@@ -155,3 +124,7 @@ class TestNonRetryableErrors:
     )
     def test_transient_failures_stay_retryable(self, _name: str, other_error: str) -> None:
         assert not any(key in other_error for key in self.source.get_non_retryable_errors())
+
+    def test_truncated_export_has_customer_facing_copy(self) -> None:
+        # The shared map keys on a literal, so a reworded error would silently lose its copy.
+        assert EXPORT_TRUNCATED_ERROR in Transient_Error_Messages

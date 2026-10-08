@@ -116,9 +116,9 @@ fn body_of_len(len: usize) -> String {
     named_body_of_len(len, "e")
 }
 
-/// The same, with the event name chosen. Capture-ai rejects any event outside the
-/// `AI_EVENT_NAMES` allowlist with a 400 before the size check is reached, so an
-/// AI-lane body has to carry a listed name to exercise the cap at all.
+/// The same, with the event name chosen. Capture-ai rejects any event without the
+/// `$ai_` prefix with a 400 before the size check is reached, so an AI-lane body
+/// has to carry an `$ai_` name to exercise the cap at all.
 fn named_body_of_len(len: usize, event: &str) -> String {
     let envelope = format!(
         r#"{{"token":"phc_test","event":"{event}","distinct_id":"d","properties":{{"big":""}}}}"#

@@ -31,7 +31,11 @@ from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompare
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.hogql_queries.utils.utils import get_response_hogql
-from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
+from posthog.hogql_queries.validation.rules import (
+    DisallowUnsupportedDataWarehouseSettings,
+    RequireAtLeastOneSeries,
+    validate_series_fan_out,
+)
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
@@ -434,6 +438,8 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
                 # If an action doesn't exist, we want to return no events
                 filters.append(parse_expr("1 = 2"))
 
+        cohort_via_distinct_id = isinstance(series, DataWarehouseNode)
+
         # Filter Test Accounts
         if (
             self.query.filterTestAccounts
@@ -441,15 +447,19 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
             and len(self.team.test_account_filters) > 0
         ):
             for property in self.team.test_account_filters:
-                filters.append(property_to_expr(property, self.team))
+                filters.append(property_to_expr(property, self.team, cohort_via_distinct_id=cohort_via_distinct_id))
 
         # Properties
         if self.query.properties is not None and self.query.properties != []:
-            filters.append(property_to_expr(self.query.properties, self.team))
+            filters.append(
+                property_to_expr(self.query.properties, self.team, cohort_via_distinct_id=cohort_via_distinct_id)
+            )
 
         # Series Filters
         if series.properties is not None and series.properties != []:
-            filters.append(property_to_expr(series.properties, self.team))
+            filters.append(
+                property_to_expr(series.properties, self.team, cohort_via_distinct_id=cohort_via_distinct_id)
+            )
 
         # Ignore empty groups
         if series.math == "unique_group" and series.math_group_type_index is not None:
@@ -487,6 +497,8 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
             return action.name
 
     def setup_series(self) -> list[SeriesWithExtras]:
+        validate_series_fan_out(self.query, cohort_breakdown_expands=False)
+
         series_with_extras = [
             SeriesWithExtras(
                 series,

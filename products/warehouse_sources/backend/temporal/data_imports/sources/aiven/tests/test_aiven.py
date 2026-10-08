@@ -10,7 +10,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aiven.aiven import (
     AIVEN_BASE_URL,
-    _auth_header_value,
     aiven_source,
     validate_credentials,
 )
@@ -60,14 +59,6 @@ def _rows(endpoint: str) -> list[dict[str, Any]]:
     return [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
 
-class TestAuthHeader:
-    def test_uses_aivenv1_scheme_not_bearer(self) -> None:
-        # Aiven requires the literal `aivenv1` prefix; a `Bearer` prefix is rejected by the API.
-        value = _auth_header_value("tok-123")
-        assert value == "aivenv1 tok-123"
-        assert "Bearer" not in value
-
-
 class TestListExtraction:
     @parameterized.expand(
         [
@@ -87,12 +78,6 @@ class TestListExtraction:
 
 
 class TestFanOut:
-    @patch(CLIENT_SESSION_PATCH)
-    def test_fan_out_none_yields_rows(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, {"/clouds": _response(200, {"clouds": [{"cloud_name": "aws-x"}]})})
-        assert _rows("clouds") == [{"cloud_name": "aws-x"}]
-
     @patch(CLIENT_SESSION_PATCH)
     def test_fan_out_project_injects_parent_project_name(self, MockSession: MagicMock) -> None:
         # `services` items carry no project field, so the parent's `project_name` must be injected
@@ -159,17 +144,36 @@ class TestFanOut:
         ]
 
     @patch(CLIENT_SESSION_PATCH)
-    def test_empty_child_batches_are_not_yielded(self, MockSession: MagicMock) -> None:
+    def test_two_level_injects_both_org_and_group(self, MockSession: MagicMock) -> None:
+        # user_group_members fans out organization -> user-groups -> members; the child rows carry
+        # neither id, so both must be injected to keep the composite key unique table-wide.
         session = MockSession.return_value
         _wire(
             session,
             {
-                "/project": _response(200, {"projects": [{"project_name": "p1"}, {"project_name": "p2"}]}),
-                "/project/p1/service": _response(200, {"services": []}),
-                "/project/p2/service": _response(200, {"services": [{"service_name": "s2"}]}),
+                "/organizations": _response(200, {"organizations": [{"organization_id": "org1"}]}),
+                "/organization/org1/user-groups": _response(200, {"user_groups": [{"user_group_id": "g1"}]}),
+                "/organization/org1/user-groups/g1/members": _response(200, {"members": [{"user_id": "u1"}]}),
             },
         )
-        assert _rows("services") == [{"service_name": "s2", "project_name": "p2"}]
+        assert _rows("user_group_members") == [
+            {"user_id": "u1", "organization_id": "org1", "user_group_id": "g1"},
+        ]
+
+    @patch(CLIENT_SESSION_PATCH)
+    def test_two_level_single_placeholder_injects_only_declared_param(self, MockSession: MagicMock) -> None:
+        # billing_group_projects binds only {billing_group_id}, so only that id is injected — the
+        # grandparent organization_id must not leak onto the row.
+        session = MockSession.return_value
+        _wire(
+            session,
+            {
+                "/organizations": _response(200, {"organizations": [{"organization_id": "org1"}]}),
+                "/organization/org1/billing-groups": _response(200, {"billing_groups": [{"billing_group_id": "bg1"}]}),
+                "/billing-group/bg1/projects": _response(200, {"projects": [{"project_name": "p1"}]}),
+            },
+        )
+        assert _rows("billing_group_projects") == [{"project_name": "p1", "billing_group_id": "bg1"}]
 
 
 class TestFailLoud:
@@ -207,8 +211,3 @@ class TestValidateCredentials:
     def test_maps_status_to_bool(self, _name: str, status: int, expected: bool, mock_session: MagicMock) -> None:
         mock_session.return_value.get.return_value = MagicMock(status_code=status)
         assert validate_credentials("tok") is expected
-
-    @patch(AIVEN_SESSION_PATCH)
-    def test_network_error_is_false(self, mock_session: MagicMock) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("tok") is False

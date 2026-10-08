@@ -1,6 +1,6 @@
 ---
 name: managing-streamlit-apps
-description: Create, deploy, and operate Streamlit apps in PostHog via the streamlit-apps MCP tools — create an app, set its source, start and stop its sandbox, poll status, list versions, delete, and share the app with humans via its PostHog URL. Use when asked to "create a streamlit app", "deploy a data app", "ship a dashboard app", "restart/stop my app", "why is my app not running", or "give me a link to the app".
+description: Create, deploy, and operate Streamlit apps in PostHog via the streamlit-apps MCP tools — create an app, set its source, read and patch its code, start and stop its sandbox, poll status, list versions, delete, and share the app with humans via its PostHog URL. Use when asked to "create a streamlit app", "deploy a data app", "ship a dashboard app", "restart/stop my app", "why is my app not running", or "give me a link to the app".
 ---
 
 # Managing Streamlit apps
@@ -14,6 +14,7 @@ The full lifecycle is driven with the `streamlit-apps-*` MCP tools.
 1. `streamlit-apps-create` with a `name` (optionally `description`, `cpu_cores` 0.25–8, `memory_gb` 0.5–16, defaults 0.5 / 1).
    The app exists but has no code yet.
 2. `streamlit-apps-set-source` with the complete `app.py` source as one string.
+   Extra files ride along in the same call: `files` maps a project-relative path to text (helper modules, CSV, JSON), `assets` maps a path to base64 (Parquet, images).
    This creates version 1 and activates it.
    Write the source per the `writing-streamlit-apps` skill — in particular use `posthog_apps.query()` for PostHog data, never `import posthog`.
 3. `streamlit-apps-start`.
@@ -32,10 +33,30 @@ An app whose version author has since been deleted can't start; upload a new ver
 
 ## Updating code
 
-Call `streamlit-apps-set-source` again: it creates the next version and activates it.
+Change an existing app in two steps, so you never ship an old copy over newer work:
+
+1. `streamlit-apps-get-source` reads the active version (or `version_number` for an older one).
+   It returns `version_number`, a manifest of every file, and the text of each text file.
+   Binary files appear without content.
+   For a large app, pass `paths` (comma-separated) to read only the files you need.
+2. `streamlit-apps-edit-source` with `base_version` set to that `version_number`.
+   `file_edits` holds exact `old` → `new` text replacements per file, `create_files` adds new text files, `delete_files` removes files.
+   Each `old` must match exactly once, so include enough surrounding lines to make it unique.
+   Files you do not touch stay byte-for-byte the same in the new version.
+
+If the active version changed after your read, edit-source returns 409 with `current_version`.
+This happens when another session ships a version, or when a person rolls the app back to an older version.
+Read `current_version` again and redo your edits on it.
+Do not fall back to set-source to force your copy through.
+
+Keep `streamlit-apps-set-source` for a new app or a full rewrite.
+It replaces every file, so pass `files` and `assets` again too; a version holds only what that call carried.
+
+Both tools create the next version and activate it.
 A running sandbox is stopped so it can't keep serving stale code — call `streamlit-apps-start` afterwards to serve the new version.
 Versions are immutable, but not permanent: `streamlit-apps-versions` lists the newest 50, and non-active versions older than 30 days are deleted along with their code.
-There is no rollback tool: to roll back, set the old source again (fetch it from your conversation or wherever it's kept — versions store the zip, not an inline source view).
+There is no rollback tool: to roll back, read the old version with `streamlit-apps-get-source` and set its files again with set-source.
+Binary assets are not inlined there, so a rollback of an app with assets also needs a saved copy of those files.
 
 ## Stopping, idling, and deleting
 

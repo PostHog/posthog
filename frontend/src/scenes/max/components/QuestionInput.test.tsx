@@ -1,11 +1,18 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
+
+import { MAX_MESSAGE_LENGTH } from '../max-constants'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
@@ -63,6 +70,21 @@ describe('QuestionInput', () => {
 
     const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
+    it('offers file selection before the first message and preserves the current draft', async () => {
+        expect(screen.queryByText('Attach', { exact: true })).not.toBeInTheDocument()
+        act(() => featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true }))
+        expect(screen.getByText('Attach', { exact: true })).toBeInTheDocument()
+        const file = new File(['demo'], 'notes.txt', { type: 'text/plain' })
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Read these notes' } })
+        const fileInput = document.querySelector('[data-attr="max-new-chat-attach-input"]') as HTMLInputElement
+        fireEvent.change(fileInput, { target: { files: [file] } })
+        expect(composerSeedLogic().values.seed).toMatchObject({
+            prompt: 'Read these notes',
+            files: [file],
+            autoSubmit: false,
+        })
+    })
+
     it('does not release a sandbox pre-warm when blur moves to the send button', async () => {
         // Simulate a completed warm; a release would clear the flag (and relay-cancel the warm Run).
         threadLogicInstance.cache.prewarmed = true
@@ -94,19 +116,64 @@ describe('QuestionInput', () => {
     })
 
     it('reopens the popover after Escape dismisses it and a fresh slash is typed', async () => {
+        const user = userEvent.setup()
         const input = screen.getByRole('textbox') as HTMLTextAreaElement
 
-        fireEvent.change(input, { target: { value: '/' } })
+        await user.type(input, '/')
         await waitFor(() => expect(slashCommandItem()).toBeInTheDocument())
 
-        fireEvent.keyDown(document, { key: 'Escape' })
+        await user.keyboard('{Escape}')
         await waitFor(() => expect(slashCommandItem()).not.toBeInTheDocument())
 
-        fireEvent.change(input, { target: { value: '' } })
+        await user.clear(input)
         await waitFor(() => expect(input.value).toBe(''))
 
-        fireEvent.change(input, { target: { value: '/' } })
+        await user.type(input, '/')
         await waitFor(() => expect(slashCommandItem()).toBeInTheDocument())
+    })
+
+    describe('message length limit', () => {
+        const sendButton = (): HTMLElement | null => document.querySelector('[data-attr="max-send-message"]')
+
+        it('blocks a message the server would reject, and counts it in code points', async () => {
+            const input = screen.getByRole('textbox') as HTMLTextAreaElement
+
+            // Emoji are one code point each but two UTF-16 units, so a naive `String.length` check
+            // would block this message even though the server accepts it.
+            fireEvent.change(input, { target: { value: '😀'.repeat(MAX_MESSAGE_LENGTH) } })
+            await waitFor(() => expect(sendButton()).not.toHaveAttribute('aria-disabled', 'true'))
+
+            fireEvent.change(input, { target: { value: 'x'.repeat(MAX_MESSAGE_LENGTH + 1) } })
+            await waitFor(() => expect(sendButton()).toHaveAttribute('aria-disabled', 'true'))
+            expect(screen.getByText('40,001 / 40,000')).toBeInTheDocument()
+        })
+
+        it('leaves the counter out of the way until the message approaches the limit', async () => {
+            const input = screen.getByRole('textbox') as HTMLTextAreaElement
+
+            fireEvent.change(input, { target: { value: 'a short question' } })
+            await waitFor(() => expect(input.value).toBe('a short question'))
+            expect(screen.queryByText(/\/ 40,000$/)).not.toBeInTheDocument()
+        })
+
+        it('sends the whole suggestion when the send lands mid-animation', () => {
+            jest.useFakeTimers()
+            try {
+                const askMaxSpy = jest.spyOn(threadLogicInstance.actions, 'askMax')
+                const suggestion = 'What is the retention in the last two weeks?'
+
+                act(() => {
+                    maxLogicInstance.actions.runSuggestion({ content: suggestion })
+                })
+                expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('W')
+
+                fireEvent.click(sendButton() as HTMLElement)
+
+                expect(askMaxSpy).toHaveBeenCalledWith(suggestion)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
     })
 
     describe('stop button cancel state', () => {

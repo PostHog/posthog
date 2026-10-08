@@ -15,12 +15,19 @@ from posthog.event_usage import (
     get_event_source,
     get_mcp_properties,
     is_wizard_self_driving_program,
+    report_organization_deleted,
+    report_organization_deletion_initiated,
     report_user_action,
     report_user_signed_up,
     sanitize_header_value,
 )
 from posthog.models.oauth import OAuthAccessToken
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV, SIGNALS_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_DEV,
+    POSTHOG_AI_APP_CLIENT_ID_DEV,
+    SIGNALS_APP_CLIENT_ID_DEV,
+    WEBMCP_APP_CLIENT_ID,
+)
 
 # The MCP server's catch-all consumer, sent by every sandbox agent and by the agent PostHog
 # Desktop hosts locally.
@@ -297,7 +304,7 @@ class TestGetEventSource(BaseTest):
         assert get_event_source(request) == expected
 
     def test_web_via_session_authentication(self):
-        from rest_framework.authentication import SessionAuthentication
+        from posthog.auth import SessionAuthentication
 
         request = SimpleNamespace(META={}, headers={}, successful_authenticator=SessionAuthentication())
         assert get_event_source(request) == EventSource.WEB
@@ -319,13 +326,19 @@ class TestGetEventSource(BaseTest):
         request = factory.get("/fake", HTTP_X_POSTHOG_CLIENT="mcp")
         assert get_event_source(request) == EventSource.MCP
 
-    def test_posthog_ai_oauth_app_beats_the_mcp_header(self):
+    @parameterized.expand(
+        [
+            ("posthog_ai", POSTHOG_AI_APP_CLIENT_ID_DEV, EventSource.POSTHOG_AI),
+            ("webmcp", WEBMCP_APP_CLIENT_ID, EventSource.WEBMCP),
+        ]
+    )
+    def test_server_minted_oauth_app_beats_the_mcp_header(self, _name, client_id, expected):
         request = SimpleNamespace(
             META={},
             headers={"X-Posthog-Client": "mcp"},
-            successful_authenticator=_oauth_authenticator(POSTHOG_AI_APP_CLIENT_ID_DEV),
+            successful_authenticator=_oauth_authenticator(client_id),
         )
-        assert get_event_source(request) == EventSource.POSTHOG_AI
+        assert get_event_source(request) == expected
 
     @parameterized.expand(
         [
@@ -404,7 +417,7 @@ class TestGetEventSource(BaseTest):
         # that is not an EventSource drops out of every breakdown that joins the two. This list is
         # EVENT_SOURCE in `services/mcp/src/lib/event-source.ts`, which its own test pins; removing
         # a surface here without removing it there fails this.
-        mcp_server_sources = {"mcp", "cli", "wizard", "slack", "posthog_ai", "posthog_code", "self_driving"}
+        mcp_server_sources = {"mcp", "cli", "wizard", "slack", "posthog_ai", "posthog_code", "self_driving", "webmcp"}
         assert mcp_server_sources <= {source.value for source in EventSource}
 
     @parameterized.expand(
@@ -583,3 +596,35 @@ class TestSanitizeHeaderValue(BaseTest):
     )
     def test_sanitize_header_value(self, _name, input_value, expected):
         assert sanitize_header_value(input_value) == expected
+
+
+class TestHostedDevDeploymentReporting(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "user signed up",
+                lambda self: report_user_signed_up(
+                    self.user, is_instance_first_user=False, is_organization_first_user=True
+                ),
+            ),
+            (
+                "organization deleted",
+                lambda self: report_organization_deleted(self.user, self.organization),
+            ),
+            (
+                "organization deletion initiated",
+                lambda self: report_organization_deletion_initiated(self.user, self.organization),
+            ),
+        ]
+    )
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_lifecycle_events_are_skipped_on_the_hosted_dev_deployment(self, event, report, mock_capture):
+        with self.settings(CLOUD_DEPLOYMENT="US"):
+            report(self)
+        assert [call.kwargs["event"] for call in mock_capture.call_args_list] == [event]
+
+        mock_capture.reset_mock()
+
+        with self.settings(CLOUD_DEPLOYMENT="DEV"):
+            report(self)
+        mock_capture.assert_not_called()
