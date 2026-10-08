@@ -545,6 +545,7 @@ export const FEATURE_FLAGS = {
     SIMPLE_SIDEPANEL: 'simple-sidepanel',
     SLACK_DWH: 'slack-dwh', // owner: @MarconLP #team-warehouse-sources
     SLACK_WORKFLOW_TRIGGERS: 'slack-workflow-triggers', // owner: #team-workflows-cdp
+    SMALL_SOFTWARE_APPS: 'small-software-apps', // owner: @DanielVisca, shows the canvas app tile in the dashboard add-widget picker; the backend gates tile creation on the same key
     SQL_EDITOR_BI_MODE: 'sql-editor-bi-mode', // owner: @mariusandra #team-data-tools
     SQL_EDITOR_LAZY_SCHEMA: 'sql-editor-lazy-schema', // owner: @mariusandra #team-data-tools
     SQL_EDITOR_VIM_MODE: 'sql-editor-vim-mode', // owner: @arthurdedeus
