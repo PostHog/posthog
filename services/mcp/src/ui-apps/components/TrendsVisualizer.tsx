@@ -8,6 +8,7 @@ import {
     ciRanges,
     DefaultTooltip,
     PieChart,
+    ProportionBar,
     SlopeChart,
     TimeSeriesBarChart,
     TimeSeriesLineChart,
@@ -40,7 +41,7 @@ import {
     supportsPercentStack,
 } from './chartSettingsConfig'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
-import { formatDate, formatTooltipDate, getDisplayType, getSeriesLabel } from './utils'
+import { buildProportionBarSeries, formatDate, formatTooltipDate, getDisplayType, getSeriesLabel } from './utils'
 
 const TITLE = 'Trends'
 
@@ -106,8 +107,19 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         )
     }
 
-    // ActionsBarValue and ActionsProportionBar are aggregated totals per series (no days[]) — a horizontal bar, not a time series.
-    if (displayType === 'ActionsBarValue' || displayType === 'ActionsProportionBar') {
+    if (displayType === 'ActionsProportionBar') {
+        return (
+            <div>
+                <ChartHeader title={TITLE} />
+                <div className="flex flex-col w-full justify-center p-4">
+                    <ProportionBar series={buildProportionBarSeries(results, colorAt)} theme={theme} />
+                </div>
+            </div>
+        )
+    }
+
+    // ActionsBarValue is aggregated totals per series (no days[]) — a horizontal bar, not a time series.
+    if (displayType === 'ActionsBarValue') {
         const items = results.map((item, i) => ({
             label: getSeriesLabel(item, i),
             value: item.aggregated_value,

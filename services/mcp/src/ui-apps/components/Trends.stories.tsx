@@ -124,3 +124,13 @@ export const Donut: Story = {
     render: () => renderTrends(trendsQuery('ActionsDonut'), BROWSER_TOTALS),
     name: 'Donut',
 }
+
+export const ProportionBar: Story = {
+    render: () =>
+        renderTrends(trendsQuery('ActionsProportionBar'), [
+            { label: 'Chrome', aggregated_value: 8421 },
+            { label: 'Firefox', aggregated_value: 3204 },
+            { label: 'Safari', aggregated_value: 2817 },
+        ]),
+    name: 'Proportion bar',
+}
