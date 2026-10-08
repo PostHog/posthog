@@ -1055,7 +1055,6 @@ export const SessionHoverCard: Story = {
                     }
                 )}
                 onAction={noop}
-                onSubmenuOpenChange={noop}
             />
         </HoverCardFrame>
     ),

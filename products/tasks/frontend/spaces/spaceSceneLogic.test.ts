@@ -5,7 +5,6 @@ import { expectLogic } from 'kea-test-utils'
 
 import { urls } from 'scenes/urls'
 
-import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -160,18 +159,6 @@ describe('spaceSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         return logic
     }
-
-    it('drops a session from the feed when the row menu moves it to another space', async () => {
-        const logic = spaceSceneLogic({ id: 'space-a' })
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.feedItems.map((item) => item.id)).toEqual(['task-1'])
-
-        todaySessionMenuLogic.actions.moveSession('task-1', 'space-b')
-        await expectLogic(logic).toDispatchActions(['sessionUpdated', 'loadSessionsSuccess'])
-
-        expect(logic.values.feedSections).toEqual([])
-    })
 
     it.each([
         ['a new name', '  checkout ', [{ name: 'checkout' }], 'checkout', null, null],
