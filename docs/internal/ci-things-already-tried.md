@@ -338,6 +338,30 @@ Measure the test phase, not the job wall time.
 
 _Also asked as:_ Depot CI is slower, Depot CI hyperthreading, thread to core ratio, is Depot CI a fair comparison
 
+### Make mypy fit on the 8 GB code-quality runner
+
+**Verdict: rejected** · Oct 2026 · [#113893](https://github.com/PostHog/posthog/pull/113893)
+
+A mypy run with no cache needs more memory than an 8 GB runner has, so the job moved to a 16 GB runner.
+The kernel killed mypy and the runner died with "lost communication with the server" and no logs.
+
+No mypy setting leaves enough room.
+Peak memory with no cache: 10.3 GB with 2 workers, 8.3 GB with 1 worker, 14.0 GB with 4 workers.
+Without `--cache-fine-grained` the 2-worker run needs 9.35 GB, and the 1-worker run needs 7.1 GB and takes 354 s instead of 217 s.
+A cache from an older dependency set does not help: the run still needs 8.0 GB.
+
+The memory follows the size of the program, not one module.
+mypy parses every module before it checks one, and that costs 6.0 GB of an 8.4 GB single-process run.
+Third-party packages are 13,000 of the 39,000 modules.
+A `follow_imports = "skip"` override for the 15 largest packages saves 2.3 GB, but those packages become `Any` and 63 new errors appear.
+
+mypy cannot go yet.
+ty has no Django support, so `pyproject.toml` turns off its argument and attribute rules, and mypy is the checker that reports those errors.
+
+The PR holds the method. Every number is from one dev box with 2 CPUs and a memory cgroup.
+
+_Also asked as:_ mypy OOM, mypy out of memory, runner lost communication, MYPY_NUM_WORKERS, fewer mypy workers, drop cache-fine-grained, mypy cache restore-keys fallback, replace mypy with ty, smaller code quality runner
+
 ## Docker and image builds
 
 ### Apply BuildKit cache mounts to the Dockerfile
