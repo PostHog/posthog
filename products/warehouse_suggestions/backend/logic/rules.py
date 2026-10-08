@@ -9,6 +9,7 @@ from typing import Any
 
 from posthog.clickhouse.query_tagging import AccessMethod, Feature, Product
 from posthog.dataclasses import frozen
+from posthog.event_usage import EventSource
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 
 from ..facade.enums import WarehouseSuggestionKind
@@ -21,15 +22,15 @@ RULES_VERSION_LENGTH = 12
 
 class Surface(StrEnum):
     MCP = "mcp"
-    ENDPOINT = "endpoint"
-    MAX_AI = "max_ai"
+    POSTHOG_AI = "posthog_ai"
+    DESKTOP = "desktop"
+    ENDPOINTS = "endpoints"
     DASHBOARD = "dashboard"
     INSIGHT = "insight"
     SQL_EDITOR = "sql_editor"
     NOTEBOOK = "notebook"
     API = "api"
-    PRODUCT_UI = "product_ui"
-    WAREHOUSE = "warehouse"
+    APP = "app"
     UNKNOWN = "unknown"
 
 
@@ -154,12 +155,15 @@ RULES = Rules(
     ),
     surfaces=SurfaceRules(
         rules=(
-            SurfaceRule(surface=Surface.MCP, field=TagField.SOURCE, values=frozenset({"mcp", "cli"})),
             SurfaceRule(
-                surface=Surface.ENDPOINT, field=TagField.FEATURE, values=frozenset({Feature.ENDPOINT_EXECUTION})
+                surface=Surface.MCP, field=TagField.SOURCE, values=frozenset({EventSource.MCP, EventSource.CLI})
             ),
-            SurfaceRule(surface=Surface.MAX_AI, field=TagField.PRODUCT, values=frozenset({Product.MAX_AI})),
-            SurfaceRule(surface=Surface.MAX_AI, field=TagField.SCENE, values=frozenset({"Max"})),
+            SurfaceRule(surface=Surface.POSTHOG_AI, field=TagField.SOURCE, values=frozenset({EventSource.POSTHOG_AI})),
+            SurfaceRule(surface=Surface.DESKTOP, field=TagField.SOURCE, values=frozenset({EventSource.DESKTOP})),
+            SurfaceRule(
+                surface=Surface.ENDPOINTS, field=TagField.FEATURE, values=frozenset({Feature.ENDPOINT_EXECUTION})
+            ),
+            SurfaceRule(surface=Surface.ENDPOINTS, field=TagField.PRODUCT, values=frozenset({Product.ENDPOINTS})),
             SurfaceRule(surface=Surface.DASHBOARD, field=TagField.SCENE, values=frozenset({"Dashboard"})),
             SurfaceRule(surface=Surface.INSIGHT, field=TagField.FEATURE, values=frozenset({Feature.INSIGHT})),
             SurfaceRule(surface=Surface.INSIGHT, field=TagField.SCENE, values=frozenset({"Insight", "SavedInsights"})),
@@ -174,8 +178,7 @@ RULES = Rules(
                     {AccessMethod.PERSONAL_API_KEY, AccessMethod.OAUTH, AccessMethod.PROJECT_SECRET_API_KEY}
                 ),
             ),
-            SurfaceRule(surface=Surface.PRODUCT_UI, field=TagField.SCENE, values=None),
-            SurfaceRule(surface=Surface.WAREHOUSE, field=TagField.PRODUCT, values=frozenset({Product.WAREHOUSE})),
+            SurfaceRule(surface=Surface.APP, field=TagField.SCENE, values=None),
         )
     ),
     subjects=SubjectRules(
