@@ -312,7 +312,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         super().__init__(*args, **kwargs)
         self.user_facing = user_facing
         self.max_execution_time = max_execution_time if max_execution_time is not None else MAX_EXECUTION_TIME
-        self.bypass_warehouse_access_control = bypass_warehouse_access_control
+        if bypass_warehouse_access_control:
+            self.bypass_warehouse_access_control()
         self._requested_as_of = as_of
         # Tags the terminal `experiment metric error` event with where the load came from. Defaults to "ui"
         # because the generic /query API path constructs runners without kwargs; internal callers that own
@@ -668,7 +669,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             experiment_query_ast,
             self.team,
             user=self.user,
-            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+            bypass_warehouse_access_control=self._bypass_warehouse_access_control,
         )
         self.hogql = experiment_query_debug[0]
         self.clickhouse_sql = experiment_query_debug[1]
@@ -699,7 +700,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             query=experiment_query_ast,
             team=self.team,
             user=self.user,
-            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+            bypass_warehouse_access_control=self._bypass_warehouse_access_control,
             timings=self.timings,
             modifiers=modifiers,
             settings=settings,
@@ -964,7 +965,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         as_of = self._requested_as_of.isoformat() if self._requested_as_of else ""
         return (
             f"{super().single_flight_variant()}:as_of={as_of}"
-            f":bypass_warehouse_access_control={self.bypass_warehouse_access_control}"
+            f":bypass_warehouse_access_control={self._bypass_warehouse_access_control}"
             f":max_execution_time={self.max_execution_time}"
         )
 
