@@ -1777,22 +1777,6 @@ export const scene: SceneExport = {
 function ActivityTab(): JSX.Element {
     return (
         <>
-            <section className="flex flex-col gap-3">
-                <div className="flex items-center gap-2">
-                    <span className="size-1.5 rounded-full bg-warning" />
-                    <span className="text-xxs font-semibold uppercase tracking-widest text-tertiary">
-                        Automated pull request review
-                    </span>
-                </div>
-                <h2 className="m-0 text-balance text-3xl font-bold">
-                    PostHog Review reviews pull requests before humans do
-                </h2>
-                <p className="m-0 max-w-155 text-sm text-secondary">
-                    Specialist review skills read your changed code in parallel each from their own perspective, a
-                    blind-spot sweep catches what they missed, and only validated findings get published back to the
-                    pull request.
-                </p>
-            </section>
             <TriggerReviewSection />
             <RecentReviewsSection />
         </>
@@ -1876,7 +1860,7 @@ export function CodeReviewScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Code review"
-                description="Automated code reviews of your pull requests, and your review agent settings."
+                description="PostHog Review reads your pull requests and posts the findings worth fixing. Start a review, see recent ones, and choose what gets reviewed."
                 resourceType={{ type: 'code_review' }}
             />
             <LemonTabs<CodeReviewTab>
@@ -1888,7 +1872,7 @@ export function CodeReviewScene(): JSX.Element {
                 ]}
                 sceneInset
             />
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 pb-30 pt-4">
+            <div className="flex flex-col gap-8 pb-8">
                 {initialLoadFailed && (
                     <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadAll() }}>
                         Some PostHog Review settings failed to load.
