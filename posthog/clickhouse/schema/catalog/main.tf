@@ -118,14 +118,6 @@ module "cohortpeople" {
   test       = var.test
 }
 
-module "custom_metrics" {
-  source     = "./custom_metrics"
-  node       = var.node
-  database   = var.database
-  deployment = merge(try(var.deployment.families.custom_metrics, {}), { overrides = var.overrides })
-  objects    = var.objects
-  test       = var.test
-}
 
 module "distinct_id_usage" {
   source     = "./distinct_id_usage"
@@ -603,14 +595,6 @@ module "async_deletion" {
   test       = var.test
 }
 
-module "custom_metrics_cloud" {
-  source     = "./custom_metrics_cloud"
-  node       = var.node
-  database   = var.database
-  deployment = merge(try(var.deployment.families.custom_metrics_cloud, {}), { overrides = var.overrides })
-  objects    = var.objects
-  test       = var.test
-}
 
 module "events_json_buffer" {
   source     = "./events_json_buffer"

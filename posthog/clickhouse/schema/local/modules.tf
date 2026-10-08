@@ -53,7 +53,6 @@ module "catalog" {
       "clickhouse_cleanup",
       "cohort_membership",
       "cohortpeople",
-      "custom_metrics",
       "distinct_id_usage",
       "dmat_slot_assignments",
       "document_embeddings",

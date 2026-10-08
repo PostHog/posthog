@@ -16,7 +16,7 @@ schema/
 
 This catalogue is additive during the foundation stage. Existing Python migrations, HCL checks, test setup and Hobby initialization remain the active paths. Run `bin/clickhouse-schema` only against a dedicated test database until ownership cutover.
 
-The companion infrastructure canary adopts only `dev/ops/custom_metrics_test`. Adoption must issue no DDL; a later schema-only pull request changes its help text to prove dispatch, reviewed planning and apply. The current Python definitions remain authoritative for all other objects.
+The `custom_metrics*` views that Prometheus scrapes, and the counter table `MetricsClient` writes to, are monitoring objects of PostHog Cloud and are declared in posthog-cloud-infra, not here. Without the table, `MetricsClient.increment` does nothing.
 
 Switch local, test and Hobby setup only after the cloud handover is verified. Delete the legacy implementations in a separate cleanup pull request.
 

@@ -18,14 +18,6 @@ locals {
     "cohort_membership",
     "cohortpeople",
     "conversion_goal_attributed_preaggregated",
-    "custom_metrics",
-    "custom_metrics_backups",
-    "custom_metrics_dictionaries",
-    "custom_metrics_part_counts",
-    "custom_metrics_replication_queue",
-    "custom_metrics_server_crash",
-    "custom_metrics_table_sizes",
-    "custom_metrics_test",
     "distinct_id_usage",
     "distributed_events_recent",
     "distributed_person_group_membership_config",
@@ -384,8 +376,6 @@ locals {
 
   # Objects only the test suite uses.
   test_objects = [
-    "custom_metrics_counter_events",
-    "custom_metrics_counters",
     "dmat_slot_assignments",
     "dmat_slot_assignments_dict",
     "logs32_to_log_attributes3",
