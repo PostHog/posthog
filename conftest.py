@@ -234,10 +234,7 @@ def _report_subtest_failures_as_test_failures() -> None:
 
 
 def _check_authentication_principals() -> None:
-    # posthog/test/repo_invariants/test_authentication_credential_types.py reads each authenticate()
-    # annotation to find the classes that resolve a real User. mypy cannot check those annotations,
-    # because User lookups are typed Any, so every request that a test authenticates checks one.
-    # The check runs where DRF stores the result, because a view can replace request.user later.
+    # Check where DRF stores the result, because a view can replace request.user later.
     from rest_framework.authentication import BaseAuthentication  # noqa: PLC0415 — deferred until pytest_configure
     from rest_framework.request import Request  # noqa: PLC0415 — deferred until pytest_configure
 
