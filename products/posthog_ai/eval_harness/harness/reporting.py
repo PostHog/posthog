@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 from ..engines.types import EvalSummary
+from .trial_stats import ScorerTrialStats
 
 EVAL_RESULTS_JSONL = "eval_results.jsonl"
 """Machine-readable per-experiment summary export, opt-in via ``EXPORT_EVAL_RESULTS``."""
@@ -47,6 +48,7 @@ class ProgressReporter:
         self._case_durations: dict[str, float] = defaultdict(float)
         self._case_statuses: dict[str, Counter[str]] = defaultdict(Counter)
         self._summary_error_counts: dict[str, int] = defaultdict(int)
+        self._trial_stats: dict[str, Sequence[ScorerTrialStats]] = {}
         self._experiment_totals: dict[str, int] = {}
         self._posthog_urls: dict[str, str] = {}
         self._log_dirs: dict[str, Path] = {}
@@ -112,9 +114,17 @@ class ProgressReporter:
                 f"{_format_duration(result.duration_seconds)}"
             )
 
-    async def record_summary(self, experiment_name: str, summary: EvalSummary, *, error_count: int = 0) -> None:
+    async def record_summary(
+        self,
+        experiment_name: str,
+        summary: EvalSummary,
+        *,
+        error_count: int = 0,
+        trial_stats: Sequence[ScorerTrialStats] = (),
+    ) -> None:
         async with self._lock:
             self._summaries[experiment_name] = summary
+            self._trial_stats[experiment_name] = trial_stats
             self._summary_error_counts[experiment_name] = error_count
             if os.getenv("EXPORT_EVAL_RESULTS"):
                 with open(EVAL_RESULTS_JSONL, "a", encoding="utf-8") as f:
@@ -206,10 +216,12 @@ class ProgressReporter:
             (f"  Cases: {statuses['ok']} done, {statuses['timeout']} timed out, {error_count} errors"),
             f"  Case time: {_format_duration(self._case_durations[experiment_name])}",
         ]
+        stats_by_scorer = {stats.name: stats for stats in self._trial_stats.get(experiment_name, ())}
         scores = [(score.name, score.score) for score in summary.scores.values() if score.score is not None]
         if scores:
             lines.append("  Scores:")
-            lines.extend(f"    {name}: {score * 100:.1f}%" for name, score in scores)
+            for name, score in scores:
+                lines.extend(_score_lines(name, score, stats_by_scorer.get(name)))
         else:
             lines.append("  Scores: none")
 
@@ -249,6 +261,24 @@ class ProgressReporter:
             else:
                 lines.append("(no traceback captured)")
         return lines
+
+
+def _score_lines(name: str, score: float, stats: ScorerTrialStats | None) -> list[str]:
+    if stats is None:
+        return [f"    {name}: {score * 100:.1f}%"]
+    interval = ""
+    if stats.ci_low is not None and stats.ci_high is not None:
+        interval = f" (95% CI {stats.ci_low * 100:.1f}-{stats.ci_high * 100:.1f}%)"
+    lines = [f"    {name}: {score * 100:.1f}%{interval}"]
+    if stats.pass_all is not None and stats.pass_any is not None:
+        k = stats.trials
+        short = stats.cases - stats.complete_cases
+        shortfall = f" | {short} cases short of {k} trials" if short else ""
+        lines.append(
+            f"      pass^{k} {stats.pass_all * 100:.1f}% | pass@{k} {stats.pass_any * 100:.1f}% "
+            f"| {stats.flaky_cases}/{stats.complete_cases} cases flaky{shortfall}"
+        )
+    return lines
 
 
 def _format_duration(seconds: float) -> str:
