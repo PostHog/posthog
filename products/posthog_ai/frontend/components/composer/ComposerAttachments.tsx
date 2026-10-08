@@ -31,7 +31,7 @@ export function ComposerAttachments({
             <LemonButton
                 size="xxsmall"
                 type="tertiary"
-                className={isOver ? 'flex-shrink-0 border border-accent' : 'flex-shrink-0 border'}
+                className={isOver ? 'flex-shrink-0 border border-accent' : 'flex-shrink-0'}
                 icon={<IconUpload className="text-secondary" />}
                 disabledReason={addDisabledReason}
                 tooltip="Attach files for PostHog AI to read"

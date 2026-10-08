@@ -169,6 +169,8 @@ When the new PostHog AI runtime is available, the legacy new-chat form also offe
 Selecting files opens the current composer with the draft, files, and selected context.
 This only prefills the composer; the user must send the message and complete any required consent.
 Canceling file selection keeps the legacy form open.
+Both chat layouts show selected files as compact tiles with an image preview or file type.
+Hover over a tile or focus it with the keyboard to see the full file name and remove control.
 
 ## Task navigation
 
