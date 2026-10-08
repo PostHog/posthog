@@ -85,6 +85,8 @@ def _build_ctx(timeout_seconds: int = 30, one_shot_slots: int = 2, case_filter: 
         engine=resolve_engine(),
         per_case_timeout_seconds=timeout_seconds,
         trials=1,
+        git_sha=None,
+        git_dirty=None,
     )
 
 
@@ -206,7 +208,6 @@ def test_run_routes_through_the_engine(
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     engine = _StubEngine(canned)
-    harness = SandboxedEvalHarness(parse_args(["--agent-model", "claude-test"]))
     reporter = _StubReporter()
 
     with (
@@ -215,7 +216,12 @@ def test_run_routes_through_the_engine(
         ) as create_client,
         patch("posthoganalytics.client.batch_post") as batch_post,
         patch("products.posthog_ai.eval_harness.harness.lifecycle.atexit.register"),
+        patch(
+            "products.posthog_ai.eval_harness.harness.lifecycle._git",
+            side_effect=lambda *args: "abc123" if args[0] == "rev-parse" else "",
+        ),
     ):
+        harness = SandboxedEvalHarness(parse_args(["--agent-model", "claude-test"]))
         with harness._stack:
             harness._bootstrap(frozenset())
             ctx = harness._build_context(frozenset(), reporter)  # type: ignore[arg-type]
@@ -253,7 +259,12 @@ def test_run_routes_through_the_engine(
     for experiment in engine.calls:
         assert experiment.project_name == "one-shot-test"
         assert [case.input["name"] for case in experiment.cases] == ["c1", "c2"]
-        assert experiment.metadata == {"agent_model": "claude-test"}
+        assert experiment.metadata == {
+            "agent_model": "claude-test",
+            "trials": 1,
+            "git_sha": "abc123",
+            "git_dirty": False,
+        }
         assert experiment.no_send_logs == no_send_logs
     assert reporter.started == [("one-shot-test", 2)] * 2
     assert reporter.summaries == [("one-shot-test", canned.summary, 0)] * 2
