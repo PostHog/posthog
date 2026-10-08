@@ -34,12 +34,14 @@ import {
     autoresearchTrainCreate,
 } from './generated/api'
 import {
+    AutoresearchModelRoleEnumApi,
     type AutoresearchModelApi,
     type AutoresearchPipelineApi,
     type AutoresearchRunApi,
     type AutoresearchSuggestionApi,
     type AutoresearchTrainingRunApi,
     CreateSuggestionPriorityEnumApi,
+    type ModelExplanationFieldApi,
 } from './generated/api.schemas'
 import {
     PREDICTION_SEGMENTS,
@@ -185,6 +187,31 @@ export function trainingRunProgress(run: AutoresearchTrainingRunApi): TrainingRu
     }
 }
 
+/**
+ * Features in the run model's reported top drivers but not the champion's, and the reverse.
+ * Each list is capped and can be partial, so a feature missing from a list can still be a model input.
+ */
+export interface FeatureChanges {
+    added: string[]
+    dropped: string[]
+}
+
+export function featureChanges(
+    runExplanation: ModelExplanationFieldApi,
+    championExplanation: ModelExplanationFieldApi
+): FeatureChanges {
+    const runNames = (runExplanation.top_features ?? []).map((f) => f.name)
+    const championNames = (championExplanation.top_features ?? []).map((f) => f.name)
+    // An empty list means the model recorded no importances, which says nothing about its features.
+    if (runNames.length === 0 || championNames.length === 0) {
+        return { added: [], dropped: [] }
+    }
+    return {
+        added: runNames.filter((name) => !championNames.includes(name)),
+        dropped: championNames.filter((name) => !runNames.includes(name)),
+    }
+}
+
 /** How much of the inference population the latest scoring run covered, when it scored only part of it. */
 export interface ScoringCoverage {
     scored: number
@@ -245,12 +272,15 @@ export interface autoresearchPipelineLogicValues {
     artifactsByRun: Record<string, string[]>
     artifactsByRunLoading: boolean
     breadcrumbs: Breadcrumb[]
+    champion: AutoresearchModelApi | null
     dailyVolume: DailyVolumePoint[] | null
     dailyVolumeError: boolean
     dailyVolumeLoading: boolean
     detailRequested: boolean
     expandedRunId: string | null
+    modelByTrainingRun: Record<string, AutoresearchModelApi>
     models: AutoresearchModelApi[]
+    modelsError: boolean
     modelsLoading: boolean
     onlinePerformanceRows: OnlinePerformanceRow[]
     pipeline: AutoresearchPipelineApi | null
@@ -652,6 +682,8 @@ export interface autoresearchPipelineLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         breadcrumbs: (pipeline: AutoresearchPipelineApi | null) => Breadcrumb[]
+        champion: (models: AutoresearchModelApi[]) => AutoresearchModelApi | null
+        modelByTrainingRun: (models: AutoresearchModelApi[]) => Record<string, AutoresearchModelApi>
         validationRuns: (runs: AutoresearchRunApi[]) => AutoresearchRunApi[]
         scoringCoverage: (
             runs: AutoresearchRunApi[],
@@ -766,6 +798,13 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 loadPipeline: () => false,
                 loadPipelineSuccess: () => false,
                 loadPipelineFailure: () => true,
+            },
+        ],
+        modelsError: [
+            false,
+            {
+                loadModels: () => false,
+                loadModelsFailure: () => true,
             },
         ],
         trainingRunsError: [
@@ -1097,6 +1136,18 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                     name: pipeline?.name ?? 'Model',
                 },
             ],
+        ],
+        champion: [
+            (s) => [s.models],
+            (models: AutoresearchModelApi[]): AutoresearchModelApi | null =>
+                models.find((m) => m.role === AutoresearchModelRoleEnumApi.Champion) ?? null,
+        ],
+        modelByTrainingRun: [
+            (s) => [s.models],
+            (models: AutoresearchModelApi[]): Record<string, AutoresearchModelApi> =>
+                Object.fromEntries(
+                    models.filter((m) => m.source_training_run).map((m) => [m.source_training_run as string, m])
+                ),
         ],
         validationRuns: [
             (s) => [s.runs],
