@@ -25,14 +25,15 @@ class SingleAgentFinding(BaseModel):
         description=(
             "One paragraph of about 300-400 characters: the trigger (the input, state, or environment the"
             " problem needs), the consequence, and the anchor (the function, call site, or invariant involved)."
-            " End with at most one short clause on the fix direction."
+            " End with one short clause on the fix direction, so a reader can act on the comment alone."
         )
     )
     suggestion_code: str | None = Field(
         default=None,
         description=(
             "Only when the fix is a small replacement you are certain of: the exact new code for line_start"
-            " to line_end, with the original indentation. Null otherwise."
+            " to line_end, with the original indentation. Null otherwise. It is stored, not posted, so the body"
+            " must still state the fix."
         ),
     )
 
