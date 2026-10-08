@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import boundary_checkpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner import linkrunner
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner.linkrunner import (
     LinkrunnerRateLimitError,
@@ -146,6 +147,7 @@ class TestAttributedUsersFanOut:
 
     def test_advances_bookmark_between_campaigns(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
+        monkeypatch.setattr(boundary_checkpoint, "PARTIAL_FLUSH_INTERVAL_SECONDS", 0)
         _collect(manager, "attributed_users", monkeypatch, self._responses_two_campaigns())
         # After finishing C1 the bookmark must point at C2 so a crash resumes at the next campaign, not the first.
         assert LinkrunnerResumeConfig(page=1, campaign_display_id="C2") in manager.saved

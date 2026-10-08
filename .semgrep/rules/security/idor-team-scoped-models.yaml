@@ -63,6 +63,7 @@ rules:
                               |AccountTrackRuleRun
                               |AccountView
                               |Action
+                              |ActionSelectorMatchChange
                               |AEOCitationCheck
                               |AEOPrompt
                               |AgentApplication
@@ -516,6 +517,7 @@ rules:
                         |AccountTrackRuleRun
                         |AccountView
                         |Action
+                        |ActionSelectorMatchChange
                         |AgentApplication
                         |AgentArtifact
                         |AgentIdentityCredential
@@ -1001,7 +1003,6 @@ rules:
                               |Plugin
                               |Project
                               |ProxyRecord
-                              |ReplayQuotaGrant
                               |Role
                               |RoleExternalReference
                               |RoleMembership
@@ -1080,7 +1081,6 @@ rules:
                         |Plugin
                         |Project
                         |ProxyRecord
-                        |ReplayQuotaGrant
                         |Role
                         |RoleExternalReference
                         |RoleMembership

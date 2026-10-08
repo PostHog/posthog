@@ -16,10 +16,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.temporalio.source import TemporalIOSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.temporalio.temporalio import (
     FakeSettings,
+    TemporalIOResumeConfig,
     _async_iter_to_sync,
     _ByteBudget,
     _estimate_size_bytes,
     _get_temporal_client,
+    _ResumePoint,
     _with_transient_rpc_retry,
 )
 
@@ -235,3 +237,20 @@ class TestAsyncIterToSync:
             assert list(_async_iter_to_sync(self._aiter(items), max_bytes=100_000)) == items
 
         assert budgets[0].in_flight_bytes == 0
+
+    def test_resume_points_are_charged_by_their_page_token_size(self):
+        reserved: list[int] = []
+        original_reserve = _ByteBudget.reserve
+
+        def _spy(budget, size):
+            reserved.append(size)
+            original_reserve(budget, size)
+
+        token = "t" * 1000
+        saved: list[TemporalIOResumeConfig] = []
+        items = [_ResumePoint(state=TemporalIOResumeConfig(next_page_token=token)), {"id": 1}]
+        with patch.object(_ByteBudget, "reserve", _spy):
+            assert list(_async_iter_to_sync(self._aiter(items), save_resume_state=saved.append)) == [{"id": 1}]
+
+        assert reserved[0] == len(token)
+        assert [state.next_page_token for state in saved] == [token]
