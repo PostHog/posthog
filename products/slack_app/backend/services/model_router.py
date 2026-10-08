@@ -48,29 +48,26 @@ _SOL_NOTE = (
 
 # Keyed by id prefix, so a new version of a family gets its note without an edit. A model on
 # the capability ladder must match one, or the router picks it blind.
-_MODEL_NOTES: tuple[tuple[str, str], ...] = (
-    (
-        "claude-sonnet",
-        "A balanced model. Good for most code changes, bug fixes with a clear cause, and PostHog data questions.",
+_MODEL_NOTES: dict[str, str] = {
+    "claude-sonnet": (
+        "A balanced model. Good for most code changes, bug fixes with a clear cause, and PostHog data questions."
     ),
-    (
-        "claude-opus",
+    "claude-opus": (
         "A strong model for deep work. Good for large or unclear code changes, hard bugs, "
-        "and research across many files.",
+        "and research across many files."
     ),
-    (
-        "claude-fable",
+    "claude-fable": (
         "The most capable Claude model. Good only for the hardest problems, for example a design change "
-        "across many systems or a subtle data or concurrency bug.",
+        "across many systems or a subtle data or concurrency bug."
     ),
-    ("gpt-6-astra", "The most capable OpenAI model. Good only for the hardest problems."),
-    ("gpt-6-luna", _LUNA_NOTE),
-    ("gpt-5.6-luna", _LUNA_NOTE),
-    ("gpt-5.6-terra", "A mid-size model. Good for normal code changes with a clear goal."),
-    ("gpt-6-sol", _SOL_NOTE),
-    ("gpt-6.1-sol", _SOL_NOTE),
-    ("gpt-5.6-sol", _SOL_NOTE),
-)
+    "gpt-6-astra": "The most capable OpenAI model. Good only for the hardest problems.",
+    "gpt-6-luna": _LUNA_NOTE,
+    "gpt-5.6-luna": _LUNA_NOTE,
+    "gpt-5.6-terra": "A mid-size model. Good for normal code changes with a clear goal.",
+    "gpt-6-sol": _SOL_NOTE,
+    "gpt-6.1-sol": _SOL_NOTE,
+    "gpt-5.6-sol": _SOL_NOTE,
+}
 
 _EFFORT_NOTES: dict[str, str] = {
     "low": "Thinks briefly. Fastest and cheapest. Good when the answer is direct.",
@@ -159,7 +156,7 @@ def _stored_default(
 
 
 def _model_note(model: str) -> str | None:
-    return next((note for prefix, note in _MODEL_NOTES if model.startswith(prefix)), None)
+    return next((note for prefix, note in _MODEL_NOTES.items() if model.startswith(prefix)), None)
 
 
 def _describe(candidate: _Candidate) -> str:

@@ -1,0 +1,42 @@
+# serializer version: 1
+# name: TestRouteSlackAppModelActivity.test_request_to_the_decision_model_matches_snapshot
+  dict({
+    'question': dict({
+      'criteria': dict({
+        'claude-opus-5-5 @ xhigh': 'Claude Opus 5.5 at extra high reasoning effort. Runtime: Claude (Anthropic). Model: A strong model for deep work. Good for large or unclear code changes, hard bugs, and research across many files. Effort: Thinks at length. Good for hard bugs and changes across many files. Cost per token compared to Claude Sonnet 5: 2×. Step 2 of 2 on the Claude (Anthropic) scale from fastest to smartest.',
+        'claude-sonnet-5-5 @ medium': 'Claude Sonnet 5.5 at medium reasoning effort. Runtime: Claude (Anthropic). Model: A balanced model. Good for most code changes, bug fixes with a clear cause, and PostHog data questions. Effort: Thinks a moderate amount. Good for normal tasks with a clear goal. Cost per token compared to Claude Sonnet 5: 1×. Step 1 of 2 on the Claude (Anthropic) scale from fastest to smartest.',
+        'gpt-6-luna @ low': 'GPT-6 Luna at low reasoning effort. Runtime: Codex (OpenAI). Model: A light and very cheap model. Good for short answers, lookups, summaries and very small edits. Not good for changes across many files. Effort: Thinks briefly. Fastest and cheapest. Good when the answer is direct. Cost per token compared to Claude Sonnet 5: 0.05×. Step 1 of 2 on the Codex (OpenAI) scale from fastest to smartest.',
+        'gpt-6-sol @ high': "GPT-6 Sol at high reasoning effort. Runtime: Codex (OpenAI). Model: A general coding model. Good for most code changes and debugging. It becomes stronger as the reasoning effort goes up. Effort: Thinks with care. Good for changes in several steps and for debugging. Cost per token compared to Claude Sonnet 5: 1×. Step 2 of 2 on the Codex (OpenAI) scale from fastest to smartest. This is the user's personal default.",
+      }),
+      'instructions': dict({
+        'cost': 'Each option shows its cost per token. A higher reasoning effort uses more tokens, so the run takes longer and costs more.',
+        'goal': 'Pick the cheapest option that will most likely finish the task correctly on the first try. A failed run costs more than a smarter option, because the user must wait and ask again.',
+        'input': 'state.request is the Slack message that starts the task. state.repository is the code repository the task works in, or null when the task works without code.',
+        'pick_a_faster_option_when': list([
+          'The request asks a direct question with a short answer, for example a count, a definition or a link.',
+          'The request asks for one PostHog query, one insight or a summary of data.',
+          'The request asks for a small, clear edit, for example a typo, a copy change or a version bump.',
+          'state.repository is null and the request does not ask for code.',
+        ]),
+        'pick_a_smarter_option_when': list([
+          'The request asks for a new feature, a refactor, or a change across many files.',
+          'The request asks to find the cause of a bug, a flaky test, a crash or a performance problem.',
+          'The request is unclear, and the agent must research the code or the data to know what to do.',
+          'The request asks for a design, a plan or a careful review.',
+        ]),
+        'rules': list([
+          'Judge the work that the request needs, not the length of the message. A short message can ask for hard work.',
+          'Stay on the runtime of the default option. Change the runtime only when the other runtime has a clearly better option for this request.',
+          'Pick the top step of a scale only when the request is clearly one of the hardest tasks.',
+          "When two options fit equally well, pick the user's personal default, then the project default, then the default for Slack tasks.",
+        ]),
+        'task': 'Pick the model and the reasoning effort for a new task that the PostHog agent runs. The agent can change code in a repository, open pull requests, query PostHog data and change PostHog settings.',
+      }),
+      'type': 'choice',
+    }),
+    'state': dict({
+      'repository': 'posthog/posthog',
+      'request': 'fix the flaky checkout test',
+    }),
+  })
+# ---

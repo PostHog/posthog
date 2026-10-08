@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -12,11 +13,35 @@ from posthog.temporal.ai.slack_app.activities.model_router import route_slack_ap
 from posthog.temporal.ai.slack_app.types import SlackAppModelOverride, SlackAppModelRouterInput
 
 from products.slack_app.backend.models import SlackSettings
+from products.slack_app.backend.services.model_catalogue import ModelChoice
 from products.slack_app.backend.services.model_router import PERSONAL_DEFAULT_NOTE
 from products.tasks.backend.facade.ai_run_defaults import update_user_ai_run_preferences
 
 MODULE = "posthog.temporal.ai.slack_app.activities.model_router"
+OPTIONS_MODULE = "products.slack_app.backend.services.model_router"
 SLACK_USER_ID = "U_ROUTER"
+
+_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+# A fixed catalogue and ladder, so the snapshot moves when the router's own text changes
+# and not each time the catalog prices or ships a model.
+CHOICES = (
+    ModelChoice("claude", "claude-sonnet-5-5", "Claude Sonnet 5.5", _EFFORTS, "1×"),
+    ModelChoice("claude", "claude-opus-5-5", "Claude Opus 5.5", _EFFORTS, "2×"),
+    ModelChoice("codex", "gpt-6-luna", "GPT-6 Luna", _EFFORTS, "0.05×"),
+    ModelChoice("codex", "gpt-6-sol", "GPT-6 Sol", _EFFORTS, "1×"),
+)
+
+
+@dataclass(frozen=True)
+class _Notch:
+    model: str
+    effort: str
+
+
+LADDER = {
+    "claude": (_Notch("claude-sonnet-5-5", "medium"), _Notch("claude-opus-5-5", "xhigh")),
+    "codex": (_Notch("gpt-6-luna", "low"), _Notch("gpt-6-sol", "high")),
+}
 
 
 @pytest.fixture
@@ -135,3 +160,26 @@ class TestRouteSlackAppModelActivity:
             result = route_slack_app_model_activity(_input(integration, user))
 
         assert result is None
+
+    def test_request_to_the_decision_model_matches_snapshot(self, integration, user, snapshot):
+        # The decision model reads only this text, so a reworded note, a dropped part of an
+        # option, or a label change in the shared catalog shows up here as a reviewable diff.
+        # Run with `--snapshot-update` after checking the diff.
+        _opt_in(integration)
+        update_user_ai_run_preferences(
+            integration.team_id, user.id, runtime_adapter="codex", model="gpt-6-sol", reasoning_effort="high"
+        )
+        client = _client_picking_personal_default()
+        with (
+            patch("products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True),
+            patch("products.tasks.backend.facade.run_config.get_model_access_error", return_value=None),
+            patch(f"{OPTIONS_MODULE}.available_model_choices", return_value=CHOICES),
+            patch(f"{OPTIONS_MODULE}.offered_model_choices", return_value=CHOICES),
+            patch(f"{OPTIONS_MODULE}.CAPABILITY_LADDER_BY_RUNTIME_ADAPTER", LADDER),
+            patch(f"{MODULE}.build_system_one_client", return_value=client),
+            patch(f"{MODULE}.capture_slack_event"),
+        ):
+            route_slack_app_model_activity(_input(integration, user))
+
+        request = client.decide.call_args.kwargs
+        assert {"state": request["state"], "question": request["questions"]["model"].to_json()} == snapshot
