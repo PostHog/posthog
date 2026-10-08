@@ -14,9 +14,11 @@ import {
     ExperimentMetric,
 } from '~/queries/schema/schema-general'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
+import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
 import { MicroChart } from '~/scenes/experiments/ExperimentView/Exposures'
 import { getChanceToWin, isBayesianResult } from '~/scenes/experiments/MetricsView/shared/utils'
-import { isLegacyExperiment } from '~/scenes/experiments/utils'
+import { isLegacyExperiment, isSavedExperiment } from '~/scenes/experiments/utils'
+import { Experiment } from '~/types'
 
 import { ResultsTag } from 'products/experiments/frontend/components/ResultsTag'
 
@@ -95,6 +97,56 @@ function findMostSignificantMetric(
     })
 }
 
+/**
+ * The results part of the card for a launched experiment. Mounting experimentMetricsLogic loads the latest
+ * recalculation, and the logic starts a run itself when there is none to show.
+ */
+function NotebookExperimentResults({
+    experiment,
+    expanded,
+}: {
+    experiment: Experiment
+    expanded: boolean
+}): JSX.Element | null {
+    const { primaryMetricsResults, isRecalculating } = useValues(experimentMetricsLogic({ experiment }))
+
+    // The results array fills in while a run is in progress, and a refresh merges fresh results over the previous
+    // run's. Picking before the run is terminal would compare across runs and switch metrics as results land.
+    // Inline metrics come first in the positional results, so zipping by index pairs each with its own result.
+    // Shared primary metrics sit after them and are not candidates here.
+    const bestMetric = isRecalculating
+        ? null
+        : findMostSignificantMetric(experiment.metrics as ExperimentMetric[] | undefined, primaryMetricsResults)
+    const totalPrimaryMetrics = experiment.metrics?.length || 0
+
+    if (!expanded) {
+        return bestMetric ? <ResultsTag isSignificant={bestMetric.isSignificant} /> : null
+    }
+    if (isRecalculating) {
+        return (
+            <div className="space-y-2">
+                <LemonSkeleton className="h-4 w-48" />
+                <LemonSkeleton className="h-24 w-full" />
+            </div>
+        )
+    }
+    if (bestMetric) {
+        return (
+            <>
+                {totalPrimaryMetrics > 1 && (
+                    <div className="text-xs text-muted mb-1">
+                        Showing most significant of {totalPrimaryMetrics} metrics
+                        {bestMetric.metric.name && `: ${bestMetric.metric.name}`}
+                    </div>
+                )}
+                <NotebookWinningVariantSummary result={bestMetric.result} metric={bestMetric.metric} />
+                <NotebookCompactTable result={bestMetric.result} metric={bestMetric.metric} />
+            </>
+        )
+    }
+    return <div className="text-sm text-muted">Collecting data...</div>
+}
+
 export function NotebookExperimentComponent({ id, expanded }: NotebookExperimentComponentProps): JSX.Element {
     const {
         experiment,
@@ -102,8 +154,6 @@ export function NotebookExperimentComponent({ id, expanded }: NotebookExperiment
         experimentMissing,
         isExperimentDraft,
         isExperimentLaunched,
-        primaryMetricsResults,
-        primaryMetricsResultsLoading,
         exposures,
         exposuresLoading,
         variants,
@@ -128,13 +178,8 @@ export function NotebookExperimentComponent({ id, expanded }: NotebookExperiment
     }
 
     const isLegacy = experiment && isLegacyExperiment(experiment)
-    const hasResults = primaryMetricsResults?.length > 0 && primaryMetricsResults[0]
-
-    // Find the most significant primary metric to display
-    const bestMetric = findMostSignificantMetric(
-        experiment?.metrics as ExperimentMetric[] | undefined,
-        primaryMetricsResults
-    )
+    // The keyed metrics logic needs a saved, launched experiment to fetch results for.
+    const showsResults = isExperimentLaunched && !isLegacy && isSavedExperiment(experiment)
     const totalPrimaryMetrics = experiment?.metrics?.length || 0
 
     return (
@@ -159,9 +204,7 @@ export function NotebookExperimentComponent({ id, expanded }: NotebookExperiment
                                         </span>
                                     </>
                                 ) : null}
-                                {isExperimentLaunched && hasResults && !isLegacy && bestMetric && (
-                                    <ResultsTag isSignificant={bestMetric.isSignificant} />
-                                )}
+                                {showsResults && <NotebookExperimentResults experiment={experiment} expanded={false} />}
                             </>
                         )}
                     </div>
@@ -204,7 +247,7 @@ export function NotebookExperimentComponent({ id, expanded }: NotebookExperiment
                         )}
 
                         {/* Launched state with new metrics */}
-                        {isExperimentLaunched && !isLegacy && (
+                        {showsResults && (
                             <div className="p-3 space-y-3">
                                 {/* Stats row */}
                                 <div className="flex gap-6">
@@ -222,28 +265,7 @@ export function NotebookExperimentComponent({ id, expanded }: NotebookExperiment
                                 </div>
 
                                 {/* Primary metric results - show most significant metric */}
-                                {primaryMetricsResultsLoading ? (
-                                    <div className="space-y-2">
-                                        <LemonSkeleton className="h-4 w-48" />
-                                        <LemonSkeleton className="h-24 w-full" />
-                                    </div>
-                                ) : bestMetric ? (
-                                    <>
-                                        {totalPrimaryMetrics > 1 && (
-                                            <div className="text-xs text-muted mb-1">
-                                                Showing most significant of {totalPrimaryMetrics} metrics
-                                                {bestMetric.metric.name && `: ${bestMetric.metric.name}`}
-                                            </div>
-                                        )}
-                                        <NotebookWinningVariantSummary
-                                            result={bestMetric.result}
-                                            metric={bestMetric.metric}
-                                        />
-                                        <NotebookCompactTable result={bestMetric.result} metric={bestMetric.metric} />
-                                    </>
-                                ) : (
-                                    <div className="text-sm text-muted">Collecting data...</div>
-                                )}
+                                <NotebookExperimentResults experiment={experiment} expanded />
                             </div>
                         )}
                     </>
