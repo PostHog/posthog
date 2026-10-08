@@ -85,38 +85,46 @@ impl Packer {
         keys.promote_due(now);
         let mut requests = Vec::new();
         while requests.len() < free_slots {
-            let (class, reason) = if let Some(class) = self.full_class(keys) {
-                (class, SealReason::Full)
-            } else if draining || self.reservation.is_some_and(|deadline| deadline <= now) {
-                let Some(class) = keys.oldest_ready_class() else {
-                    break;
-                };
-                self.reservation = None;
-                let reason = if draining {
-                    SealReason::Flush
-                } else {
-                    SealReason::Deadline
-                };
-                (class, reason)
-            } else {
-                if self.reservation.is_none() && keys.has_ready() {
-                    self.reservation = Some(now + self.targets.latency_budget);
-                    if self.targets.latency_budget.is_zero() {
-                        continue;
-                    }
-                }
+            let Some((class, reason)) = self.next_to_seal(keys, now, draining) else {
                 break;
             };
-            let targets = self.targets;
-            let runs = keys.take_runs(class, |taken| targets.reached(taken));
-            counter!("ingestion_consumer_batcher_pack_seals_total", "reason" => reason.as_str())
-                .increment(1);
-            requests.push(Request::from_runs(class, runs));
+            requests.push(self.seal(keys, class, reason));
         }
         if !keys.has_ready() {
             self.reservation = None;
         }
         requests
+    }
+
+    fn next_to_seal(
+        &mut self,
+        keys: &KeyQueues,
+        now: Instant,
+        draining: bool,
+    ) -> Option<(RequestClass, SealReason)> {
+        if let Some(class) = self.full_class(keys) {
+            return Some((class, SealReason::Full));
+        }
+        let class = keys.oldest_ready_class()?;
+        if draining {
+            self.reservation = None;
+            return Some((class, SealReason::Flush));
+        }
+        let deadline = *self
+            .reservation
+            .get_or_insert(now + self.targets.latency_budget);
+        if deadline > now {
+            return None;
+        }
+        self.reservation = None;
+        Some((class, SealReason::Deadline))
+    }
+
+    fn seal(&self, keys: &mut KeyQueues, class: RequestClass, reason: SealReason) -> Request {
+        let runs = keys.take_runs(class, |taken| self.targets.reached(taken));
+        counter!("ingestion_consumer_batcher_pack_seals_total", "reason" => reason.as_str())
+            .increment(1);
+        Request::from_runs(class, runs)
     }
 
     fn full_class(&self, keys: &KeyQueues) -> Option<RequestClass> {
