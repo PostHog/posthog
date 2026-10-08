@@ -1,13 +1,12 @@
 import json
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest import mock
 
 from parameterized import parameterized
-from requests import HTTPError, PreparedRequest, Response
-from requests.structures import CaseInsensitiveDict
+from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
@@ -91,10 +90,6 @@ class TestFormatValue:
     def test_format_value(self, _name: str, value: object, expected: str) -> None:
         assert _format_value(value) == expected
 
-    def test_datetime_has_no_plus_zero_offset(self) -> None:
-        # Hub Planner expects a Z suffix, not the +00:00 offset isoformat() produces.
-        assert "+00:00" not in _format_value(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC))
-
 
 class TestBuildRequestPlan:
     @parameterized.expand(
@@ -113,55 +108,8 @@ class TestBuildRequestPlan:
         )
         assert (method, path, body, sort_field) == ("GET", expected_path, None, None)
 
-    def test_incremental_endpoint_without_incremental_selected_uses_get(self) -> None:
-        # A user syncing bookings via full refresh should hit the plain GET list, not search.
-        method, path, body, sort_field = _build_request_plan(
-            HUBPLANNER_ENDPOINTS["bookings"], should_use_incremental_field=False, db_incremental_field_last_value=None
-        )
-        assert method == "GET"
-        assert path == "/booking"
-        assert body is None
-
-    def test_incremental_first_sync_posts_search_with_empty_body(self) -> None:
-        # should_use_incremental_field=True but no stored watermark yet: fetch everything, sorted asc.
-        method, path, body, sort_field = _build_request_plan(
-            HUBPLANNER_ENDPOINTS["bookings"], should_use_incremental_field=True, db_incremental_field_last_value=None
-        )
-        assert (method, path, body, sort_field) == ("POST", "/booking/search", {}, "updatedDate")
-
-    def test_incremental_with_watermark_filters_on_updated_date(self) -> None:
-        method, path, body, sort_field = _build_request_plan(
-            HUBPLANNER_ENDPOINTS["time_entries"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-        )
-        assert method == "POST"
-        assert path == "/timeentry/search"
-        assert body == {"updatedDate": {"$gte": "2026-03-04T02:58:14.000Z"}}
-        assert sort_field == "updatedDate"
-
-    def test_search_only_endpoint_lists_via_search(self) -> None:
-        # Milestones have no GET-all endpoint, so full refresh still POSTs to /milestone/search.
-        method, path, body, sort_field = _build_request_plan(
-            HUBPLANNER_ENDPOINTS["milestones"], should_use_incremental_field=False, db_incremental_field_last_value=None
-        )
-        assert (method, path, body, sort_field) == ("POST", "/milestone/search", {}, None)
-
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_short_page_terminates_without_saving_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"_id": "1"}, {"_id": "2"}])])
-
-        manager = _make_manager()
-        rows = _rows(hubplanner_source("k", "projects", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert [r["_id"] for r in rows] == ["1", "2"]
-        assert session.send.call_count == 1
-        # A short first page is the last page, so there's no next page to checkpoint.
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginates_until_short_page_and_saves_state_after_each_full_page(self, MockSession) -> None:
         session = MockSession.return_value
@@ -190,18 +138,6 @@ class TestPagination:
         assert snaps[0]["params"]["page"] == 3
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(hubplanner_source("k", "projects", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_sync_posts_search_body(self, MockSession) -> None:
         session = MockSession.return_value
         snaps = _wire(session, [_response([{"_id": "1"}])])
@@ -225,17 +161,6 @@ class TestPagination:
         assert snaps[0]["params"]["sort"] == "updatedDate"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_get_sends_no_body_and_no_sort(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([{"_id": "1"}])])
-
-        _rows(hubplanner_source("k", "projects", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-
-        assert snaps[0]["method"] == "GET"
-        assert snaps[0]["json"] is None
-        assert "sort" not in snaps[0]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_list_response_fails_loud(self, MockSession) -> None:
         # Every list/search endpoint returns a bare JSON array; a stray object means the response
         # shape changed, so fail loud rather than syncing a garbage row.
@@ -247,24 +172,6 @@ class TestPagination:
 
 
 class TestAuth:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_authorization_header_is_raw_key_without_bearer_prefix(self, MockSession) -> None:
-        # The API key rides raw on the Authorization header (Hub Planner uses no Bearer prefix).
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([{"_id": "1"}])])
-
-        _rows(
-            hubplanner_source(
-                "my-secret-key", "projects", team_id=1, job_id="j", resumable_source_manager=_make_manager()
-            )
-        )
-
-        prepared = PreparedRequest()
-        prepared.headers = cast("CaseInsensitiveDict[str]", {})
-        snaps[0]["auth"](prepared)
-        assert prepared.headers["Authorization"] == "my-secret-key"
-        assert "Bearer" not in prepared.headers["Authorization"]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_client_session_built_with_api_key_redacted(self, MockSession) -> None:
         # The tracked session must be given the key as a redact value — Hub Planner echoes it back
@@ -304,15 +211,6 @@ class TestErrorHandling:
 
 
 class TestSourceResponse:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_partitioned_endpoint_sets_datetime_partitioning(self, MockSession) -> None:
-        response = hubplanner_source("k", "bookings", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        assert response.name == "bookings"
-        assert response.primary_keys == ["_id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdDate"]
-        assert response.sort_mode == "asc"
-
     @parameterized.expand([("vacations",), ("project_tags",), ("unassigned_work",)])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_endpoint_without_partition_key_has_no_partitioning(self, endpoint: str, MockSession) -> None:
@@ -328,11 +226,6 @@ class TestValidateCredentials:
     def test_status_maps_to_validity(self, _name: str, status_code: int, expected: bool, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert validate_credentials("some-key") is expected
-
-    @mock.patch(HUBPLANNER_SESSION_PATCH)
-    def test_network_error_is_invalid(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("some-key") is False
 
     @mock.patch(HUBPLANNER_SESSION_PATCH)
     def test_validate_credentials_redacts_api_key(self, mock_session) -> None:

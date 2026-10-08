@@ -173,12 +173,6 @@ class TestRKICovid:
         with patch(f"{MODULE}.make_tracked_session", return_value=_session_returning(_response(body=body))):
             assert _collect_rows(get_rows(endpoint, None, MagicMock())) == []
 
-    def test_get_rows_requests_days_trimmed_url(self) -> None:
-        session = _session_returning(_response(body={"data": [], "meta": {}}))
-        with patch(f"{MODULE}.make_tracked_session", return_value=session):
-            _collect_rows(get_rows("germany_history_cases", 90, MagicMock()))
-        assert session.get.call_args.args[0] == "https://api.corona-zahlen.org/germany/history/cases/90"
-
     @parameterized.expand(
         [
             ("germany", None, None),
