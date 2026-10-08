@@ -1439,8 +1439,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /** Tile streaming completed. */
         tileStreamingComplete: true,
         /** Tile streaming failed. */
-        tileStreamingFailure: (error: any, willRetry = false) => ({ error, willRetry }),
-        /** A non-404 stream failure left no dashboard to render — show a load error, not "not found". */
+        tileStreamingFailure: (error: any, willRetry: boolean = false) => ({ error, willRetry }),
+        /** A failed dashboard stream needs a load error with a retry action. */
         setDashboardStreamFailed: true,
         /** Retry a failed load through the same load path as the initial load. */
         retryDashboardLoad: true,
