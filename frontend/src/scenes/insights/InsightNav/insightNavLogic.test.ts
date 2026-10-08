@@ -1381,6 +1381,27 @@ describe('insightNavLogic', () => {
                     expect(trendsQuery.series).toHaveLength(1)
                     expect(trendsQuery.trendsFilter?.formulaNodes).toBeUndefined()
                 })
+
+                it('keeps valid formula nodes when a stale legacy formula references a missing series', async () => {
+                    const withStaleLegacyFormula: InsightVizNode = {
+                        ...trendsWithFormula,
+                        source: {
+                            ...(trendsWithFormula.source as TrendsQuery),
+                            trendsFilter: { formula: 'C/A', formulaNodes: [{ formula: 'B/A*100' }] },
+                        },
+                    }
+                    await expectLogic(logic, () => {
+                        builtInsightDataLogic.actions.setQuery(withStaleLegacyFormula)
+                    })
+                    for (const view of [InsightType.FUNNELS, InsightType.TRENDS]) {
+                        await expectLogic(builtInsightDataLogic, () => {
+                            logic.actions.setActiveView(view)
+                        }).toFinishAllListeners()
+                    }
+
+                    const trendsQuery = (builtInsightDataLogic.values.query as InsightVizNode).source as TrendsQuery
+                    expect(trendsQuery.trendsFilter?.formulaNodes).toEqual([{ formula: 'B/A*100' }])
+                })
             })
 
             it('preserves compareFilter through round-trip via unsupported type', async () => {

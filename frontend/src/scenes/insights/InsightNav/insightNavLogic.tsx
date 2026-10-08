@@ -46,6 +46,7 @@ import {
     MetricsQuery,
 } from '~/queries/schema/schema-general'
 import {
+    getFormulaNodes,
     containsHogQLQuery,
     getResultCustomizations,
     filterForQuery,
@@ -929,12 +930,7 @@ const dropFormulasWithMissingSeries = (query: TrendsQuery): TrendsQuery => {
         return query
     }
     const seriesCount = query.series.length
-    const formulas = [
-        trendsFilter.formula,
-        ...(trendsFilter.formulas ?? []),
-        ...(trendsFilter.formulaNodes ?? []).map((node) => node.formula),
-    ]
-    if (!formulas.some((formula) => formulaReferencesMissingSeries(formula, seriesCount))) {
+    if (!getFormulaNodes(query)?.some((node) => formulaReferencesMissingSeries(node.formula, seriesCount))) {
         return query
     }
     const { formula: _formula, formulas: _formulas, formulaNodes: _formulaNodes, ...rest } = trendsFilter
