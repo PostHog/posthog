@@ -138,6 +138,8 @@ export type IngestionApiServerConfig = BaseServerConfig &
  * Infrastructure setup mirrors IngestionGeneralServer. The difference is that
  * instead of subscribing to Kafka, this server accepts batches over the stream.
  */
+type AnalyticsOutputs = ReturnType<ReturnType<typeof createOutputsRegistry>['build']>
+
 export class IngestionApiServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionApiServerConfig
@@ -278,12 +280,7 @@ export class IngestionApiServer implements NodeServer {
         })
 
         // 4. Kafka producers for pipeline outputs (not consuming from Kafka)
-        this.ingestionProducerRegistry = await createIngestionProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(
-            this.config
-        )
-        const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config, {
-            dropAll: this.config.INGESTION_OUTPUTS_DISABLED,
-        })
+        const ingestionOutputs = await this.buildOutputs()
         this.ingestionOutputs = ingestionOutputs
         const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 
@@ -538,6 +535,17 @@ export class IngestionApiServer implements NodeServer {
             return new HealthCheckResultError('Ingestion pipeline crashed', { error: this.fatalError.message })
         }
         return new HealthCheckResultOk()
+    }
+
+    /** With outputs disabled, every output discards its messages and no Kafka producer is created. */
+    private async buildOutputs(): Promise<AnalyticsOutputs> {
+        if (this.config.INGESTION_OUTPUTS_DISABLED) {
+            return createOutputsRegistry().buildDropped()
+        }
+        this.ingestionProducerRegistry = await createIngestionProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(
+            this.config
+        )
+        return createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
     }
 
     /** Drains both stores even when one fails, then rethrows the first failure. */

@@ -84,11 +84,12 @@ Each pipeline defines its output and producer config in its own directory (e.g. 
 
 ## Disabling outputs
 
-`INGESTION_OUTPUTS_DISABLED=true` makes every analytics output discard its messages instead of producing them.
+`INGESTION_OUTPUTS_DISABLED=true` makes the ingestion API server discard every output message instead of producing it.
 Use it for a lane that consumes production traffic alongside the main lane to test a change, and must not write to any topic.
 Every output is replaced, including DLQ, overflow and async, so events that would go there are lost too.
-Startup topic and health checks pass without a reachable broker.
-The server logs a warning listing the disabled outputs, and `ingestion_outputs_dropped_messages_total{output}` counts each discarded message.
+The server creates no Kafka producer, so it needs no output cluster.
+It logs a warning listing the disabled outputs, and `ingestion_outputs_dropped_messages_total{output}` counts each discarded message.
+The general ingestion server refuses to start with the flag set, because its other pipelines build their own outputs.
 
 ## How to extend
 

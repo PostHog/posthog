@@ -45,11 +45,6 @@ interface DualWriteDefWithDenylist<
     teamDenylistKey: DenyK
 }
 
-export interface IngestionOutputsBuildOptions {
-    /** Discard every message on every output instead of producing it. */
-    dropAll?: boolean
-}
-
 /** Internal storage shape — denylist key is optional so both variants can share the map. */
 type StoredDualWriteDef<SK extends string, PK extends string, NumK extends string> = DualWriteDef<
     SK,
@@ -187,23 +182,13 @@ export class IngestionOutputsBuilder<
      *
      * The compiler verifies that the config contains all accumulated topic keys as `string`,
      * all accumulated producer keys as `P` (matching the registry's producer name type),
-     * and all accumulated number keys as `number`. With `dropAll`, every output discards its messages.
+     * and all accumulated number keys as `number`.
      */
     build<P extends string>(
         registry: KafkaProducerRegistry<P>,
-        config: Record<StringKey, string> & Record<ProducerKey, P> & Record<NumberKey, number>,
-        options: IngestionOutputsBuildOptions = {}
+        config: Record<StringKey, string> & Record<ProducerKey, P> & Record<NumberKey, number>
     ): IngestionOutputs<O> {
         const record: Record<string, IngestionOutput> = {}
-
-        if (options.dropAll) {
-            const names = [...this.primaryDefs.keys(), ...this.dualWriteDefs.keys()]
-            for (const name of names) {
-                record[name] = new DroppedIngestionOutput(name)
-            }
-            logger.warn('⚠️', `Ingestion outputs are disabled; every message is discarded for: ${names.join(', ')}`)
-            return new IngestionOutputs<O>(record as Record<O, IngestionOutput>)
-        }
 
         for (const [name, def] of this.primaryDefs) {
             const producerName = config[def.producerKey]
@@ -264,6 +249,17 @@ export class IngestionOutputsBuilder<
         // TypeScript cannot verify that an imperatively-built Record has all keys of a
         // generic union O. The builder guarantees this: every register() call adds an
         // entry to definitions, and build() resolves all of them.
+        return new IngestionOutputs<O>(record as Record<O, IngestionOutput>)
+    }
+
+    /** Resolve every registered output to one that discards its messages, without any producer. */
+    buildDropped(): IngestionOutputs<O> {
+        const names = [...this.primaryDefs.keys(), ...this.dualWriteDefs.keys()]
+        const record: Record<string, IngestionOutput> = {}
+        for (const name of names) {
+            record[name] = new DroppedIngestionOutput(name)
+        }
+        logger.warn('⚠️', `Ingestion outputs are disabled; every message is discarded for: ${names.join(', ')}`)
         return new IngestionOutputs<O>(record as Record<O, IngestionOutput>)
     }
 }

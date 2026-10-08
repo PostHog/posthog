@@ -126,6 +126,9 @@ export class IngestionGeneralServer implements NodeServer {
             ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),
             ...config,
         }
+        if (this.config.INGESTION_OUTPUTS_DISABLED) {
+            throw new Error('INGESTION_OUTPUTS_DISABLED is supported only by the ingestion API server')
+        }
         this.lifecycle = new ServerLifecycle(this.config)
     }
 
@@ -263,9 +266,7 @@ export class IngestionGeneralServer implements NodeServer {
         // a typed view over it — built once here for analytics, and
         // separately by each consumer factory as needed.
         const ingestionProducerRegistry = sharedServices.container.producerRegistry
-        const ingestionOutputs = createOutputsRegistry().build(ingestionProducerRegistry, this.config, {
-            dropAll: this.config.INGESTION_OUTPUTS_DISABLED,
-        })
+        const ingestionOutputs = createOutputsRegistry().build(ingestionProducerRegistry, this.config)
         const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 
         const hogTransformerDeps: HogTransformerServiceDeps = {

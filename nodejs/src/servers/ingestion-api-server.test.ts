@@ -1,7 +1,13 @@
 import { GROUPS_OUTPUT, PERSONS_OUTPUT } from '~/common/outputs'
 import { GroupFlushResult } from '~/ingestion/common/groups/group-store.interface'
+import { createIngestionProducerRegistry } from '~/ingestion/common/outputs/producer-registry'
 
 import { IngestionApiServer } from './ingestion-api-server'
+
+jest.mock('~/ingestion/common/outputs/producer-registry', () => ({
+    ...jest.requireActual('~/ingestion/common/outputs/producer-registry'),
+    createIngestionProducerRegistry: jest.fn(),
+}))
 
 describe('IngestionApiServer', () => {
     let server: IngestionApiServer
@@ -12,6 +18,15 @@ describe('IngestionApiServer', () => {
 
     it('reports healthy before any failure', () => {
         expect((server as any).isHealthy().status).toBe('ok')
+    })
+
+    it('creates no Kafka producer when outputs are disabled', async () => {
+        const disabled = new IngestionApiServer({ INGESTION_OUTPUTS_DISABLED: true })
+
+        const outputs = await (disabled as any).buildOutputs()
+
+        expect(createIngestionProducerRegistry).not.toHaveBeenCalled()
+        expect(await outputs.checkTopics()).toEqual([])
     })
 
     describe('cleanup', () => {
