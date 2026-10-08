@@ -252,7 +252,7 @@ class ReviewMeta:
     automatic_reviewed_head_sha: str | None = None
 
 
-@dataclass
+@dataclass(frozen=False)
 class ResolveActingUserInput:
     team_id: int
     author_login: str
