@@ -522,6 +522,17 @@ class TestRolloutSummary(BaseTest):
                 100,
                 False,
             ),
+            # The checker reads a document through the model accessors, which refuse any config
+            # format but v1, so it never calls such a flag fully rolled out. The summary's other
+            # fields still come from a raw read of the same document.
+            (
+                "other_config_format",
+                {"version": 2, "groups": [{"properties": [], "rollout_percentage": 100}]},
+                False,
+                False,
+                100,
+                False,
+            ),
         ]
     )
     def test_rollout_summary(

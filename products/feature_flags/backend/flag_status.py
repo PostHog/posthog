@@ -7,6 +7,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
+from .facade.config import ConfigFormatError
 from .models.feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
@@ -291,7 +292,7 @@ def _sole_reachable_variant(variants: list[dict]) -> str | None:
     return None
 
 
-def _condition_aggregation(filters: dict, group: dict) -> int | None:
+def _condition_aggregation(flag_level_index: int | None, group: dict) -> int | None:
     """The group type index a condition aggregates on, or None for person aggregation.
 
     An absent key falls back to the flag-level value and an explicit null means person
@@ -300,7 +301,7 @@ def _condition_aggregation(filters: dict, group: dict) -> int | None:
     """
     if "aggregation_group_type_index" in group:
         return group.get("aggregation_group_type_index")
-    return filters.get("aggregation_group_type_index")
+    return flag_level_index
 
 
 # FeatureFlagStatusChecker is used to determine the status of a feature flag for a given user.
@@ -453,16 +454,22 @@ class FeatureFlagStatusChecker:
         return ROLLOUT_PARTIAL, None
 
     def is_flag_fully_rolled_out(self, flag: FeatureFlag) -> tuple[bool, FeatureFlagStatusReason]:
-        multivariate = (flag.filters or {}).get("multivariate", None)
-        # An empty/missing variant list is treated as boolean, matching the STALE SQL filter
-        # (which routes `jsonb_array_length(variants) = 0` into the boolean branch).
-        has_variants = bool(multivariate and multivariate.get("variants"))
-        if has_variants:
-            served_variant = self.sole_served_variant(flag)
-            if served_variant is not None:
-                return True, f'This flag will always use the variant "{served_variant}"'
-        elif self.is_boolean_flag_fully_rolled_out(flag):
-            return True, 'This boolean flag will always evaluate to "true"'
+        # The model accessors raise on a document in another config format. The checker cannot
+        # read such a flag, so it never calls it fully rolled out. A raw read would answer as a
+        # flag with no conditions and call it rolled out instead.
+        try:
+            # An empty/missing variant list is treated as boolean, matching the STALE SQL filter
+            # (which routes `jsonb_array_length(variants) = 0` into the boolean branch). The
+            # accessors cannot read `filters` of None, which the boolean branch handles itself.
+            has_variants = flag.filters is not None and bool(flag.variants)
+            if has_variants:
+                served_variant = self.sole_served_variant(flag)
+                if served_variant is not None:
+                    return True, f'This flag will always use the variant "{served_variant}"'
+            elif self.is_boolean_flag_fully_rolled_out(flag):
+                return True, 'This boolean flag will always evaluate to "true"'
+        except ConfigFormatError:
+            return False, ""
 
         return False, ""
 
@@ -480,14 +487,12 @@ class FeatureFlagStatusChecker:
         "the flag is not constant". `is_flag_fully_rolled_out` sends boolean flags to
         `is_boolean_flag_fully_rolled_out` instead.
         """
-        filters = flag.filters or {}
-        variants = ((filters.get("multivariate") or {}).get("variants")) or []
-
-        groups = filters.get("groups") or []
-        decider = self.first_deciding_condition(filters)
+        decider = self.first_deciding_condition(flag)
         if decider is None:
             return None
 
+        variants = flag.variants
+        groups = flag.conditions
         distributed = _sole_reachable_variant(variants)
         variant_keys = {variant.get("key") for variant in variants}
         results = set()
@@ -514,7 +519,7 @@ class FeatureFlagStatusChecker:
         properties = group.get("properties") or []
         return rollout_percentage == 100 and len(properties) == 0
 
-    def first_deciding_condition(self, filters: dict) -> int | None:
+    def first_deciding_condition(self, flag: FeatureFlag) -> int | None:
         """Index of the first untargeted 100% condition that settles the result for every request.
 
         The matcher skips a group-aggregated condition when the request carries no key for that
@@ -523,14 +528,15 @@ class FeatureFlagStatusChecker:
         and group aggregation addresses requests without the key too, and only a person-level
         condition reaches those.
         """
-        groups = filters.get("groups") or []
-        mixed = len({_condition_aggregation(filters, group) for group in groups}) > 1
+        groups = flag.conditions
+        flag_level_index = flag.aggregation_group_type_index
+        mixed = len({_condition_aggregation(flag_level_index, group) for group in groups}) > 1
         return next(
             (
                 index
                 for index, group in enumerate(groups)
                 if self.is_group_fully_rolled_out(group)
-                and (not mixed or _condition_aggregation(filters, group) is None)
+                and (not mixed or _condition_aggregation(flag_level_index, group) is None)
             ),
             None,
         )
@@ -538,14 +544,13 @@ class FeatureFlagStatusChecker:
     def is_boolean_flag_fully_rolled_out(self, flag: FeatureFlag) -> bool:
         # Treat missing filters, `{}`, and `{"groups": []}` as "no release conditions"
         # and therefore fully rolled out. Not a supported state, but legacy data hits
-        # all three shapes (especially `{"groups": []}` post-backfill).
-        filters = flag.filters or {}
-        release_conditions = filters.get("groups", [])
-        if not release_conditions:
+        # all three shapes (especially `{"groups": []}` post-backfill). The accessors cannot
+        # read the first, so it is tested before them.
+        if flag.filters is None or not flag.conditions:
             logger.debug(f"Boolean flag {flag.id} has no release conditions, so it is rolled out to 100%")
             return True
 
-        if self.first_deciding_condition(filters) is not None:
+        if self.first_deciding_condition(flag) is not None:
             logger.debug(f"Boolean flag {flag.id} has a release conditions rolled out to 100%")
             return True
         return False
