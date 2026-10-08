@@ -121,9 +121,10 @@ export const EXTERNAL_INBOX_SOURCES = [
   {
     product: "datadog",
     label: "Datadog",
-    description: "Surface new errors from APM traces, logs and error tracking",
+    description:
+      "Surface monitor alerts and new errors from APM, logs and error tracking",
     dwSourceType: "Datadog",
-    requiredTables: ["error_tracking_issues"],
+    requiredTables: ["error_tracking_issues", "monitor_alerts"],
     recordKind: "issue",
     setup: "dynamic",
   },
