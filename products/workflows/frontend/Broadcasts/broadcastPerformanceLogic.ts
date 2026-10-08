@@ -199,12 +199,11 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                                 timezone
                             ),
                         ])
-                        return {
-                            ...Object.fromEntries(
-                                Object.values(response).map(({ total, breakdowns }) => [breakdowns[0], total])
-                            ),
-                            [STEP_FAILED_KEY]: sumStepFailures(failedResponse),
-                        }
+                        const totals = Object.fromEntries(
+                            Object.values(response).map(({ total, breakdowns }) => [breakdowns[0], total])
+                        )
+                        totals[STEP_FAILED_KEY] = sumStepFailures(failedResponse)
+                        return totals
                     },
                 },
             ],

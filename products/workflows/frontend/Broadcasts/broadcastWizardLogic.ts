@@ -321,21 +321,6 @@ export interface broadcastWizardLogicActions {
         batchJobs: HogFlowBatchJobApi[]
         payload?: any
     }
-    loadLatestRunTotals: () => any
-    loadLatestRunTotalsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadLatestRunTotalsSuccess: (
-        latestRunTotals: Record<string, number> | null,
-        payload?: any
-    ) => {
-        latestRunTotals: Record<string, number> | null
-        payload?: any
-    }
     loadBlastRadius: () => any
     loadBlastRadiusFailure: (
         error: string,
@@ -368,6 +353,21 @@ export interface broadcastWizardLogicActions {
     }
     loadExternalEdit: () => {
         value: true
+    }
+    loadLatestRunTotals: () => any
+    loadLatestRunTotalsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadLatestRunTotalsSuccess: (
+        latestRunTotals: Record<string, number> | null,
+        payload?: any
+    ) => {
+        latestRunTotals: Record<string, number> | null
+        payload?: any
     }
     moveToDraft: () => {
         value: true
