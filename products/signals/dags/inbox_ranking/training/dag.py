@@ -1117,15 +1117,16 @@ _HORIZON_MAPPING = dagster.TimeWindowPartitionMapping(
 
 
 def grade_metadata(grades: Sequence[HeadGrade]) -> dict[str, dagster.MetadataValue]:
-    """One metadata entry per (head, model, metric). The family is in the key, so two families
-    graded on the same rows do not overwrite each other. Counts stay ints: `MetadataValue.float`
+    """One metadata entry per (head, model version, role, metric). The family and the version are in
+    the key, so two families graded on the same rows do not overwrite each other, and neither do two
+    versions that a manifest change put in one scoring day. Counts stay ints: `MetadataValue.float`
     rejects them."""
     metadata: dict[str, dagster.MetadataValue] = {}
     for grade in grades:
         for name, value in grade.metrics().items():
             if value is None:
                 continue
-            key = f"{grade.head}_{grade.model_name}_{grade.model_role}_{name}"
+            key = f"{grade.head}_{grade.model_name}_{grade.model_version}_{grade.model_role}_{name}"
             metadata[key] = (
                 dagster.MetadataValue.int(value) if isinstance(value, int) else dagster.MetadataValue.float(value)
             )

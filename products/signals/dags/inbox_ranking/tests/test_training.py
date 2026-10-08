@@ -978,7 +978,7 @@ def test_head_grades_report_counts_and_an_undefined_auc_on_a_single_class():
     assert grade.null_auc is not None
     # A head with rows but one outcome class still reports, so the daily series has no gap.
     (single_class,) = head_grades(
-        graded_rows(_scores(["e"]), _labels(["e"], open_count=[0]), head, pool=POOL_NAME),
+        graded_rows(_scores(["e"], model_version=["2026-08-11"]), _labels(["e"], open_count=[0]), head, pool=POOL_NAME),
         head,
         pool=POOL_NAME,
         scoring_partition="2026-08-10",
@@ -988,11 +988,13 @@ def test_head_grades_report_counts_and_an_undefined_auc_on_a_single_class():
     # No AUC, and the score gap is still readable.
     assert (single_class.mean_score, single_class.expected_calibration_error) == (0.5, 0.5)
     # Counts are ints and the undefined AUC is dropped: the graded asset writes these as Dagster
-    # metadata. The family is in the key, so a second family cannot overwrite the first's entries.
-    metadata = grade_metadata([grade])
-    assert metadata["open_state_xgb_candidate_rows"] == dagster.MetadataValue.int(2)
-    assert metadata["open_state_xgb_candidate_auc"] == dagster.MetadataValue.float(1.0)
-    assert "open_state_xgb_candidate_auc" not in grade_metadata([single_class])
+    # metadata. The family and the version are in the key, so a second family or version cannot
+    # overwrite the first's entries, and a missing AUC cannot borrow the other version's.
+    metadata = grade_metadata([grade, single_class])
+    assert metadata["open_state_xgb_2026-08-10_candidate_rows"] == dagster.MetadataValue.int(2)
+    assert metadata["open_state_xgb_2026-08-10_candidate_auc"] == dagster.MetadataValue.float(1.0)
+    assert metadata["open_state_xgb_2026-08-11_candidate_rows"] == dagster.MetadataValue.int(1)
+    assert "open_state_xgb_2026-08-11_candidate_auc" not in metadata
 
 
 @pytest.mark.parametrize(
