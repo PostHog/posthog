@@ -58,7 +58,15 @@ describe("classifyAgentError", () => {
       "Claude AI usage limit reached. Your limit will reset at 3pm.",
       "subscription_usage_limit",
     ],
-    ["API Error: 400 invalid request", "agent_error"],
+    ["API Error: 400 invalid request", "upstream_request_rejected"],
+    [
+      '{"error":{"message":"router rejected request","type":"invalid_request_error","param":null,"code":"bad_request"}}',
+      "upstream_request_rejected",
+    ],
+    [
+      "unexpected status 422 Unprocessable Entity: unsupported parameter",
+      "upstream_request_rejected",
+    ],
     // 413 is a hard client rejection, never a transient upstream failure.
     ["API Error: 413 Payload Too Large", "agent_error"],
     [
@@ -81,6 +89,7 @@ describe("isRetryableUpstreamErrorClassification", () => {
     ["content_block_rejection", false],
     ["turn_ended_without_response", false],
     ["subscription_usage_limit", false],
+    ["upstream_request_rejected", false],
     ["agent_error", false],
   ] as const)("marks %s as retryable: %s", (classification, expected) => {
     expect(isRetryableUpstreamErrorClassification(classification)).toBe(
@@ -130,6 +139,11 @@ describe("sanitizeAgentErrorCause", () => {
       "Request timed out after sending private repository content",
       "upstream_timeout",
       "upstream_timeout",
+    ],
+    [
+      '{"error":{"message":"router rejected request","type":"invalid_request_error","param":null,"code":"bad_request"}}',
+      "upstream_request_rejected",
+      "router rejected request",
     ],
     ["agent process exited", "agent_error", "agent process exited"],
   ] as const)("sanitizes %j as %j", (message, classification, expected) => {
