@@ -432,9 +432,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
                 id: '00000000-0000-0000-0000-0000000000f1',
                 kind: 'thumbnail',
                 asset_id: 4001,
-                description: null,
                 video_start_ms: 24000,
-                video_end_ms: null,
             },
         ],
         ...overrides,
@@ -1075,7 +1073,9 @@ const meta: Meta = {
 }
 export default meta
 
-export const ScannersList: StoryObj = {}
+export const ScannersList: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
+}
 
 // A project that has never created a scanner: the surface of the empty-state experiment.
 const emptyProjectDecorators = [
@@ -1100,26 +1100,20 @@ const emptyProjectDecorators = [
 
 export const ScannersListEmpty: StoryObj = {
     decorators: emptyProjectDecorators,
+    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
 }
 
 export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
 }
 
-// The home-redesign experiment's test arm lands on the What to watch feed.
-export const HomeWatchFeed: StoryObj = {
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
-}
+// The home page lands on the What to watch feed.
+export const HomeWatchFeed: StoryObj = {}
 
 const WATCH_FEED_VIEW_STORAGE_KEY = 'products.replay_vision.frontend.replay_scanners.watchFeedLogic.view'
 
 // The same feed as thumbnail cards, each closing with why the recording was picked.
 export const HomeWatchFeedGrid: StoryObj = {
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
     // Seed the saved view before render instead of clicking the toggle: the snapshot build is production
     // React, which has no act(), so testing-library helpers fail there. Remove it afterwards, or every
     // later feed story renders as a grid too.
@@ -1209,9 +1203,6 @@ export const HomeWatchFeedJevArm: StoryObj = {
             },
         }),
     ],
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
 }
 
 // A quiet window: nothing scored on any source, so the feed pads to three newest clips and says so
@@ -1229,9 +1220,6 @@ export const HomeWatchFeedOnlyNewest: StoryObj = {
             },
         }),
     ],
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
 }
 
 export const HomeWatchFeedEmpty: StoryObj = {
@@ -1240,9 +1228,6 @@ export const HomeWatchFeedEmpty: StoryObj = {
             get: { '/api/projects/:team_id/vision/scanners/watch_feed/': { results: [] } },
         }),
     ],
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
 }
 
 export const SummarizerOverview: StoryObj = {
@@ -1911,6 +1896,7 @@ export const ObservationDetailInlineScan: StoryObj = observationDetailStory(inli
 
 // Billing hasn't clamped this org's limit yet, so the API still reports it as uncapped.
 export const StartupProgramCap: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
     decorators: [
         mswDecorator({
             get: {
