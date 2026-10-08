@@ -95,7 +95,7 @@ def _parse_stamp(raw: Optional[str]) -> Optional[datetime]:
 
 
 def _save_live(instance: HogFlow, validated_data: dict, **overrides: object) -> None:
-    # What HogFlowSerializer.update does: move secret function inputs out of the live `actions` into
+    # Move secret function inputs out of the live `actions` into
     # encrypted_inputs when the write carries actions (a metadata-only update must not touch stored
     # secrets), then save the whole row.
     data = {**validated_data, **overrides}
@@ -104,6 +104,12 @@ def _save_live(instance: HogFlow, validated_data: dict, **overrides: object) -> 
     for attr, value in data.items():
         setattr(instance, attr, value)
     instance.save()
+
+
+def save_validated_workflow(*, team_id: int, hog_flow_id: UUID, validated_data: dict) -> None:
+    """Write a workflow's validated fields to the live row, with no draft routing, revision bump or
+    follow-ups. For callers outside a request: enabling a workflow and the bytecode refresh."""
+    _save_live(HogFlow.objects.get(team_id=team_id, pk=hog_flow_id), validated_data)
 
 
 def _derive_from_locked_graph(locked: HogFlow, validated_data: dict) -> dict:
