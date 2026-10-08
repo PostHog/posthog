@@ -479,7 +479,7 @@ impl ActiveState {
     }
 
     fn finish(&mut self, now: Instant, effects: &mut Effects) -> Result<(), String> {
-        // A stalled action and a revoke skip `take_ready`, so without this a due
+        // A stalled action and a revoke skip `pack`, so without this a due
         // retry would set the next wakeup at or before `now`.
         self.keys.promote_due(now);
         let pending = self.pending_messages();
