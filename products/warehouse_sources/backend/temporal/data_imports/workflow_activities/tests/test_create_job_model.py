@@ -252,7 +252,6 @@ class TestCreateJob:
 
     @parameterized.expand(
         [
-            ("v2_run", False, None, False),
             ("v3_run_holding_its_lock", True, "temporal-run", False),
             ("v3_run_that_lost_its_lock", True, "another-run", True),
         ]
@@ -327,7 +326,7 @@ class TestCreateJobActivityStatusOrdering:
         schema = _schema(team, None)
 
         with pytest.raises(V2PipelineRemovedError):
-            create_external_data_job_model_activity(
+            _prepare(
                 CreateExternalDataJobModelActivityInputs(
                     team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=True, is_v3=False
                 )
