@@ -14,8 +14,6 @@ from products.review_hog.backend.models import ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import TurnMarkerArtefact, parse_artefact_content
 from products.review_hog.backend.reviewer.constants import (
     FLASH_LENSES,
-    REVIEW_DESIGN_PIPELINE,
-    REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     reviewhog_version_for_mode,
@@ -23,6 +21,7 @@ from products.review_hog.backend.reviewer.constants import (
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.skill_loader import REVIEW_HOG_VALIDATION_SKILL_NAME
 from products.review_hog.backend.reviewer.tools.single_agent_review import SINGLE_AGENT_PROMPT_PATH
 from products.review_hog.backend.temporal.activities import _sync_review_skills

@@ -16,7 +16,6 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_RUNTIME_ADAPTER,
     DEFAULT_REVIEW_ARM,
     FLASH_ARM,
-    REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     ReviewArm,
     review_arm_for_mode,
@@ -29,6 +28,7 @@ from products.review_hog.backend.reviewer.models.perspective_selection import (
 )
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentFinding, SingleAgentReview
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
     LensReviewInput,

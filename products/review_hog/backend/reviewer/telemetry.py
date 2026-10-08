@@ -10,8 +10,6 @@ from pydantic import BaseModel, ValidationError
 from products.review_hog.backend.reviewer.constants import (
     RESOLUTION_MODEL,
     RESOLUTION_REASONING_EFFORT,
-    REVIEW_DESIGN_PIPELINE,
-    REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     ReviewArm,
@@ -19,6 +17,7 @@ from products.review_hog.backend.reviewer.constants import (
     review_arm_for_mode,
     validation_arm_for_mode,
 )
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.tasks.backend.facade.run_config import ReasoningEffort
 
 if TYPE_CHECKING:

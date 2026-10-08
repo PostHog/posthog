@@ -12,8 +12,6 @@ from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import (
     DEFAULT_REVIEW_ARM,
     FLASH_ARM,
-    REVIEW_DESIGN_PIPELINE,
-    REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     REVIEW_MODEL,
@@ -31,6 +29,7 @@ from products.review_hog.backend.reviewer.persistence import (
     upsert_review_report,
 )
 from products.review_hog.backend.reviewer.push_gate import PushGateDecision
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.tools.single_agent_review import FlashTurnStats
 from products.review_hog.backend.temporal.activities import (
     FlashSessionStats,

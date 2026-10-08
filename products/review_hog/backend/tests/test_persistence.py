@@ -23,8 +23,6 @@ from products.review_hog.backend.reviewer.constants import (
     FLASH_ARM,
     FLASH_LENSES,
     REVIEW_ARMS_BY_TIER,
-    REVIEW_DESIGN_PIPELINE,
-    REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     SINGLE_AGENT_FLASH_ARM,
@@ -64,6 +62,7 @@ from products.review_hog.backend.reviewer.persistence import (
     replace_dropped_findings,
     upsert_review_report,
 )
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.temporal.activities import SandboxStageInput, _prepare_single_agent_prompt
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL, TRIGGER_UI
 from products.signals.backend.artefact_attribution import ArtefactAttribution

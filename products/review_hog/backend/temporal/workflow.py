@@ -35,12 +35,11 @@ from products.review_hog.backend.reviewer.constants import (
     FLASH_LENS_SESSION_TIMEOUT,
     FLASH_LENSES,
     MAX_CONCURRENT_SANDBOXES,
-    REVIEW_DESIGN_PIPELINE,
-    REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     VALIDATION_MAX_ATTEMPTS,
 )
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO, apply_selection
 from products.review_hog.backend.temporal.activities import (

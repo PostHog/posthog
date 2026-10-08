@@ -40,8 +40,6 @@ from products.review_hog.backend.reviewer.constants import (
     FLASH_PROMPT_DIFF_MAX_CHARS,
     ONESHOT_MODEL,
     ONESHOT_REASONING_EFFORT,
-    REVIEW_DESIGN_PIPELINE,
-    REVIEW_DESIGN_SINGLE_AGENT,
     ReviewArm,
     resolve_review_arm,
     review_arm_for_mode,
@@ -50,6 +48,7 @@ from products.review_hog.backend.reviewer.constants import (
 )
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
 from products.review_hog.backend.reviewer.models.issue_deduplicator import FlashIssueDeduplication
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.sandbox.executor import JSON_RETRY_PROMPT
 from products.review_hog.backend.reviewer.skill_loader import (
     load_blind_spots_skill_for_run,

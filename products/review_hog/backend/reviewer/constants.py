@@ -7,6 +7,13 @@ from typing import TYPE_CHECKING, Final
 from posthog.dataclasses import frozen
 
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
+from products.review_hog.backend.reviewer.review_design import (
+    REVIEW_DESIGN_PIPELINE,
+    REVIEW_DESIGN_REASON_DEFAULT,
+    REVIEW_DESIGN_REASON_FULL_MODE,
+    REVIEW_DESIGN_REASON_KILL_SWITCH,
+    REVIEW_DESIGN_SINGLE_AGENT,
+)
 from products.signals.backend.enums import ReportPriority
 from products.tasks.backend.facade.run_config import (
     ReasoningEffort,
@@ -73,19 +80,10 @@ REVIEW_MODE_FULL = "full"
 REVIEW_MODE_FLASH = "flash"
 
 # REVIEW DESIGN
-# How a turn finds its issues, decided per turn at fetch. Plain strings, like the review mode.
-REVIEW_DESIGN_PIPELINE = "pipeline"
-REVIEW_DESIGN_SINGLE_AGENT = "single_agent"
-
 # The design a Flash turn runs on by default. Full turns always run on the pipeline. The
 # `reviewhog-flash-pipeline-kill-switch` feature flag overrides it without a deploy
 # (`reviewer/feature_flags.py`); this constant is the code default the flag falls back to.
 FLASH_DESIGN_DEFAULT = REVIEW_DESIGN_SINGLE_AGENT
-
-# Why a turn runs on its design. The review-started event reports it next to the design.
-REVIEW_DESIGN_REASON_FULL_MODE = "full_mode"
-REVIEW_DESIGN_REASON_DEFAULT = "default"
-REVIEW_DESIGN_REASON_KILL_SWITCH = "kill_switch"
 
 
 @frozen

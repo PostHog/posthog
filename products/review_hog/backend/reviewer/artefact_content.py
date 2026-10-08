@@ -17,7 +17,6 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from products.review_hog.backend.reviewer.constants import REVIEW_DESIGN_PIPELINE
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import (
     DropDisposition,
@@ -28,6 +27,7 @@ from products.review_hog.backend.reviewer.models.issues_review import (
 )
 from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE
 from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     CodeReference,

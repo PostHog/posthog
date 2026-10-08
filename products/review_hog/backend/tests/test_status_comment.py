@@ -9,17 +9,13 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import (
-    REVIEW_DESIGN_PIPELINE,
-    REVIEW_DESIGN_SINGLE_AGENT,
-    REVIEW_MODE_FLASH,
-    REVIEW_MODE_FULL,
-)
+from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.persistence import persist_findings, persist_verdict, upsert_review_report
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.status_comment import (
     RESOLUTION_SECTION_START,
     FinalizeStatusCommentInput,

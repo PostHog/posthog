@@ -31,8 +31,6 @@ from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import (
     PRIORITIES_BY_URGENCY,
     PRIORITY_LABELS,
-    REVIEW_DESIGN_PIPELINE,
-    REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     effective_priority,
@@ -49,6 +47,7 @@ from products.review_hog.backend.reviewer.progress import (
     snapshot_stats,
     turn_stats,
 )
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.tools.github_client import (
     GitHubAPIError,
     github_api_get_paginated,

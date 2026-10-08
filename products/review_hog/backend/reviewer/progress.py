@@ -30,9 +30,10 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ReviewIssueFinding,
     ValidationVerdict,
 )
-from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER, REVIEW_DESIGN_SINGLE_AGENT
+from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.perspective_selection import ChunkPerspectiveSelection
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.skill_loader import (
     CANONICAL_PERSPECTIVE_SKILL_NAMES,
     REVIEW_HOG_PERSPECTIVE_PREFIX,

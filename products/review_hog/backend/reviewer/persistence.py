@@ -56,8 +56,6 @@ from products.review_hog.backend.reviewer.constants import (
     DEFAULT_REVIEW_ARM,
     HUMAN_TRIGGER_SOURCES,
     REVIEW_ARMS_BY_TIER,
-    REVIEW_DESIGN_PIPELINE,
-    REVIEW_DESIGN_SINGLE_AGENT,
     ReviewArm,
     ReviewTier,
     is_below_human_tier,
@@ -70,6 +68,7 @@ from products.review_hog.backend.reviewer.models.issue_validation import IssueVa
 from products.review_hog.backend.reviewer.models.issues_review import DroppedIssue, Issue, IssuesReview
 from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Commit
 from products.signals.backend.enums import ReportPriority

@@ -21,11 +21,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     TurnMarkerArtefact,
     ValidationVerdict,
 )
-from products.review_hog.backend.reviewer.constants import (
-    DEFAULT_REVIEW_ARM,
-    REVIEW_DESIGN_SINGLE_AGENT,
-    REVIEW_MODE_FLASH,
-)
+from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, REVIEW_MODE_FLASH
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.perspective_selection import (
@@ -40,6 +36,7 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_pr_snapshot,
 )
 from products.review_hog.backend.reviewer.progress import RESOLUTION_RUN_NOTE_AUTHOR
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import NoteArtefact

@@ -5,9 +5,6 @@ from parameterized import parameterized
 from products.review_hog.backend.models import ReviewUserSettings
 from products.review_hog.backend.reviewer.constants import (
     DEFAULT_URGENCY_THRESHOLD,
-    REVIEW_DESIGN_PIPELINE,
-    REVIEW_DESIGN_REASON_KILL_SWITCH,
-    REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     published_priorities_for,
@@ -15,6 +12,11 @@ from products.review_hog.backend.reviewer.constants import (
     select_review_design,
 )
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
+from products.review_hog.backend.reviewer.review_design import (
+    REVIEW_DESIGN_PIPELINE,
+    REVIEW_DESIGN_REASON_KILL_SWITCH,
+    REVIEW_DESIGN_SINGLE_AGENT,
+)
 
 
 class TestPublishedPrioritiesFor:

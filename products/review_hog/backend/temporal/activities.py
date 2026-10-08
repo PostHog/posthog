@@ -42,8 +42,6 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_RUNTIME_ADAPTER,
     DEFAULT_URGENCY_THRESHOLD,
     FLASH_LENSES,
-    REVIEW_DESIGN_PIPELINE,
-    REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     SINGLE_AGENT_CHUNK_ID,
@@ -99,6 +97,7 @@ from products.review_hog.backend.reviewer.persistence import (
     upsert_review_report,
 )
 from products.review_hog.backend.reviewer.push_gate import SYSTEM_ONE_SKIP_BELOW, PushGate, PushGateDecision
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.review_state import review_already_published
 from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_review
 from products.review_hog.backend.reviewer.sandbox.executor import (
