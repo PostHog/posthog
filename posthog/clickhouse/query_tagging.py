@@ -542,6 +542,7 @@ class QueryTags(BaseModel):
 
     # data quality
     data_quality_check_id: Optional[str] = None
+    data_quality_run_id: Optional[str] = None
     data_quality_check_type: Optional[str] = None  # not_null, unique, freshness, custom_sql, ...
     data_quality_subject_type: Optional[str] = None  # table or view
     data_quality_subject_id: Optional[str] = None
