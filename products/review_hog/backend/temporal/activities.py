@@ -1616,10 +1616,10 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
                             label=issue.id,
                         )
                 except Exception as exc:
+                    _raise_if_non_retryable_unit_failure(exc)
                     if session is None:
                         # Session never opened (sandbox-level) — raise so Temporal retries a retryable failure
                         # and the failure floor catches a real outage, not just one bad issue.
-                        _raise_if_non_retryable_unit_failure(exc)
                         raise
                     if not final_attempt:
                         # Fail the chunk so Temporal retries it; skip-resume keeps the retry cheap.
