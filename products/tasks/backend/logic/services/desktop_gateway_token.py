@@ -66,8 +66,8 @@ PosthogCodePlan = Literal["paid", "free"]
 # The gateway's per-user spend limits for a token; see AI_GATEWAY_USER_LIMITS.
 LimitTier = Literal["provisional", "standard", "power", "exempt"]
 
-# Payload {"tier": "standard" | "power" | "exempt"}. A person flag: email, organization_id and team_id
-# ride as person properties. "standard" vouches for an org that would otherwise be provisional.
+# Payload {"tier": <one of _OVERRIDE_TIERS>}, targeted on email, organization_id and team_id person
+# properties. "standard" lifts an org that would otherwise be provisional.
 DESKTOP_GATEWAY_LIMIT_OVERRIDE_FLAG = "posthog-desktop-gateway-limit-override"
 _OVERRIDE_TIERS: frozenset[str] = frozenset({"standard", "power", "exempt"})
 
