@@ -376,6 +376,43 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 expect(logic.values.otherRecordings.map((r) => r.console_error_count)).toEqual([100, 50])
             })
 
+            it.each([
+                ['console_error_count', 'DESC', [100, 50]],
+                ['console_error_count', 'ASC', [50, 100]],
+                ['surfacing_score', 'DESC', [50, 100]],
+            ] as const)('orders the pinned recordings by %s %s', async (order, order_direction, expected) => {
+                logic = sessionRecordingsPlaylistLogic({
+                    logicKey: 'pinned-ordering',
+                    pinnedRecordings: [aRecording, bRecording],
+                    onlyPinned: true,
+                })
+                logic.mount()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ order, order_direction })
+                }).toDispatchActions(['loadPinnedRecordingsSuccess'])
+
+                expect(logic.values.visiblePinnedRecordings.map((r) => r.console_error_count)).toEqual(expected)
+            })
+
+            it('keeps the input order of pinned recordings with equal sort values', async () => {
+                logic = sessionRecordingsPlaylistLogic({
+                    logicKey: 'pinned-ties',
+                    pinnedRecordings: [
+                        aRecording,
+                        { ...bRecording, console_error_count: aRecording.console_error_count },
+                    ],
+                    onlyPinned: true,
+                })
+                logic.mount()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ order: 'console_error_count', order_direction: 'ASC' })
+                }).toDispatchActions(['loadPinnedRecordingsSuccess'])
+
+                expect(logic.values.visiblePinnedRecordings.map((r) => r.id)).toEqual([aRecording.id, bRecording.id])
+            })
+
             it('adds an offset', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.loadSessionRecordings()

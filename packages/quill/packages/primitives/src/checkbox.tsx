@@ -1,9 +1,10 @@
+import './checkbox.css'
+
 import { Checkbox as CheckboxPrimitive } from '@base-ui/react/checkbox'
 import { cva, type VariantProps } from 'class-variance-authority'
-import { CheckIcon } from 'lucide-react'
+import { CheckIcon, MinusIcon } from 'lucide-react'
 import * as React from 'react'
 
-import './checkbox.css'
 import { cn } from './lib/utils'
 
 const checkboxIndicatorVariants = cva('quill-checkbox-indicator flex shrink-0 items-center justify-center', {
@@ -77,7 +78,11 @@ function Checkbox({
                 data-slot="checkbox-primitive-indicator"
                 className="grid place-content-center text-current transition-none"
             >
-                <CheckboxIndicator checked size={size ?? 'default'} className="border-none bg-transparent" />
+                {props.indeterminate ? (
+                    <MinusIcon className={checkIconVariants({ size })} />
+                ) : (
+                    <CheckboxIndicator checked size={size ?? 'default'} className="border-none bg-transparent" />
+                )}
             </CheckboxPrimitive.Indicator>
         </CheckboxPrimitive.Root>
     )

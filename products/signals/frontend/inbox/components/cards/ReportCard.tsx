@@ -12,6 +12,7 @@ import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { PrBadge } from 'lib/signals/SignalReportPrBadge'
 
+import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { useReportCiStatus } from '../../logics/prCiStatusLogic'
 import {
     INBOX_SECTION_LEGACY_TAB,
@@ -41,6 +42,7 @@ import {
 } from '../badges/sourceProductIcons'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { ReportCardImpactMetric } from './ReportCardImpactMetric'
+import { ReportCardRankingTag } from './ReportCardRankingTag'
 import { useReportCardSelection } from './useReportCardSelection'
 import { useReportDismiss } from './useReportDismiss'
 
@@ -122,6 +124,7 @@ function ReportCardRaw({
     backUrl,
     preview = false,
     selectable = false,
+    rankingSortField = null,
 }: {
     report: SignalReport
     sectionKey?: InboxReportSectionKey
@@ -136,6 +139,8 @@ function ReportCardRaw({
     preview?: boolean
     /** Offer multi-select on this row: press and hold and modifier clicks. */
     selectable?: boolean
+    /** The active model sort, if any. The meta row then shows the report's probability for that head. */
+    rankingSortField?: InboxRankingSortField | null
 }): JSX.Element {
     // Keyed on status, not the section: the legacy Archive tab lists dismissed and resolved rows
     // through one section key, and the two need different affordances.
@@ -290,6 +295,7 @@ function ReportCardRaw({
                         </Tooltip>
                     )}
                     <SignalReportBillingBadge report={report} />
+                    {rankingSortField && <ReportCardRankingTag report={report} sortField={rankingSortField} />}
                     {!showImpactColumn && (
                         <TZLabel
                             time={report.updated_at ?? report.created_at}

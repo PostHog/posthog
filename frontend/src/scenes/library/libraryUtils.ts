@@ -2,12 +2,15 @@ import { routes } from 'scenes/scenes'
 
 import { fileSystemTypes, getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { FileSystemType } from '~/types'
 
 // These file system types are working pages rather than saved objects, so they belong to Tools.
-export const TOOL_FILE_SYSTEM_TYPES = new Set(['endpoints', 'live_debugger', 'notebook', 'task'])
+export const TOOL_FILE_SYSTEM_TYPES = new Set(['endpoints', 'task'])
+// These file system types are views people open and read, so they belong to Views, next to canvases.
+export const VIEW_FILE_SYSTEM_TYPES = new Set(['dashboard', 'notebook'])
 
 // The objects people reach for most come first. Any other type follows in name order.
-const LIBRARY_TYPE_ORDER = ['insight', 'dashboard', 'feature_flag', 'experiment', 'survey', 'cohort', 'action']
+const LIBRARY_TYPE_ORDER = ['insight', 'feature_flag', 'experiment', 'survey', 'cohort', 'action']
 
 export interface LibraryObjectType {
     value: string
@@ -21,8 +24,13 @@ export function baseObjectType(type: string | undefined): string {
     return type?.split('/')[0] ?? ''
 }
 
-export function isToolEntry(entry: Pick<FileSystemEntry, 'type'>): boolean {
-    return TOOL_FILE_SYSTEM_TYPES.has(baseObjectType(entry.type))
+/** Whether a file system type shows in Library, rather than in Tools or Views. */
+export function isLibraryType(type: string): boolean {
+    return !TOOL_FILE_SYSTEM_TYPES.has(type) && !VIEW_FILE_SYSTEM_TYPES.has(type)
+}
+
+export function isLibraryEntry(entry: Pick<FileSystemEntry, 'type'>): boolean {
+    return isLibraryType(baseObjectType(entry.type))
 }
 
 /** The page a saved object opens, from the entry itself or from its type's registered URL. */
@@ -35,6 +43,14 @@ export function libraryObjectHref(entry: Pick<FileSystemEntry, 'href' | 'type' |
         ? fileSystemTypes[baseType as keyof typeof fileSystemTypes]
         : null
     return entry.ref && definition ? definition.href(entry.ref) : null
+}
+
+/** The product's own list page for a type, if its manifest registers one. */
+export function libraryListHref(type: string): string | null {
+    const definition = Object.hasOwn(fileSystemTypes, type)
+        ? (fileSystemTypes[type as keyof typeof fileSystemTypes] as FileSystemType)
+        : null
+    return definition?.listHref?.() ?? null
 }
 
 const REF_PLACEHOLDER = 'LIBRARY_REF'
@@ -72,13 +88,14 @@ export function libraryTypeForPath(path: string): string | null {
     if (!objectTypeByScene) {
         const scenes = new Map<string, string>()
         const addPage = (type: string, href: string | undefined): void => {
-            const scene = href && !TOOL_FILE_SYSTEM_TYPES.has(type) ? sceneForPath(href) : null
+            const scene = href && isLibraryType(type) ? sceneForPath(href) : null
             if (scene && !scenes.has(scene)) {
                 scenes.set(scene, type)
             }
         }
-        for (const [type, definition] of Object.entries(fileSystemTypes)) {
-            addPage(type, definition.href(REF_PLACEHOLDER))
+        for (const [type, definition] of Object.entries(fileSystemTypes) as [string, FileSystemType][]) {
+            addPage(type, definition.href?.(REF_PLACEHOLDER))
+            addPage(type, definition.listHref?.())
         }
         for (const item of [...getTreeItemsProducts(), ...getTreeItemsMetadata()]) {
             const type = baseObjectType(item.type) || item.iconType || ''
@@ -96,6 +113,18 @@ export function libraryTypeForPath(path: string): string | null {
 export function libraryObjectName(entry: Pick<FileSystemEntry, 'path'>): string {
     const segments = entry.path.split(/(?<!\\)\//)
     return (segments[segments.length - 1] || entry.path).replace(/\\\//g, '/')
+}
+
+/** The type's name in lower case, for a label beside an object: "feature flag", but "SQL insight" keeps its acronym. */
+export function libraryTypeLabel(type: string | undefined): string | null {
+    const baseType = baseObjectType(type)
+    const name = Object.hasOwn(fileSystemTypes, baseType)
+        ? (fileSystemTypes[baseType as keyof typeof fileSystemTypes] as FileSystemType).name
+        : null
+    if (!name) {
+        return null
+    }
+    return /^[A-Z]{2}/.test(name) ? name : name.charAt(0).toLowerCase() + name.slice(1)
 }
 
 export function sortLibraryTypes(types: LibraryObjectType[]): LibraryObjectType[] {

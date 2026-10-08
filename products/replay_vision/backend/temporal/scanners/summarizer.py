@@ -5,8 +5,6 @@ from typing import Any, ClassVar, Literal, Self
 
 from pydantic import BaseModel, Field, field_validator
 
-from posthog.dataclasses import frozen
-
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.scanners.base import (
     BaseScanner,
@@ -20,14 +18,14 @@ from products.replay_vision.backend.temporal.scanners.base import (
     strip_citation_markers,
     thumbnail_field,
 )
-from products.replay_vision.backend.temporal.video_clock import IdleStretch, VideoClock
+from products.replay_vision.backend.temporal.video_clock import VideoClock
 
 SummaryLength = Literal["short", "medium", "long"]
 
 _LENGTH_GUIDANCE: dict[SummaryLength, str] = {
     "short": "1-2 sentences",
-    "medium": "1 paragraph",
-    "long": "3-5 paragraphs",
+    "medium": "4-6 sentences in two short paragraphs separated by a blank line",
+    "long": "3-5 short paragraphs separated by blank lines",
 }
 
 
@@ -84,17 +82,15 @@ class SummaryChapterResponse(BaseModel, frozen=True):
         return cleaned[: CHAPTER_TITLE_MAX_LENGTH + 1].rsplit(" ", 1)[0].rstrip(" ,;:-")
 
 
-IDLE_CHAPTER_TITLE = "Idle"
-# A shorter pause is part of whatever the user was doing around it, so it stays inside that chapter.
-LONG_IDLE_MS = 60_000
-MAX_IDLE_CHAPTERS = 10
+# A boundary the model put this close to a cut was meant for the cut, because whole video seconds cannot hit it exactly.
+CUT_SNAP_S = 3.0
 
 
 class SummaryChapter(BaseModel, frozen=True):
-    """One persisted chapter, on the session clock the player seeks to; chapters tile the recording in order.
+    """One persisted chapter, on the session clock the player seeks to; chapters are in order and never overlap.
 
-    An `idle` chapter is a stretch of at least `LONG_IDLE_MS` the player marked inactive. It comes from the render,
-    never from the model, and has no thumbnail because the analysis video cut it out.
+    Inactive time between chapters is a gap, listed in `SummarizerOutput.inactive_periods`. Chapters stored
+    before that list existed can carry `kind: idle` entries, which readers skip.
     """
 
     kind: Literal["activity", "idle"] = "activity"
@@ -102,6 +98,13 @@ class SummaryChapter(BaseModel, frozen=True):
     end_ms: int = Field(ge=0)
     title: str
     thumbnail_ms: int | None = Field(default=None, ge=0)
+
+
+class InactivePeriod(BaseModel, frozen=True):
+    """A stretch the replay player marked inactive, which the analysis video cut out."""
+
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(ge=0)
 
 
 class SummarizerSummaryResponse(BaseModel, frozen=True):
@@ -139,6 +142,7 @@ class SummarizerOutput(BaseScannerOutput, frozen=True):
     summary: str = ""
     summary_segments: list[Segment] = Field(default_factory=list)
     chapters: list[SummaryChapter] = Field(default_factory=list)
+    inactive_periods: list[InactivePeriod] = Field(default_factory=list)
 
     def embedding_document(self) -> EmbeddingDocument | None:
         text = summary_embedding_text(self)
@@ -148,6 +152,7 @@ class SummarizerOutput(BaseScannerOutput, frozen=True):
         # A count is enough to chart adoption, and the full list would make every event carry the whole breakdown.
         properties = super().to_event_properties()
         del properties["scanner_output_chapters"]
+        del properties["scanner_output_inactive_periods"]
         properties["scanner_output_chapter_count"] = len(self.chapters)
         return properties
 
@@ -160,155 +165,52 @@ def summary_embedding_text(output: SummarizerOutput) -> str:
 def resolve_chapters(
     chapters: Sequence[SummaryChapterResponse], duration_ms: int, clock: VideoClock
 ) -> list[SummaryChapter]:
-    """Repair the model's chapters into an ordered list that tiles the recording, on the session clock.
+    """Repair the model's chapters into an ordered list over the active time, on the session clock.
 
     A malformed breakdown is repaired rather than re-prompted, because a re-prompt bills the whole conversation
-    again for a field the scan does not depend on. Each chapter ends where the next one starts, so the list can
-    have neither gaps nor overlaps. The stretches the player marked inactive are then cut out into idle chapters.
+    again for a field the scan does not depend on. Chapters tile the video, which has the inactive time cut out.
+    A boundary near a cut snaps onto it, so on the session clock the inactive time falls between two chapters.
     """
     video_end_s = clock.citable_duration_s(duration_ms / 1000)
     if not video_end_s:
         return []
-    starts: dict[int, SummaryChapterResponse] = {}
+    cuts = clock.cuts_video_s()
+    starts: dict[float, SummaryChapterResponse] = {}
     # A negative start clamps to 0, and a start at or past the video's end is a time the model invented, which
     # would make an empty chapter.
     for chapter in chapters:
-        if chapter.start_t is not None and chapter.title and chapter.start_t < video_end_s:
-            starts.setdefault(max(0, chapter.start_t), chapter)
+        if chapter.start_t is None or not chapter.title or chapter.start_t >= video_end_s:
+            continue
+        start_s = float(max(0, chapter.start_t))
+        nearest_cut = min(cuts, key=lambda cut: abs(cut - start_s), default=None)
+        # The first chapter starts at 0 regardless, so snapping a 0 start would only collide it with the next one.
+        if start_s > 0 and nearest_cut is not None and abs(nearest_cut - start_s) <= CUT_SNAP_S:
+            start_s = nearest_cut
+        starts.setdefault(start_s, chapter)
     kept = sorted(starts.items())[:MAX_CHAPTERS]
     if not kept:
         return []
 
     resolved: list[SummaryChapter] = []
-    for index, (start_t, chapter) in enumerate(kept):
-        start_s = 0.0 if index == 0 else float(start_t)
-        end_s = float(kept[index + 1][0]) if index + 1 < len(kept) else video_end_s
-        thumbnail_t = chapter.thumbnail_t
-        # A pick outside its chapter is dropped here, and `_split_out_idle` falls back to the midpoint.
-        thumbnail_ms = (
-            clock.video_s_to_session_ms(thumbnail_t)
-            if thumbnail_t is not None and start_s <= thumbnail_t < end_s
-            else None
-        )
+    for index, (start_s, chapter) in enumerate(kept):
+        start_s = 0.0 if index == 0 else start_s
+        end_s = kept[index + 1][0] if index + 1 < len(kept) else video_end_s
+        start_ms, end_ms = clock.video_s_to_session_ms(start_s), clock.video_end_s_to_session_ms(end_s)
+        # Checked on the session clock, because a video second at a cut can map onto the chapter's exclusive end.
+        thumbnail_ms = clock.video_s_to_session_ms(chapter.thumbnail_t) if chapter.thumbnail_t is not None else None
+        if thumbnail_ms is None or not start_ms <= thumbnail_ms < end_ms:
+            thumbnail_ms = clock.video_s_to_session_ms((start_s + end_s) / 2)
         resolved.append(
-            SummaryChapter(
-                # Pinned, because the render's first kept stretch can start after the session does.
-                start_ms=0 if index == 0 else clock.video_s_to_session_ms(start_s),
-                # The last chapter runs to the end of the session, which can be past the video's end when the render cut trailing inactivity.
-                end_ms=clock.video_s_to_session_ms(end_s) if index + 1 < len(kept) else duration_ms,
-                title=chapter.title,
-                thumbnail_ms=thumbnail_ms,
-            )
-        )
-    return _split_out_idle(resolved, _long_idle(clock, duration_ms))
-
-
-@frozen
-class IdleBreak:
-    """A long idle stretch as the prompt names it: where the video resumes, and how long the user was away."""
-
-    video_s: int
-    idle_s: int
-
-
-def long_idle_breaks(clock: VideoClock, duration_ms: int) -> tuple[IdleBreak, ...]:
-    """One break per long idle between two stretches of activity.
-
-    Idle at the very start or end of the session has no activity on one side, so it cannot split a chapter.
-    """
-    return tuple(
-        IdleBreak(
-            video_s=int(clock.session_ms_to_video_s(stretch.end_ms)),
-            idle_s=(stretch.end_ms - stretch.start_ms) // 1000,
-        )
-        for stretch in _long_idle(clock, duration_ms)
-        if stretch.start_ms > 0 and stretch.end_ms < duration_ms
-    )
-
-
-def _long_idle(clock: VideoClock, duration_ms: int) -> list[IdleStretch]:
-    """The long idle stretches, at most the `MAX_IDLE_CHAPTERS` longest, in order.
-
-    Each one adds an idle chapter and can split another, so the bound keeps the timeline and its frames bounded.
-    """
-    long_idle = [s for s in clock.inactive_session_ms(duration_ms) if s.end_ms - s.start_ms >= LONG_IDLE_MS]
-    longest = sorted(long_idle, key=lambda s: s.start_ms - s.end_ms)[:MAX_IDLE_CHAPTERS]
-    return sorted(longest, key=lambda s: s.start_ms)
-
-
-# The model cites whole video seconds, so a boundary it meant to put at a cut can land a second or two past it.
-_MIN_ACTIVITY_FRAGMENT_MS = 3_000
-
-
-@frozen(frozen=False)
-class _Piece:
-    """A stretch of the session while idle stretches are cut out; `source` is None for an idle one."""
-
-    start_ms: int
-    end_ms: int
-    source: SummaryChapter | None
-    # True for a piece an idle stretch cut off a chapter; a whole chapter is never merged away, however short.
-    fragment: bool = False
-
-
-def _split_out_idle(chapters: list[SummaryChapter], idle: list[IdleStretch]) -> list[SummaryChapter]:
-    """Cut each inactive stretch out of the chapters it overlaps and put an idle chapter in its place.
-
-    A chapter that an idle stretch splits keeps its title on both sides. A fragment too short to be a real
-    part of the session joins the neighbouring activity chapter, or the idle stretch when it has none.
-    """
-    pieces: list[_Piece] = []
-    for chapter in chapters:
-        cursor = chapter.start_ms
-        cut = False
-        for stretch in idle:
-            start, end = max(stretch.start_ms, chapter.start_ms), min(stretch.end_ms, chapter.end_ms)
-            if end <= start:
-                continue
-            if start > cursor:
-                pieces.append(_Piece(start_ms=cursor, end_ms=start, source=chapter, fragment=True))
-            pieces.append(_Piece(start_ms=start, end_ms=end, source=None))
-            cursor, cut = end, True
-        if cursor < chapter.end_ms:
-            pieces.append(_Piece(start_ms=cursor, end_ms=chapter.end_ms, source=chapter, fragment=cut))
-
-    index = 0
-    while index < len(pieces):
-        piece = pieces[index]
-        if not piece.fragment or piece.end_ms - piece.start_ms >= _MIN_ACTIVITY_FRAGMENT_MS:
-            index += 1
-            continue
-        before = pieces[index - 1] if index > 0 else None
-        after = pieces[index + 1] if index + 1 < len(pieces) else None
-        if after is not None and after.source is not None:
-            after.start_ms = piece.start_ms
-        elif before is not None and before.source is not None:
-            before.end_ms = piece.end_ms
-        else:
-            piece.source = None
-            index += 1
-            continue
-        pieces.pop(index)
-
-    resolved: list[SummaryChapter] = []
-    for piece in pieces:
-        if piece.source is None:
-            if resolved and resolved[-1].kind == "idle":
-                resolved[-1] = resolved[-1].model_copy(update={"end_ms": piece.end_ms})
-            else:
-                resolved.append(
-                    SummaryChapter(kind="idle", start_ms=piece.start_ms, end_ms=piece.end_ms, title=IDLE_CHAPTER_TITLE)
-                )
-            continue
-        thumbnail_ms = piece.source.thumbnail_ms
-        if thumbnail_ms is None or not piece.start_ms <= thumbnail_ms < piece.end_ms:
-            thumbnail_ms = (piece.start_ms + piece.end_ms) // 2
-        resolved.append(
-            SummaryChapter(
-                start_ms=piece.start_ms, end_ms=piece.end_ms, title=piece.source.title, thumbnail_ms=thumbnail_ms
-            )
+            SummaryChapter(start_ms=start_ms, end_ms=end_ms, title=chapter.title, thumbnail_ms=thumbnail_ms)
         )
     return resolved
+
+
+def inactive_periods(clock: VideoClock, duration_ms: int) -> list[InactivePeriod]:
+    return [
+        InactivePeriod(start_ms=stretch.start_ms, end_ms=stretch.end_ms)
+        for stretch in clock.inactive_session_ms(duration_ms)
+    ]
 
 
 class SummarizerScanner(BaseScanner, frozen=True):
@@ -317,10 +219,8 @@ class SummarizerScanner(BaseScanner, frozen=True):
     citation_fields: ClassVar[tuple[str, ...]] = ("summary",)
     output_cls: ClassVar[type[BaseScannerOutput]] = SummarizerOutput
     length: SummaryLength = "medium"
-    # (video second the video resumes at, idle seconds) per long idle stretch, set per session before the scan runs.
-    long_idle_breaks: tuple[IdleBreak, ...] = ()
     chapter_target: int = MIN_CHAPTER_TARGET
-    session_fields: ClassVar[frozenset[str]] = frozenset({"long_idle_breaks", "chapter_target"})
+    session_fields: ClassVar[frozenset[str]] = BaseScanner.session_fields | {"chapter_target"}
 
     @property
     def llm_response_schema(self) -> type[BaseModel]:
@@ -329,17 +229,13 @@ class SummarizerScanner(BaseScanner, frozen=True):
     def prompt_context(self) -> dict[str, Any]:
         return {
             "length_guidance": _LENGTH_GUIDANCE[self.length],
-            "long_idle_breaks": self.long_idle_breaks,
             "chapter_target": self.chapter_target,
         }
 
     def bind_session(self, clock: VideoClock, duration_ms: int) -> Self:
-        # The video has the idle time cut out, so the model cannot see a long break unless the prompt names it.
+        # The video is the active time only, so the target follows how much the user did, not how long the tab was open.
         return self.model_copy(
-            update={
-                "long_idle_breaks": long_idle_breaks(clock, duration_ms),
-                "chapter_target": chapter_target(clock.citable_duration_s(duration_ms / 1000) or 0),
-            }
+            update={"chapter_target": chapter_target(clock.citable_duration_s(duration_ms / 1000) or 0)}
         )
 
     def resolve_session_clock(
@@ -348,7 +244,12 @@ class SummarizerScanner(BaseScanner, frozen=True):
         if not isinstance(output, SummarizerOutput):
             return output
         chapters = getattr(core_response, "chapters", ())
-        return output.model_copy(update={"chapters": resolve_chapters(chapters, duration_ms, clock)})
+        return output.model_copy(
+            update={
+                "chapters": resolve_chapters(chapters, duration_ms, clock),
+                "inactive_periods": inactive_periods(clock, duration_ms),
+            }
+        )
 
     def finalize(self, llm_response: BaseModel) -> BaseScannerOutput:
         # Chapters join the output in the provider activity, which holds the clock that moves them onto session time.

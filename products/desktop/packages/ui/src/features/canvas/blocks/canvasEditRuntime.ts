@@ -619,7 +619,7 @@ export function installCanvasEditing(
   };
 
   const onMove = (event: MouseEvent) => {
-    if (!enabled) return;
+    if (!enabled || !event.isTrusted) return;
     const pressed = (event.buttons & 1) === 1;
     if (forwarding) {
       if (!pressed) {
@@ -706,24 +706,32 @@ export function installCanvasEditing(
     const selection = window.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(range);
-    element.addEventListener("blur", () => finishText(true), { once: true });
-    element.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        element.blur();
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        finishText(false);
-        element.blur();
-      }
-    });
     return true;
   };
 
+  const onTextKey = (event: KeyboardEvent) => {
+    if (
+      !event.isTrusted ||
+      !editingText ||
+      event.target !== editingText.element
+    )
+      return;
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      finishText(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      finishText(false);
+    }
+  };
+  const onTextBlur = (event: FocusEvent) => {
+    if (event.isTrusted && event.target === editingText?.element)
+      finishText(true);
+  };
+
   const onDouble = (event: MouseEvent) => {
-    if (!enabled) return;
+    if (!enabled || !event.isTrusted) return;
     event.preventDefault();
     event.stopPropagation();
     const element = candidateOf(event.target as Element);
@@ -731,6 +739,7 @@ export function installCanvasEditing(
   };
 
   const onDown = (event: MouseEvent) => {
+    if (!event.isTrusted) return;
     forwarding = false;
     if (!enabled || event.button !== 0) return;
     if (editingText?.element.contains(event.target as Node)) return;
@@ -749,12 +758,13 @@ export function installCanvasEditing(
   };
 
   const swallow = (event: Event) => {
-    if (!enabled) return;
+    if (!enabled || !event.isTrusted) return;
     event.preventDefault();
     event.stopPropagation();
   };
 
-  const onUp = (_event: MouseEvent) => {
+  const onUp = (event: MouseEvent) => {
+    if (!event.isTrusted) return;
     dragOrigin = null;
     if (!forwarding) return;
     forwarding = false;
@@ -764,7 +774,7 @@ export function installCanvasEditing(
   };
 
   const onKey = (event: KeyboardEvent) => {
-    if (!enabled) return;
+    if (!enabled || !event.isTrusted) return;
     const target = event.target as HTMLElement | null;
     if (
       target &&
@@ -912,6 +922,8 @@ export function installCanvasEditing(
   window.addEventListener("mouseup", onUp, true);
   window.addEventListener("click", swallow, true);
   window.addEventListener("dblclick", onDouble, true);
+  window.addEventListener("keydown", onTextKey, true);
+  window.addEventListener("blur", onTextBlur, true);
   window.addEventListener("keydown", onKey, true);
   document.addEventListener("mouseleave", () => {
     hovered = null;

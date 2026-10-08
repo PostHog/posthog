@@ -165,6 +165,7 @@ from products.customer_analytics.backend.models import (
     EventStream,
     EventStreamMember,
     Meeting,
+    MeetingStatus,
     SyncStatus,
     SyncTrigger,
     TargetType,
@@ -4677,11 +4678,24 @@ def list_account_meetings(
     search: str | None = None,
 ) -> tuple[list[contracts.MeetingView], int] | None:
     """Synced calendar meetings for an accessible account, newest first, optionally
-    filtered by ``search`` (title or attendee email/name). None when the account isn't
+    filtered by ``search`` (title or attendee email/name). A recurring series shows each
+    past occurrence but only its next upcoming one. None when the account isn't
     accessible (→ 404)."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
-    queryset = Meeting.objects.for_team(team_id).filter(account_id=account_id)
+    now = timezone.now()
+    next_occurrence_id = (
+        Meeting.objects.for_team(team_id)
+        .filter(account_id=account_id, ical_uid=OuterRef("ical_uid"), start_time__gte=now)
+        .exclude(recurrence_instance_id="")
+        .exclude(status=MeetingStatus.CANCELLED)
+        .order_by("start_time")
+        .values("id")[:1]
+    )
+    queryset = Meeting.objects.for_team(team_id).filter(
+        Q(recurrence_instance_id="") | Q(start_time__lt=now) | Q(id=Subquery(next_occurrence_id)),
+        account_id=account_id,
+    )
     if search:
         queryset = queryset.filter(
             Q(title__icontains=search)
@@ -4704,6 +4718,7 @@ def list_account_meetings(
         contracts.MeetingView(
             id=meeting.id,
             title=meeting.title,
+            is_recurring=bool(meeting.recurrence_instance_id),
             gong_url=gong_urls_by_meeting_id.get(meeting.id),
             start_time=meeting.start_time,
             end_time=meeting.end_time,
@@ -5667,6 +5682,8 @@ def _to_announcement_view(announcement) -> contracts.AnnouncementView:
         short_id=announcement.short_id,
         message=announcement.message,
         status=announcement.status,
+        send_as=announcement.send_as,
+        sender_display_name=announcement.sender_display_name,
         total_channels=announcement.total_channels,
         sent_count=announcement.sent_count,
         failed_count=announcement.failed_count,
@@ -5698,9 +5715,11 @@ def get_announcement(team_id: int, short_id: str) -> contracts.AnnouncementView 
     return _to_announcement_view(announcement) if announcement is not None else None
 
 
-def create_announcement(*, team_id: int, user: "User", message: str, channels: list[str]) -> contracts.AnnouncementView:
+def create_announcement(
+    *, team_id: int, user: "User", message: str, channels: list[str], send_as: str = "bot"
+) -> contracts.AnnouncementView:
     team = Team.objects.get(id=team_id)
-    announcement = _announcements_logic.create_announcement(team, user, message, channels)
+    announcement = _announcements_logic.create_announcement(team, user, message, channels, send_as)
     # Dispatch only after the delivery rows commit; a rollback must not leave a phantom task.
     transaction.on_commit(lambda: send_announcement.delay(str(announcement.id), team_id))
     return _to_announcement_view(announcement)

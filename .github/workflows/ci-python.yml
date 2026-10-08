@@ -135,6 +135,7 @@ jobs:
                         - 'products/tasks/frontend/modelCatalog.generated.ts'
                         - 'packages/agent/packages/agent-contracts/src/model-catalog.generated.ts'
                         - 'services/mcp/src/lib/oauth-scopes.generated.ts'
+                        - 'frontend/src/lib/oauthScopes.generated.ts'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'

@@ -369,6 +369,68 @@ describe('ReportCard', () => {
         expect(container.querySelector('[data-attr="report-card-impact-metric"]')).not.toBeNull()
     })
 
+    it.each([
+        ['with the impact column', true, 'ranking_pr_merged', '2.7x merge'],
+        [
+            'without the impact column, falling back to the probability for a head with no lift',
+            false,
+            'ranking_action',
+            '6.2% action',
+        ],
+    ] as const)('shows the active head lift in the meta row %s', (_name, impactColumn, sortField, tagText) => {
+        // The harness renders a card for every test; these assert against their own.
+        cleanup()
+        enableRedesign(impactColumn)
+        const report = makeReport('r-2', {
+            metrics: [makeMetric()],
+            ranking: {
+                served_key: 'report_embeddings@2026-09-30',
+                model_name: 'report_embeddings',
+                model_version: '2026-09-30',
+                manifest_version: 'manifest',
+                scored_at: '2026-09-30T12:00:00Z',
+                scores: { pr_merged: 0.41, action: 0.062 },
+                lifts: { pr_merged: 2.7 },
+                readable_heads: ['action', 'pr_merged'],
+                stale: false,
+            },
+        })
+        const { container } = render(<ReportCard report={report} rankingSortField={sortField} />)
+
+        const tag = screen.getByText(tagText)
+        const impactMetric = container.querySelector('[data-attr="report-card-impact-metric"]')
+        expect(impactMetric !== null).toBe(impactColumn)
+        expect(impactMetric?.contains(tag) ?? false).toBe(false)
+    })
+
+    it('marks an unscored report under a model sort and adds no tag under a time sort', () => {
+        // The harness renders a card for every test; these assert against their own.
+        cleanup()
+        enableRedesign()
+        const { rerender } = render(<ReportCard report={makeReport('r-2')} rankingSortField="ranking_pr_merged" />)
+        expect(screen.getByText('Not scored')).toBeInTheDocument()
+
+        const stale = makeReport('r-2', {
+            ranking: {
+                served_key: 'report_embeddings@2026-09-30',
+                model_name: 'report_embeddings',
+                model_version: '2026-09-30',
+                manifest_version: 'manifest',
+                scored_at: '2026-09-30T12:00:00Z',
+                scores: { pr_merged: 0.41 },
+                lifts: { pr_merged: 2.7 },
+                readable_heads: ['pr_merged'],
+                stale: true,
+            },
+        })
+        rerender(<ReportCard report={stale} rankingSortField="ranking_pr_merged" />)
+        expect(screen.getByText('Edited since scored')).toBeInTheDocument()
+        expect(screen.queryByText('2.7x merge')).not.toBeInTheDocument()
+
+        rerender(<ReportCard report={makeReport('r-2')} />)
+        expect(screen.queryByText('Not scored')).not.toBeInTheDocument()
+    })
+
     it('does not show a list metric without a stored snapshot, under the legacy design, or with the metrics flag off', () => {
         const report = makeReport('r-2', { metrics: [makeMetric({ value: null, value_at: null })] })
 

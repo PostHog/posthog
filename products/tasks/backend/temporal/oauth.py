@@ -6,6 +6,7 @@ from uuid import UUID
 
 from django.db import transaction
 
+from posthog.models import OAuthAccessToken
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
@@ -28,7 +29,12 @@ from products.tasks.backend.logic.services.run_actor import (
     is_slack_interaction_state,
     loop_owner_eligible_for_credentials,
 )
-from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN, TASK_OWNERSHIP_VERSION_STATE_KEY, Task
+from products.tasks.backend.models import (
+    INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN,
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
+    Task,
+    TaskRun,
+)
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -160,6 +166,8 @@ def dispatched_run_scopes(task: Task, state: dict[str, Any] | None) -> PosthogMc
     MCP session, or a shell fallback runs with less than the run was given. A recorded value
     that does not parse fails closed to ``read_only``.
     """
+    if task.is_scout_trial_judge:
+        return "signals_scout_judge"
     pending = (state or {}).get("pending_dispatch")
     raw = pending.get("posthog_mcp_scopes") if isinstance(pending, dict) else None
     if raw is None:
@@ -245,6 +253,7 @@ def create_oauth_access_token_for_run(
     state: dict[str, Any] | None,
     *,
     scopes: PosthogMcpScopes | None = None,
+    run_id: str | UUID | None = None,
 ) -> str:
     """Mint the sandbox OAuth token for a run, resolving the acting user from run state.
 
@@ -256,6 +265,8 @@ def create_oauth_access_token_for_run(
     (``loop_id`` in run state) get ``loop:write`` stripped from the granted scopes here.
     ``scopes`` defaults to what the run was dispatched with (``dispatched_run_scopes``), so
     a caller without the value on its activity input still mints the run's own grant.
+    Tokens recorded on ``run_id`` may read that run's protected agent context, even when the
+    sandbox's query scopes are withheld. The binding never grants access to other runs.
     """
     if scopes is None:
         scopes = dispatched_run_scopes(task, state)
@@ -265,6 +276,25 @@ def create_oauth_access_token_for_run(
         # `start_agent_server` mints its token with explicit scopes.
         if scopes == "signals_research":
             scopes = [*resolve_scopes(scopes), *RESEARCH_WITHHELD_SCOPES]
+    judge_marker = (state or {}).get("scout_trial_judge")
+    if task.is_scout_trial_judge or judge_marker is not None:
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 -- private judge validation loads evaluation storage
+            is_scout_trial_judge_context,
+        )
+
+        if (
+            not task.is_scout_trial_judge
+            or task.created_by_id is None
+            or not isinstance(judge_marker, dict)
+            or task.origin_key
+            != f"scout-trial-judge:{judge_marker.get('evaluation_id')}:{judge_marker.get('launch_id')}"
+            or not is_scout_trial_judge_context(team_id=task.team_id, user_id=task.created_by_id, marker=judge_marker)
+        ):
+            raise TaskInvalidStateError(
+                "The scout trial judge has no trusted evaluation context.",
+                {"task_id": task.id},
+                cause=RuntimeError("missing scout trial judge context"),
+            )
     with transaction.atomic():
         locked_task = (
             Task.objects.select_for_update(of=("self",))
@@ -282,6 +312,32 @@ def create_oauth_access_token_for_run(
         actor_user = get_task_run_credential_user(locked_task, state)
         loop_id = (state or {}).get("loop_id")
         effective_scopes = scopes
+        trial_origin = locked_task.is_scout_experiment
+        if locked_task.is_scout_trial_judge or judge_marker is not None:
+            if (
+                not locked_task.is_scout_trial_judge
+                or not isinstance(judge_marker, dict)
+                or locked_task.created_by_id != judge_marker.get("user_id")
+                or locked_task.origin_key
+                != f"scout-trial-judge:{judge_marker.get('evaluation_id')}:{judge_marker.get('launch_id')}"
+            ):
+                raise TaskInvalidStateError(
+                    "The scout trial judge has no trusted evaluation context.",
+                    {"task_id": task.id},
+                    cause=RuntimeError("missing scout trial judge context"),
+                )
+            effective_scopes = "signals_scout_judge"
+        elif trial_origin or "scout_experiment_internal:read" in resolve_scopes(scopes):
+            # The Signals facade imports its workflow graph, so load it only for trial credentials.
+            from products.signals.backend.facade.api import is_scout_trial_task  # noqa: PLC0415
+
+            if not trial_origin or not is_scout_trial_task(team_id=task.team_id, task_id=task.id):
+                raise TaskInvalidStateError(
+                    "The scout trial has no trusted execution context.",
+                    {"task_id": task.id},
+                    cause=RuntimeError("missing scout trial context"),
+                )
+            effective_scopes = "signals_scout_experiment"
         credential_owner_kind: str | None = None
         if locked_task.origin_product == Task.OriginProduct.WORKFLOW:
             effective_scopes = _workflow_run_scopes(scopes, state)
@@ -298,7 +354,7 @@ def create_oauth_access_token_for_run(
                     cause=RuntimeError(f"{credential_owner_kind} credential owner is not an active team member"),
                 )
 
-        return create_oauth_access_token(
+        access_token = create_oauth_access_token(
             locked_task,
             scopes=effective_scopes,
             user=actor_user,
@@ -306,6 +362,17 @@ def create_oauth_access_token_for_run(
             loop_id=loop_id if isinstance(loop_id, str) else None,
             run_state=state,
         )
+        if run_id is not None:
+            run = TaskRun.objects.select_for_update().get(
+                id=run_id, task_id=locked_task.id, team_id=locked_task.team_id
+            )
+            token_id = str(OAuthAccessToken.objects.get(token=access_token).id)
+            run.state = {
+                **(run.state or {}),
+                "sandbox_oauth_token_ids": [*(run.state or {}).get("sandbox_oauth_token_ids", []), token_id],
+            }
+            run.save(update_fields=["state"])
+        return access_token
 
 
 def create_wizard_oauth_access_token(task: Task) -> str:

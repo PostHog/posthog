@@ -13,6 +13,11 @@ METRICS_CATALOG_MARKER = "information_schema.metrics"
 METRIC_CREATE_TOOL = "data-catalog-metric-create"
 METRIC_UPDATE_TOOL = "data-catalog-metric-update"
 
+# Must match the badge icons in the MCP metric-discovery instructions and the metric-run guidance. The
+# shield is the bare code point because rendered text may drop its variation selector.
+APPROVED_BADGE_CODE_POINT = "\U0001f6e1"
+PROPOSED_BADGE_ICON = "\U0001f4dd"
+
 # Deliberately tighter than the server cap (validation.MAX_DESCRIPTION_LENGTH = 1000): the eval
 # catches verbosity the hard cap would still admit.
 EVAL_DESCRIPTION_CHAR_LIMIT = 500

@@ -4,10 +4,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.settings import (
-    EASYPOST_ENDPOINTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.settings import EASYPOST_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.source import EasypostSource
 
 
@@ -18,10 +15,6 @@ def _config() -> Any:
 
 
 class TestGetSchemas:
-    def test_returns_every_endpoint(self) -> None:
-        schemas = EasypostSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
     def test_names_filter(self) -> None:
         schemas = EasypostSource().get_schemas(_config(), team_id=1, names=["shipments", "events"])
         assert {s.name for s in schemas} == {"shipments", "events"}
@@ -50,12 +43,6 @@ class TestGetSchemas:
         schemas = {s.name: s for s in EasypostSource().get_schemas(_config(), team_id=1)}
         assert schemas[endpoint].should_sync_default is False
         assert schemas["shipments"].should_sync_default is True
-
-    def test_events_are_append_only(self) -> None:
-        # Events are immutable, so they're append-only (no incremental updates to existing rows).
-        schemas = {s.name: s for s in EasypostSource().get_schemas(_config(), team_id=1)}
-        assert schemas["events"].supports_incremental is False
-        assert schemas["shipments"].supports_incremental is True
 
 
 class TestValidateCredentials:

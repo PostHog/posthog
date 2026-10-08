@@ -8,6 +8,21 @@ import { spaceFeedSelectionLogic } from './spaceFeedSelectionLogic'
 import { spaceFeedViewLogic } from './spaceFeedViewLogic'
 import { spaceSceneLogic } from './spaceSceneLogic'
 
+const escapeHandledByMenu = (): void => {
+    const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })
+    event.preventDefault()
+    window.dispatchEvent(event)
+}
+
+const escapeFromOpenMenu = (): void => {
+    const menu = document.createElement('div')
+    menu.setAttribute('role', 'menu')
+    menu.setAttribute('data-open', '')
+    document.body.append(menu)
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    menu.remove()
+}
+
 describe('spaceFeedSelectionLogic', () => {
     let logic: ReturnType<typeof spaceFeedSelectionLogic.build>
     let archivedIds: string[]
@@ -80,6 +95,20 @@ describe('spaceFeedSelectionLogic', () => {
     ])('clears the selection when %s', (_, clear) => {
         logic.actions.setSelection({ ids: ['task-1', 'task-2'], anchorId: 'task-2' })
         clear()
+
+        expect(logic.values.selection.ids).toEqual([])
+    })
+
+    it.each([
+        ['a menu already handled it', () => escapeHandledByMenu()],
+        ['it comes from inside an open menu', () => escapeFromOpenMenu()],
+    ])('keeps the selection on the first Escape when %s, and clears it on the next', (_, closeMenu) => {
+        logic.actions.setSelection({ ids: ['task-1', 'task-2'], anchorId: 'task-2' })
+        closeMenu()
+
+        expect(logic.values.selection.ids).toEqual(['task-1', 'task-2'])
+
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
 
         expect(logic.values.selection.ids).toEqual([])
     })

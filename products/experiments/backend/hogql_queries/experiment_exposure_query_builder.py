@@ -299,13 +299,23 @@ class ExposureQueryBuilder:
             return event_or_action_to_filter(self.context.team, self.context.activation_config)
         return self.build_exposure_event_predicate()
 
-    def select_query(self) -> ast.SelectQuery:
+    def reads_precomputed(self) -> bool:
+        """
+        Whether select_query() reads the precomputed exposures table. Job ids alone do not
+        decide it: activation mode and breakdowns scan events even when job ids are set.
+        """
         # Activation mode never reads precomputed exposures: the per-day cache is built from
         # the flag predicate alone and cannot express the cross-day flag→activation ordering.
         if self.context.activation_config is not None:
+            return False
+        return bool(self.preaggregation_job_ids) and not self.context.breakdowns
+
+    def select_query(self) -> ast.SelectQuery:
+        if self.context.activation_config is not None:
             return self._build_activation_exposure_select_query()
 
-        if self.preaggregation_job_ids and not self.context.breakdowns:
+        if self.reads_precomputed():
+            assert self.preaggregation_job_ids is not None
             return self.precomputed_select_query(self.preaggregation_job_ids)
 
         return self._build_exposure_select_query()

@@ -5,11 +5,13 @@ import type {
 
 import {
     RunArtifact,
+    artifactEditConflict,
     artifactPreviewKind,
     collectRunArtifacts,
+    editableArtifactKind,
     groupArtifactVersions,
     livingArtifactFiles,
-    livingArtifactsFromResponse,
+    listboxKeyTarget,
     parseCsv,
     visibleRunArtifacts,
 } from './taskRunArtifacts'
@@ -86,6 +88,19 @@ describe('taskRunArtifacts', () => {
         expect(artifactPreviewKind(artifact(overrides))).toBe(expected)
     })
 
+    test.each([
+        ['ArrowDown', 1, 4, 2],
+        ['ArrowDown', 3, 4, 3],
+        ['ArrowUp', 2, 4, 1],
+        ['ArrowUp', 0, 4, 0],
+        ['Home', 2, 4, 0],
+        ['End', 0, 4, 3],
+        ['Enter', 1, 4, null],
+        ['ArrowDown', 0, 0, null],
+    ])('listboxKeyTarget moves %s from %i of %i to %p', (key, current, count, expected) => {
+        expect(listboxKeyTarget(key, current, count)).toBe(expected)
+    })
+
     it('visibleRunArtifacts keeps files the agent wrote and cited PostHog objects', () => {
         const kept = artifact({ id: 'kept' })
         const insight = artifact({
@@ -109,7 +124,37 @@ describe('taskRunArtifacts', () => {
             artifact({ id: 'dismissed', dismissed_at: '2026-09-28T19:00:00Z' }),
             artifact({ id: 'reference', storage_path: undefined }),
         ]
-        expect(visibleRunArtifacts(artifacts)).toEqual([kept, insight])
+        const savedByUser = artifact({ id: 'saved-by-user', source: '', uploaded_by: 'user' })
+        expect(visibleRunArtifacts([...artifacts, savedByUser])).toEqual([kept, insight, savedByUser])
+    })
+
+    test.each([
+        ['markdown by content type', { content_type: 'text/markdown' }, 'markdown'],
+        ['plain text by extension with no type', { name: 'notes.txt', content_type: undefined }, 'plain-text'],
+        ['CSV as not editable', { name: 'weeks.csv', content_type: 'text/csv' }, null],
+        ['JSON as not editable', { name: 'data.json', content_type: 'application/json' }, null],
+    ])('editableArtifactKind reads %s', (_, overrides, expected) => {
+        expect(editableArtifactKind({ ...artifact(overrides), runId: 'run-1' })).toBe(expected)
+    })
+
+    const base = artifact({ id: 'v1', uploaded_at: '2026-09-30T17:00:00Z' })
+    test.each([
+        ['no conflict when the base is still the latest', [{ id: 'run-1', artifacts: [base] }], null],
+        [
+            'a newer version from a later run',
+            [
+                { id: 'run-2', artifacts: [artifact({ id: 'v2', uploaded_at: '2026-09-30T18:00:00Z' })] },
+                { id: 'run-1', artifacts: [base] },
+            ],
+            'newer-version',
+        ],
+        [
+            'every version dismissed',
+            [{ id: 'run-1', artifacts: [{ ...base, dismissed_at: '2026-09-30T18:00:00Z' }] }],
+            'dismissed',
+        ],
+    ])('artifactEditConflict finds %s', (_, runs, expected) => {
+        expect(artifactEditConflict(runs, 'report.md', 'v1')).toBe(expected)
     })
 
     it('collectRunArtifacts keeps files from earlier runs of a resumed task', () => {
@@ -131,6 +176,20 @@ describe('taskRunArtifacts', () => {
             { id: 'chart', runId: 'run-3', uploaded_at: '2026-09-30T19:00:00Z' },
             { id: 'report', runId: 'run-1', uploaded_at: '2026-09-30T17:00:00Z' },
         ])
+    })
+
+    it('collectRunArtifacts applies dismissals over run manifests from before the change', () => {
+        const run = {
+            id: 'run-1',
+            artifacts: [
+                artifact({ id: 'dismissed-here' }),
+                artifact({ id: 'restored-here', dismissed_at: '2026-09-28T19:00:00Z' }),
+                artifact({ id: 'untouched' }),
+            ],
+        }
+        expect(
+            collectRunArtifacts([run], { 'dismissed-here': true, 'restored-here': false }).map(({ id }) => id)
+        ).toEqual(['restored-here', 'untouched'])
     })
 
     test.each([
@@ -192,37 +251,91 @@ describe('taskRunArtifacts', () => {
         ).toEqual(expected)
     })
 
-    const slackFile = livingArtifact({
-        id: 'doc-2',
-        name: 'weeks.xlsx',
-        adapter: 'slack_file',
-        current_version: 1,
-        versions: [{ version: 1, run_id: 'run-1', size: 2048, created_at: '2026-09-30T16:00:00Z' }],
-    })
-    test.each([
-        ['the envelope the endpoint returns', { artifacts: [livingArtifact({}), slackFile] }],
-        [
-            'the array of envelopes the generated client types, with a repeated id',
-            [{ artifacts: [livingArtifact({})] }, { artifacts: [livingArtifact({}), slackFile] }],
-        ],
-    ])('living documents read from %s', (_, response) => {
-        const files = livingArtifactFiles(livingArtifactsFromResponse(response))
+    function slackFile(
+        location: Record<string, unknown>,
+        name = 'signups.png',
+        contentType = 'image/png',
+        size = 2048
+    ): TaskRunLivingArtifactResponseApi {
+        return livingArtifact({
+            id: 'doc-2',
+            name,
+            adapter: 'slack_file',
+            current_version: 1,
+            versions: [
+                {
+                    version: 1,
+                    run_id: 'run-1',
+                    size,
+                    content_type: contentType,
+                    location,
+                    created_at: '2026-09-30T16:00:00Z',
+                },
+            ],
+        })
+    }
+
+    test('livingArtifactFiles keeps each document apart and lists its versions newest first', () => {
+        const files = livingArtifactFiles([livingArtifact({}), slackFile({ storage_path: 'tasks/doc.v1.png' })])
         // An uploaded `report.md` keys by its name, so a living document with that name must not take the same key.
         expect(
             files.map((file) => ({
                 key: file.key,
-                versions: file.versions.map(({ id, living }) => ({ id, text: living?.text })),
+                versions: file.versions.map(({ id, living }) => ({
+                    id,
+                    version: living?.version,
+                    text: living?.text,
+                    stored: living?.stored,
+                })),
             }))
         ).toEqual([
             {
                 key: 'living-doc-1',
                 versions: [
-                    { id: 'living-doc-1-v2', text: '# Final' },
-                    { id: 'living-doc-1-v1', text: '# Draft' },
+                    { id: 'living-doc-1-v2', version: 2, text: '# Final', stored: false },
+                    { id: 'living-doc-1-v1', version: 1, text: '# Draft', stored: false },
                 ],
             },
-            { key: 'living-doc-2', versions: [{ id: 'living-doc-2-v1', text: null }] },
+            {
+                key: 'living-doc-2',
+                versions: [{ id: 'living-doc-2-v1', version: 1, text: null, stored: true }],
+            },
         ])
-        expect(artifactPreviewKind(files[1].latest)).toBe('none')
+    })
+
+    test.each([
+        [
+            'a stored Slack file image previews as an image',
+            { storage_path: 'tasks/doc.v1.png' },
+            'image.png',
+            'image/png',
+            'image',
+        ],
+        [
+            'a stored Slack file video previews as a video',
+            { storage_path: 'tasks/doc.v1.mp4' },
+            'demo.mp4',
+            'video/mp4',
+            'video',
+        ],
+        [
+            'a stored Slack file CSV has no inline preview',
+            { storage_path: 'tasks/doc.v1.csv' },
+            'weeks.csv',
+            'text/csv',
+            'none',
+        ],
+        ['a Slack file with no stored copy has no preview', {}, 'image.png', 'image/png', 'none'],
+        [
+            'a stored Slack file video over the preview limit only downloads',
+            { storage_path: 'tasks/doc.v1.mp4' },
+            'demo.mp4',
+            'video/mp4',
+            'none',
+            30 * 1024 * 1024,
+        ],
+    ])('%s', (_, location, name, contentType, expected, size = 2048) => {
+        const [file] = livingArtifactFiles([slackFile(location, name, contentType, size)])
+        expect(artifactPreviewKind(file.latest)).toBe(expected)
     })
 })

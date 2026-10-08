@@ -496,8 +496,17 @@ export const AnnouncementsCreateParams = () => zod.object({
         ),
 })
 
+export const announcementsCreateBodySendAsDefault = `bot`
+
 export const AnnouncementsCreateBody = () => zod.object({
     message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
+    send_as: zod
+        .enum(['bot', 'user'])
+        .describe('\* `bot` - SupportHog\n\* `user` - The person who created it')
+        .default(announcementsCreateBodySendAsDefault)
+        .describe(
+            "Slack identity the message is posted under: 'bot' posts as SupportHog, 'user' posts under the Slack name and avatar of the person sending it (matched by their PostHog email).\n\n\* `bot` - SupportHog\n\* `user` - The person who created it"
+        ),
     channels: zod
         .array(zod.string())
         .describe(
@@ -962,7 +971,13 @@ export const CustomerTasksListQueryParams = () => zod.object({
         .enum(['active', 'archived', 'all'])
         .default(customerTasksListQueryArchiveStateDefault)
         .describe('Which archive state to include.\n\n\* `active` - active\n\* `archived` - archived\n\* `all` - all'),
-    assigned_to: zod.string().min(1).optional().describe('Filter by me, unassigned, or one user ID.'),
+    assigned_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Filter by me, unassigned, one user ID, or role:<role UUID>. A role returns tasks assigned to any current member of that organization role.'
+        ),
     due_after: zod.iso.datetime({ offset: true }).optional().describe('Inclusive lower deadline bound.'),
     due_before: zod.iso.datetime({ offset: true }).optional().describe('Exclusive upper deadline bound.'),
     has_due_at: zod.boolean().optional().describe('Filter tasks by whether a deadline exists.'),

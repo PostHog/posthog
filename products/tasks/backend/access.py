@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 DESKTOP_ACCESS_OVERRIDE_FLAG = "posthog-desktop-access-override"
+DESKTOP_SIGNUP_GATE_FLAG = "posthog-desktop-signup-gate"
 _FUNDING_DECISION_CACHE_KEY = "desktop_access_funding_decision:{organization_id}"
 
 
@@ -38,6 +40,7 @@ class DesktopAccessDecision(StrEnum):
     ALLOWED = "allowed"
     STARTUP_PLAN = "startup_plan"
     PREPAID_CREDITS = "prepaid_credits"
+    SIGNUPS_PAUSED = "signups_paused"
 
     @property
     def allowed(self) -> bool:
@@ -63,10 +66,42 @@ _DECISION_OUTCOMES: dict[DesktopAccessDecision, DesktopAccessOutcome] = {
     DesktopAccessDecision.ALLOWED: "allowed",
     DesktopAccessDecision.STARTUP_PLAN: "startup_plan",
     DesktopAccessDecision.PREPAID_CREDITS: "prepaid_credits",
+    DesktopAccessDecision.SIGNUPS_PAUSED: "signups_paused",
 }
 
 
 _DECISION_VALUES = frozenset(decision.value for decision in DesktopAccessDecision)
+
+
+def _signup_cutoff() -> datetime | None:
+    raw_cutoff = settings.DESKTOP_SIGNUP_CUTOFF
+    if not raw_cutoff:
+        return None
+    try:
+        cutoff = datetime.fromisoformat(raw_cutoff)
+    except ValueError as error:
+        raise DesktopAccessResolutionError("DESKTOP_SIGNUP_CUTOFF is not an ISO 8601 datetime") from error
+    return cutoff if cutoff.tzinfo is not None else cutoff.replace(tzinfo=UTC)
+
+
+def _signed_up_after_cutoff(user: User) -> bool:
+    cutoff = _signup_cutoff()
+    return cutoff is not None and user.date_joined >= cutoff
+
+
+def _flag_enabled(flag_key: str, user: User, organization: "Organization") -> bool:
+    organization_id = str(organization.id)
+    enabled = get_feature_flag_or_none(
+        flag_key,
+        str(user.distinct_id),
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
+    if not isinstance(enabled, bool):
+        raise DesktopAccessResolutionError(f"Could not evaluate the {flag_key} flag")
+    return enabled
 
 
 def _funding_decision(user: User, organization: "Organization") -> DesktopAccessDecision:
@@ -108,26 +143,14 @@ def get_desktop_access_decision(
         observe_desktop_access_decision(outcome="override")
         return DesktopAccessDecision.ALLOWED
 
-    organization_id = str(organization.id)
-    groups = {"organization": organization_id}
-    group_properties = {"organization": {"id": organization_id}}
-    override_enabled = get_feature_flag_or_none(
-        DESKTOP_ACCESS_OVERRIDE_FLAG,
-        str(user.distinct_id),
-        groups=groups,
-        group_properties=group_properties,
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
-    )
-    if not isinstance(override_enabled, bool):
-        observe_desktop_access_decision(outcome="resolution_failure")
-        raise DesktopAccessResolutionError("Could not evaluate the Desktop access override")
-    if override_enabled:
-        observe_desktop_access_decision(outcome="override")
-        return DesktopAccessDecision.ALLOWED
-
     try:
-        if funding_cache_seconds > 0:
+        if _flag_enabled(DESKTOP_ACCESS_OVERRIDE_FLAG, user, organization):
+            observe_desktop_access_decision(outcome="override")
+            return DesktopAccessDecision.ALLOWED
+        # The gate flag is evaluated only for users past the cutoff, so existing users pay no extra flag call.
+        if _signed_up_after_cutoff(user) and _flag_enabled(DESKTOP_SIGNUP_GATE_FLAG, user, organization):
+            decision = DesktopAccessDecision.SIGNUPS_PAUSED
+        elif funding_cache_seconds > 0:
             decision = _cached_funding_decision(user, organization, funding_cache_seconds)
         else:
             decision = _funding_decision(user, organization)

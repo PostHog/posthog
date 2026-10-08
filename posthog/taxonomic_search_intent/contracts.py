@@ -9,6 +9,16 @@ class SearchIntentSource(models.TextChoices):
     SKIPPED = "skipped", "Not classified"
 
 
+class EventMatchOutcome(models.TextChoices):
+    WRONG_LENGTH = "wrong_length", "The search is too short or too long to ask about"
+    ONLY_VALUES = "only_values", "Nothing but values is left for the model to read"
+    UNAVAILABLE = "unavailable", "The model could not answer at all"
+    PARTIAL = "partial", "Some model requests failed, so an event it never asked about might have matched"
+    NOTHING_LIKELY = "nothing_likely", "The model found no core event likely"
+    NOT_INGESTED = "not_ingested", "The project never sent the likely events"
+    MATCHED = "matched", "At least one likely event has data"
+
+
 @frozen
 class SearchIntentRequest:
     """What a person typed into the filter picker, and the tabs the picker shows them."""
@@ -51,3 +61,11 @@ class EventMatch:
     name: str
     label: str
     probability: float
+
+
+@frozen
+class EventMatchAnswer:
+    """The suggestions for a search, and the step that decided them, so an empty answer says why it is empty."""
+
+    matches: list[EventMatch]
+    outcome: EventMatchOutcome

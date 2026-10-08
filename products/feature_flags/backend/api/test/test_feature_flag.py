@@ -2292,6 +2292,19 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
 
+    def test_get_remote_config_with_secret_api_token_of_second_environment(self):
+        environment = Team.objects.create(organization=self.organization, project=self.team.project)
+        environment.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        self._create_remote_config_flag()
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config?token={environment.api_token}",
+            headers={"authorization": f"Bearer {environment.secret_api_token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def _create_remote_config_flag(self, key: str = "my-remote-config-flag") -> None:
         FeatureFlag.objects.create(
             team=self.team,
@@ -14871,6 +14884,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         # Caller-provided distinct_id resolves to the person → it must drive bucketing.
         self.assertEqual(data["evaluation_distinct_id"], "test-user")
         self.assertEqual(mock_get_flags.call_args.kwargs["distinct_id"], "test-user")
+        self.assertEqual(mock_get_flags.call_args.kwargs["max_retries"], 1)
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @patch("products.feature_flags.backend.api.feature_flag.get_person_and_distinct_ids_for_identifier")
@@ -15278,6 +15292,143 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertEqual(response.json()["error"], "Unexpected response format from flag evaluation service")
 
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_accepts_blank_condition_variant(self, mock_get_flags):
+        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
+        create_person(team=self.team, distinct_ids=["test-user"])
+        mock_get_flags.return_value = {
+            "flags": {
+                "test-flag": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                    "metadata": {"payload": None},
+                    "conditions": [
+                        {
+                            "index": 0,
+                            "matched": True,
+                            "explanation": "Condition matched",
+                            "rollout_percentage": 100.0,
+                            "rollout_excluded": False,
+                            "variant": "",
+                            "properties": [],
+                        }
+                    ],
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["conditions"][0]["variant"], "")
+
+    @patch("products.feature_flags.backend.api.feature_flag.capture_exception")
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_invalid_condition_shape_returns_502(self, mock_get_flags, mock_capture_exception):
+        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
+        create_person(team=self.team, distinct_ids=["test-user"])
+        mock_get_flags.return_value = {
+            "flags": {
+                "test-flag": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                    "metadata": {"payload": None},
+                    "conditions": [{"index": 0, "explanation": "Condition matched", "properties": []}],
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.json()["error"], "Unexpected response format from flag evaluation service")
+        mock_capture_exception.assert_called_once()
+
+    @parameterized.expand(
+        [
+            (
+                "connection_error",
+                requests.exceptions.ConnectionError("Connection reset by peer"),
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "Flag evaluation service temporarily unavailable. Please retry.",
+                False,
+            ),
+            (
+                "timeout",
+                requests.exceptions.Timeout("Read timed out"),
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "Flag evaluation service temporarily unavailable. Please retry.",
+                False,
+            ),
+            (
+                "service_unavailable",
+                requests.exceptions.HTTPError(response=MagicMock(status_code=503)),
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "Flag evaluation service temporarily unavailable. Please retry.",
+                False,
+            ),
+            (
+                "service_bad_request",
+                requests.exceptions.HTTPError(response=MagicMock(status_code=400)),
+                status.HTTP_502_BAD_GATEWAY,
+                "Flag evaluation service returned HTTP 400. Please retry.",
+                True,
+            ),
+            (
+                "service_server_error",
+                requests.exceptions.HTTPError(response=MagicMock(status_code=500)),
+                status.HTTP_502_BAD_GATEWAY,
+                "Flag evaluation service returned HTTP 500. Please retry.",
+                True,
+            ),
+            (
+                "malformed_json",
+                requests.exceptions.JSONDecodeError("Expecting value", "", 0),
+                status.HTTP_502_BAD_GATEWAY,
+                "Unexpected response format from flag evaluation service",
+                True,
+            ),
+            (
+                "chunked_encoding_error",
+                requests.exceptions.ChunkedEncodingError("Connection broken: incomplete read"),
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "Flag evaluation service temporarily unavailable. Please retry.",
+                True,
+            ),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.capture_exception")
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_flags_service_failure(
+        self, _name, failure, expected_status, expected_error, expected_captured, mock_get_flags, mock_capture_exception
+    ):
+        mock_get_flags.side_effect = failure
+        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
+        create_person(team=self.team, distinct_ids=["test-user"])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(response.json()["error"], expected_error)
+        self.assertEqual(mock_capture_exception.called, expected_captured)
+
     def test_test_evaluation_missing_distinct_id(self):
         """Test validation error when distinct_id is missing."""
         flag = FeatureFlag.objects.create(
@@ -15295,8 +15446,14 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, 400)
 
-    def test_test_evaluation_invalid_timestamp(self):
-        """Test validation error with invalid timestamp format."""
+    @parameterized.expand(
+        [
+            ("invalid_timestamp", {"timestamp": "invalid"}, "timestamp"),
+            ("groups_as_string", {"groups": '{"company": "acme"}'}, "groups"),
+            ("groups_as_list", {"groups": ["acme"]}, "groups"),
+        ]
+    )
+    def test_test_evaluation_invalid_input(self, _name, payload, expected_attr):
         flag = FeatureFlag.objects.create(
             team=self.team,
             name="Test Flag",
@@ -15306,11 +15463,12 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/test_evaluation/",
-            data={"distinct_id": "user123", "flag_key": "test-flag", "timestamp": "invalid"},
+            data={"distinct_id": "user123", **payload},
             format="json",
         )
 
         self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], expected_attr)
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @override_settings(INTERNAL_REQUEST_TOKEN="test-token")

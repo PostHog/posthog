@@ -1,1 +1,1 @@
-0010_alertconfiguration_evaluation_delay_intervals
+0012_move_platform_models_to_alerts_platform

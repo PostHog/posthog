@@ -403,7 +403,9 @@ def _append_run_pr_url(task_run: TaskRun, pr_url: str) -> bool:
             )
             locked.state = {**state, "verified_pr_urls": verified_pr_urls}
             if pr_url in read_pr_urls(locked.output):
-                locked.save(update_fields=["state", "updated_at"])
+                if not isinstance(existing_verified, list) or pr_url not in existing_verified:
+                    # Restart report linking when its earlier attempt ran before verification.
+                    locked.save(update_fields=["state", "output", "updated_at"])
                 task_run.state = locked.state
                 task_run.output = locked.output
                 return False
@@ -438,6 +440,16 @@ def _record_run_pr_merged(task_run: TaskRun) -> None:
     APIs expose.
     """
     if not _record_run_output_field(task_run, "pr_merged", True, "github_pr_webhook_record_pr_merged_failed"):
+        # A snapshot can record the merge before the webhook performs wizard lifecycle actions.
+        pr_url = (task_run.output or {}).get("pr_url")
+        if pr_url and (task_run.state or {}).get("reconciled_pr_merge_url") == pr_url:
+            with transaction.atomic():
+                locked = TaskRun.objects.select_for_update().get(id=task_run.id, team_id=task_run.team_id)
+                if (locked.state or {}).get("reconciled_pr_merge_url") != pr_url:
+                    return
+                locked.state = {key: value for key, value in locked.state.items() if key != "reconciled_pr_merge_url"}
+                locked.save(update_fields=["state", "updated_at"])
+                _complete_wizard_run_on_merge(locked)
         return
     # Publish-only (no append_log), same rationale and failure tolerance as _record_run_pr_url.
     try:

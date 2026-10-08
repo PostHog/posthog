@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useId } from 'react'
 
-import { Badge, Spinner, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { Badge, Spinner, Text, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -22,6 +22,7 @@ import { SpaceFeedSelectCheckbox } from './SpaceFeedSelectCheckbox'
 import { spaceFeedStatus } from './spaceFeedStatus'
 import { SpaceFeedStatusIcon } from './SpaceFeedStatusIcon'
 import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
+import { useSpaceFeedBulkSelection } from './useSpaceFeedBulkSelection'
 
 interface SpaceFeedListRowProps {
     spaceId: string
@@ -42,11 +43,12 @@ export function SpaceFeedListRow({ spaceId, task, pinned, unread }: SpaceFeedLis
     const status = spaceFeedStatus(task.latest_run, mainPullRequest && pullRequestStates[mainPullRequest.url])
     const author = task.created_by
     const source = getOriginProductMeta(item.originProduct ?? undefined)
+    const selection = useSpaceFeedBulkSelection(spaceId)
+    const selected = selection.selectedSessionIds.includes(task.id)
 
     if (renaming?.sessionId === task.id && renaming.surface === 'feed') {
         return (
             <div className="flex h-8 items-center gap-2 px-2">
-                <span aria-hidden className="size-3.5 shrink-0" />
                 <SpaceFeedStatusIcon item={item} />
                 <div className="min-w-0 flex-1">
                     <TodaySessionRenameInput sessionId={task.id} title={task.title} />
@@ -56,17 +58,23 @@ export function SpaceFeedListRow({ spaceId, task, pinned, unread }: SpaceFeedLis
     }
     return (
         <>
-            <TodaySessionContextMenu target={menu} surface="feed">
-                <div className="group/row relative flex h-8 w-full items-center gap-2 rounded-md px-2 transition-colors hover:bg-fill-selected">
+            <TodaySessionContextMenu target={menu} surface="feed" selection={selection}>
+                <div
+                    className={cn(
+                        'group/row relative flex h-8 w-full items-center gap-2 rounded-md px-2 transition-colors hover:bg-fill-selected has-focus-visible:ring-2 has-focus-visible:ring-ring',
+                        selected && 'bg-primary/10 hover:bg-primary/15'
+                    )}
+                >
                     <SpaceFeedSelectCheckbox
                         spaceId={spaceId}
                         sessionId={task.id}
                         title={item.title || 'Untitled session'}
-                    />
-                    <SpaceFeedStatusIcon item={item} />
+                    >
+                        <SpaceFeedStatusIcon item={item} />
+                    </SpaceFeedSelectCheckbox>
                     <LinkPrimitive
                         to={urls.aiTask(task.id)}
-                        className="min-w-0 flex-1 truncate text-sm font-medium text-foreground after:absolute after:inset-0"
+                        className="min-w-0 flex-1 truncate text-(length:--text-ui) leading-(--text-ui--line-height) font-medium text-foreground after:absolute after:inset-0"
                         data-attr="today-space-feed-row"
                     >
                         {item.title || 'Untitled session'}

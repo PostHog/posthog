@@ -13,7 +13,10 @@ from requests.exceptions import (
     JSONDecodeError as RequestsJSONDecodeError,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    VersionDeprecation,
+    error_message_matches,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
@@ -25,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads import meta_ads as meta_ads_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
     AD_ACCOUNT_LISTING_TIMEOUT_SECONDS,
+    ENTITY_PAGE_REFUSED_ERROR_MESSAGE,
     MALFORMED_JSON_MAX_ATTEMPTS,
     MAX_AD_ACCOUNT_PAGES,
     META_ADS_API_VERSION_V25,
@@ -36,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_TRANSIENT_ERROR_MAX_ATTEMPTS,
     PAGE_LIMIT_FALLBACK_SIZES,
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
+    SMALLEST_PAGE_LIMIT_MAX_RETRIES,
     MetaAdsAuthError,
     MetaAdsResumeConfig,
     _earliest_supported_since,
@@ -329,21 +334,49 @@ class TestSimplePaginationLimitFallback:
             == "https://graph.facebook.com/v20/next?after=p1&limit=100"
         )
 
-    def test_exhausting_limit_ladder_raises(self) -> None:
+    def test_exhausting_limit_ladder_raises_retryable_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
         manager = _build_manager()
-        # Every rung in PAGE_LIMIT_FALLBACK_SIZES returns the too-much-data error.
-        responses = [_mock_response(500, self.REDUCE_BODY) for _ in PAGE_LIMIT_FALLBACK_SIZES]
+        attempts = len(PAGE_LIMIT_FALLBACK_SIZES) + SMALLEST_PAGE_LIMIT_MAX_RETRIES
+        responses = []
+        for _ in range(attempts):
+            response = _mock_response(500, self.REDUCE_BODY)
+            # The real body carries Meta's "reduce the amount of data" text, which is a
+            # non-retryable pattern, so the raised error must not echo it.
+            response.text = json.dumps(self.REDUCE_BODY)
+            responses.append(response)
 
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
         ) as mock_get:
             mock_get.return_value.get.side_effect = responses
-            # Terminal: the next attempt would re-issue the same request.
-            with pytest.raises(Exception, match=SHRINK_EXHAUSTED_ERROR_MESSAGE):
+            with pytest.raises(Exception) as exc_info:
                 list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
 
-        # One attempt per rung, then it gives up.
-        assert mock_get.return_value.get.call_count == len(PAGE_LIMIT_FALLBACK_SIZES)
+        assert mock_get.return_value.get.call_count == attempts
+        error_message = str(exc_info.value)
+        assert ENTITY_PAGE_REFUSED_ERROR_MESSAGE in error_message
+        source = MetaAdsSource()
+        assert not error_message_matches(error_message, source.get_non_retryable_errors())
+        assert error_message_matches(error_message, source.get_retryable_errors())
+
+    def test_smallest_limit_recovers_after_backoff(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        refusals = len(PAGE_LIMIT_FALLBACK_SIZES) + SMALLEST_PAGE_LIMIT_MAX_RETRIES - 1
+        responses = [
+            *(_mock_response(500, self.REDUCE_BODY) for _ in range(refusals)),
+            _mock_response(200, {"data": [{"id": "1"}], "paging": {}}),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert batches == [[{"id": "1"}]]
+        assert mock_get.return_value.get.call_args_list[-1].kwargs["params"]["limit"] == PAGE_LIMIT_FALLBACK_SIZES[-1]
 
     def test_non_timeout_error_does_not_retry(self) -> None:
         manager = _build_manager()
@@ -1590,6 +1623,11 @@ class TestRetryableErrors:
                 '{"error":{"message":"User request limit reached","type":"OAuthException","code":17,'
                 '"fbtrace_id":"AaBbCcDdEeFf00112233"}})',
                 "rate limiting",
+            ),
+            (
+                f"{ENTITY_PAGE_REFUSED_ERROR_MESSAGE} (Meta API response: 500, code 1, subcode None, "
+                "fbtrace_id AaBbCcDdEeFf00112233)",
+                "too busy",
             ),
         ],
     )

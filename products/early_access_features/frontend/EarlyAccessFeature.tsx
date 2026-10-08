@@ -81,6 +81,8 @@ import {
 } from 'products/error_tracking/frontend/components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from 'products/error_tracking/frontend/components/Assignee/AssigneeSelect'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+import { MessageAudience } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { MessageAudienceButton } from 'products/workflows/frontend/MessageAudience/MessageAudienceButton'
 
 import { EarlyAccessFeatureLogicProps, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { InstructionsModal } from './InstructionsModal'
@@ -144,6 +146,52 @@ export const scene: SceneExport<EarlyAccessFeatureLogicProps> = {
         id: id && id !== 'new' ? id : 'new',
     }),
     productKey: ProductKey.EARLY_ACCESS_FEATURES,
+}
+
+function enrolledPeopleAudience(earlyAccessFeature: EarlyAccessFeatureType): MessageAudience {
+    const flagKey = earlyAccessFeature.feature_flag.key
+    return {
+        source: 'early_access',
+        properties: [
+            {
+                key: `$feature_enrollment/${flagKey}`,
+                type: PropertyFilterType.Person,
+                operator: PropertyOperator.Exact,
+                value: ['true'],
+            },
+        ],
+        broadcastName: `${earlyAccessFeature.name} is now available`,
+        workflowTrigger: {
+            type: 'event',
+            filters: {
+                events: [
+                    {
+                        id: '$feature_enrollment_update',
+                        name: '$feature_enrollment_update',
+                        type: 'events',
+                        order: 0,
+                        properties: [
+                            {
+                                key: '$feature_flag',
+                                value: [flagKey],
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                            // posthog-js sends a boolean here. Exact compiles to a string compare until the project
+                            // has a Boolean definition for this property, so it would never match. Contains
+                            // compares the stringified value, which works with or without that definition.
+                            {
+                                key: '$feature_enrollment',
+                                value: 'true',
+                                operator: PropertyOperator.IContains,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    },
+                ],
+            },
+        },
+    }
 }
 
 export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.Element {
@@ -767,14 +815,21 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                 </p>
                             }
                             actions={
-                                <LemonButton
-                                    key="help-button"
-                                    onClick={toggleImplementOptInInstructionsModal}
-                                    sideIcon={<IconQuestion />}
-                                    type="secondary"
-                                >
-                                    Implement public opt-in
-                                </LemonButton>
+                                <>
+                                    <MessageAudienceButton
+                                        audience={enrolledPeopleAudience(earlyAccessFeature)}
+                                        label="Message opted-in users"
+                                        size="medium"
+                                    />
+                                    <LemonButton
+                                        key="help-button"
+                                        onClick={toggleImplementOptInInstructionsModal}
+                                        sideIcon={<IconQuestion />}
+                                        type="secondary"
+                                    >
+                                        Implement public opt-in
+                                    </LemonButton>
+                                </>
                             }
                         >
                             <PersonList earlyAccessFeature={earlyAccessFeature} />

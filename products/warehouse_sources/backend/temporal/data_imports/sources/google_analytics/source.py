@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 import requests
+import structlog
 from google.auth.exceptions import RefreshError
 
 from posthog.exceptions_capture import capture_exception
@@ -40,6 +41,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+logger = structlog.get_logger(__name__)
+
 # Fallback messages for unexpected failures during credential validation. The raw exception can
 # embed OAuth tokens, ids, or an HTML error body, so we capture it for debugging and show generic
 # guidance instead of surfacing `str(e)` to the user.
@@ -48,6 +51,21 @@ _LOAD_CONNECTION_ERROR = (
 )
 _PROPERTY_METADATA_ERROR = (
     "PostHog couldn't reach Google Analytics to read your property. Wait a few minutes, then try again."
+)
+
+# Google answers the metadata probe with 403 both when the account can't read the property (or the
+# property doesn't exist) and when the user unticked the Analytics scope on the consent screen. Only
+# a 401 means the token itself is bad, so reconnecting is the fix for the scope and 401 cases only.
+_CREDENTIALS_REJECTED_ERROR = (
+    "Google rejected the credentials for this connection. Reconnect your Google account, then try again."
+)
+_PROPERTY_ACCESS_ERROR = (
+    "Your connected Google account can't read this Google Analytics property. Check the property ID, "
+    "or reconnect with an account that has access to it."
+)
+_MISSING_SCOPE_ERROR = (
+    "Your Google connection doesn't include Google Analytics access. Reconnect your Google account "
+    "and allow Google Analytics access when Google asks."
 )
 
 
@@ -224,18 +242,24 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
             get_property_metadata(session, property_id)
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
-            if status in (401, 403):
-                return (
-                    False,
-                    f"Google Analytics rejected the credentials for property '{property_id}'. Please reconnect "
-                    "your account and ensure it has read access to the property.",
-                )
+            if status == 401:
+                return False, _CREDENTIALS_REJECTED_ERROR
+            if status == 403:
+                if "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in e.response.text:
+                    return False, _MISSING_SCOPE_ERROR
+                return False, _PROPERTY_ACCESS_ERROR
             if status == 404:
                 return (
                     False,
                     f"GA4 property '{property_id}' was not found. Verify the numeric property ID in "
                     "Google Analytics admin settings.",
                 )
+            if status == 429 or (status is not None and 500 <= status < 600):
+                # Google is rate-limiting this metadata probe or briefly unavailable — both clear on
+                # their own and the status means nothing actionable for us, so log it rather than
+                # paging error tracking (same call as app_store_connect's credential probe).
+                logger.warning("ga4_property_metadata_probe_transient_status", status=status)
+                return False, _PROPERTY_METADATA_ERROR
             capture_exception(e)
             return False, _PROPERTY_METADATA_ERROR
         except RefreshError:

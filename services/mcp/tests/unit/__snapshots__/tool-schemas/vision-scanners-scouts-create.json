@@ -201,6 +201,11 @@
         },
         "scanner_id": {
             "type": "string"
+        },
+        "variant_analysis": {
+            "default": false,
+            "description": "Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only.",
+            "type": "boolean"
         }
     },
     "required": ["scanner_id", "description", "body"],

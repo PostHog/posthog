@@ -7,10 +7,12 @@ import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
+import { useThreadSkin } from '../../../hooks/useThreadSkin'
 import { nextTaskTitle } from '../../../lib/task-title'
 import { isPiTaskRuntime } from '../../../types/taskTypes'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
+import { QuillTaskHeaderActions } from './QuillTaskHeaderActions'
 import { TaskHeaderActionsSkeleton } from './taskDetailSkeletons'
 import { TaskRunTabs } from './TaskRunArtifacts'
 import { TaskRunLog } from './TaskRunLog'
@@ -30,6 +32,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
     const { activeCreation, hasDesktopAccess } = useValues(taskTrackerSceneLogic)
     const isActiveCreation = activeCreation?.taskId === taskId
     const artifactsTabEnabled = useFeatureFlag('TODAY_RAIL_NAV')
+    const skin = useThreadSkin()
 
     if (taskNotFound && !task) {
         return <NotFound object="task" />
@@ -50,11 +53,20 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
             updateTask({ data: { title: nextTitle } })
         }
     }
+    const canRun = !!task && !isPiTaskRuntime(task.runtime) && !isLatestRunInProgress && !isLatestRunCompleted
     const taskActions =
         isHeaderLoading || !task ? (
             isActiveCreation ? undefined : (
                 <TaskHeaderActionsSkeleton />
             )
+        ) : skin === 'quill' ? (
+            <QuillTaskHeaderActions
+                desktopUrl={hasDesktopAccess ? urls.codeTaskLink(task.id) : null}
+                prUrl={prUrl}
+                runLabel={canRun && latestRun ? runButtonText : null}
+                onRun={runTask}
+                running={runTaskInFlight}
+            />
         ) : (
             <div className="flex flex-wrap items-center gap-2">
                 {hasDesktopAccess && (
@@ -79,7 +91,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
                         View PR
                     </LemonButton>
                 )}
-                {!isPiTaskRuntime(task.runtime) && !isLatestRunInProgress && !isLatestRunCompleted && (
+                {canRun && (
                     <LemonButton
                         type="primary"
                         size="small"

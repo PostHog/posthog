@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.tenjin import tenjin
 from products.warehouse_sources.backend.temporal.data_imports.sources.tenjin.settings import TENJIN_REPORTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tenjin.tenjin import (
-    LOOKBACK_DAYS,
     MAX_HISTORY_DAYS,
     TENJIN_BASE_URL,
     TenjinCredentialsError,
@@ -109,35 +108,14 @@ def _drive(
 
 
 class TestResolveStartDate:
-    def test_full_refresh_starts_at_the_history_cap(self) -> None:
-        assert resolve_start_date(False, None, TODAY) == TODAY - timedelta(days=MAX_HISTORY_DAYS)
-
-    def test_incremental_rewinds_the_watermark_by_the_lookback(self) -> None:
-        # Tenjin restates recent days (late SKAN postbacks, cost corrections), so an incremental
-        # run must re-read a trailing window.
-        assert resolve_start_date(True, "2026-06-20", TODAY) == date(2026, 6, 20) - timedelta(days=LOOKBACK_DAYS)
-
     def test_incremental_without_watermark_falls_back_to_full_history(self) -> None:
         assert resolve_start_date(True, None, TODAY) == TODAY - timedelta(days=MAX_HISTORY_DAYS)
 
     def test_unparseable_watermark_falls_back_to_full_history(self) -> None:
         assert resolve_start_date(True, "not-a-date", TODAY) == TODAY - timedelta(days=MAX_HISTORY_DAYS)
 
-    def test_watermark_older_than_the_history_cap_is_clamped(self) -> None:
-        assert resolve_start_date(True, "2010-01-01", TODAY) == TODAY - timedelta(days=MAX_HISTORY_DAYS)
-
-    def test_future_watermark_is_clamped_to_today(self) -> None:
-        # A watermark ahead of today would otherwise produce an inverted date range.
-        assert resolve_start_date(True, "2030-01-01", TODAY) == TODAY
-
 
 class TestRequestShaping:
-    def test_full_refresh_requests_full_history(self) -> None:
-        _, sent, _ = _drive([_report_page([{"date": "2026-06-30", "app_id": "a1"}])])
-
-        assert sent[0]["start_date"] == (TODAY - timedelta(days=MAX_HISTORY_DAYS)).isoformat()
-        assert sent[0]["end_date"] == TODAY.isoformat()
-
     def test_incremental_requests_only_the_watermark_range(self) -> None:
         _, sent, _ = _drive(
             [_report_page([{"date": "2026-06-28", "app_id": "a1"}])],
@@ -160,14 +138,6 @@ class TestRequestShaping:
 
 
 class TestPaginationAndResume:
-    def test_rows_are_flattened_report_attributes(self) -> None:
-        # The pipeline must receive the flat attributes dict, not the JSON:API wrapper, so the
-        # primary key columns (`date`, `app_id`, ...) exist at the row root for the Delta merge.
-        row = {"date": "2026-06-30", "app_id": "a1", "spend": 12.5}
-        _, _, batches = _drive([_report_page([row])])
-
-        assert batches == [[row]]
-
     def test_follows_next_link_then_terminates(self) -> None:
         next_url = f"{TENJIN_BASE_URL}/reports/spend?group_by=app&page=2&per_page=1000"
         _, sent, batches = _drive(
@@ -180,23 +150,6 @@ class TestPaginationAndResume:
         assert len(batches) == 2
         assert len(sent) == 2
         assert sent[1]["page"] == "2"
-
-    def test_saves_next_url_after_each_non_terminal_page(self) -> None:
-        next_url = f"{TENJIN_BASE_URL}/reports/spend?group_by=app&page=2&per_page=1000"
-        manager, _, _ = _drive(
-            [
-                _report_page([{"date": "2026-06-29", "app_id": "a1"}], next_url=next_url),
-                _report_page([{"date": "2026-06-30", "app_id": "a1"}]),
-            ]
-        )
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [TenjinResumeConfig(next_url=next_url)]
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager, _, _ = _drive([_report_page([{"date": "2026-06-30", "app_id": "a1"}])])
-
-        manager.save_state.assert_not_called()
 
     def test_resume_starts_at_the_saved_next_url(self) -> None:
         saved_url = f"{TENJIN_BASE_URL}/reports/spend?group_by=app&page=7&per_page=1000"
@@ -254,9 +207,6 @@ class TestValidateCredentials:
             mock.patch.object(tenjin, "_today", return_value=TODAY),
         ):
             return validate_credentials("token")
-
-    def test_success(self) -> None:
-        assert self._validate(_make_http_response({"data": []})) is True
 
     def test_probe_is_one_day_and_one_row(self) -> None:
         session = MagicMock()

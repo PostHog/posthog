@@ -7,6 +7,8 @@ import { Card } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
+import { briefingItemReportCard } from 'scenes/project-homepage/today/todayBriefingItems'
+import { TodayReportHoverCard } from 'scenes/project-homepage/today/TodayReportHoverCard'
 import { urls } from 'scenes/urls'
 
 import { todayListAppearanceLogic } from '~/layout/today/todayListAppearanceLogic'
@@ -18,11 +20,16 @@ import { TodaySpaceHoverCard } from '~/layout/today/TodaySpaceHoverCard'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { sessionItem } from '~/layout/today/todayWorkItems'
 import { mswDecorator } from '~/mocks/browser'
+import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
-import { reportMetricQueryHandler } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
+import {
+    reportMetricQueryHandler,
+    reportMetricsFixture,
+} from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
 
 const ADA = {
@@ -226,12 +233,100 @@ const LIBRARY = [
     { id: 'fs-3', path: 'Unfiled/Feature flags/one-page-checkout', type: 'feature_flag', ref: '7' },
 ]
 
+const RECENTLY_VIEWED = [
+    {
+        id: 'fs-recent-1',
+        path: 'Unfiled/Insights/Checkout funnel',
+        type: 'insight',
+        ref: 'abc123',
+        href: '/insights/abc123',
+        last_viewed_at: '2026-09-28T16:20:00Z',
+        created_at: '2026-08-12T10:00:00Z',
+    },
+    {
+        id: 'fs-recent-2',
+        path: 'Unfiled/Dashboards/Growth overview',
+        type: 'dashboard',
+        ref: '12',
+        href: '/dashboard/12',
+        last_viewed_at: '2026-09-28T11:05:00Z',
+        created_at: '2026-07-02T10:00:00Z',
+    },
+    {
+        id: 'fs-recent-3',
+        path: 'Unfiled/Feature flags/one-page-checkout',
+        type: 'feature_flag',
+        ref: '7',
+        href: '/feature_flags/7',
+        last_viewed_at: '2026-09-27T15:40:00Z',
+        created_at: '2026-09-01T10:00:00Z',
+    },
+    {
+        id: 'fs-recent-4',
+        path: 'Unfiled/Cohorts/Power users',
+        type: 'cohort',
+        ref: '3',
+        href: '/cohorts/3',
+        last_viewed_at: '2026-09-26T09:10:00Z',
+        created_at: '2026-06-20T10:00:00Z',
+    },
+]
+const USER = { id: 1, uuid: 'user-1', first_name: 'Ada', email: 'ada@example.com' }
+
+const VIEW_CANVASES = [
+    {
+        id: 'canvas-1',
+        name: 'Checkout health board',
+        kind: 'freeform',
+        channel: 'space-checkout',
+        updated_at: '2026-09-28T17:50:00Z',
+        current_version_id: 'version-1',
+        generation_task_id: null,
+    },
+    {
+        id: 'canvas-building',
+        name: 'Signup funnel by country',
+        kind: 'freeform',
+        channel: 'space-checkout',
+        updated_at: '2026-09-28T18:05:00Z',
+        current_version_id: null,
+        generation_task_id: 'task-canvas-building',
+    },
+    {
+        id: 'canvas-2',
+        name: 'Weekly growth widgets',
+        kind: 'grid',
+        channel: 'space-general',
+        updated_at: '2026-09-26T08:15:00Z',
+        current_version_id: 'version-1',
+        generation_task_id: null,
+    },
+].map((canvas) => ({ description: '', pinned: false, created_by: USER, created_at: canvas.updated_at, ...canvas }))
+
+const NOTEBOOKS = [
+    { short_id: 'nb-1', title: 'Trial drop-off investigation', last_modified_at: '2026-09-28T12:30:00Z' },
+    { short_id: 'nb-2', title: 'Q3 pricing research notes', last_modified_at: '2026-09-20T10:00:00Z' },
+].map((notebook) => ({
+    id: notebook.short_id,
+    deleted: false,
+    created_at: notebook.last_modified_at,
+    created_by: USER,
+    last_modified_by: USER,
+    ...notebook,
+}))
+
+const DASHBOARDS = [
+    { id: 12, name: 'Growth overview', last_viewed_at: '2026-09-28T09:00:00Z', created_at: '2026-08-01T09:00:00Z' },
+    { id: 13, name: 'Billing and revenue', last_viewed_at: null, created_at: '2026-09-24T09:00:00Z' },
+].map((dashboard) => ({ description: '', pinned: false, deleted: false, tags: [], created_by: USER, ...dashboard }))
+
 const REPORTS = [
     makeReport({
         id: 'report-1',
         title: 'Signup form rejects plus-addressed emails',
         summary:
             'Sign-ups with a plus sign in the email address fail validation since the last release.\n\n## Impact\n\nNew teams that use plus addressing cannot finish signing up.',
+        summary_lead: 'Sign-ups with a plus sign in the email address fail validation since the last release.',
         status: SignalReportStatus.READY,
         signal_count: 12,
         updated_at: '2026-09-28T07:00:00Z',
@@ -244,6 +339,7 @@ const REPORTS = [
         id: 'report-2',
         title: 'Pricing page visitors drop off at the plan table',
         summary: 'Most visitors who reach the plan table leave without starting a trial.',
+        summary_lead: 'Most visitors who reach the plan table leave without starting a trial.',
         status: SignalReportStatus.READY,
         signal_count: 5,
         updated_at: '2026-09-27T16:00:00Z',
@@ -259,6 +355,7 @@ const REPORTS = [
         id: 'report-3',
         title: 'LLM costs doubled for the summarize tool',
         summary: 'Token usage for the summarize tool doubled after the prompt change.',
+        summary_lead: 'Token usage for the summarize tool doubled after the prompt change.',
         status: SignalReportStatus.PENDING_INPUT,
         signal_count: 3,
         updated_at: '2026-09-27T10:00:00Z',
@@ -271,6 +368,8 @@ const REPORTS = [
         title: 'Checkout conversion fell after the address form change',
         summary:
             'Fewer people finish checkout since the address form gained a required phone field.\n\n[Checkout conversion](chart:checkout-conversion)\n\nThe drop is sharpest on mobile, where the field is hard to fill.',
+        summary_lead:
+            'Fewer people finish checkout since the address form gained a required phone field. The drop is sharpest on mobile, where the field is hard to fill.',
         status: SignalReportStatus.READY,
         signal_count: 4,
         updated_at: '2026-09-28T08:00:00Z',
@@ -317,6 +416,7 @@ function briefingItem(overrides: Partial<BriefingItemApi> & Pick<BriefingItemApi
         reason: 'waiting_for_you',
         state: 'open',
         source_product: null,
+        report: null,
         ...overrides,
     }
 }
@@ -350,6 +450,41 @@ const PERSONAL_BRIEFING: BriefingApi = {
             signal: 'P1, fix ready for review',
             rank: 1,
             source_product: 'error_tracking',
+            title: 'Signup form rejects plus-addressed emails',
+            report: {
+                priority: 'P1',
+                summary:
+                    'Since the release on Friday, the signup form rejects emails with a plus sign. People who try again with another address finish signup, the rest drop off at the email step.',
+                pull_request_state: 'open',
+                pull_request_url: 'https://github.com/example-org/web/pull/4821',
+                signal_count: 23,
+                updated_at: '2026-09-28T15:10:00Z',
+                metrics: [
+                    {
+                        metric_id: 'affected-users',
+                        title: 'Affected users',
+                        kind: 'affected_users',
+                        role: 'primary',
+                        value: 52,
+                        series: [12, 18, 15, 22, 31, 40, 52],
+                        value_format: 'count',
+                        unit: 'users',
+                        query: reportMetricsFixture[0].query,
+                    },
+                    ...reportMetricsFixture.slice(1).map((metric) => ({
+                        metric_id: metric.metric_id,
+                        title: metric.title,
+                        kind: metric.kind,
+                        role: metric.role ?? 'supporting',
+                        value: metric.value ?? 0,
+                        series: metric.series ?? null,
+                        value_format: metric.value_format ?? 'number',
+                        unit: metric.unit ?? null,
+                        query: metric.query,
+                    })),
+                ],
+                charts: [],
+            },
         }),
         briefingItem({
             key: 'report:report-3',
@@ -357,6 +492,31 @@ const PERSONAL_BRIEFING: BriefingApi = {
             signal: 'P2, claimed by you',
             rank: 2,
             source_product: 'llm_analytics',
+            title: 'Summarize tool costs doubled after the prompt change',
+            report: {
+                priority: 'P2',
+                summary:
+                    'The summarize tool now sends the whole thread as context instead of the last ten messages. Token use per call doubled on Tuesday and has stayed there. Cost per conversation rose the same amount, while answer ratings did not change. Trimming the context back would undo the rise.',
+                pull_request_state: null,
+                pull_request_url: null,
+                signal_count: 7,
+                updated_at: '2026-09-27T09:00:00Z',
+                metrics: [],
+                charts: [
+                    {
+                        chart_id: 'summarize-tokens',
+                        title: 'Tokens per summarize call',
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'TrendsQuery',
+                                series: [{ kind: 'EventsNode', event: '$ai_generation' }],
+                                dateRange: { date_from: '2026-09-14', date_to: '2026-09-28' },
+                            },
+                        },
+                    },
+                ],
+            },
         }),
         briefingItem({
             key: 'dashboard:12',
@@ -399,22 +559,74 @@ const PERSONAL_BRIEFING: BriefingApi = {
 
 // Today keeps sample mode, the open pane, the sidebar width and the space feed view in local storage, which outlives
 // a story. Clearing it makes each story start clean, so only the sample stories show sample reports.
-function clearTodayStorage(Story: () => JSX.Element): JSX.Element {
+// A story's `spaceFeedView` parameter is written after the clear, so it starts with that saved space feed view, the
+// way a returning person sees it.
+function clearTodayStorage(
+    Story: () => JSX.Element,
+    { parameters }: { parameters: { spaceFeedView?: Record<string, unknown> } }
+): JSX.Element {
     for (const key of Object.keys(window.localStorage)) {
         if (/today|spaceFeedViewLogic/i.test(key)) {
             window.localStorage.removeItem(key)
         }
     }
+    for (const [reducer, value] of Object.entries(parameters.spaceFeedView ?? {})) {
+        window.localStorage.setItem(`products.tasks.spaces.spaceFeedViewLogic.${reducer}`, JSON.stringify(value))
+    }
     return <Story />
 }
 
-/** Starts a story with a saved space feed view, the way a returning person sees it. */
-function withSpaceFeedView(saved: Record<string, unknown>): (Story: () => JSX.Element) => JSX.Element {
-    return function SpaceFeedViewDecorator(Story) {
-        for (const [reducer, value] of Object.entries(saved)) {
-            window.localStorage.setItem(`products.tasks.spaces.spaceFeedViewLogic.${reducer}`, JSON.stringify(value))
+function mockReportPage(reportId: string): ReportPageApi {
+    const report = REPORTS.find((candidate) => candidate.id === reportId) ?? REPORTS[0]
+    const signals = mockSignals(reportId, 6).map((signal) => {
+        const firstLine = signal.content.split('\n')[0]
+        return {
+            signal_id: signal.signal_id,
+            content: signal.content,
+            source_product: signal.source_product,
+            source_type: signal.source_type,
+            source_id: signal.source_id,
+            timestamp: signal.timestamp,
+            extra: { ...signal.extra },
+            headline: firstLine,
+            lead: firstLine,
+            meta: '',
+            cited: signal.source_product === 'signals_scout' ? ('code' as const) : null,
+            recording: null,
+            link: null,
+            preview: {
+                hint: 'Show the description',
+                code: [],
+                block: [],
+                text: signal.content,
+                facts: [],
+                link: null,
+                link_label: null,
+            },
         }
-        return <Story />
+    })
+    return {
+        lead: report.summary_lead ?? '',
+        proposal: report.suggested_prompts?.[0] ?? '',
+        impact_sentence: '',
+        named_pull_request: null,
+        solution_names_pull_request: false,
+        evidence: signals.slice(0, 3),
+        source_count: signals.length,
+        impact_numbers:
+            report.id === 'report-1'
+                ? [
+                      {
+                          key: 'tickets',
+                          value: '4',
+                          sentence: 'support tickets over 3 days.',
+                          signal: signals[0],
+                          values: [],
+                          working: null,
+                      },
+                  ]
+                : [],
+        last_seen: null,
     }
 }
 
@@ -434,21 +646,20 @@ const meta: Meta = {
                     REPORTS.find((report) => report.id === req.params.id) ?? REPORTS[0],
                 ],
                 '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
-                '/api/projects/:team_id/signals/reports/:id/signals/': (req) => [
-                    200,
-                    // Error tracking signals fetch their issue, which these stories do not mock.
-                    {
-                        signals: mockSignals(String(req.params.id), 6).filter(
-                            (signal) => signal.source_product !== 'error_tracking'
-                        ),
-                    },
-                ],
+                '/api/projects/:team_id/today/reports/:id/page/': (req) => [200, mockReportPage(String(req.params.id))],
+                '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [], count: 0, next: null },
+                '/api/projects/:team_id/signals/reports/:id/checks/': { results: [], count: 0, next: null },
+                '/api/users/@me/integrations/': { results: [] },
+                '/api/users/@me/integrations/slack/linkable_workspaces/': { results: [] },
                 '/api/projects/:team_id/today/briefing/': () => [404, { detail: 'Not found.' }],
                 '/api/projects/:team_id/task_channels/': SPACES,
                 '/api/projects/:team_id/task_channels/:id/': (req) => [
                     200,
                     SPACES.find((space) => space.id === req.params.id) ?? SPACES[0],
                 ],
+                '/api/users/@me/integrations/codex/': { status: 'not_connected' },
+                '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
+                '/api/projects/:team_id/tasks/repositories/': { repositories: [] },
                 '/api/projects/:team_id/tasks/': ({ request }) => {
                     const params = new URL(request.url).searchParams
                     const results = params.get('pinned')
@@ -461,8 +672,15 @@ const meta: Meta = {
                     return [200, { results, count: results.length, next: null, previous: null }]
                 },
                 '/api/projects/:team_id/canvases/': ({ request }) => {
-                    const results =
-                        new URL(request.url).searchParams.get('channel') === 'space-checkout' ? CANVASES : []
+                    const params = new URL(request.url).searchParams
+                    const channel = params.get('channel')
+                    const results = channel
+                        ? channel === 'space-checkout'
+                            ? CANVASES
+                            : []
+                        : VIEW_CANVASES.filter((canvas) => canvas.kind === params.get('kind')).sort((first, second) =>
+                              second.updated_at.localeCompare(first.updated_at)
+                          )
                     return [200, { results, count: results.length, next: null, previous: null }]
                 },
                 '/api/projects/:team_id/task_activity/': {
@@ -485,13 +703,26 @@ const meta: Meta = {
                 },
                 '/api/environments/:team_id/conversations/': { results: CONVERSATIONS, next: null },
                 '/api/environments/:team_id/file_system/': ({ request }) => {
-                    const type = new URL(request.url).searchParams.get('type')
+                    const params = new URL(request.url).searchParams
+                    if (params.get('order_by') === '-last_viewed_at') {
+                        return [200, { results: RECENTLY_VIEWED, count: RECENTLY_VIEWED.length }]
+                    }
+                    const type = params.get('type')
                     const results = type ? LIBRARY.filter((entry) => entry.type === type) : LIBRARY
                     return [200, { results, count: results.length }]
                 },
                 '/api/environments/:team_id/file_system/unfiled/': { results: [], count: 0 },
+                '/api/projects/:team_id/canvases/canvas-building/': VIEW_CANVASES[1],
+                '/api/projects/:team_id/tasks/task-canvas-building/': {
+                    id: 'task-canvas-building',
+                    title: 'Signup funnel by country',
+                    latest_run: { id: 'run-canvas-building', status: 'in_progress' },
+                },
+                '/api/projects/:team_id/notebooks/': { results: NOTEBOOKS, count: NOTEBOOKS.length },
+                '/api/projects/:team_id/dashboards/': { results: DASHBOARDS, count: DASHBOARDS.length },
             },
             post: {
+                '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
                 '/api/projects/:team_id/tasks/summaries/': {
                     count: 2,
                     next: null,
@@ -530,6 +761,26 @@ export const Home: Story = {}
 
 export const HomeWithPersonalBriefing: Story = {
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/today/briefing/': PERSONAL_BRIEFING } })],
+}
+
+// One report was resolved and another dismissed after the briefing was written.
+export const HomeWithResolvedAndDismissedItems: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/briefing/': {
+                    ...PERSONAL_BRIEFING,
+                    items: PERSONAL_BRIEFING.items.map((item) =>
+                        item.key === 'report:report-3'
+                            ? { ...item, state: 'dismissed' }
+                            : item.key === 'report:report-1'
+                              ? { ...item, state: 'done' }
+                              : item
+                    ),
+                },
+            },
+        }),
+    ],
 }
 
 export const HomeWithNothingForYou: Story = {
@@ -587,13 +838,25 @@ export const ReportWithPullRequest: Story = {
     parameters: { pageUrl: urls.todayReport('report-1') },
 }
 
-export const ReportWithSuggestedPrompts: Story = {
+export const ReportProposingItsFirstPrompt: Story = {
     parameters: { pageUrl: urls.todayReport('report-2') },
 }
 
-// One chart placed in the summary, one trailing it. Charts resolve without the Inbox detail logic.
-export const ReportWithCharts: Story = {
+export const ReportWithAnImpactMetric: Story = {
     parameters: { pageUrl: urls.todayReport('report-4') },
+}
+
+export const ReportWithTicketsAndEvidenceDetail: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1') },
+}
+
+export const ReportThatFailsToLoad: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1') },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/today/reports/:id/page/': () => [500, {}] } })],
+}
+
+export const ReportInANarrowWindow: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1'), testOptions: { viewport: { width: 800, height: 900 } } },
 }
 
 export const SpacesPane: Story = {
@@ -622,6 +885,11 @@ export const SpacePage: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
 }
 
+// New session opens this page. It files into the personal space until the user picks another one.
+export const NewSessionPage: Story = {
+    parameters: { pageUrl: urls.taskNewSession() },
+}
+
 // A Cmd-click pick can't be held in a static story, so the play step selects a pinned and a recent row through the logic.
 export const SpacesPaneWithSelectedSessions: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
@@ -642,32 +910,28 @@ export const SpacesPaneWithRecentFilterMenu: Story = {
 }
 
 export const SpacePageListView: Story = {
-    decorators: [withSpaceFeedView({ view: 'list' })],
-    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    parameters: { pageUrl: urls.taskSpace('space-checkout'), spaceFeedView: { view: 'list' } },
 }
 
 export const SpacePagePullRequests: Story = {
-    decorators: [withSpaceFeedView({ types: ['pr'] })],
-    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    parameters: { pageUrl: urls.taskSpace('space-checkout'), spaceFeedView: { types: ['pr'] } },
 }
 
 export const SpacePageCanvases: Story = {
-    decorators: [withSpaceFeedView({ types: ['canvas'] })],
-    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    parameters: { pageUrl: urls.taskSpace('space-checkout'), spaceFeedView: { types: ['canvas'] } },
 }
 
 export const SpacePageCanvasesListView: Story = {
-    decorators: [withSpaceFeedView({ types: ['canvas'], view: 'list' })],
-    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    parameters: { pageUrl: urls.taskSpace('space-checkout'), spaceFeedView: { types: ['canvas'], view: 'list' } },
 }
 
 export const SpacePageFiltered: Story = {
-    decorators: [
-        withSpaceFeedView({
+    parameters: {
+        pageUrl: urls.taskSpace('space-checkout'),
+        spaceFeedView: {
             filters: { createdBy: 'anyone', sources: [], status: 'unread', pinned: 'any', environment: 'any' },
-        }),
-    ],
-    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+        },
+    },
 }
 
 // Right-click at the target's corner, where a person would, so the menu opens beside it.
@@ -742,7 +1006,7 @@ export const LibraryAllObjects: Story = {
 }
 
 export const LibraryFeatureFlags: Story = {
-    parameters: { pageUrl: urls.library('feature_flag') },
+    parameters: { pageUrl: urls.featureFlags() },
 }
 
 export const ToolsPane: Story = {
@@ -762,13 +1026,29 @@ export const NarrowWindowWithSidebar: Story = {
     },
 }
 
+export const PhoneWidth: Story = {
+    parameters: { testOptions: { viewport: { width: 390, height: 844 } } },
+}
+
+export const PhoneWidthMorePane: Story = {
+    parameters: { testOptions: { viewport: { width: 390, height: 844 } } },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByRole('button', { name: 'More' }))
+    },
+}
+
+// A root page: the phone header shows the title and a sidebar button, and the scene title row keeps only its actions.
+export const PhoneWidthListScene: Story = {
+    parameters: { pageUrl: urls.featureFlags(), testOptions: { viewport: { width: 390, height: 844 } } },
+}
+
 // The card opens on hover, which a static story can't hold, so these render its contents in the same frame.
 const noop = (): void => {}
 
 function HoverCardFrame({ children }: { children: ReactNode }): JSX.Element {
     return (
         <div className="p-4">
-            <Card size="sm" className="w-72 gap-0 border border-border py-0 shadow-md">
+            <Card size="sm" className="w-72 gap-0 border border-border py-0 shadow-[var(--shadow-md)]">
                 {children}
             </Card>
         </div>
@@ -827,6 +1107,34 @@ export const SpaceHoverCard: Story = {
     ),
 }
 
+export const ReportHoverCard: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodayReportHoverCard
+                preview={{
+                    kind: 'report',
+                    card: briefingItemReportCard(PERSONAL_BRIEFING.items[0]),
+                    surface: 'sidebar',
+                }}
+            />
+        </HoverCardFrame>
+    ),
+}
+
+export const ReportHoverCardResolved: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodayReportHoverCard
+                preview={{
+                    kind: 'report',
+                    card: briefingItemReportCard({ ...PERSONAL_BRIEFING.items[1], state: 'done' }),
+                    surface: 'sidebar',
+                }}
+            />
+        </HoverCardFrame>
+    ),
+}
+
 // The details are picked through the logic, where the dialog saves them, so each session row shows a second line.
 export const SpacesPaneWithListItemDetails: Story = {
     play: async ({ canvasElement }) => {
@@ -844,5 +1152,30 @@ export const ListItemAppearanceDialog: Story = {
         todayListAppearanceLogic.actions.openAppearanceDialog()
         // The dialog opens in a portal outside the story's canvas.
         await within(document.body).findByText('Edit list item appearance')
+    },
+}
+
+export const ViewsAll: Story = {
+    parameters: { pageUrl: urls.views() },
+}
+
+export const ViewsEmpty: Story = {
+    parameters: { pageUrl: urls.views() },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/canvases/': EMPTY_PAGINATED_RESPONSE,
+                '/api/projects/:team_id/notebooks/': EMPTY_PAGINATED_RESPONSE,
+                '/api/projects/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
+            },
+        }),
+    ],
+}
+
+export const ViewsNewMenu: Story = {
+    parameters: { pageUrl: urls.views() },
+    play: async ({ canvasElement }) => {
+        const [newView] = await within(canvasElement).findAllByText('New view')
+        await userEvent.click(newView)
     },
 }

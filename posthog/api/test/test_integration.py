@@ -54,12 +54,15 @@ from posthog.models.integration import (
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
     SLACK_INTEGRATION_KINDS,
     STRIPE_POSTHOG_SECRET_NAMES,
+    Assignee,
+    AssigneeLookupFailed,
     EmailIntegration,
     GitHubInstallationAccess,
     GitHubIntegration,
     GitHubIntegrationError,
     GitHubUserAuthorization,
     Integration,
+    ReconnectRequired,
     SlackIntegration,
     StripeIntegration,
     github_account_type,
@@ -1720,6 +1723,10 @@ class TestIntegrationAPIKeyAccess:
             ("github_branches/?repo=org/repo", "get", "GitHub"),
             ("jira_projects/", "get", "Jira"),
             ("linear_teams/", "get", "Linear"),
+            ("linear_team_members/?team_id=team-id", "get", "Linear"),
+            ("github_assignees/?repository=repo", "get", "GitHub"),
+            ("gitlab_members/", "get", "GitLab"),
+            ("jira_assignable_users/?project_key=ENG", "get", "Jira"),
         ],
     )
     def test_provider_lookup_actions_on_wrong_integration_return_400(
@@ -2055,6 +2062,83 @@ class TestIntegrationAPIKeyAccess:
         assert response.json() == {"teams": [{"id": "team-id", "name": "Engineering"}]}
         mock_ensure_token_valid.assert_called_once_with(linear_integration)
         mock_list_teams.assert_called_once_with()
+
+    @pytest.mark.parametrize(
+        "kind,url_suffix,list_method,expected_call",
+        [
+            (
+                "linear",
+                "linear_team_members/?team_id=team-id&search=ad",
+                "LinearIntegration.list_assignees",
+                ("team-id", "ad"),
+            ),
+            (
+                "github",
+                "github_assignees/?repository=repo&search=ad",
+                "GitHubIntegration.list_assignees",
+                ("repo", "ad"),
+            ),
+            ("gitlab", "gitlab_members/?search=ad", "GitLabIntegration.list_assignees", ("ad",)),
+            (
+                "jira",
+                "jira_assignable_users/?project_key=ENG&search=ad",
+                "JiraIntegration.list_assignees",
+                ("ENG", "ad"),
+            ),
+        ],
+    )
+    @patch("posthog.api.integration._ensure_oauth_token_valid")
+    def test_assignee_lookups_with_read_scope_succeed(
+        self, _mock_ensure_token_valid, kind, url_suffix, list_method, expected_call, client: HttpClient
+    ):
+        integration = Integration.objects.create(team=self.team, kind=kind, config={}, sensitive_config={})
+        key_value = "test_key_assignees"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        with patch(f"posthog.api.integration.{list_method}", return_value=[Assignee(id="u1", name="Ada")]) as mock_list:
+            response = client.get(
+                f"/api/environments/{self.team.pk}/integrations/{integration.id}/{url_suffix}",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"users": [{"id": "u1", "name": "Ada"}], "reconnect_required": False}
+        mock_list.assert_called_once_with(*expected_call)
+
+    @pytest.mark.parametrize(
+        "side_effect,expected_status,expected_body",
+        [
+            (ReconnectRequired(), status.HTTP_200_OK, {"users": [], "reconnect_required": True}),
+            (AssigneeLookupFailed("Could not list users"), status.HTTP_400_BAD_REQUEST, None),
+        ],
+    )
+    @patch("posthog.api.integration._ensure_oauth_token_valid")
+    def test_assignee_lookup_failures(
+        self, _mock_ensure_token_valid, side_effect, expected_status, expected_body, client: HttpClient
+    ):
+        integration = Integration.objects.create(team=self.team, kind="jira", config={}, sensitive_config={})
+        key_value = "test_key_jira_reconnect"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        with patch("posthog.api.integration.JiraIntegration.list_assignees", side_effect=side_effect):
+            response = client.get(
+                f"/api/environments/{self.team.pk}/integrations/{integration.id}/jira_assignable_users/?project_key=ENG",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+
+        assert response.status_code == expected_status
+        if expected_body is not None:
+            assert response.json() == expected_body
 
     @patch("posthog.models.integration.github.GitHubIntegration.sync_repository_cache")
     def test_refresh_github_repos_with_write_scope_succeeds(self, mock_sync_repository_cache, client: HttpClient):
@@ -2470,6 +2554,115 @@ class TestIntegrationAPIKeyAccess:
         else:
             assert cache.get(cache_key) is None
         mock_slack_class.return_value.list_channels.assert_not_called()
+
+    # The write-back runs only against Redis, so the default LocMem cache would make the
+    # assertions below vacuous.
+    @override_settings(
+        CACHES={
+            **settings.CACHES,
+            "default": {
+                "BACKEND": "django_redis.cache.RedisCache",
+                "LOCATION": "redis://slack-channel-recheck-test:6379/0",
+                "OPTIONS": {"CONNECTION_POOL_KWARGS": {"connection_class": FakeConnection}},
+            },
+        }
+    )
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_channels_action_force_refresh_rechecks_one_channel(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_RECHECK",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        # Slack now reports the app as a member, because someone invited it to the channel.
+        mock_slack_instance.get_channel_by_id.return_value = {
+            "id": "C1",
+            "name": "general",
+            "is_private": False,
+            "is_member": True,
+            "is_ext_shared": False,
+            "is_private_without_access": False,
+        }
+        mock_slack_class.return_value = mock_slack_instance
+
+        # The cached list still holds what Slack said before the invite.
+        cache.set(
+            f"slack/{slack_integration.id}/True/channels",
+            {
+                "channels": [
+                    {
+                        "id": "C1",
+                        "name": "general",
+                        "is_private": False,
+                        "is_member": False,
+                        "is_ext_shared": False,
+                        "is_private_without_access": False,
+                    }
+                ],
+                "lastRefreshedAt": (timezone.now() - timedelta(minutes=5)).isoformat(),
+            },
+            3600,
+        )
+        base_url = f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/channels/"
+        client.force_login(self.user)
+
+        cached_lookup = client.get(f"{base_url}?channel_id=C1")
+        assert cached_lookup.status_code == status.HTTP_200_OK
+        assert cached_lookup.json()["channels"][0]["is_member"] is False
+        mock_slack_instance.get_channel_by_id.assert_not_called()
+
+        forced_lookup = client.get(f"{base_url}?channel_id=C1&force_refresh=true")
+        assert forced_lookup.status_code == status.HTTP_200_OK
+        assert forced_lookup.json()["channels"][0]["is_member"] is True
+        mock_slack_instance.get_channel_by_id.assert_called_once_with("C1", True, "test_user_id")
+
+        # The live answer replaces its copy in the cached list, so the next plain load of the
+        # picker does not report the app as missing all over again.
+        listed = client.get(base_url)
+        assert listed.status_code == status.HTTP_200_OK
+        assert listed.json()["channels"][0]["is_member"] is True
+        mock_slack_instance.list_channels.assert_not_called()
+
+        # A channel Slack no longer returns leaves the cached list, so the picker stops offering it.
+        mock_slack_instance.get_channel_by_id.return_value = None
+        gone_lookup = client.get(f"{base_url}?channel_id=C1&force_refresh=true")
+        assert gone_lookup.status_code == status.HTTP_200_OK
+        assert gone_lookup.json()["channels"] == []
+
+        listed_after_removal = client.get(base_url)
+        assert listed_after_removal.status_code == status.HTTP_200_OK
+        assert listed_after_removal.json()["channels"] == []
+        mock_slack_instance.list_channels.assert_not_called()
+
+    @patch("posthog.api.integration.SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE", 2)
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_channels_action_throttles_distinct_uncached_lookups(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_CHANNELS_BUDGET",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.get_channel_by_id.return_value = None
+        mock_slack_class.return_value = mock_slack_instance
+        client.force_login(self.user)
+
+        base_url = f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/channels/"
+        # A forced lookup skips the cached list, and a miss caches nothing, so distinct ids would
+        # otherwise reach Slack one conversations.info call at a time.
+        for index, expected_status in enumerate(
+            [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
+        ):
+            response = client.get(f"{base_url}?channel_id=CPROBE{index}&force_refresh=true")
+            assert response.status_code == expected_status
+        assert mock_slack_instance.get_channel_by_id.call_count == 2
 
     @pytest.mark.parametrize(
         "query_string,expected_ids,expected_has_more",
@@ -5641,41 +5834,57 @@ class TestStripeIntegrationOAuthTokens:
         mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         integration, access_token, refresh_token = self._create_integration_with_tokens()
+        unlinked_refresh_token = OAuthRefreshToken.objects.create(
+            application=self.oauth_app,
+            token="ph_refresh_unlinked",
+            user=self.user,
+            access_token=None,
+            revoked=timezone.now(),
+            scoped_teams=[self.team.pk],
+        )
         stripe_int = StripeIntegration(integration)
 
         stripe_int._destroy_posthog_oauth_tokens()
 
         assert not OAuthAccessToken.objects.filter(pk=access_token.pk).exists()
         assert not OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists()
+        assert not OAuthRefreshToken.objects.filter(pk=unlinked_refresh_token.pk).exists()
 
+    @pytest.mark.parametrize("other_credential", ["other_team_only", "shared_with_this_team"])
     @patch("posthog.models.integration.stripe.settings")
-    def test_destroy_oauth_tokens_only_affects_same_team(self, mock_settings):
+    def test_destroy_oauth_tokens_only_affects_same_team(self, mock_settings, other_credential):
         mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         integration, _, _ = self._create_integration_with_tokens()
 
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_scoped_teams = {
+            "other_team_only": [other_team.pk],
+            "shared_with_this_team": [self.team.pk, other_team.pk],
+        }[other_credential]
         other_access_token = OAuthAccessToken.objects.create(
             application=self.oauth_app,
             token="ph_access_other",
             user=self.user,
             expires=timezone.now() + timedelta(days=365),
             scope=StripeIntegration.SCOPES,
-            scoped_teams=[other_team.pk],
+            scoped_teams=other_scoped_teams,
         )
         other_refresh_token = OAuthRefreshToken.objects.create(
             application=self.oauth_app,
             token="ph_refresh_other",
             user=self.user,
             access_token=other_access_token,
-            scoped_teams=[other_team.pk],
+            scoped_teams=other_scoped_teams,
         )
 
         stripe_int = StripeIntegration(integration)
         stripe_int._destroy_posthog_oauth_tokens()
 
-        assert OAuthAccessToken.objects.filter(pk=other_access_token.pk).exists()
-        assert OAuthRefreshToken.objects.filter(pk=other_refresh_token.pk).exists()
+        other_access_token.refresh_from_db()
+        other_refresh_token.refresh_from_db()
+        assert other_access_token.scoped_teams == [other_team.pk]
+        assert other_refresh_token.scoped_teams == [other_team.pk]
 
     @patch("posthog.models.integration.stripe.settings")
     def test_destroy_oauth_tokens_noop_when_no_oauth_app(self, mock_settings):
@@ -5732,11 +5941,11 @@ class TestStripeIntegrationOAuthTokens:
             assert minted.latest("id").application == self.oauth_app
         else:
             assert publication.unwritten == STRIPE_POSTHOG_SECRET_NAMES
-            assert publication.access_token_id is None
             assert not minted.exists()
 
+    @patch("posthog.models.integration.stripe.lock_oauth_connection")
     @patch("posthog.models.integration.stripe.settings")
-    def test_destroy_oauth_tokens_spans_the_pre_split_application(self, mock_settings):
+    def test_destroy_oauth_tokens_spans_the_pre_split_application(self, mock_settings, mock_lock):
         marketplace_app = OAuthApplication.objects.create(
             name="Stripe marketplace",
             client_id="marketplace_client_id",
@@ -5750,10 +5959,27 @@ class TestStripeIntegrationOAuthTokens:
 
         integration, legacy_access, legacy_refresh = self._create_integration_with_tokens()
 
+        def mint_while_waiting(**kwargs):
+            OAuthAccessToken.objects.get_or_create(
+                token="ph_access_minted_at_lock",
+                defaults={
+                    "application": self.oauth_app,
+                    "user": self.user,
+                    "expires": timezone.now() + timedelta(days=1),
+                    "scope": StripeIntegration.SCOPES,
+                    "scoped_teams": [self.team.pk],
+                },
+            )
+
+        mock_lock.side_effect = mint_while_waiting
+
         StripeIntegration(integration)._destroy_posthog_oauth_tokens()
 
         assert not OAuthAccessToken.objects.filter(pk=legacy_access.pk).exists()
         assert not OAuthRefreshToken.objects.filter(pk=legacy_refresh.pk).exists()
+        assert not OAuthAccessToken.objects.filter(token="ph_access_minted_at_lock").exists()
+        locked_pairs = {(call.kwargs["user_id"], call.kwargs["application_id"]) for call in mock_lock.call_args_list}
+        assert locked_pairs == {(self.user.pk, marketplace_app.id), (self.user.pk, self.oauth_app.id)}
 
     @patch("stripe.StripeClient")
     @patch("posthog.models.integration.oauth.settings")
@@ -5818,6 +6044,7 @@ class TestStripeIntegrationOAuthTokens:
         }
         assert not [scope for scope in token.scope.split() if scope.endswith(":write")]
         assert token.scoped_teams == [self.team.pk]
+        assert OAuthRefreshToken.objects.get(access_token=token).scoped_teams == [self.team.pk]
 
     @patch("stripe.StripeClient")
     @patch("posthog.models.integration.oauth.settings")
@@ -5903,14 +6130,52 @@ class TestStripeIntegrationOAuthTokens:
             created_by=self.user,
         )
         stripe_int = StripeIntegration(integration)
-        publication = stripe_int.write_posthog_secrets(self.team.pk, self.user)
+        stripe_int.write_posthog_secrets(self.team.pk, self.user)
 
         MockStripeClient.assert_not_called()
         mock_capture.assert_called_once()
-        assert publication.access_token_id is None
         assert not OAuthAccessToken.objects.filter(scoped_teams__contains=[self.team.pk]).exists()
         captured_exc = mock_capture.call_args.args[0]
         assert isinstance(captured_exc, NotImplementedError)
+
+    @pytest.mark.parametrize(
+        "failing_secrets,credential_kept",
+        [
+            (STRIPE_POSTHOG_SECRET_NAMES, False),
+            (("posthog_refresh_token",), True),
+        ],
+        ids=["every_write_fails", "refresh_token_write_fails"],
+    )
+    @patch("stripe.StripeClient")
+    @patch("posthog.models.integration.oauth.settings")
+    @patch("posthog.models.integration.stripe.settings")
+    def test_write_posthog_secrets_keeps_the_credential_only_when_a_secret_reaches_stripe(
+        self, mock_settings, mock_oauth_settings, MockStripeClient, failing_secrets, credential_kept
+    ):
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
+        mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        mock_oauth_settings.STRIPE_APP_CLIENT_ID = "stripe_app_client_id"
+        mock_oauth_settings.STRIPE_APP_SECRET_KEY = "sk_test"
+
+        def create_secret(params, options):
+            if params["name"] in failing_secrets:
+                raise Exception("simulated Stripe API failure")
+
+        MockStripeClient.return_value.apps.secrets.create.side_effect = create_secret
+
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="stripe",
+            config={},
+            sensitive_config={},
+            integration_id="acct_write_failure",
+            created_by=self.user,
+        )
+        publication = StripeIntegration(integration).write_posthog_secrets(self.team.pk, self.user)
+
+        assert publication.unwritten == failing_secrets
+        assert OAuthAccessToken.objects.filter(scoped_teams__contains=[self.team.pk]).exists() is credential_kept
+        assert OAuthRefreshToken.objects.filter(scoped_teams__contains=[self.team.pk]).exists() is credential_kept
 
     @patch("posthog.models.integration.stripe.capture_exception")
     @patch("stripe.StripeClient")

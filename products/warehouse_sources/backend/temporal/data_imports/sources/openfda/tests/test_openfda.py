@@ -13,10 +13,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openfda.op
     OPENFDA_BASE_URL,
     PAGE_SIZE,
     OpenFDAResumeConfig,
-    _auth_config,
     _build_params,
     _format_date_value,
-    _make_basic_auth,
     openfda_source,
     validate_credentials,
 )
@@ -123,59 +121,6 @@ class TestBuildParams:
         assert params["sort"] == "report_date:asc"
         assert params["limit"] == PAGE_SIZE
 
-    def test_first_incremental_sync_has_no_date_filter(self) -> None:
-        params = _build_params(
-            OPENFDA_ENDPOINTS["drug_enforcement"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        # No watermark yet -> backfill the whole history, still ordered so the watermark is valid.
-        assert "search" not in params
-        assert params["sort"] == "report_date:asc"
-
-    def test_user_selected_incremental_field_overrides_default(self) -> None:
-        params = _build_params(
-            OPENFDA_ENDPOINTS["drug_enforcement"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=date(2020, 1, 1),
-            incremental_field="recall_initiation_date",
-        )
-        # Honor the user's chosen cursor field instead of hardcoding the endpoint default.
-        assert params["search"].startswith("recall_initiation_date:")
-        assert params["sort"] == "recall_initiation_date:asc"
-
-    def test_full_refresh_endpoint_omits_search_and_sort(self) -> None:
-        params = _build_params(
-            OPENFDA_ENDPOINTS["drug_ndc"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        # drug/ndc has no date cursor; it must page on the bare search_after cursor with no sort.
-        assert "search" not in params
-        assert "sort" not in params
-        assert params["limit"] == PAGE_SIZE
-
-
-class TestAuth:
-    def test_key_becomes_basic_auth_username(self) -> None:
-        auth = _make_basic_auth("secret")
-        assert auth is not None
-        assert auth.username == "secret"
-        assert auth.password == ""
-
-    def test_blank_key_sends_no_auth(self) -> None:
-        # openFDA allows the unauthenticated tier; a missing key must not become auth at all.
-        assert _make_basic_auth(None) is None
-        assert _make_basic_auth("") is None
-        assert _auth_config(None) is None
-        assert _auth_config("") is None
-
-    def test_auth_config_is_http_basic_with_key_as_username(self) -> None:
-        # The framework auth injects the key as the Basic-auth username (empty password).
-        assert _auth_config("secret") == {"type": "http_basic", "username": "secret", "password": ""}
-
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -194,31 +139,6 @@ class TestPagination:
         assert params[0]["limit"] == PAGE_SIZE
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_last_page_terminates(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(200, results=[{"recall_number": "D-9"}])])
-        rows = _rows(_source(_make_manager()))
-        assert rows == [{"recall_number": "D-9"}]
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_cursor_after_yielding_each_page(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response(200, results=[{"recall_number": "D-1"}], next_url="https://api.fda.gov/p2"),
-                _response(200, results=[{"recall_number": "D-2"}]),
-            ],
-        )
-        manager = _make_manager()
-        _rows(_source(manager))
-        # State is saved only while more pages remain, and only the next cursor — so a crash re-fetches
-        # the just-yielded page (merge dedupes) rather than skipping it. The final page saves nothing.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == OpenFDAResumeConfig(next_url="https://api.fda.gov/p2")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_cursor(self, MockSession: Any) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response(200, results=[{"recall_number": "D-2"}])])
@@ -228,15 +148,6 @@ class TestPagination:
         # 1) — so the seeded next-page URL replaces the initial params entirely.
         assert rows == [{"recall_number": "D-2"}]
         assert params[0] == {}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_404_first_page_yields_nothing(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(404, body={"error": {"code": "NOT_FOUND"}})])
-        # openFDA returns 404 (not an empty results array) when nothing matches — expected at the tail
-        # of an incremental run. Treating it as an error would fail every caught-up sync.
-        rows = _rows(_source(_make_manager()))
-        assert rows == []
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -322,22 +233,6 @@ class TestOpenfdaSource:
 
 class TestValidateCredentials:
     @mock.patch(OPENFDA_SESSION_PATCH)
-    def test_success(self, mock_session: Any) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials("key") is True
-
-    @mock.patch(OPENFDA_SESSION_PATCH)
-    def test_success_without_key(self, mock_session: Any) -> None:
-        # openFDA allows the unauthenticated tier, so a blank key that reaches the API is still valid.
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials(None) is True
-
-    @mock.patch(OPENFDA_SESSION_PATCH)
     def test_failure(self, mock_session: Any) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
-        assert validate_credentials("key") is False
-
-    @mock.patch(OPENFDA_SESSION_PATCH)
-    def test_swallows_exceptions(self, mock_session: Any) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("key") is False

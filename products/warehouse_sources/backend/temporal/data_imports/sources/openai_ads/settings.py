@@ -67,7 +67,8 @@ def _insights_endpoint(name: str, level: str, metadata: tuple[str, ...]) -> Open
         path="/v1/ad_account/insights",
         # The API's composite bucket id ("start=<unix>:end=<unix>:entity_id=<id>") is unique and
         # stable per (bucket, entity) as long as no sort[]/segments[] params are sent (those
-        # append suffixes to the id).
+        # append suffixes to the id). The id can also carry a `plan=` segment that changes between
+        # requests, so the source removes that segment before the merge.
         primary_keys=["id"],
         partition_key="start_time",
         incremental_fields=[_datetime_incremental_field("start_time")],

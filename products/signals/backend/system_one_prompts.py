@@ -15,8 +15,10 @@ logger = structlog.get_logger(__name__)
 
 PROMPT_LABEL = "production"
 PROMPT_REFRESH_SECONDS = 60
-DEFAULT_SYSTEM_ONE_MODEL = "posthog/hogference/jevk5-fp8-0.2"
-ALLOWED_SYSTEM_ONE_MODELS = {DEFAULT_SYSTEM_ONE_MODEL, "posthog/hogference/jeeves-0.1"}
+JEVK_MODEL = "posthog/hogference/jevk5-fp8-0.2"
+JEEVES_MODEL = "posthog/hogference/jeeves-0.1"
+DEFAULT_SYSTEM_ONE_MODEL = JEEVES_MODEL
+ALLOWED_SYSTEM_ONE_MODELS = {JEVK_MODEL, JEEVES_MODEL}
 SAFETY_RESPONSE_FIELDS = {
     "signals-signal-safety-system-one": ("safe", "threat_type", "explanation"),
     "signals-report-safety-system-one": ("choice", "explanation"),
@@ -120,6 +122,8 @@ def fetch_prompt(fallback: SystemOnePrompt, *, version: int | None = None) -> Sy
         fallback=fallback.policy,
     )
     prompt = _parse_prompt(result, fallback)
+    if prompt is not None and version is not None and prompt.version != version:
+        prompt = None
     if prompt is None:
         logger.warning("Invalid Signals System One prompt", prompt_name=fallback.name, prompt_version=result.version)
     return prompt
@@ -138,22 +142,24 @@ class _PromptCache:
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="signals-system-one-prompt")
         self._states: dict[str, _PromptState] = {}
 
-    def current(self, fallback: SystemOnePrompt) -> SystemOnePrompt:
+    def current(self, fallback: SystemOnePrompt, *, version: int | None = None) -> SystemOnePrompt:
+        key = fallback.name if version is None else f"{fallback.name}@{version}"
         with self._lock:
-            state = self._states.setdefault(fallback.name, _PromptState(fallback))
+            state = self._states.setdefault(key, _PromptState(fallback))
             if not state.refreshing and time.monotonic() - state.refreshed_at >= PROMPT_REFRESH_SECONDS:
                 state.refreshing = True
-                self._executor.submit(self._refresh, fallback)
+                self._executor.submit(self._refresh, fallback, version=version)
             return state.prompt
 
-    def _refresh(self, fallback: SystemOnePrompt) -> None:
+    def _refresh(self, fallback: SystemOnePrompt, *, version: int | None = None) -> None:
         try:
-            prompt = fetch_prompt(fallback)
+            prompt = fetch_prompt(fallback, version=version)
         except Exception:
             logger.exception("Signals System One prompt refresh failed", prompt_name=fallback.name)
             prompt = None
         with self._lock:
-            state = self._states[fallback.name]
+            key = fallback.name if version is None else f"{fallback.name}@{version}"
+            state = self._states[key]
             if prompt is None and state.prompt.source == "managed":
                 logger.warning("Signals System One prompt reverted to bundled", prompt_name=fallback.name)
             state.prompt = prompt or fallback
@@ -164,5 +170,22 @@ class _PromptCache:
 _CACHE = _PromptCache()
 
 
-def current_prompt(fallback: SystemOnePrompt) -> SystemOnePrompt:
-    return _CACHE.current(fallback)
+def current_prompt(fallback: SystemOnePrompt, *, version: int | None = None) -> SystemOnePrompt:
+    return _CACHE.current(fallback, version=version)
+
+
+def model_experiment_prompt(primary: SystemOnePrompt, version: int, model: str) -> SystemOnePrompt | None:
+    if primary.source == "managed" and primary.version == version and primary.model == model:
+        return primary
+    fallback = bundled_prompt(primary.name, primary.policy, primary.question, primary.threshold)
+    candidate = current_prompt(fallback, version=version)
+    if (
+        candidate.source != "managed"
+        or candidate.version != version
+        or candidate.model != model
+        or candidate.policy != primary.policy
+        or candidate.question != primary.question
+        or candidate.threshold != primary.threshold
+    ):
+        return None
+    return candidate

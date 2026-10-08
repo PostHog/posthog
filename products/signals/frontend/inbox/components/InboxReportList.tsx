@@ -178,6 +178,9 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
             totalCount,
             hasActiveFilters: loadedContext.hasActiveFilters,
             scope: loadedContext.scope,
+            sortField: loadedContext.sortField,
+            sortDirection: loadedContext.sortDirection,
+            createdWindow: loadedContext.createdWindow,
         })
     }, [listVisible, isLoaded, totalCount, reports, tabKey, loadedQueryKey, loadedContext])
 

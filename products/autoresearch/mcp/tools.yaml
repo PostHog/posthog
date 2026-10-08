@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product autoresearch
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product autoresearch
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Autoresearch
 feature: autoresearch
 url_prefix: /autoresearch
@@ -12,6 +10,7 @@ tools:
     autoresearch-archive-create:
         operation: autoresearch_archive_create
         enabled: false
+        disabled_reason: Pipeline lifecycle stays in the UI; see products/autoresearch/mcp/AGENTS.md
         scopes:
             - autoresearch:write
         annotations:
@@ -54,9 +53,6 @@ tools:
             - status
             - iteration_budget_remaining
         feature_flag: autoresearch
-    autoresearch-destroy:
-        operation: autoresearch_destroy
-        enabled: false
     autoresearch-list:
         operation: autoresearch_list
         enabled: true
@@ -103,8 +99,11 @@ tools:
             train_labels_path, holdout_features_path, holdout_labels_path), row counts, and the feature column list —
             the feature rows never pass through your context and there is NO 500-row cap. Then pd.read_parquet the
             returned paths and iterate in Python. Use this to pull training data instead of execute-sql, and re-call it
-            whenever you change features.sql. Works only for a run that autoresearch-train-create opened in a PostHog
-            sandbox; an agent training outside PostHog pulls its data with execute-sql instead.
+            whenever you change features.sql. Also returns what the feature query cost (elapsed_s and rows_read) and
+            hints about features.sql shapes that scale badly. A promoted model must score its inference population under
+            batch limits before it serves, so a slow or heavy query here is a warning. Works only for a run that
+            autoresearch-train-create opened in a PostHog sandbox; an agent training outside PostHog pulls its data with
+            execute-sql instead.
         feature_flag: autoresearch
     autoresearch-models-list:
         operation: autoresearch_models_list
@@ -150,12 +149,30 @@ tools:
             Get full details for a specific model version, including the portable model recipe (feature SQL, transforms,
             model class, params) and feature importance explanation.
         feature_flag: autoresearch
-    autoresearch-partial-update:
-        operation: autoresearch_partial_update
-        enabled: false
+    autoresearch-online-performance-retrieve:
+        operation: autoresearch_online_performance_retrieve
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read realized performance history
+        description: >
+            Read how a pipeline's models performed against real outcomes, one row per model per validated prediction
+            date, newest date first. Each row has realized AUC with a 95% interval, Brier score, calibration error,
+            quantile calibration bins, mean_p_y against base_rate (mean_p_y above base_rate means the model
+            over-predicts), lift at 10% and 20%, the ISO weekday, and the model's role when it emitted and now. Use it
+            to see trends across dates and to judge a champion right after a promotion: the archived former champion
+            keeps its rows, while the new champion has none until its first horizon elapses. A wide AUC interval means
+            the date had few positives. Rows exist only after a prediction horizon has elapsed and online validation has
+            run. Use limit to bound the number of dates (default 60).
+        feature_flag: autoresearch
     autoresearch-pause-create:
         operation: autoresearch_pause_create
         enabled: false
+        disabled_reason: Pipeline lifecycle stays in the UI; see products/autoresearch/mcp/AGENTS.md
         scopes:
             - autoresearch:write
         annotations:
@@ -201,6 +218,7 @@ tools:
     autoresearch-resume-create:
         operation: autoresearch_resume_create
         enabled: false
+        disabled_reason: Pipeline lifecycle stays in the UI; see products/autoresearch/mcp/AGENTS.md
         scopes:
             - autoresearch:write
         annotations:
@@ -231,7 +249,7 @@ tools:
                 - created_by
     autoresearch-runs-list:
         operation: autoresearch_runs_list
-        enabled: false
+        enabled: true
         scopes:
             - autoresearch:read
         annotations:
@@ -242,7 +260,8 @@ tools:
         title: List inference runs
         description: >
             List inference and validation runs for a pipeline, ordered most recent first. Check rows_scored and status
-            to understand scoring history. run_type is 'inference' for daily scoring runs.
+            to understand scoring history. run_type is 'inference' for daily scoring runs. An inference run whose
+            metrics.rows_eligible is above rows_scored scored a rolling part of a population larger than one run allows.
         feature_flag: autoresearch
         response:
             include:
@@ -256,9 +275,6 @@ tools:
                 - started_at
                 - completed_at
                 - created_at
-    autoresearch-runs-retrieve:
-        operation: autoresearch_runs_retrieve
-        enabled: false
     autoresearch-score-create:
         operation: autoresearch_score_create
         enabled: true
@@ -272,16 +288,16 @@ tools:
             idempotent: false
         title: Run inference (score users)
         description: >
-            Score today's prediction date now with the pipeline's champion model, instead of waiting for the daily 02:00
-            UTC scoring run. Use it after autoresearch-train-create completes and promotes a champion. The call is
-            synchronous and returns the inference run with status and rows_scored. It emits one
-            'autoresearch_prediction' event per scored user, with the score in '$autoresearch_p_y', and sets the
-            pipeline's output_person_property on each scored person. A manual score counts as that day's scoring, so the
-            daily run skips the pipeline until its next cadence date. Call it once per prediction date: a repeat call
-            scores the population again and can duplicate predictions. Returns 400 if the pipeline has no champion (run
-            autoresearch-train-create first), is paused, or its target cannot be resolved. A pipeline with an action
-            target also needs the action:read scope. After scoring, query predictions with execute-sql: SELECT
-            distinct_id, properties.$autoresearch_p_y FROM events WHERE event = 'autoresearch_prediction' AND
+            Score today's prediction date with the champion model instead of waiting for the daily scoring run. Use
+            autoresearch-train-create first if the pipeline has no champion. Scoring runs in the background and returns
+            an inference run with status 'running'. If one is already running, returns that run without starting
+            another. Poll autoresearch-runs-list for this run's ID until its status is 'completed' (rows_scored is then
+            set) or 'failed' (error is then set). A manual score counts as today's scoring; the daily run skips the
+            pipeline until its next cadence date. Do not start another run for the same prediction date: it can
+            duplicate predictions. The pipeline must not be paused; an action target also needs the action:read scope.
+            Each scored user gets an 'autoresearch_prediction' event with '$autoresearch_p_y' and a person property
+            update. After the run completes, query predictions with execute-sql: SELECT distinct_id,
+            properties.$autoresearch_p_y FROM events WHERE event = 'autoresearch_prediction' AND
             properties.$autoresearch_pipeline_id = '<pipeline_id>' ORDER BY properties.$autoresearch_p_y DESC LIMIT 50.
         feature_flag: autoresearch
     autoresearch-suggestions-create:
@@ -365,6 +381,7 @@ tools:
     autoresearch-suggestions-retrieve:
         operation: autoresearch_suggestions_retrieve
         enabled: false
+        disabled_reason: Duplicates autoresearch-suggestions-list; the family stays at or below 25 tools
         scopes:
             - autoresearch:read
         annotations:
@@ -378,6 +395,7 @@ tools:
     autoresearch-templates-list:
         operation: autoresearch_templates_list
         enabled: false
+        disabled_reason: Replaced by autoresearch-resolve-template-create, which names every template key
         scopes:
             - autoresearch:read
         annotations:
@@ -422,6 +440,7 @@ tools:
     autoresearch-training-runs-artifacts-delete-create:
         operation: autoresearch_training_runs_artifacts_delete_create
         enabled: false
+        disabled_reason: Duplicative for the training agent; the family stays at or below 25 tools
         scopes:
             - autoresearch:write
         annotations:
@@ -507,7 +526,7 @@ tools:
             model card. Also pass distillation (1–2 sentences on what this run learned) and recommended_next (what a
             future run should try next) — these are stored in the run summary and read back by the next run during
             orientation; the backend derives the rest of the summary (kept ladder, dead-ends) from your recorded
-            iterations.
+            iterations. If you built a report notebook for this run, pass its short_id as report_notebook_short_id.
         feature_flag: autoresearch
         response:
             include:
@@ -619,12 +638,6 @@ tools:
                 - started_at
                 - completed_at
                 - created_at
-    autoresearch-training-runs-retrieve:
-        operation: autoresearch_training_runs_retrieve
-        enabled: false
-    autoresearch-update:
-        operation: autoresearch_update
-        enabled: false
     autoresearch-validate-create:
         operation: autoresearch_validate_create
         enabled: true
@@ -644,13 +657,17 @@ tools:
             autoresearch-create: if false, resolve errors first. 'requires_acknowledgement' means there are non-blocking
             warnings worth noting. Errors (can_proceed is false): low_volume (fewer than 100 users), low_positives or
             low_negatives (fewer than 20 examples), horizon_exceeds_lookback (raise training_lookback_days above
-            horizon_days), and population_too_large (narrow the training or inference population). Non-blocking warnings
-            include extreme_imbalance (base rate below 1%) and near_universal (above 95%). An action target needs the
-            action:read scope. Always validate before creating.
+            horizon_days), and population_too_large with severity error (narrow the training population). Non-blocking
+            warnings include extreme_imbalance (base rate below 1%) and near_universal (above 95%). population_too_large
+            with severity info means the inference population is above the cap, so each scoring run scores users never
+            scored first, then those scored longest ago. The warning message gives how many scoring runs it takes to
+            rescore everyone (ceil(eligible / 45000)), which in days is that many times the pipeline's cadence_days. An
+            action target needs the action:read scope. Always validate before creating.
         feature_flag: autoresearch
     autoresearch-validate-online-create:
         operation: autoresearch_validate_online_create
         enabled: false
+        disabled_reason: The daily validation workflow runs it; autoresearch-online-performance-retrieve reads results
         scopes:
             - autoresearch:write
             - query:read

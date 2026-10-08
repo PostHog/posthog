@@ -87,6 +87,7 @@ def _post_backfill_reply(
         rich_content=reply.rich_content,
         author_name=author_name,
         author_email=author_email,
+        workspace=mirror.slack_team_id,
         thread_ts=mirror.slack_thread_ts,
         organization_id=organization_id,
     )
@@ -174,6 +175,7 @@ def mirror_comment_reply_to_slack(self: Task, comment_id: str) -> None:
             rich_content=comment.rich_content,
             author_name=author_name,
             author_email=author_email,
+            workspace=mirror.slack_team_id,
             thread_ts=mirror.slack_thread_ts,
             organization_id=_organization_id_for_team(comment.team_id),
         )
