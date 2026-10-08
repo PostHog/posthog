@@ -14,7 +14,6 @@ export enum Scene {
     AdvancedActivityLogs = 'AdvancedActivityLogs',
     AgenticAccountMismatch = 'AgenticAccountMismatch',
     AgenticAuthorize = 'AgenticAuthorize',
-    AIGateway = 'AIGateway',
     Alerts = 'Alerts',
     Annotations = 'Annotations',
     Autoresearch = 'Autoresearch',
