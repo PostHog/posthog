@@ -64,7 +64,7 @@ describe('project creation controls', () => {
 
     test.each([
         [null, false],
-        ['Your self-hosted plan allows 1 project. See the self-hosting docs for more options.', true],
+        ['Self-hosted PostHog supports one project. See PostHog Cloud plans for more projects.', true],
         ['You need to be an organization admin or above to create new projects.', true],
     ])('switcher with forbidden reason %s is disabled: %s', (reason, disabled) => {
         setup(reason)
@@ -80,8 +80,8 @@ describe('project creation controls', () => {
         }
     })
 
-    test('legacy project menu shows the plan limit when creation is blocked', () => {
-        setup('Your self-hosted plan allows 1 project. See the self-hosting docs for more options.')
+    test('legacy project menu disables creation at the self-hosted limit', () => {
+        setup('Self-hosted PostHog supports one project. See PostHog Cloud plans for more projects.')
 
         render(<ProjectCombobox />)
 

@@ -61,12 +61,8 @@ function getSelfHostedProjectLimitReason(
     }
 
     const projectCount = new Set(organization.teams.filter((team) => !team.is_demo).map((team) => team.project_id)).size
-    const projectFeature = organization.available_product_features.find(
-        (feature) => feature.key === AvailableFeature.ORGANIZATIONS_PROJECTS
-    )
-    const projectLimit = projectFeature ? projectFeature.limit : 1
-    return projectLimit != null && projectCount >= projectLimit
-        ? `Your self-hosted plan allows ${projectLimit} project${projectLimit === 1 ? '' : 's'}. See the self-hosting docs for more options.`
+    return projectCount >= 1
+        ? 'Self-hosted PostHog supports one project. See PostHog Cloud plans for more projects.'
         : null
 }
 

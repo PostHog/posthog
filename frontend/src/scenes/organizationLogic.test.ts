@@ -16,9 +16,8 @@ describe('organizationLogic', () => {
     test.each([
         ['hobby at its single-project limit', false, [1], null, true],
         ['hobby before its first project', false, [], null, false],
-        ['licensed self-hosted below its limit', false, [1], 2, false],
-        ['licensed self-hosted with two environments in one project', false, [1, 1], 2, false],
-        ['licensed self-hosted at its limit', false, [1, 2], 2, true],
+        ['hobby with a legacy project entitlement', false, [1], 2, true],
+        ['hobby with two environments in one project', false, [1, 1], null, true],
         ['cloud without a project entitlement', true, [1], null, false],
     ])('%s', (_name, cloud, projectIds, limit, blocked) => {
         const organization: OrganizationType = {
@@ -38,7 +37,7 @@ describe('organizationLogic', () => {
 
         expect(Boolean(logic.values.projectCreationForbiddenReason)).toBe(blocked)
         if (blocked) {
-            expect(logic.values.projectCreationForbiddenReason).toContain('plan')
+            expect(logic.values.projectCreationForbiddenReason).toContain('Self-hosted PostHog supports one project')
         }
     })
 
