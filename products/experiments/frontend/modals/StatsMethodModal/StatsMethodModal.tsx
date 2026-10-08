@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { dispatchExperimentSave, experimentLogic } from 'scenes/experiments/experimentLogic'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import {
     DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
     MAX_SEQUENTIAL_TUNING_PARAMETER,
@@ -20,8 +20,8 @@ import { StatsMethodSelector } from 'products/experiments/frontend/components/St
 import { CONFIDENCE_LEVEL_OPTIONS } from 'products/experiments/frontend/constants'
 
 export function StatsMethodModal(): JSX.Element {
-    const { experiment, experimentId, statsMethod, experimentUpdateLoading } = useValues(experimentLogic)
-    const { setExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
+    const { experiment, statsMethod, experimentUpdateLoading } = useValues(experimentLogic)
+    const { setExperiment, restoreUnmodifiedExperiment, updateExperimentSettings } = useActions(experimentLogic)
     const { closeStatsEngineModal } = useActions(modalsLogic)
     const { isStatsEngineModalOpen } = useValues(modalsLogic)
     const { experimentsConfig } = useValues(experimentsConfigLogic)
@@ -29,15 +29,6 @@ export function StatsMethodModal(): JSX.Element {
     const onClose = (): void => {
         restoreUnmodifiedExperiment()
         closeStatsEngineModal()
-    }
-
-    const onSave = async (): Promise<void> => {
-        const outcome = await dispatchExperimentSave(experimentId, (actions) =>
-            actions.updateExperimentSettings({ stats_config: experiment.stats_config })
-        )
-        if (outcome === 'saved') {
-            closeStatsEngineModal()
-        }
     }
 
     const isBayesian = statsMethod === ExperimentStatsMethod.Bayesian
@@ -126,13 +117,25 @@ export function StatsMethodModal(): JSX.Element {
             maxWidth={600}
             isOpen={isStatsEngineModalOpen}
             onClose={onClose}
+            // Cancel does not stop a running save. The save still applies, and its response replaces any new edit.
+            closable={!experimentUpdateLoading}
             title="Statistics configuration"
             footer={
                 <div className="flex items-center gap-2 justify-end">
-                    <LemonButton type="secondary" onClick={onClose}>
+                    <LemonButton
+                        type="secondary"
+                        onClick={onClose}
+                        disabledReason={experimentUpdateLoading ? 'Saving in progress' : undefined}
+                    >
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" loading={experimentUpdateLoading} onClick={() => void onSave()}>
+                    <LemonButton
+                        type="primary"
+                        loading={experimentUpdateLoading}
+                        onClick={() =>
+                            updateExperimentSettings({ stats_config: experiment.stats_config }, 'statsMethod')
+                        }
+                    >
                         Save
                     </LemonButton>
                 </div>

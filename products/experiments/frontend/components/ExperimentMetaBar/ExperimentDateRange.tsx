@@ -1,5 +1,4 @@
-import { useValues } from 'kea'
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
 
 import { IconArrowRight, IconCalendar } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
@@ -8,16 +7,26 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { type ExperimentSaveOutcome, dispatchExperimentSave, experimentLogic } from 'scenes/experiments/experimentLogic'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 interface DateTriggerProps {
     date: string | null | undefined
     boundary: 'start' | 'end'
-    onChange: (date: string) => Promise<ExperimentSaveOutcome>
+    onApply: (date: string) => void
 }
 
-function DateTrigger({ date, boundary, onChange }: DateTriggerProps): JSX.Element {
-    const [isOpen, setIsOpen] = useState(false)
+function DateTrigger({ date, boundary, onApply }: DateTriggerProps): JSX.Element {
+    const { openDatePicker, experimentUpdateLoading } = useValues(experimentLogic)
+    const { setOpenDatePicker } = useActions(experimentLogic)
+    const isOpen = openDatePicker === boundary
+
+    // A successful save closes the picker. If the picker could close while the save runs, that save would close a
+    // picker that the user opened again.
+    const close = (): void => {
+        if (!experimentUpdateLoading) {
+            setOpenDatePicker(null)
+        }
+    }
 
     const label = date ? dayjs(date).format('MMM D, YYYY') : boundary === 'end' ? 'Present' : 'No date'
     const disabledReason = !date
@@ -30,17 +39,13 @@ function DateTrigger({ date, boundary, onChange }: DateTriggerProps): JSX.Elemen
         <Popover
             actionable
             visible={isOpen}
-            onClickOutside={() => setIsOpen(false)}
+            onClickOutside={close}
             overlay={
                 <LemonCalendarSelect
                     value={date ? dayjs(date) : null}
-                    onChange={async (value) => {
-                        // The save reports its own error, so a failed save only keeps the picker open for a retry.
-                        if ((await onChange(value.toISOString())) === 'saved') {
-                            setIsOpen(false)
-                        }
-                    }}
-                    onClose={() => setIsOpen(false)}
+                    onChange={(value) => onApply(value.toISOString())}
+                    onClose={close}
+                    loading={experimentUpdateLoading}
                     granularity="minute"
                     selectionPeriod={boundary === 'start' ? 'past' : undefined}
                 />
@@ -50,7 +55,7 @@ function DateTrigger({ date, boundary, onChange }: DateTriggerProps): JSX.Elemen
                 type="tertiary"
                 size="xsmall"
                 sideIcon={null}
-                onClick={() => setIsOpen(true)}
+                onClick={() => setOpenDatePicker(boundary)}
                 disabledReason={disabledReason}
                 data-attr={`experiment-${boundary}-date`}
             >
@@ -72,28 +77,17 @@ function DateTrigger({ date, boundary, onChange }: DateTriggerProps): JSX.Elemen
 }
 
 export function ExperimentDateRange(): JSX.Element {
-    const { experiment, experimentId } = useValues(experimentLogic)
+    const { experiment } = useValues(experimentLogic)
+    const { changeExperimentStartDate, changeExperimentEndDate } = useActions(experimentLogic)
 
     return (
         <div className="flex items-center gap-0.5" data-attr="experiment-date-range">
             <Tooltip title="Duration">
                 <IconCalendar className="text-secondary text-base shrink-0 mr-1" />
             </Tooltip>
-            <DateTrigger
-                date={experiment.start_date}
-                boundary="start"
-                onChange={(date) =>
-                    dispatchExperimentSave(experimentId, (actions) => actions.changeExperimentStartDate(date))
-                }
-            />
+            <DateTrigger date={experiment.start_date} boundary="start" onApply={changeExperimentStartDate} />
             <IconArrowRight className="text-tertiary shrink-0" />
-            <DateTrigger
-                date={experiment.end_date}
-                boundary="end"
-                onChange={(date) =>
-                    dispatchExperimentSave(experimentId, (actions) => actions.changeExperimentEndDate(date))
-                }
-            />
+            <DateTrigger date={experiment.end_date} boundary="end" onApply={changeExperimentEndDate} />
         </div>
     )
 }

@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
@@ -43,10 +44,15 @@ const SHOWN_DATES = {
     end: { saved: 'Feb 5, 2026', picked: 'Feb 12, 2026', server: 'Feb 20, 2026' },
 }
 
+const echoSave = async ({ request }: { request: Request }): Promise<[number, Experiment]> => [
+    200,
+    { ...savedExperiment, ...(await request.json()) },
+]
+
 const RESPONSES = {
     fails: () => [400, { type: 'validation_error', code: 'invalid_input', detail: VALIDATION_DETAIL, attr: null }],
     conflicts: () => [409, { type: 'validation_error', code: 'conflict', detail: CONFLICT_DETAIL, current_version: 2 }],
-    succeeds: async ({ request }: { request: Request }) => [200, { ...savedExperiment, ...(await request.json()) }],
+    succeeds: echoSave,
 }
 
 describe('ExperimentDateRange', () => {
@@ -56,6 +62,30 @@ describe('ExperimentDateRange', () => {
         cleanup()
         logic.unmount()
     })
+
+    /** Renders the date range, picks the 12th in the picker of `boundary`, and returns the picker's trigger. */
+    function pickDay(boundary: 'start' | 'end'): HTMLElement {
+        initKeaTests()
+        logic = experimentLogic({ experimentId: EXPERIMENT_ID })
+        logic.mount()
+        logic.actions.setUnmodifiedExperiment(savedExperiment)
+        logic.actions.setExperiment(savedExperiment)
+
+        const { container } = render(
+            <Provider>
+                <BindLogic logic={experimentLogic} props={{ experimentId: EXPERIMENT_ID }}>
+                    <ExperimentDateRange />
+                </BindLogic>
+            </Provider>
+        )
+        const trigger = getByDataAttr(container, `experiment-${boundary}-date`)
+
+        fireEvent.click(trigger)
+        expect(trigger).toHaveClass('LemonButton--active')
+        const month = document.querySelector('.LemonCalendar__month') as HTMLElement
+        fireEvent.click(within(month).getByText('12'))
+        return trigger
+    }
 
     it.each([
         { boundary: 'start', outcome: 'fails', open: true, shown: 'saved', toasts: [VALIDATION_DETAIL] },
@@ -71,32 +101,10 @@ describe('ExperimentDateRange', () => {
                 get: { '/api/projects/:team/experiments/:id': serverExperiment },
                 patch: { '/api/projects/:team/experiments/:id': RESPONSES[outcome] },
             })
-            initKeaTests()
-            logic = experimentLogic({ experimentId: EXPERIMENT_ID })
-            logic.mount()
-            logic.actions.setUnmodifiedExperiment(savedExperiment)
-            logic.actions.setExperiment(savedExperiment)
+            const trigger = pickDay(boundary)
 
-            const { container } = render(
-                <Provider>
-                    <BindLogic logic={experimentLogic} props={{ experimentId: EXPERIMENT_ID }}>
-                        <ExperimentDateRange />
-                    </BindLogic>
-                </Provider>
-            )
-            const trigger = getByDataAttr(container, `experiment-${boundary}-date`)
-
-            fireEvent.click(trigger)
-            expect(trigger).toHaveClass('LemonButton--active')
-            const month = document.querySelector('.LemonCalendar__month') as HTMLElement
-            fireEvent.click(within(month).getByText('12'))
             fireEvent.click(getByDataAttr(document.body, 'lemon-calendar-select-apply'))
-            await act(async () => {
-                await expectLogic(logic).toFinishAllListeners()
-                // The picker acts on the save outcome after the listeners settle, so drain the microtask queue. waitFor
-                // cannot replace this, because an open picker looks the same before and after the outcome.
-                await new Promise((resolve) => setTimeout(resolve, 0))
-            })
+            await act(() => expectLogic(logic).toFinishAllListeners())
 
             expect(trigger).toHaveTextContent(SHOWN_DATES[boundary][shown])
             expect(trigger.classList.contains('LemonButton--active')).toBe(open)
@@ -105,4 +113,34 @@ describe('ExperimentDateRange', () => {
             )
         }
     )
+
+    it('applies a date once and stays open while the save runs', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        let finishSave = (): void => {}
+        const saveFinished = new Promise<void>((resolve) => {
+            finishSave = resolve
+        })
+        useMocks({
+            patch: {
+                '/api/projects/:team/experiments/:id': async (request: { request: Request }) => {
+                    await saveFinished
+                    return echoSave(request)
+                },
+            },
+        })
+        const trigger = pickDay('start')
+
+        fireEvent.click(getByDataAttr(document.body, 'lemon-calendar-select-apply'))
+        fireEvent.click(getByDataAttr(document.body, 'lemon-calendar-select-apply'))
+        fireEvent.click(getByDataAttr(document.body, 'lemon-calendar-select-cancel'))
+
+        expect(getByDataAttr(document.body, 'lemon-calendar-select-apply')).toHaveClass('LemonButton--loading')
+        expect(trigger).toHaveClass('LemonButton--active')
+
+        finishSave()
+        await act(() => expectLogic(logic).toFinishAllListeners())
+
+        expect(trigger).not.toHaveClass('LemonButton--active')
+        expect(captureSpy.mock.calls.filter(([event]) => event === 'experiment start date changed')).toHaveLength(1)
+    })
 })

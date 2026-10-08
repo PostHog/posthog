@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
-import { dispatchExperimentSave, experimentLogic } from 'scenes/experiments/experimentLogic'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { CupedSelection, getCupedSelection, resolveCupedLookbackDays } from 'scenes/experiments/ExperimentView/cuped'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
@@ -10,8 +10,8 @@ import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsC
 import { DEFAULT_LOOKBACK_DAYS, MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
 
 export function CupedModal(): JSX.Element {
-    const { experiment, experimentId, experimentUpdateLoading } = useValues(experimentLogic)
-    const { setExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
+    const { experiment, experimentUpdateLoading } = useValues(experimentLogic)
+    const { setExperiment, restoreUnmodifiedExperiment, updateExperimentSettings } = useActions(experimentLogic)
     const { experimentsConfig } = useValues(experimentsConfigLogic)
     const { closeCupedModal } = useActions(modalsLogic)
     const { isCupedModalOpen } = useValues(modalsLogic)
@@ -60,27 +60,28 @@ export function CupedModal(): JSX.Element {
         })
     }
 
-    const onSave = async (): Promise<void> => {
-        const outcome = await dispatchExperimentSave(experimentId, (actions) =>
-            actions.updateExperimentSettings({ stats_config: experiment.stats_config })
-        )
-        if (outcome === 'saved') {
-            closeCupedModal()
-        }
-    }
-
     return (
         <LemonModal
             maxWidth={600}
             isOpen={isCupedModalOpen}
             onClose={onClose}
+            // Cancel does not stop a running save. The save still applies, and its response replaces any new edit.
+            closable={!experimentUpdateLoading}
             title="CUPED variance reduction"
             footer={
                 <div className="flex items-center gap-2 justify-end">
-                    <LemonButton type="secondary" onClick={onClose}>
+                    <LemonButton
+                        type="secondary"
+                        onClick={onClose}
+                        disabledReason={experimentUpdateLoading ? 'Saving in progress' : undefined}
+                    >
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" loading={experimentUpdateLoading} onClick={() => void onSave()}>
+                    <LemonButton
+                        type="primary"
+                        loading={experimentUpdateLoading}
+                        onClick={() => updateExperimentSettings({ stats_config: experiment.stats_config }, 'cuped')}
+                    >
                         Save
                     </LemonButton>
                 </div>
