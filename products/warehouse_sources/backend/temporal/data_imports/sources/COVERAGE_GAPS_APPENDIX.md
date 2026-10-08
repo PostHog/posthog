@@ -7479,6 +7479,7 @@ Diffed against: <https://developer.safetyculture.com/reference/thepubservice_fee
 - [ ] `feed/investigations (plus investigation fields and relationships)` — incident investigation records linked to the issues and actions we sync (medium)
 - [ ] `feed/assets_maintenance, feed/maintenance_plans, feed/maintenance_programs` — maintenance schedule and status for the assets we already sync (medium)
 - [ ] `feed/contractor_companies and feed/contractor_company_user_memberships` — contractor org lookup plus its membership join (medium)
+- [x] `POST /structures/v1/structures/search` — organization hierarchy nodes (sites and groups) with their custom field values, from the Structures API (medium)
 
 Note: SafetyCulture's warehouse-oriented surface is the /feed/\* family, and roughly 30 feed endpoints exist; the connector covers 10 of them (actions, assets, groups, inspection_items, inspections, issues, schedules, sites, templates, users) and none of the assignee, membership, or timeline joins. Also uncovered: feed/schedule_assignees, feed/action_fields, feed/document_types, feed/user_documents, feed/credentials, feed/credential_types, and the separate training-analytics service (lesson attempts, course statistics, survey answers). Static endpoint catalog, no dynamic discovery. feed/template_permissions was excluded as access-control plumbing.
 
