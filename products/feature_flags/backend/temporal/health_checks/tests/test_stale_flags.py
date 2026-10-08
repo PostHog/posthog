@@ -30,6 +30,7 @@ from products.feature_flags.backend.temporal.health_checks.stale_flags import (
     EVIDENCE_NOT_CALLED_RECENTLY,
     LIVE_GATE_FLAG,
     StaleFeatureFlagsCheck,
+    _live_gate_answer,
 )
 from products.feature_flags.backend.test.replay_gate_fixtures import trigger_groups
 from products.product_tours.backend.models import ProductTour
@@ -695,8 +696,14 @@ class TestStaleFlagsDetect(BaseTest):
 
         flag_read.assert_not_called()
 
-    def test_a_team_the_gate_drops_keeps_its_open_issues(self) -> None:
-        self._create_flag("already-reported", **stale_by_usage())
+    @patch("posthog.temporal.health_checks.processing.emit_health_check_alert")
+    def test_a_team_the_gate_drops_keeps_its_open_issues(self, _mock_alert) -> None:
+        enabled = Team.objects.create(organization=self.organization, name="enabled")
+        FeatureFlag.objects.create(team=enabled, key="stale", created_by=self.user, active=True, **stale_by_usage())
+        # The dropped team holds no stale flag, so an ungated run would read it as healthy and
+        # resolve this row. Sharing the batch with an enabled team is the production shape: the
+        # narrowed list has to reach detection and the healthy-team subtraction, not the early
+        # return an empty batch takes.
         HealthIssue.objects.create(
             team=self.team,
             kind="stale_feature_flags",
@@ -706,13 +713,14 @@ class TestStaleFlagsDetect(BaseTest):
             status=HealthIssue.Status.ACTIVE,
         )
 
-        # This is what the hook buys: the framework reads a team missing from a detector's
-        # result as healthy and resolves it, but a team removed before detection is not in the
-        # run at all. Every unreadable-gate case lands here, so none of them needs a guard.
-        with _sdk_holding_the_gate(), patch(LIVE_GATE_TARGET, return_value=False):
-            _process_batch_detection([self.team.id], "stale_feature_flags", StaleFeatureFlagsCheck().detect)
+        with (
+            _sdk_holding_the_gate(),
+            patch(LIVE_GATE_TARGET, side_effect=lambda _k, distinct_id, **_kw: distinct_id == f"team-{enabled.id}"),
+        ):
+            _process_batch_detection([enabled.id, self.team.id], "stale_feature_flags", StaleFeatureFlagsCheck().detect)
 
-        assert HealthIssue.objects.filter(team=self.team, status=HealthIssue.Status.ACTIVE).count() == 1
+        assert HealthIssue.objects.get(unique_hash="already-open").status == HealthIssue.Status.ACTIVE
+        assert HealthIssue.objects.filter(team=enabled, status=HealthIssue.Status.ACTIVE).count() == 1
 
     def test_the_gate_runs_no_query_when_no_team_is_enabled(self) -> None:
         self._create_flag("enabled-but-gated", **stale_by_usage())
@@ -819,8 +827,8 @@ class TestStaleFlagsDetect(BaseTest):
         flag_b = self._create_flag("lifecycle-b", **stale_by_usage())
         check = StaleFeatureFlagsCheck()
 
-        def run() -> None:
-            with _sdk_holding_the_gate(), patch(LIVE_GATE_TARGET, return_value=True):
+        def run(gate_answer: bool = True) -> None:
+            with _sdk_holding_the_gate(), patch(LIVE_GATE_TARGET, return_value=gate_answer):
                 _process_batch_detection([self.team.id], check.kind, check.detect, dry_run=False)
 
         def active_issues():
@@ -856,8 +864,10 @@ class TestStaleFlagsDetect(BaseTest):
         assert issue_a.status == HealthIssue.Status.RESOLVED
         assert active_issues().get(payload__flag_id=flag_a.id).id != issue_a.id
 
-        with _sdk_holding_the_gate(), patch(LIVE_GATE_TARGET, return_value=False):
-            _process_batch_detection([self.team.id], check.kind, check.detect, dry_run=False)
+        # Flag A stops being stale, but the gate is off, so its issue stays open.
+        flag_a.last_called_at = timezone.now()
+        flag_a.save()
+        run(gate_answer=False)
         assert active_issues().count() == 2
 
 
@@ -1008,15 +1018,10 @@ class TestLiveGateAgainstRealLocalEvaluation(SimpleTestCase):
         }
 
     def _answer_for(self, client: Client, team_id: int) -> Any:
-        region = "DEV"
-        return client.get_feature_flag(
-            LIVE_GATE_FLAG,
-            f"team-{team_id}",
-            groups={"project": f"{region}:{team_id}"},
-            group_properties={"project": {"id": str(team_id), "region": region}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
+        # `get_feature_flag_or_none` resolves the module function at call time, so the
+        # standalone client stands in for the global one and the gate sends what production sends.
+        with patch("posthoganalytics.get_feature_flag", client.get_feature_flag):
+            return _live_gate_answer(team_id)
 
     def test_a_project_and_region_condition_matches_only_that_project(self) -> None:
         client = self._client_holding([self._gate_flag(region="DEV", team_id=2)])
@@ -1044,4 +1049,9 @@ class TestLiveGateAgainstRealLocalEvaluation(SimpleTestCase):
     def test_an_absent_gate_answers_none(self) -> None:
         client = self._client_holding([{"id": 9, "key": "some-other-flag", "active": True, "filters": {}}])
 
-        assert self._answer_for(client, 2) is None
+        with capture_logs() as logs:
+            assert self._answer_for(client, 2) is None
+
+        # `get_feature_flag_or_none` also answers None after an exception, so the log is what
+        # separates a missing flag from a read that failed.
+        assert [log for log in logs if log["event"] == "get_feature_flag_failed"] == []
