@@ -67,6 +67,7 @@ class TestParseNetworkPayload:
             ("fast success", {"status": 200, "duration": 30}, False),
             ("fast redirect", {"status": 302, "duration": 12}, False),
             ("observer hides a cross-origin status", {"responseStatus": 0, "duration": 30}, False),
+            ("wrapped fetch that threw", {"method": "GET", "responseStatus": 0, "duration": 30}, True),
         ]
     )
     def test_keeps_only_failed_or_slow_requests(self, _label: str, fields: dict[str, Any], kept: bool) -> None:
