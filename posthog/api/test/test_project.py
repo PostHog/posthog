@@ -336,6 +336,18 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
+    def test_hobby_rechecks_project_limit_during_creation(self):
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        with patch("posthog.api.project.PremiumMultiProjectPermission.has_permission", return_value=True):
+            response = self.client.post("/api/projects/", {"name": "Second project"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.organization.projects.count(), 1)
+
     def _set_unlimited_projects(self, with_member_create_entitlement: bool = True) -> None:
         features: list[dict] = [{"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}]
         if with_member_create_entitlement:
