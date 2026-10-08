@@ -502,15 +502,23 @@ def test_bigquery_get_rows_to_sync_retries_transient_job_not_found(mock_sleep):
     mock_capture.assert_not_called()
 
 
-def test_bigquery_get_rows_to_sync_skips_capture_when_table_missing():
-    # A table deleted/renamed after schema discovery (or absent from the queried region) makes the
-    # COUNT query raise a terminal NotFound. The main read path already surfaces this non-retryably,
-    # so the best-effort probe must fall back to 0 without capturing error-tracking noise.
+@pytest.mark.parametrize(
+    "error",
+    [
+        NotFound("404 Not found: Table proj:ds.t was not found in location EU"),
+        Forbidden("Access Denied: Table proj:ds.t: Permission bigquery.tables.getData denied on table"),
+    ],
+    ids=["table_missing", "access_denied"],
+)
+def test_bigquery_get_rows_to_sync_skips_capture_for_user_side_errors(error):
+    # A missing table (deleted/renamed, or absent from the queried region) or a missing IAM grant makes
+    # the COUNT query fail terminally. The main read path already surfaces both non-retryably, so the
+    # best-effort probe must fall back to 0 without capturing error-tracking noise.
     table = mock.MagicMock(project="proj", dataset_id="ds", table_id="t")
     table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
     client = mock.MagicMock()
     job = mock.MagicMock()
-    job.result.side_effect = NotFound("404 Not found: Table proj:ds.t was not found in location EU")
+    job.result.side_effect = error
     client.query.return_value = job
 
     with mock.patch(

@@ -942,6 +942,12 @@ def filter_bigquery_incremental_fields(
     return results
 
 
+def _is_access_denied(error: Exception) -> bool:
+    """True for a missing IAM permission, a customer-side condition we can't act on."""
+    message = str(error)
+    return "Access Denied" in message or "PermissionDenied" in message or "permission denied" in message
+
+
 def classify_bigquery_validation_error(e: Exception) -> str:
     """Map a failure raised while validating a source to the message the wizard shows.
 
@@ -978,7 +984,7 @@ def classify_bigquery_validation_error(e: Exception) -> str:
         return BIGQUERY_INVALID_IDENTIFIER_ERROR
     if "was not found in location" in message or "Not found: Dataset" in message:
         return BIGQUERY_DATASET_NOT_FOUND_ERROR
-    if "Access Denied" in message or "PermissionDenied" in message or "permission denied" in message:
+    if _is_access_denied(e):
         return BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR
     # Genuinely unexpected — keep the signal, and fall back to a generic message so no raw
     # exception text (which can embed ids or tokens) reaches the user.
@@ -1240,7 +1246,11 @@ def _get_rows_to_sync(
         return 0
     except Exception as e:
         logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
-        if not _is_missing_table_or_dataset(e) and not isinstance(e, BigQueryJobTimeoutError):
+        if (
+            not _is_missing_table_or_dataset(e)
+            and not _is_access_denied(e)
+            and not isinstance(e, BigQueryJobTimeoutError)
+        ):
             capture_exception(e)
 
         return 0
