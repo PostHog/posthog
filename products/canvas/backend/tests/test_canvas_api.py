@@ -280,6 +280,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         for path in ("", "view/", "source/"):
             response = self.client.get(f"/api/projects/{self.team.id}/canvases/{hidden_canvas_id}/{path}")
             assert response.status_code == status.HTTP_403_FORBIDDEN, (path, response.json())
+            assert response.json()["detail"] == "You do not have viewer access to this resource.", path
         assert self.client.get(f"/api/projects/{self.team.id}/canvases/{visible_canvas_id}/").status_code == 200
 
     def test_personal_channel_canvases_are_invisible_to_other_users(self):

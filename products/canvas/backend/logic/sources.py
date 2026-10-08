@@ -1,6 +1,6 @@
 """Canvas source, versions, builds, and grid layout."""
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -31,7 +31,7 @@ from products.canvas.backend.facade.contracts import (
 from products.canvas.backend.facade.enums import CanvasAccess
 from products.canvas.backend.layout import default_layout
 from products.canvas.backend.logic.access import authorized_canvases
-from products.canvas.backend.logic.canvases import canvas_row, check_object_access, user_or_none
+from products.canvas.backend.logic.canvases import canvas_row, user_or_none
 from products.canvas.backend.logic.records import (
     build_record,
     canvas_record,
@@ -40,9 +40,6 @@ from products.canvas.backend.logic.records import (
     widening_record,
 )
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
-
-if TYPE_CHECKING:
-    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 # The canvas's build lifecycle returns this many recent builds (the published
 # build is unioned in even when it has aged past the window).
@@ -401,13 +398,8 @@ def _component_lifecycles(
     return entries
 
 
-def open_canvas(
-    viewer: CanvasViewer,
-    canvas_id: UUID | str,
-    *,
-    user_access_control: "UserAccessControl | None",
-    required_level: str | None,
-) -> CanvasOpenState:
+def open_canvas(viewer: CanvasViewer, canvas_id: UUID | str) -> CanvasOpenState:
+    """Everything needed to open the canvas, for a viewer the view already checked."""
     canvases = authorized_canvases(viewer, CanvasAccess.READ)
     try:
         canvas = (
@@ -419,7 +411,6 @@ def open_canvas(
         canvas = None
     if canvas is None:
         raise CanvasNotFoundError
-    check_object_access(canvas, user_access_control, required_level)
     live_build = _renderable_build(canvas.published_build)
     newest_active = (
         CanvasBuild.objects.for_team(viewer.team_id)
