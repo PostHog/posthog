@@ -271,6 +271,15 @@ export namespace Schemas {
       human_readable_error?: string | null;
     }
 
+    export interface AcceptWarehouseSuggestion {
+      /**
+         * Materialize only: refresh interval to use instead of the proposed one, in seconds.
+         * @minimum 1
+         * @maximum 2592000
+         */
+      refresh_interval_seconds?: number;
+    }
+
     export interface AccessControlResourceDefault {
       /**
          * The stored default level for this resource type. Null when the PostHog default applies.
@@ -15792,13 +15801,13 @@ export namespace Schemas {
       readonly team_id: number;
       /** A human-readable name for this BatchExport. */
       name: string;
-      /** Which model this BatchExport is exporting.
+      /** Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.
        *
        * * `events` - Events
        * * `persons` - Persons
        * * `sessions` - Sessions
        * * `hogql` - Hogql */
-      model?: BatchExportModelEnum | BlankEnum | null;
+      model?: BatchExportModelEnum;
       /** Destination configuration (type, config, and optional integration). */
       destination: BatchExportDestination;
       /** How often the batch export should run.
@@ -15833,7 +15842,7 @@ export namespace Schemas {
       /** The 10 most recent runs of this batch export, ordered newest first. */
       readonly latest_runs: readonly BatchExportRun[];
       /**
-         * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'.
+         * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. Required when model is 'hogql'.
          * @nullable
          */
       hogql_query?: string | null;
@@ -16682,7 +16691,7 @@ export namespace Schemas {
       /** Whether the batch export is paused. */
       paused?: boolean;
       /**
-         * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'.
+         * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. Required when model is 'hogql'.
          * @nullable
          */
       hogql_query?: string | null;
@@ -27706,8 +27715,8 @@ export namespace Schemas {
          */
       display_name?: string;
       /**
-         * What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
-         * @maxLength 1000
+         * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+         * @maxLength 300
          */
       description: string;
       /**
@@ -49784,6 +49793,11 @@ export namespace Schemas {
       readonly api_version: string | null;
       /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
       readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
+      /**
+         * Set on an update response when the change was saved but the connection check from the API could not reach the database. Null otherwise.
+         * @nullable
+         */
+      readonly connection_warning: string | null;
     }
 
     export type ExternalQueryErrorCode = typeof ExternalQueryErrorCode[keyof typeof ExternalQueryErrorCode];
@@ -55332,6 +55346,8 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsSearchMetrics {
+      /** Fraction of Google Search ad impressions shown as the first ad. */
+      absoluteTopImpressionRate?: number | null;
       clicks: number;
       conversions?: number | null;
       cost?: number | null;
@@ -55340,9 +55356,13 @@ export namespace Schemas {
       ctr?: number | null;
       impressions: number;
       position?: number | null;
+      /** Fraction of Google Search ad impressions shown among the top ads. */
+      topImpressionRate?: number | null;
     }
 
     export interface MarketingAnalyticsSearchRow {
+      /** Fraction of Google Search ad impressions shown as the first ad. */
+      absoluteTopImpressionRate?: number | null;
       clicks: number;
       conversions?: number | null;
       cost?: number | null;
@@ -55357,6 +55377,8 @@ export namespace Schemas {
       platform: Platform;
       position?: number | null;
       previous?: MarketingAnalyticsSearchMetrics | null;
+      /** Fraction of Google Search ad impressions shown among the top ads. */
+      topImpressionRate?: number | null;
     }
 
     export interface MarketingAnalyticsSearchQueryResponse {
@@ -55882,8 +55904,17 @@ export namespace Schemas {
       Summary: 'summary',
     } as const;
 
+    export type MetricsRangeFunction = typeof MetricsRangeFunction[keyof typeof MetricsRangeFunction];
+
+
+    export const MetricsRangeFunction = {
+      Rate: 'rate',
+      Increase: 'increase',
+    } as const;
+
     export interface MetricsQueryClause {
-      aggregation: MetricsAggregation;
+      /** Omit to get one line per series (at most 100), without combining them */
+      aggregation?: MetricsAggregation | null;
       filters?: MetricsQueryFilter[] | null;
       groupBy?: MetricsQueryGroupBy[] | null;
       metricName: string;
@@ -55893,6 +55924,8 @@ export namespace Schemas {
       name: string;
       /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
       quantile?: number | null;
+      /** Applied to each series before `aggregation`, like `rate()` in PromQL */
+      rangeFunction?: MetricsRangeFunction | null;
     }
 
     export type MetricsReducer = typeof MetricsReducer[keyof typeof MetricsReducer];
@@ -58977,6 +59010,36 @@ export namespace Schemas {
       /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
       recipe_snapshot: IterationTrailWithRecipeRecipeSnapshot;
     }
+
+    /**
+     * * `visible_error` - Error on screen
+     * * `silent_failure` - Action silently failed
+     * * `unresponsive` - Clicks went nowhere
+     * * `slow_or_stuck` - Slow or stuck
+     * * `blocked` - Blocked
+     * * `cant_find` - Couldn't find it
+     * * `confused` - Confused
+     * * `workaround` - Took a workaround
+     * * `abandoned` - Gave up
+     * * `churn_signal` - Churn signal
+     * * `success` - Worked well
+     */
+    export type JevWatchReasonEnum = typeof JevWatchReasonEnum[keyof typeof JevWatchReasonEnum];
+
+
+    export const JevWatchReasonEnum = {
+      VisibleError: 'visible_error',
+      SilentFailure: 'silent_failure',
+      Unresponsive: 'unresponsive',
+      SlowOrStuck: 'slow_or_stuck',
+      Blocked: 'blocked',
+      CantFind: 'cant_find',
+      Confused: 'confused',
+      Workaround: 'workaround',
+      Abandoned: 'abandoned',
+      ChurnSignal: 'churn_signal',
+      Success: 'success',
+    } as const;
 
     export interface JiraIssueSignalExtra {
       key: string;
@@ -65067,6 +65130,34 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `none` - none
+     * * `sum` - sum
+     * * `avg` - avg
+     * * `count` - count
+     * * `min` - min
+     * * `max` - max
+     * * `p95` - p95
+     * * `rate` - rate
+     * * `increase` - increase
+     * * `histogram_quantile` - histogram_quantile
+     */
+    export type MetricQueryAggregationEnum = typeof MetricQueryAggregationEnum[keyof typeof MetricQueryAggregationEnum];
+
+
+    export const MetricQueryAggregationEnum = {
+      None: 'none',
+      Sum: 'sum',
+      Avg: 'avg',
+      Count: 'count',
+      Min: 'min',
+      Max: 'max',
+      P95: 'p95',
+      Rate: 'rate',
+      Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
+    } as const;
+
+    /**
      * * `second_15` - second_15
      * * `second_30` - second_30
      * * `minute` - minute
@@ -65092,6 +65183,18 @@ export namespace Schemas {
       Hour6: 'hour_6',
       Day: 'day',
       Week: 'week',
+    } as const;
+
+    /**
+     * * `rate` - rate
+     * * `increase` - increase
+     */
+    export type MetricRangeFunctionEnum = typeof MetricRangeFunctionEnum[keyof typeof MetricRangeFunctionEnum];
+
+
+    export const MetricRangeFunctionEnum = {
+      Rate: 'rate',
+      Increase: 'increase',
     } as const;
 
     /**
@@ -74952,6 +75055,51 @@ export namespace Schemas {
       results: WarehouseColumnStatistics[];
     }
 
+    export interface WarehouseSuggestionCertifyPayload {
+      /** Name of the view or table to certify. */
+      subject_name: string;
+    }
+
+    export interface WarehouseSuggestionDeprecatePayload {
+      /** Name of the unread view to deprecate. */
+      subject_name: string;
+      /** Time its refreshes take in a month, in seconds. */
+      refresh_seconds_per_month: number;
+      /** Bytes its refreshes read in a month. */
+      refresh_bytes_per_month: number;
+    }
+
+    export interface WarehouseSuggestionVisibleSources {
+      /** Names of the sources the caller may see. */
+      names: string[];
+      /** How many more sources exist that the caller may not see. */
+      hidden_count: number;
+    }
+
+    export interface WarehouseSuggestionMaterializePayload {
+      /** Sources that are always current, such as PostHog tables and direct connections. */
+      live_sources: WarehouseSuggestionVisibleSources;
+      /** Sources with no sync schedule, so their freshness is unknown. */
+      unknown_sources: WarehouseSuggestionVisibleSources;
+      /** Name of the view to materialize. */
+      subject_name: string;
+      /** Proposed refresh interval, in seconds. */
+      refresh_interval_seconds: number;
+      /** Query time materializing saves in a month, in seconds. */
+      saves_seconds_per_month: number;
+      /** Bytes materializing saves from scanning in a month. */
+      saves_bytes_per_month: number;
+      /**
+         * How old the view's data can be today, in seconds. Null when its sources are live.
+         * @nullable
+         */
+      freshness_today_seconds: number | null;
+      /** How old the data can be once materialized, in seconds. */
+      freshness_after_seconds: number;
+    }
+
+    export type WarehouseSuggestionPayload = WarehouseSuggestionCertifyPayload | WarehouseSuggestionDeprecatePayload | WarehouseSuggestionMaterializePayload;
+
     export interface WarehouseSuggestionReviewer {
       /** User id. */
       id: number;
@@ -75020,11 +75168,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * What accepting this suggestion would create or change. Shape depends on kind.
-     */
-    export type WarehouseSuggestionPayload = { [key: string]: unknown };
-
-    /**
      * The usage numbers that led to this suggestion.
      */
     export type WarehouseSuggestionEvidence = { [key: string]: unknown };
@@ -75037,7 +75180,7 @@ export namespace Schemas {
 
     export interface WarehouseSuggestion {
       /** What accepting this suggestion would create or change. Shape depends on kind. */
-      payload: WarehouseSuggestionPayload;
+      readonly payload: WarehouseSuggestionPayload;
       /** The usage numbers that led to this suggestion. */
       evidence: WarehouseSuggestionEvidence;
       /**
@@ -76115,7 +76258,7 @@ export namespace Schemas {
       /** Whether the batch export is paused. */
       paused?: boolean;
       /**
-         * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'.
+         * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. Required when model is 'hogql'.
          * @nullable
          */
       hogql_query?: string | null;
@@ -76946,8 +77089,8 @@ export namespace Schemas {
          */
       display_name?: string;
       /**
-         * What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
-         * @maxLength 1000
+         * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+         * @maxLength 300
          */
       description?: string;
       /**
@@ -78718,6 +78861,11 @@ export namespace Schemas {
       readonly api_version?: string | null;
       /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
       readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null;
+      /**
+         * Set on an update response when the change was saved but the connection check from the API could not reach the database. Null otherwise.
+         * @nullable
+         */
+      readonly connection_warning?: string | null;
     }
 
     export interface PatchedFeatureFlagPartialUpdateRequestSchema {
@@ -109622,6 +109770,27 @@ export namespace Schemas {
       schema_name: string | null;
     }
 
+    export interface WarehouseSuggestionStatus {
+      /** False when the project turned suggestions off. */
+      enabled: boolean;
+      /** Whether the project reads its views often enough to get suggestions. */
+      eligible: boolean;
+      /** Days of read history the last run had, up to the window. */
+      days_with_data: number;
+      /** Days of read history a full window holds. */
+      window_days: number;
+      /**
+         * Why new suggestions stopped showing. Null while they show.
+         * @nullable
+         */
+      paused_reason: string | null;
+      /**
+         * When the daily job last ran for this project.
+         * @nullable
+         */
+      refreshed_at: string | null;
+    }
+
     /**
      * * `user_created` - user_created
      * * `posthog_ai` - posthog_ai
@@ -109866,6 +110035,20 @@ export namespace Schemas {
          * @nullable
          */
       notability_reason?: string | null;
+      /** Why the decision model rated the session worth watching, picked from a fixed list, for `jev_watchable`. Absent when no reason on the list fits, or on sessions judged before reasons shipped.
+       *
+       * * `visible_error` - Error on screen
+       * * `silent_failure` - Action silently failed
+       * * `unresponsive` - Clicks went nowhere
+       * * `slow_or_stuck` - Slow or stuck
+       * * `blocked` - Blocked
+       * * `cant_find` - Couldn't find it
+       * * `confused` - Confused
+       * * `workaround` - Took a workaround
+       * * `abandoned` - Gave up
+       * * `churn_signal` - Churn signal
+       * * `success` - Worked well */
+      watch_reason?: JevWatchReasonEnum;
       /**
          * The observation's score, for `outlier_score`.
          * @nullable
@@ -112441,6 +112624,7 @@ export namespace Schemas {
       metricType?: OtelMetricTypeEnum | null;
       /** Aggregation applied per time bucket; same semantics as the top-level aggregation.
        *
+       * * `none` - none
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
@@ -112450,7 +112634,12 @@ export namespace Schemas {
        * * `rate` - rate
        * * `increase` - increase
        * * `histogram_quantile` - histogram_quantile */
-      aggregation?: AggregationEnum;
+      aggregation?: MetricQueryAggregationEnum;
+      /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
+       *
+       * * `rate` - rate
+       * * `increase` - increase */
+      rangeFunction?: MetricRangeFunctionEnum | null;
       /**
          * Quantile in (0, 1) for 'histogram_quantile'.
          * @minimum 0
@@ -112567,8 +112756,9 @@ export namespace Schemas {
        * * `exponential_histogram` - exponential_histogram
        * * `summary` - summary */
       metricType?: OtelMetricTypeEnum | null;
-      /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
+      /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
        *
+       * * `none` - none
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
@@ -112578,7 +112768,12 @@ export namespace Schemas {
        * * `rate` - rate
        * * `increase` - increase
        * * `histogram_quantile` - histogram_quantile */
-      aggregation?: AggregationEnum;
+      aggregation?: MetricQueryAggregationEnum;
+      /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
+       *
+       * * `rate` - rate
+       * * `increase` - increase */
+      rangeFunction?: MetricRangeFunctionEnum | null;
       /**
          * Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations.
          * @minimum 0
@@ -112625,6 +112820,8 @@ export namespace Schemas {
     export interface _MetricQueryResponse {
       /** One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels. */
       results: _MetricSeries[];
+      /** Set only when the query returned no points: what to check before querying again. */
+      hint?: string;
     }
 
     export interface _MetricSamplesBody {

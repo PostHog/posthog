@@ -195,7 +195,7 @@ export function getTableDisplayOptions(
 
 interface TableDisplayProps extends Pick<
     LemonSelectProps<ChartDisplayType>,
-    'disabledReason' | 'fullWidth' | 'loading'
+    'disabledReason' | 'fullWidth' | 'loading' | 'size'
 > {
     dataAttr?: string
     disabledReasonFor?: (displayType: ChartDisplayType) => string | undefined
@@ -207,6 +207,7 @@ export const TableDisplay = ({
     disabledReasonFor,
     fullWidth,
     loading,
+    size = 'small',
 }: TableDisplayProps): JSX.Element => {
     const { setVisualizationType } = useActions(dataVisualizationLogic)
     const { autoVisualizationType, columns, numericalColumns, visualizationType } = useValues(dataVisualizationLogic)
@@ -229,7 +230,7 @@ export const TableDisplay = ({
                 !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT]
             )}
             renderButtonContent={() => renderDisplayTypeLabel(visualizationType, autoVisualizationType)}
-            size="small"
+            size={size}
             value={visualizationType}
             data-attr={dataAttr}
         />

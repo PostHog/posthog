@@ -297,18 +297,20 @@ class TestDedupeFlashFindings:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "survivor_level,duplicate_level,filler_source",
+        "survivor_level,duplicate_level,filler_source,posted_level",
         [
             pytest.param(
                 ("P1", IssuePriority.MUST_FIX),
                 ("P0", IssuePriority.MUST_FIX),
                 SINGLE_AGENT_SOURCE,
+                "P0",
                 id="lens_p0_into_main_p1_behind_main_p1s",
             ),
             pytest.param(
                 ("P3", IssuePriority.CONSIDER),
                 ("P1", IssuePriority.MUST_FIX),
                 _LENS_SOURCE,
+                "P3",
                 id="lens_p1_into_main_p3_behind_lens_p1s",
             ),
         ],
@@ -319,6 +321,7 @@ class TestDedupeFlashFindings:
         survivor_level: tuple[ReportedPriority, IssuePriority],
         duplicate_level: tuple[ReportedPriority, IssuePriority],
         filler_source: str,
+        posted_level: ReportedPriority,
     ) -> None:
         # Storage folds P0 and P1 into must-fix and the order inside it reads the P level, so a survivor
         # ranked at its own level can be cut by the must-fix ceiling behind findings less severe than
@@ -336,7 +339,8 @@ class TestDedupeFlashFindings:
             pr_metadata, [*fillers, survivor, duplicate], _flash_dedup(("2002-1-99", "2000-1-99"))
         )
 
-        assert (selection.kept[0].id, selection.kept[0].reported_priority) == ("2000-1-99", survivor_level[0])
+        # Within one stored priority the survivor takes the duplicate's level, so its comment leads with P0.
+        assert (selection.kept[0].id, selection.kept[0].reported_priority) == ("2000-1-99", posted_level)
         dropped = {drop.issue.id: drop.issue.reported_priority for drop in selection.dropped}
         assert dropped["2002-1-99"] == duplicate_level[0]
 

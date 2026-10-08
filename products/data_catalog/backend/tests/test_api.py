@@ -18,6 +18,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import ClickHouseBurstRateThrottle, HogQLQueryThrottle
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.data_catalog.backend.facade.api import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH
 from products.data_catalog.backend.facade.enums import MetricStatus
 from products.data_catalog.backend.logic.metrics import (
     BULK_SKIP_ALREADY_APPROVED,
@@ -64,9 +65,12 @@ class TestMetricAPI(APIBaseTest):
         assert response.json()["approved_at"] is None
 
     def test_overlong_description_rejected(self) -> None:
-        response = self.client.post(self.url, {"name": "mrr", "description": "x" * 1_001}, format="json")
+        response = self.client.post(
+            self.url, {"name": "mrr", "description": "x" * (MAX_DESCRIPTION_LENGTH + 1)}, format="json"
+        )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "description"
+        assert response.json()["detail"] == DESCRIPTION_TOO_LONG_MESSAGE
 
     def test_create_is_upsert_on_name(self) -> None:
         self.client.post(self.url, {"name": "mrr", "description": "v1"}, format="json")

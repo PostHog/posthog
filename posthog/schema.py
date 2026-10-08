@@ -212,6 +212,7 @@ from posthog.schema_enums import (
     MetricsFilterOp as MetricsFilterOp,
     MetricsNullMode as MetricsNullMode,
     MetricsOtelType as MetricsOtelType,
+    MetricsRangeFunction as MetricsRangeFunction,
     MetricsReducer as MetricsReducer,
     MetricsStatSummary as MetricsStatSummary,
     MetricSummary as MetricSummary,
@@ -2084,6 +2085,10 @@ class MarketingAnalyticsSearchMetrics(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    absoluteTopImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown as the first ad.",
+    )
     clicks: float
     conversions: float | None = None
     cost: float | None = None
@@ -2092,11 +2097,19 @@ class MarketingAnalyticsSearchMetrics(BaseModel):
     ctr: float | None = None
     impressions: float
     position: float | None = None
+    topImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown among the top ads.",
+    )
 
 
 class MarketingAnalyticsSearchRow(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    absoluteTopImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown as the first ad.",
     )
     clicks: float
     conversions: float | None = None
@@ -2112,6 +2125,10 @@ class MarketingAnalyticsSearchRow(BaseModel):
     platform: Platform
     position: float | None = None
     previous: MarketingAnalyticsSearchMetrics | None = None
+    topImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown among the top ads.",
+    )
 
 
 class MarketingAnalyticsSearchSource(BaseModel):
@@ -6822,7 +6839,10 @@ class MetricsQueryClause(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation: MetricsAggregation
+    aggregation: MetricsAggregation | None = Field(
+        default=None,
+        description=("Omit to get one line per series (at most 100), without combining them"),
+    )
     filters: list[MetricsQueryFilter] | None = None
     groupBy: list[MetricsQueryGroupBy] | None = None
     metricName: str
@@ -6841,6 +6861,10 @@ class MetricsQueryClause(BaseModel):
     quantile: float | None = Field(
         default=None,
         description=("In (0, 1); required for `quantile` / `histogram_quantile` aggregations"),
+    )
+    rangeFunction: MetricsRangeFunction | None = Field(
+        default=None,
+        description=("Applied to each series before `aggregation`, like `rate()` in PromQL"),
     )
 
 
