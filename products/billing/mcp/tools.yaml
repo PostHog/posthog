@@ -140,21 +140,6 @@ tools:
             any member. Beta: behind the organization-billing-api flag, and the output shape may change while it is.
         feature_flag: organization-billing-api
         url_prefix: /organization/billing/overview
-    billing-project-spend-export-download:
-        operation: billing_project_spend_export_download
-        enabled: false
-    billing-project-spend-timeseries-retrieve:
-        operation: billing_project_spend_timeseries_retrieve
-        enabled: false
-    billing-project-usage-export-download:
-        operation: billing_project_usage_export_download
-        enabled: false
-    billing-project-usage-retrieve:
-        operation: billing_project_usage_retrieve
-        enabled: false
-    billing-project-usage-timeseries-retrieve:
-        operation: billing_project_usage_timeseries_retrieve
-        enabled: false
     billing-projects-list:
         operation: billing_project_list
         enabled: true
