@@ -9,9 +9,11 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import OrganizationDomain, OrganizationMembership
+from posthog.models import OrganizationDomain, OrganizationMembership, PropertyDefinition
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 
 
 class TestLivestreamAuthorization(APIBaseTest):
@@ -46,8 +48,9 @@ class TestLivestreamAuthorization(APIBaseTest):
         self.organization.save()
         authorization = f"Bearer {self._token()}"
         initial = self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization)
-        self.assertEqual(initial.status_code, 204)
+        self.assertEqual(initial.status_code, 200)
         self.assertEqual(initial["Cache-Control"], "no-store")
+        self.assertEqual(initial.json(), {"restricted_event_properties": [], "restricted_person_properties": []})
 
         if revoked == "membership":
             self.organization_membership.delete()
@@ -86,6 +89,30 @@ class TestLivestreamAuthorization(APIBaseTest):
         authorization = f"Bearer {self._token(audience)}" if audience else ""
         self.assertEqual(
             self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization).status_code, 401
+        )
+
+    def test_lists_the_properties_hidden_from_the_user(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        for name, property_type in (
+            ("$ip", PropertyDefinition.Type.EVENT),
+            ("email", PropertyDefinition.Type.PERSON),
+            ("$browser", PropertyDefinition.Type.EVENT),
+        ):
+            definition = PropertyDefinition.objects.create(team=self.team, name=name, type=property_type)
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=definition,
+                access_level=PropertyAccessLevel.NONE.value if name != "$browser" else PropertyAccessLevel.READ.value,
+            )
+
+        response = self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=f"Bearer {self._token()}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(), {"restricted_event_properties": ["$ip"], "restricted_person_properties": ["email"]}
         )
 
     def test_refuses_an_account_an_access_rule_blocks(self) -> None:

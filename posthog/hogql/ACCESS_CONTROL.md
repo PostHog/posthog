@@ -235,6 +235,14 @@ Covering `events`' remaining mirror columns, or a future catalog table's, means 
 When no user is present, only the team **default** rules apply instead of failing every query — see `get_restricted_properties_for_team()`.
 There is the asymmetry with the warehouse access control, which bypasses entirely for shared links rather than applying a default; that may be aligned later.
 
+### Live events stream
+
+The Live tab and the web analytics live dashboard read from the Go livestream service (`livestream/`), which consumes Kafka directly and never runs a HogQL query.
+It enforces the same rules on its own: `/api/livestream/authorize/` (`posthog/api/livestream.py`) returns the caller's restricted event and person property names, and the service re-fetches them on its periodic access re-check, so a rule change reaches an open stream within that interval.
+`convertToResponsePostHogEvent` in `livestream/events/filter.go` drops restricted event properties from every streamed event, and drops restricted person properties from inside `$set` and `$set_once`.
+A stream request whose property filter names a restricted event property is refused with 400, because which events match would reveal the value.
+A `columns` entry that names a restricted property is omitted rather than refused, so the built-in pages keep working for a restricted user.
+
 ### AI previews and summaries
 
 AI evaluation and tagger previews read event properties with the requesting user's permissions, including properties available to Hog scripts.

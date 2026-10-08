@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/gofrs/uuid/v5"
+	"github.com/posthog/posthog/livestream/auth"
 	"github.com/posthog/posthog/livestream/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -83,6 +84,9 @@ type Subscription struct {
 	Geo     bool
 	Columns []string
 
+	// Swapped by the handler on every authorization re-check; nil restricts nothing.
+	Restrictions *atomic.Pointer[auth.PropertyRestrictions]
+
 	// Transformations
 	PathCleaner *PathCleaner
 
@@ -134,28 +138,74 @@ func convertToResponseGeoEvent(event PostHogEvent) *ResponseGeoEvent {
 	}
 }
 
+// Person properties ride along on events under these keys, so a restricted
+// person property has to be removed from inside them as well.
+var personPropertyContainers = []string{"$set", "$set_once"}
+
+func (s *Subscription) restrictions() *auth.PropertyRestrictions {
+	if s.Restrictions == nil {
+		return nil
+	}
+	return s.Restrictions.Load()
+}
+
+// A filter on a hidden key would let the subscriber infer its values from which events match.
+func RestrictedFilterKey(filters []CompiledPropertyFilter, restrictions *auth.PropertyRestrictions) string {
+	for i := range filters {
+		if restrictions.RestrictsEventProperty(filters[i].Key) {
+			return filters[i].Key
+		}
+	}
+	return ""
+}
+
+func visibleProperty(key string, value interface{}, restrictions *auth.PropertyRestrictions) (interface{}, bool) {
+	if restrictions.RestrictsEventProperty(key) {
+		return nil, false
+	}
+	if !restrictions.HasPersonRestrictions() || !slices.Contains(personPropertyContainers, key) {
+		return value, true
+	}
+	nested, ok := value.(map[string]interface{})
+	if !ok {
+		return value, true
+	}
+	stripped := make(map[string]interface{}, len(nested))
+	for k, v := range nested {
+		if !restrictions.RestrictsPersonProperty(k) {
+			stripped[k] = v
+		}
+	}
+	return stripped, true
+}
+
 func convertToResponsePostHogEvent(
 	event PostHogEvent,
 	teamId int,
 	columns []string,
 	pathCleaner *PathCleaner,
+	restrictions *auth.PropertyRestrictions,
 ) *ResponsePostHogEvent {
 	var properties map[string]interface{}
 	if columns == nil {
 		properties = event.Properties
-		if pathCleaner != nil {
-			// About to inject a per-subscriber property; copy so the shared
-			// event map never carries one subscription's cleaning into another.
+		if pathCleaner != nil || restrictions != nil {
+			// About to inject or remove per-subscriber properties; copy so the
+			// shared event map never carries one subscription's view into another.
 			properties = make(map[string]interface{}, len(event.Properties)+1)
 			for k, v := range event.Properties {
-				properties[k] = v
+				if visible, ok := visibleProperty(k, v, restrictions); ok {
+					properties[k] = visible
+				}
 			}
 		}
 	} else {
 		properties = make(map[string]interface{})
 		for _, key := range columns {
 			if val, ok := event.Properties[key]; ok {
-				properties[key] = val
+				if visible, ok := visibleProperty(key, val, restrictions); ok {
+					properties[key] = visible
+				}
 			}
 		}
 	}
@@ -163,12 +213,12 @@ func convertToResponsePostHogEvent(
 	// Always pass through $virt_* bot classification properties
 	// regardless of requested columns
 	for _, key := range []string{"$virt_is_bot", "$virt_traffic_type", "$virt_traffic_category", "$virt_bot_name"} {
-		if val, ok := event.Properties[key]; ok {
+		if val, ok := event.Properties[key]; ok && !restrictions.RestrictsEventProperty(key) {
 			properties[key] = val
 		}
 	}
 
-	if pathCleaner != nil {
+	if pathCleaner != nil && !restrictions.RestrictsEventProperty("$pathname") {
 		if pathname, ok := event.Properties["$pathname"].(string); ok {
 			properties["$virt_cleaned_pathname"] = pathCleaner.Clean(pathname)
 		}
@@ -360,8 +410,16 @@ func deliverEvent(event PostHogEvent, subs []Subscription) {
 			continue
 		}
 
-		if len(sub.PropertyFilters) > 0 && !matchesPropertyFilters(event.Properties, sub.PropertyFilters) {
-			continue
+		restrictions := sub.restrictions()
+		if len(sub.PropertyFilters) > 0 {
+			// The handler closes the stream when a re-check restricts a filtered key;
+			// until it does, deliver nothing rather than leak matches.
+			if RestrictedFilterKey(sub.PropertyFilters, restrictions) != "" {
+				continue
+			}
+			if !matchesPropertyFilters(event.Properties, sub.PropertyFilters) {
+				continue
+			}
 		}
 
 		if sub.Geo {
@@ -378,7 +436,7 @@ func deliverEvent(event PostHogEvent, subs []Subscription) {
 				}
 			}
 		} else {
-			responseEvent := convertToResponsePostHogEvent(event, sub.TeamId, sub.Columns, sub.PathCleaner)
+			responseEvent := convertToResponsePostHogEvent(event, sub.TeamId, sub.Columns, sub.PathCleaner, restrictions)
 
 			select {
 			case sub.EventChan <- *responseEvent:

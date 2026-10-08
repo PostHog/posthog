@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -689,4 +690,90 @@ func TestParsePropertyFilters(t *testing.T) {
 			assert.Equal(t, tt.want, shapesOf(got))
 		})
 	}
+}
+
+func restrictionsResponse(body string) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     make(http.Header),
+	}
+}
+
+func TestStreamEventsHandlerAppliesPropertyRestrictions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"restricted_event_properties": ["email"], "restricted_person_properties": ["email"]}`))
+	}))
+	defer server.Close()
+	viper.Set("jwt.authorization_url", server.URL)
+	t.Cleanup(func() { viper.Set("jwt.authorization_url", "") })
+	viper.Set("jwt.secret", "test-property-restrictions-secret")
+	token := createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+		"team_id": 1, "api_token": "test-project-token", "user_id": 1, "organization_id": "test-organization",
+	})
+	e := echo.New()
+
+	t.Run("refuses a filter on a restricted property", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, `/events?properties=[{"key":"email","operator":"icontains","value":"@example.com"}]`, nil)
+		request.Header.Set("Authorization", "Bearer "+token)
+		handler := StreamEventsHandler(e.Logger, make(chan events.Subscription, 1), make(chan events.Subscription, 1))
+		var httpError *echo.HTTPError
+		require.ErrorAs(t, handler(e.NewContext(request, httptest.NewRecorder())), &httpError)
+		assert.Equal(t, http.StatusBadRequest, httpError.Code)
+	})
+
+	t.Run("hands the restrictions to the subscription", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		request := httptest.NewRequest(http.MethodGet, "/events?property=$browser=Chrome", nil).WithContext(ctx)
+		request.Header.Set("Authorization", "Bearer "+token)
+		subChan := make(chan events.Subscription, 1)
+		done := make(chan error, 1)
+		go func() {
+			done <- StreamEventsHandler(e.Logger, subChan, make(chan events.Subscription, 1))(e.NewContext(request, httptest.NewRecorder()))
+		}()
+		subscription := <-subChan
+		assert.True(t, subscription.Restrictions.Load().RestrictsEventProperty("email"))
+		assert.True(t, subscription.Restrictions.Load().RestrictsPersonProperty("email"))
+		cancel()
+		require.NoError(t, <-done)
+	})
+}
+
+func TestStreamEventsHandlerEndsStreamWhenRecheckRestrictsFilteredProperty(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		viper.Set("jwt.secret", "test-periodic-restriction-secret")
+		viper.Set("jwt.authorization_url", "http://authorization.test")
+		defer viper.Set("jwt.authorization_url", "")
+
+		var calls atomic.Int32
+		originalTransport := http.DefaultTransport
+		http.DefaultTransport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			if calls.Add(1) == 1 {
+				return restrictionsResponse(`{"restricted_event_properties": [], "restricted_person_properties": []}`), nil
+			}
+			return restrictionsResponse(`{"restricted_event_properties": ["email"], "restricted_person_properties": []}`), nil
+		})
+		defer func() { http.DefaultTransport = originalTransport }()
+
+		request := httptest.NewRequest(http.MethodGet, "/events?property=email=hidden@example.com", nil)
+		request.Header.Set("Authorization", "Bearer "+createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+			"team_id": 1, "api_token": "test-project-token",
+		}))
+		e := echo.New()
+		subChan := make(chan events.Subscription, 1)
+		unSubChan := make(chan events.Subscription, 1)
+		done := make(chan error, 1)
+		go func() {
+			done <- StreamEventsHandler(e.Logger, subChan, unSubChan)(e.NewContext(request, httptest.NewRecorder()))
+		}()
+
+		subscription := <-subChan
+		assert.Nil(t, subscription.Restrictions.Load())
+		time.Sleep(30 * time.Second)
+
+		require.NoError(t, <-done)
+		assert.True(t, subscription.Restrictions.Load().RestrictsEventProperty("email"))
+		assert.Equal(t, int32(2), calls.Load())
+	})
 }

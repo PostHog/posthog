@@ -185,17 +185,17 @@ func TestConvertInjectsCleanedPathnameWithoutMutatingSharedEvent(t *testing.T) {
 
 	// columns == nil normally aliases the shared event map; the cleaner must
 	// copy so its per-subscriber property never leaks into other subscriptions.
-	response := convertToResponsePostHogEvent(event, 1, nil, cleaner)
+	response := convertToResponsePostHogEvent(event, 1, nil, cleaner, nil)
 	assert.Equal(t, "/classes/:id", response.Properties["$virt_cleaned_pathname"])
 	assert.Equal(t, "/classes/928q3hr9paw8hfe", response.Properties["$pathname"])
 	assert.NotContains(t, event.Properties, "$virt_cleaned_pathname")
 
 	// With a column allowlist the property is injected after filtering, so
 	// subscribers don't need to request it explicitly.
-	withColumns := convertToResponsePostHogEvent(event, 1, []string{"$pathname"}, cleaner)
+	withColumns := convertToResponsePostHogEvent(event, 1, []string{"$pathname"}, cleaner, nil)
 	assert.Equal(t, "/classes/:id", withColumns.Properties["$virt_cleaned_pathname"])
 
 	// No cleaner, no property.
-	withoutCleaner := convertToResponsePostHogEvent(event, 1, nil, nil)
+	withoutCleaner := convertToResponsePostHogEvent(event, 1, nil, nil, nil)
 	assert.NotContains(t, withoutCleaner.Properties, "$virt_cleaned_pathname")
 }

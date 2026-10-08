@@ -7,6 +7,7 @@ import (
 
 	"sync/atomic"
 
+	"github.com/posthog/posthog/livestream/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -76,7 +77,7 @@ func TestConvertToResponsePostHogEvent(t *testing.T) {
 		Properties: map[string]interface{}{"url": "https://example.com"},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, nil, nil)
+	result := convertToResponsePostHogEvent(event, 1, nil, nil, nil)
 
 	assert.Equal(t, "123", result.Uuid)
 	assert.Equal(t, "2023-01-01T00:00:00Z", result.Timestamp)
@@ -693,7 +694,7 @@ func TestIncludeProperties_NilIncludesAllProperties(t *testing.T) {
 		Properties: properties,
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, nil, nil)
+	result := convertToResponsePostHogEvent(event, 1, nil, nil, nil)
 
 	assert.Equal(t, properties, result.Properties)
 }
@@ -710,7 +711,7 @@ func TestIncludeProperties_EmptySliceIncludesNoProperties(t *testing.T) {
 		},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, []string{}, nil)
+	result := convertToResponsePostHogEvent(event, 1, []string{}, nil, nil)
 
 	assert.Equal(t, map[string]interface{}{}, result.Properties)
 }
@@ -728,7 +729,7 @@ func TestIncludeProperties_SpecificPropertiesFiltersCorrectly(t *testing.T) {
 		},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, []string{"url", "$device_type"}, nil)
+	result := convertToResponsePostHogEvent(event, 1, []string{"url", "$device_type"}, nil, nil)
 
 	assert.Equal(t, map[string]interface{}{
 		"url":          "https://example.com",
@@ -747,9 +748,84 @@ func TestIncludeProperties_NonExistentPropertiesAreIgnored(t *testing.T) {
 		},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, []string{"url", "nonexistent"}, nil)
+	result := convertToResponsePostHogEvent(event, 1, []string{"url", "nonexistent"}, nil, nil)
 
 	assert.Equal(t, map[string]interface{}{
 		"url": "https://example.com",
 	}, result.Properties)
+}
+
+func TestConvertToResponsePostHogEventHidesRestrictedProperties(t *testing.T) {
+	restrictions := &auth.PropertyRestrictions{
+		EventProperties:  map[string]struct{}{"$ip": {}, "$pathname": {}},
+		PersonProperties: map[string]struct{}{"email": {}},
+	}
+	properties := map[string]interface{}{
+		"$ip":          "203.0.113.7",
+		"$pathname":    "/classes/928q3hr9paw8hfe",
+		"$browser":     "Chrome",
+		"$set":         map[string]interface{}{"email": "hidden@example.com", "name": "Test User"},
+		"$set_once":    map[string]interface{}{"email": "hidden@example.com"},
+		"$virt_is_bot": false,
+	}
+	event := PostHogEvent{Uuid: "123", DistinctId: "user1", Event: "pageview", Properties: properties}
+	cleaner := NewPathCleanerFromJSON(`[{"alias": "/classes/:id", "regex": "/classes/[^/]+"}]`)
+	require.NotNil(t, cleaner)
+
+	for name, test := range map[string]struct {
+		columns []string
+		want    map[string]interface{}
+	}{
+		"all properties": {
+			columns: nil,
+			want: map[string]interface{}{
+				"$browser":     "Chrome",
+				"$set":         map[string]interface{}{"name": "Test User"},
+				"$set_once":    map[string]interface{}{},
+				"$virt_is_bot": false,
+			},
+		},
+		"requested columns": {
+			columns: []string{"$ip", "$browser", "$set"},
+			want: map[string]interface{}{
+				"$browser":     "Chrome",
+				"$set":         map[string]interface{}{"name": "Test User"},
+				"$virt_is_bot": false,
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			result := convertToResponsePostHogEvent(event, 1, test.columns, cleaner, restrictions)
+			assert.Equal(t, test.want, result.Properties)
+		})
+	}
+
+	// The shared event map must keep every property for subscribers without rules.
+	assert.Equal(t, "203.0.113.7", properties["$ip"])
+	assert.Equal(t, "hidden@example.com", properties["$set"].(map[string]interface{})["email"])
+	unrestricted := convertToResponsePostHogEvent(event, 1, nil, cleaner, nil)
+	assert.Equal(t, "/classes/:id", unrestricted.Properties["$virt_cleaned_pathname"])
+}
+
+func TestDeliverEventSkipsSubscriptionFilteringOnRestrictedProperty(t *testing.T) {
+	restrictions := &atomic.Pointer[auth.PropertyRestrictions]{}
+	restrictions.Store(&auth.PropertyRestrictions{EventProperties: map[string]struct{}{"email": {}}})
+	eventChan := make(chan interface{}, 1)
+	sub := Subscription{
+		SubID:           1,
+		TeamId:          1,
+		PropertyFilters: []CompiledPropertyFilter{NewCompiledPropertyFilter("email", OpIContains, []string{"@example.com"})},
+		Restrictions:    restrictions,
+		EventChan:       eventChan,
+		ShouldClose:     &atomic.Bool{},
+		DroppedEvents:   &atomic.Uint64{},
+	}
+	event := PostHogEvent{Uuid: "match", DistinctId: "user1", Event: "pageview", Properties: map[string]interface{}{"email": "hidden@example.com"}}
+
+	deliverEvent(event, []Subscription{sub})
+	assert.Empty(t, eventChan)
+
+	restrictions.Store(nil)
+	deliverEvent(event, []Subscription{sub})
+	assert.Len(t, eventChan, 1)
 }
