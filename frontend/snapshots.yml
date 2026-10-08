@@ -6426,6 +6426,30 @@ snapshots:
         hash: v1.k794b7964.9a713abe443d5a52c29c22dd7555ad8005863f1a7a009702606fa5bd8384a98f.2nVLBkjlKykaLju4RbjgIlLkS-JsIqrCGxIqlHvj2ho
     products-autoresearch-daily-volume-chart--two-weeks--light:
         hash: v1.k794b7964.657b4864698965984216442d166b797580c2400a075a32a666088955114b6e26.5aBdQrW6RrKJjUXMDizdh6cpFHYQ1hqWTxPzdc2duvk
+    products-autoresearch-lifecycle-strip--draft--dark:
+        hash: v1.k794b7964.25cf4ab97ab421d5780b370efd62d63d7abb0d95dd8650b510e48282bbcf9c29.M68xJMN3m6w9ZG-jzeoOuW4eYLZlkYdTfScJvRiHt0A
+    products-autoresearch-lifecycle-strip--draft--light:
+        hash: v1.k794b7964.7c9f6863185efda9dabad5d8dbf1eb603a1fa9b675acbd3749da8dbe6f9f4bd8._Cz8caQ1Qz-Wl_hal4xo2O3DPBYenXBxYpVqzQ3R-0A
+    products-autoresearch-lifecycle-strip--first-training-run--dark:
+        hash: v1.k794b7964.268bc5414fd83baf11d29941933131523c0427164e01b3fadf5c0a7ac12dedc0.CFJLl_Wd6suPwLWqrawNmbRifK-7N4ou89L5FgBv8Xg
+    products-autoresearch-lifecycle-strip--first-training-run--light:
+        hash: v1.k794b7964.b928c1cc4d301eb5042057ce75e4c54b474f560248237b661bdc44192f3d35a4.G4e938NNTi2ryA6HJ6QwfFipP5SKF-zFwwAyMHDoh_w
+    products-autoresearch-lifecycle-strip--preliminary-champion--dark:
+        hash: v1.k794b7964.1eeaff8df503efedfed4608eb801fbdbe6e79d9566566cceb8d4d03aeeea71e3.F4saAb2jIJKOUzYQDPIKdBcfhfQ8UiOGfL_npwPaK1M
+    products-autoresearch-lifecycle-strip--preliminary-champion--light:
+        hash: v1.k794b7964.a7d1205ba92d7916302c71ac6947eb54d19cd7b315dad2ac740159d5b9523413.cxb9LGruE5_u9KFjovAl_yoKk1W_iA0l2NX7-LOKR34
+    products-autoresearch-lifecycle-strip--validated-champion--dark:
+        hash: v1.k794b7964.ec5636bb061b046741a42c6ce3faa30704b2b4203947e956c5d7966bada33fd5.pMIwCFfVjMdfrr_RckXkoewH1hbCy3Veditgtv4hx_k
+    products-autoresearch-lifecycle-strip--validated-champion--light:
+        hash: v1.k794b7964.131ecc736b38defef5b8ba34fa9836f1d2d5132e1d109e4b995b9591a5d9255c.759giT71A_8sdMCqx-FasPgdZzZWHgRvaoUmqVtYYKw
+    products-autoresearch-model-detail-scene--narrow--narrow--dark:
+        hash: v1.k794b7964.579eee539996f2afdd3ee42a0fab922a71e005e505e565a4b86b7e433bfbcb4c.l5W-6Nsw0qbQIKqwZf6K4ZQNsOCidnp2NNYGA8wTt-w
+    products-autoresearch-model-detail-scene--narrow--narrow--light:
+        hash: v1.k794b7964.463c396275aa533d0335eeab67c5cadb30e233dc9a98231d937bde1362d5779f.M4Ef0P0HHVcPKp-ZCsEPkygnHKhyRGHxs-X633XBTAk
+    products-autoresearch-model-detail-scene--wide--wide--dark:
+        hash: v1.k794b7964.f8b750c953924d579ad1ea3e981db559262a336f05ed7025d4f249f8be6d6277._Xe_-9KuP9zt3h9a8klhXGz99vgt6Wm_adlBAgc0LAA
+    products-autoresearch-model-detail-scene--wide--wide--light:
+        hash: v1.k794b7964.a65e0fef442f9828a1dfa1510303e8a45a582b52f4e08213e28ef207e0a7ef4b.DDs8Gi-aIJBWvVdS7UtwWvr3pjZerW9BNjxoNIbfaNE
     products-autoresearch-probability-histogram--bimodal--dark:
         hash: v1.k794b7964.54848640bbeba7e0c519e2a4f939bd58aff008ea7f48b96c38f95c825859e29c.8bwWwevDVdQFiWK4kusQ_xTaxhGSYIyHuH6qZFWC18U
     products-autoresearch-probability-histogram--bimodal--light:
