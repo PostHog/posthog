@@ -6,7 +6,7 @@
 // contract — renaming them breaks consumers' tests. Keep in sync with the
 // overlay components that emit them.
 
-import { fireEvent } from '@testing-library/react'
+import { act, fireEvent } from '@testing-library/react'
 
 import type { TooltipContext } from '../core/types'
 import { dragSelection } from './interactions'
@@ -54,9 +54,10 @@ interface SlopeValueLabelSummary {
     side: 'start' | 'end'
 }
 
-interface SlopeLegendItemSummary {
+interface LegendItemSummary {
     label: string
-    /** The per-series change text, or null when absent. */
+    /** The row's secondary text (a slope chart's change, a proportion bar's `share · value`), or null
+     *  when absent. */
     secondaryLabel: string | null
 }
 
@@ -89,8 +90,15 @@ export interface HogChart<Meta = unknown> {
     slopeValueLabels(): SlopeValueLabelSummary[]
     /** Series name labels currently rendered by a slope chart (post-collision-avoidance). */
     slopeSeriesLabels(): string[]
-    /** Slope-chart legend rows — label plus the per-series change. Empty when the legend is hidden. */
-    slopeLegendItems(): SlopeLegendItemSummary[]
+    /** Legend rows in this chart's render scope — label plus the row's secondary text (a slope
+     *  chart's change, a proportion bar's `share · value`), or null when the row has none. Empty when
+     *  the legend is hidden. */
+    legendItems(): LegendItemSummary[]
+    /** @deprecated Use `legendItems()`, which reads any chart's legend. */
+    slopeLegendItems(): LegendItemSummary[]
+    /** Click the legend row with this label. `additive` holds ⌘/Ctrl, which toggles that one series
+     *  instead of isolating it. Throws when no legend row has the label. */
+    clickLegendItem(label: string, options?: { additive?: boolean }): void
     /** Annotation badges currently rendered. */
     annotationBadges(): HTMLElement[]
     /** Fire a `mouseMove` over the data point at `index`. Only available when the chart was
@@ -226,20 +234,18 @@ export function getHogChart<Meta = unknown>(
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-slope-series-label"]')).map(
                 (el) => el.textContent ?? ''
             ),
-        slopeLegendItems: () => {
-            // The legend renders as a sibling of the chart wrapper (inside ChartLegendLayout), so it
-            // lives in the broader render scope rather than under `wrapper`.
-            const legend = scope.querySelector<HTMLElement>('[data-attr="hog-chart-slope-legend"]')
-            if (!legend) {
-                return []
+        legendItems: () => readLegendItems(scope),
+        slopeLegendItems: () => readLegendItems(scope),
+        clickLegendItem(label: string, { additive = false }: { additive?: boolean } = {}): void {
+            const labelEl = Array.from(
+                scope.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-label"]')
+            ).find((el) => el.textContent === label)
+            const row = labelEl?.closest('button')
+            if (!row) {
+                throw new Error(`No clickable legend row labelled "${label}"`)
             }
-            return Array.from(legend.querySelectorAll<HTMLElement>('.truncate')).map((labelEl) => {
-                const secondary = labelEl.nextElementSibling
-                const isSecondary = secondary?.getAttribute('data-attr') === 'hog-chart-legend-secondary'
-                return {
-                    label: labelEl.textContent ?? '',
-                    secondaryLabel: isSecondary ? (secondary as HTMLElement).textContent : null,
-                }
+            act(() => {
+                fireEvent.click(row, { metaKey: additive })
             })
         },
         annotationBadges: () => Array.from(wrapper.querySelectorAll<HTMLElement>('.AnnotationsBadge')),
@@ -281,4 +287,17 @@ export function getHogChart<Meta = unknown>(
             }
         },
     }
+}
+
+// The legend renders as a sibling of the chart wrapper (inside ChartLegendLayout), so it lives in the
+// broader render scope rather than under the chart wrapper.
+function readLegendItems(scope: ParentNode): LegendItemSummary[] {
+    return Array.from(scope.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-label"]')).map((labelEl) => {
+        const secondary = labelEl.nextElementSibling
+        const isSecondary = secondary?.getAttribute('data-attr') === 'hog-chart-legend-secondary'
+        return {
+            label: labelEl.textContent ?? '',
+            secondaryLabel: isSecondary ? (secondary as HTMLElement).textContent : null,
+        }
+    })
 }
