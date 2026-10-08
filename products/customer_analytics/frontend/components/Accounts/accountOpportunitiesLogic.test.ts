@@ -89,8 +89,8 @@ describe('accountOpportunitiesLogic', () => {
         mockAccountsRetrieve.mockResolvedValue(buildAccount({ sfdc_id: 'sfdc-1' }))
         jest.spyOn(api, 'query').mockResolvedValue({
             results: [
-                ['op-1', 'Expansion', 50000, '2024-12-31', '2025-01-15'],
-                ['op-2', null, null, null, null],
+                ['op-1', 'Expansion', 50000, 20, 15, '2024-12-31', '2025-01-15'],
+                ['op-2', null, null, null, null, null, null],
             ],
         } as any)
 
@@ -103,10 +103,20 @@ describe('accountOpportunitiesLogic', () => {
                     id: 'op-1',
                     name: 'Expansion',
                     totalCreditAmount: 50000,
+                    discountRate: 20,
+                    effectiveDiscountRate: 15,
                     closeDate: '2024-12-31',
                     contractStartDate: '2025-01-15',
                 },
-                { id: 'op-2', name: null, totalCreditAmount: null, closeDate: null, contractStartDate: null },
+                {
+                    id: 'op-2',
+                    name: null,
+                    totalCreditAmount: null,
+                    discountRate: null,
+                    effectiveDiscountRate: null,
+                    closeDate: null,
+                    contractStartDate: null,
+                },
             ],
         })
     })

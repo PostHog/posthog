@@ -6,7 +6,7 @@ import { LemonSkeleton, LemonTable, LemonTableColumns, Link } from '@posthog/lem
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyCurrency } from 'lib/utils/numbers'
+import { humanFriendlyCurrency, percentage } from 'lib/utils/numbers'
 
 import { AccountOpportunity, accountOpportunitiesLogic, NOT_LOADED } from './accountOpportunitiesLogic'
 import { AccountsEvents, SALESFORCE_ORIGIN } from './constants'
@@ -29,6 +29,13 @@ function OpportunityDate({ value }: { value: string | null }): JSX.Element {
     }
     const parsed = dayjs(value)
     return <span>{parsed.isValid() ? parsed.format('MMM D, YYYY') : value}</span>
+}
+
+function OpportunityDiscount({ value }: { value: number | null }): JSX.Element {
+    if (value == null) {
+        return <span className="text-muted">—</span>
+    }
+    return <span>{percentage(value / 100)}</span>
 }
 
 const columns: LemonTableColumns<AccountOpportunity> = [
@@ -58,6 +65,20 @@ const columns: LemonTableColumns<AccountOpportunity> = [
                 <span className="text-muted">—</span>
             ),
         sorter: (a, b) => (a.totalCreditAmount ?? 0) - (b.totalCreditAmount ?? 0),
+    },
+    {
+        title: 'Discount',
+        key: 'discountRate',
+        align: 'right',
+        render: (_, opportunity) => <OpportunityDiscount value={opportunity.discountRate} />,
+        sorter: (a, b) => (a.discountRate ?? 0) - (b.discountRate ?? 0),
+    },
+    {
+        title: 'Effective discount',
+        key: 'effectiveDiscountRate',
+        align: 'right',
+        render: (_, opportunity) => <OpportunityDiscount value={opportunity.effectiveDiscountRate} />,
+        sorter: (a, b) => (a.effectiveDiscountRate ?? 0) - (b.effectiveDiscountRate ?? 0),
     },
     {
         title: 'Close date',

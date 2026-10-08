@@ -21,6 +21,9 @@ export interface AccountOpportunity {
     id: string
     name: string | null
     totalCreditAmount: number | null
+    // Salesforce percent fields store 20 for 20%, so divide by 100 before formatting.
+    discountRate: number | null
+    effectiveDiscountRate: number | null
     closeDate: string | null
     contractStartDate: string | null
 }
@@ -116,7 +119,7 @@ export const accountOpportunitiesLogic = kea<accountOpportunitiesLogicType>([
                             kind: NodeKind.HogQLQuery,
                             tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             query: hogql`
-                                select id, name, total_credit_amount_c, close_date, contract_start_date_c
+                                select id, name, total_credit_amount_c, discount_rate_c, effective_discount_rate_c, close_date, contract_start_date_c
                                 from salesforce.opportunity
                                 where account_id = ${sfdcId}
                                 order by close_date desc
@@ -128,8 +131,10 @@ export const accountOpportunitiesLogic = kea<accountOpportunitiesLogicType>([
                             id: String(row[0]),
                             name: (row[1] as string | null) ?? null,
                             totalCreditAmount: (row[2] as number | null) ?? null,
-                            closeDate: (row[3] as string | null) ?? null,
-                            contractStartDate: (row[4] as string | null) ?? null,
+                            discountRate: (row[3] as number | null) ?? null,
+                            effectiveDiscountRate: (row[4] as number | null) ?? null,
+                            closeDate: (row[5] as string | null) ?? null,
+                            contractStartDate: (row[6] as string | null) ?? null,
                         }))
                         return { sfdcId, opportunities }
                     } catch (error) {
