@@ -63,6 +63,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         facetsLoading,
         reliabilityRows,
         reliabilityRowsLoading,
+        reliabilityFailed,
         leaderboardLoading,
         scoreboardMetric,
         scoreboardShares,
@@ -260,6 +261,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         lines={errorRateLines}
                         loading={reliabilityRowsLoading}
                         isEmpty={reliabilityRows.length === 0}
+                        failed={reliabilityFailed}
                         theme={theme}
                         timezone={timezone}
                         interval={interval}
@@ -271,6 +273,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         lines={latencyLines}
                         loading={reliabilityRowsLoading}
                         isEmpty={reliabilityRows.length === 0}
+                        failed={reliabilityFailed}
                         theme={theme}
                         timezone={timezone}
                         interval={interval}

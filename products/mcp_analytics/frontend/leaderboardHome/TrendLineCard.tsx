@@ -12,6 +12,7 @@ import { Skeleton } from '@posthog/quill-primitives'
 import { useChartConfig } from 'lib/charts/hooks'
 
 import { Card, CardState } from '../dashboard/Card'
+import { LoadErrorMessage } from './LoadErrorMessage'
 import { NoDataMessage } from './NoDataMessage'
 
 export interface TrendLine {
@@ -26,6 +27,7 @@ export function TrendLineCard({
     lines,
     loading,
     isEmpty,
+    failed,
     theme,
     timezone,
     interval,
@@ -36,6 +38,7 @@ export function TrendLineCard({
     lines: TrendLine[]
     loading: boolean
     isEmpty: boolean
+    failed: boolean
     theme: ChartTheme
     timezone: string
     interval: TimeInterval
@@ -66,7 +69,7 @@ export function TrendLineCard({
                 loading={loading}
                 isEmpty={isEmpty}
                 skeleton={<Skeleton className="min-h-[240px] flex-1" />}
-                empty={<NoDataMessage />}
+                empty={failed ? <LoadErrorMessage /> : <NoDataMessage />}
             >
                 <div className="flex min-h-[240px] flex-1 flex-col">
                     <TimeSeriesLineChart series={series} labels={labels} config={config} theme={theme} />

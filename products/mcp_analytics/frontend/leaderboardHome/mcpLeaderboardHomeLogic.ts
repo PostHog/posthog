@@ -23,6 +23,7 @@ import {
     type ReliabilitySeries,
     type ScoreboardMetric,
     type ShareSeries,
+    toReliabilityRows,
     type WindowFacetRow,
 } from './leaderboardShares'
 
@@ -149,15 +150,6 @@ async function runQuery(query: string, filters: HogQLFilters): Promise<Row[]> {
 const toBucketedRows = (rows: Row[]): BucketedFacetRow[] =>
     rows.map((r) => ({ bucket: normalizeBucket(r[0]), label: String(r[1]), calls: Number(r[2]) }))
 
-const toReliabilityRows = (rows: Row[]): ReliabilityRow[] =>
-    rows.map((r) => ({
-        bucket: normalizeBucket(r[0]),
-        calls: Number(r[1]),
-        errors: Number(r[2]),
-        p50: Number(r[3]),
-        p95: Number(r[4]),
-    }))
-
 const toWindowRows = (rows: Row[]): WindowFacetRow[] =>
     rows.map((r) => ({ label: String(r[0]), calls: Number(r[1]), users: Number(r[2]), errors: Number(r[3]) }))
 
@@ -175,6 +167,7 @@ export interface mcpLeaderboardHomeLogicValues {
     protocolVersionSeries: ShareSeries[]
     reliabilityRows: ReliabilityRow[]
     reliabilityRowsLoading: boolean
+    reliabilityFailed: boolean
     reliabilitySeries: ReliabilitySeries
     scoreboardMetric: ScoreboardMetric
     scoreboardShares: LabShare[]
@@ -258,6 +251,14 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
             'calls' as ScoreboardMetric,
             {
                 setScoreboardMetric: (_, { metric }) => metric,
+            },
+        ],
+        reliabilityFailed: [
+            false,
+            {
+                loadReliabilityRows: () => false,
+                loadReliabilityRowsSuccess: () => false,
+                loadReliabilityRowsFailure: () => true,
             },
         ],
     }),
@@ -382,6 +383,9 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
         reloadAll: () => {
             actions.loadFacets()
             actions.loadReliabilityRows()
+        },
+        loadReliabilityRowsFailure: ({ error, errorObject }) => {
+            posthog.captureException(errorObject ?? new Error(error), { action: 'load-mcp-leaderboard-reliability' })
         },
     })),
     afterMount(({ actions }) => {

@@ -9,6 +9,7 @@ import {
     buildShareSeries,
     hasKnownLabels,
     modelLab,
+    toReliabilityRows,
     topFacetRows,
     type ReliabilityRow,
     type WindowFacetRow,
@@ -129,5 +130,15 @@ describe('leaderboardShares', () => {
         ['a gap next to a bucket with calls', [d1Row], ['d1', 'd2'], [25, NaN], [10, NaN], [30, NaN]],
     ])('buildReliabilitySeries handles %s', (_name, rows, bucketKeys, errorRatePct, p50, p95) => {
         expect(buildReliabilitySeries(rows, bucketKeys)).toEqual({ labels: bucketKeys, errorRatePct, p50, p95 })
+    })
+
+    test.each([
+        ['numbers', 12, 40, [12, 40]],
+        ['null quantiles', null, null, [NaN, NaN]],
+        ['missing quantiles', undefined, undefined, [NaN, NaN]],
+        ['a mix of number and null', 12, null, [12, NaN]],
+    ])('toReliabilityRows keeps %s as gaps not zeros', (_name, p50, p95, expected) => {
+        const [result] = toReliabilityRows([['2026-01-01 00:00:00', 4, 1, p50, p95]])
+        expect([result.p50, result.p95]).toEqual(expected)
     })
 })

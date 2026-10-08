@@ -1,3 +1,5 @@
+import { normalizeBucket } from 'lib/utils/timeBuckets'
+
 import { type HarnessRow, type ToolRow } from '../mcpDashboardOverviewLogic'
 
 export type ModelLab = 'Anthropic' | 'OpenAI' | 'Google' | 'xAI' | 'Cursor' | 'Open weights' | 'Other'
@@ -175,6 +177,18 @@ export function topFacetRows(rows: WindowFacetRow[], limit: number): WindowFacet
     }
     return [...result, ...rows.filter((row) => row.label === UNKNOWN)]
 }
+
+// A bucket with calls but no duration samples has null quantiles, which must stay gaps instead of 0.
+const nullToNaN = (value: unknown): number => (value == null ? NaN : Number(value))
+
+export const toReliabilityRows = (rows: unknown[][]): ReliabilityRow[] =>
+    rows.map((r) => ({
+        bucket: normalizeBucket(r[0]),
+        calls: Number(r[1]),
+        errors: Number(r[2]),
+        p50: nullToNaN(r[3]),
+        p95: nullToNaN(r[4]),
+    }))
 
 // A bucket with no calls has no row, so it becomes a NaN gap that the line charts skip.
 export function buildReliabilitySeries(rows: ReliabilityRow[], bucketKeys: string[]): ReliabilitySeries {
