@@ -58,6 +58,15 @@ export function BIToolbar(): JSX.Element {
             >
                 {responseLoading ? 'Cancel' : 'Run'}
             </LemonButton>
+            <LemonSwitch
+                checked={autoUpdate}
+                onChange={setAutoUpdate}
+                label="Auto-update"
+                size="small"
+                tooltip="Run the query after every change"
+                data-attr="bi-editor-auto-update"
+            />
+            <LemonDivider vertical />
             <LemonButton
                 icon={<IconSwapHoriz />}
                 size="xsmall"
@@ -139,14 +148,6 @@ export function BIToolbar(): JSX.Element {
                 Clear sheet
             </LemonButton>
             <div className="ml-auto flex items-center gap-2">
-                <LemonSwitch
-                    checked={autoUpdate}
-                    onChange={setAutoUpdate}
-                    label="Auto-update"
-                    size="small"
-                    tooltip="Run the query after every change"
-                    data-attr="bi-editor-auto-update"
-                />
                 {/* Narrow sheets have no room to dock the chart picker, so it opens as a dropdown */}
                 <LemonDropdown overlay={<BIChartTypes docked={false} />} placement="bottom-end">
                     <LemonButton
