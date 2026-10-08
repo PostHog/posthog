@@ -42,6 +42,7 @@ export async function resolveStartupLocation(
   identity: string,
   client: FirstRunClient,
   spacesEnabled: boolean,
+  guidedFirstTaskEnabled = false,
 ): Promise<StartupLocation> {
   // Provisioning is what says whether this is a first run, so it is read before anything looks at
   // where the user was last. A saved location is written on every navigation and is shared by every
@@ -78,6 +79,13 @@ export async function resolveStartupLocation(
   // /code is navigable either way. An uncached flag reads false here, so a flag-on user can
   // land on /code once, which costs them a click rather than the session.
   if (!spacesEnabled) return { href: "/code", firstRun: null };
+
+  if (guidedFirstTaskEnabled && firstRunHere) {
+    return {
+      href: `/spaces/${general.id}/new?guided=true`,
+      firstRun: firstRunHere ? { generalChannelId: general.id } : null,
+    };
+  }
 
   const sessionTaskId = await cappedSessionTaskId(sessionTaskIdPromise);
   return {

@@ -34,6 +34,8 @@ export const TASKS_PREWARM_SANDBOX_FLAG =
 export const TASK_ANALYSIS_FLAG = featureFlagKeys.TASK_ANALYSIS_FLAG;
 /** Gates the Fast Mode section of the reasoning dropdown. */
 export const FAST_MODE_FLAG = featureFlagKeys.FAST_MODE_FLAG;
+/** Sends new Desktop users to a repo-independent first task after onboarding. */
+export const GUIDED_FIRST_TASK_FLAG = featureFlagKeys.GUIDED_FIRST_TASK_FLAG;
 /** Spoken narration (agent speaks via the `speak` tool). Gated for a staged rollout. */
 export const SPOKEN_NARRATION_FLAG = featureFlagKeys.SPOKEN_NARRATION_FLAG;
 export const CODEX_OWN_SUBSCRIPTION_FLAG =
