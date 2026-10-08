@@ -296,6 +296,17 @@ class _MetricQueryResponseSerializer(serializers.Serializer):
         many=True,
         help_text="One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels.",
     )
+    hint = serializers.CharField(
+        required=False,
+        help_text="Set only when the query returned no points: what to check before querying again.",
+    )
+
+
+_NO_SERIES_HINT = (
+    "No series matched this metric name, type and filters in the time range. The same query will return the "
+    "same empty result. Look up the exact metric name and type with metric-names-list, remove or loosen "
+    "filters, or widen the time range."
+)
 
 
 class _MetricAnomalyBodySerializer(serializers.Serializer):
@@ -965,7 +976,10 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             request=request,
         )
 
-        return Response({"results": [asdict(s) for s in series]}, status=status.HTTP_200_OK)
+        response_data: dict = {"results": [asdict(s) for s in series]}
+        if not any(s.points for s in series):
+            response_data["hint"] = _NO_SERIES_HINT
+        return Response(response_data, status=status.HTTP_200_OK)
 
     @extend_schema(request=_MetricSamplesRequestSerializer, responses={200: _MetricSamplesResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["metrics:read"])

@@ -374,6 +374,23 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_query_with_no_matching_series_returns_a_hint(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "missing_metric",
+                    "aggregation": "max",
+                    "dateFrom": (timezone.now() - dt.timedelta(hours=1)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(all(series["points"] == [] for series in response.json()["results"]))
+        self.assertIn("metric-names-list", response.json()["hint"])
+
     def test_query_returns_aggregated_points(self):
         anchor = timezone.now().replace(microsecond=0)
         seed_metric(
@@ -405,6 +422,7 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
         self.assertIn("results", body)
+        self.assertNotIn("hint", body)
         self.assertEqual(len(body["results"]), 1)
         series = body["results"][0]
         self.assertEqual(series["labels"], {})
