@@ -29,11 +29,15 @@ from products.signals.backend.ranking.features import (
     FeatureSet,
 )
 from products.signals.backend.ranking.model_store import ModelLoadError, load_serving_set
+from products.signals.backend.ranking.overrides import RankingOverrides
 from products.signals.backend.ranking.scorer import NO_VECTOR, score_reports
 from products.signals.backend.ranking.serving_manifest import (
     CROSS_FAMILY_ROLE,
     DAILY_CANDIDATE_ROLE,
+    MANIFEST_SERVED_ROLE,
     METADATA_FILE,
+    PINNED_ROLE,
+    SERVED_OVERRIDE_ROLE,
     SERVED_ROLE,
     ServingManifest,
     ServingManifestEntry,
@@ -200,6 +204,60 @@ class TestModelStore(_StoreTestMixin, SimpleTestCase):
         assert serving.others == []
         assert reason in serving.skipped[challenger.key]
 
+    @parameterized.expand(
+        [
+            ("not_in_the_manifest", None, "is not in the serving manifest"),
+            ("files_missing", {"missing_heads": ["thumbs_up"]}, "did not load"),
+            ("missing_a_served_head", {"heads": ["open"]}, "has no head for ['thumbs_up']"),
+        ]
+    )
+    def test_a_served_override_that_cannot_apply_keeps_the_manifest_served_model(
+        self, _name: str, override_kwargs: dict | None, reason: str
+    ) -> None:
+        served = self._served()
+        entries = [served]
+        override_key = model_key("report_embeddings", OLDER_VERSION)
+        if override_kwargs is not None:
+            heads = override_kwargs.pop("heads", None)
+            pinned = self.store.publish_model(
+                "report_embeddings",
+                REPORT_EMBEDDINGS_FEATURE_SET,
+                version=OLDER_VERSION,
+                roles=[PINNED_ROLE],
+                **override_kwargs,
+            )
+            entries.append(pinned.model_copy(update={"heads": heads}) if heads else pinned)
+        self.store.publish_manifest(entries)
+
+        with patch.object(model_store, "logger") as logger:
+            serving = load_serving_set(RankingOverrides(served=override_key))
+
+        assert serving is not None
+        assert serving.served.entry.key == served.key
+        assert serving.served_override is None
+        [warning] = [
+            call for call in logger.warning.call_args_list if call.args[0] == "inbox_ranking_override_rejected"
+        ]
+        assert reason in warning.kwargs["reason"]
+
+    def test_a_served_override_moves_the_served_role_and_keeps_scoring_the_manifest_served_model(self) -> None:
+        served = self._served()
+        pinned = self.store.publish_model(
+            "report_embeddings", REPORT_EMBEDDINGS_FEATURE_SET, version=OLDER_VERSION, roles=[PINNED_ROLE]
+        )
+        self.store.publish_manifest([served, pinned])
+        overrides = RankingOverrides(served=pinned.key)
+
+        serving = load_serving_set(overrides)
+
+        assert serving is not None
+        assert serving.served_override == overrides
+        assert serving.manifest.served.key == pinned.key
+        assert serving.served.entry.roles == [SERVED_ROLE, SERVED_OVERRIDE_ROLE, PINNED_ROLE]
+        assert [(model.entry.key, model.entry.roles) for model in serving.others] == [
+            (served.key, [MANIFEST_SERVED_ROLE])
+        ]
+
     def test_a_loaded_key_is_not_read_again_but_takes_the_new_roles(self) -> None:
         served = self._served()
         self.store.publish_manifest([served])
@@ -330,7 +388,7 @@ class TestScorer(_ScorerTestMixin, SimpleTestCase):
         assert sorted(fake_vectors.calls) == sorted([EMBEDDING_RENDERING_TITLE_SUMMARY, EMBEDDING_RENDERING_TITLE])
 
     def test_challengers_without_a_vector_or_a_served_feature_set_are_skipped_results(self) -> None:
-        served = self._served()
+        served = self._served(thresholds={"open": 0.25})
         title = self._challenger("title_embeddings", TITLE_EMBEDDINGS_FEATURE_SET)
         tabular = self._challenger("tabular_xgb", TABULAR_FEATURE_SET)
         manifest = self.store.publish_manifest([served, title, tabular])
@@ -344,6 +402,9 @@ class TestScorer(_ScorerTestMixin, SimpleTestCase):
         assert outcome.score is not None
         results = outcome.score.results
         assert (results[served.key].status, set(results[served.key].scores)) == ("scored", set(HEADS))
+        # thumbs_up saved no threshold, so it has no base rate to divide by.
+        assert results[served.key].lifts == {"open": results[served.key].scores["open"] / 0.25}
+        assert results[title.key].lifts == {}
         assert (results[title.key].status, results[title.key].skip_reason) == ("skipped", NO_VECTOR)
         assert (results[tabular.key].status, results[tabular.key].skip_reason) == (
             "skipped",
@@ -378,6 +439,7 @@ class TestClassificationProperties(SimpleTestCase):
             "readable_heads": ["open"],
             "threshold_open": 0.3,
             "predicted_open": predicted,
+            "lift_open": score / 0.3,
         }
 
 
@@ -424,11 +486,11 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
             event["properties"]["model_key"]: {
                 key: value
                 for key, value in event["properties"].items()
-                if key.startswith(("threshold_", "predicted_", "readable_heads"))
+                if key.startswith(("threshold_", "predicted_", "lift_", "readable_heads"))
             }
             for event in captured.events
         }
-        # thumbs_up saved no threshold, and a model without one gets no stand-in.
+        # thumbs_up saved no threshold, and a model without one gets no stand-in. A zero threshold gives no lift.
         assert classification == {
             served.key: {"readable_heads": ["open"], "threshold_open": 0.0, "predicted_open": True},
             title.key: {"readable_heads": ["open"]},

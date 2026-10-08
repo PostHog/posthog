@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     report_heartbeat_timeout,
     reset_rows_synced_if_needed,
     resolve_primary_keys,
+    should_check_shutdown,
     trim_source_job_inputs,
     validate_incremental_sync,
 )
@@ -37,6 +38,44 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
+
+
+class TestShouldCheckShutdown:
+    @parameterized.expand(
+        [
+            ("young_first_attempt", False, "asc", True, False, True, 1, 2, True),
+            ("old_first_attempt", False, "asc", True, False, True, 1, 20, False),
+            ("young_second_attempt", False, "asc", True, False, True, 2, 1, False),
+            ("outside_activity", False, "asc", True, False, False, 1, 2, False),
+            ("resumable_source", False, "asc", True, True, True, 2, 20, True),
+            ("ascending_incremental", True, "asc", False, False, True, 2, 20, True),
+            ("descending_incremental", True, "desc", False, False, True, 2, 20, False),
+        ]
+    )
+    def test_should_check_shutdown(
+        self,
+        _name: str,
+        is_incremental: bool,
+        sort_mode: str,
+        reset_pipeline: bool,
+        source_is_resumable: bool,
+        in_activity: bool,
+        attempt: int,
+        age_minutes: int,
+        expected: bool,
+    ) -> None:
+        schema = MagicMock(should_use_incremental_field=is_incremental)
+        resource = MagicMock(sort_mode=sort_mode)
+        info = MagicMock(attempt=attempt, started_time=datetime.now(UTC) - timedelta(minutes=age_minutes))
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.activity.in_activity", return_value=in_activity),
+            patch(f"{_EXTRACT_MODULE}.activity.info", return_value=info) as activity_info,
+        ):
+            assert should_check_shutdown(schema, resource, reset_pipeline, source_is_resumable) is expected
+
+        if not in_activity:
+            activity_info.assert_not_called()
 
 
 class TestResolvePrimaryKeys:

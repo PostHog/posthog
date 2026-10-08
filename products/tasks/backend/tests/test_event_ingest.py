@@ -45,6 +45,7 @@ from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
 from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE
 
 SKIP_COUNTER_SAMPLE = "posthog_tasks_task_run_stream_write_skipped_total"
+PROCESS_KILLED_COUNTER_SAMPLE = "posthog_tasks_sandbox_process_killed_notifications_total"
 
 
 class TestSessionUpdateContract(SimpleTestCase):
@@ -240,7 +241,7 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["accepted"], 5)
         self.assertEqual(body["last_accepted_seq"], 5)
-        heartbeat_workflow.assert_called_once_with(agent_active=True)
+        heartbeat_workflow.assert_called_once_with(agent_active=True, force=True)
         self.assertEqual(
             signal_milestone.call_args_list,
             [call("agent_command_dispatched"), call("agent_activity_observed")],
@@ -258,6 +259,29 @@ class TestTaskRunEventIngest(TestCase):
             ],
         )
         self.assertIn({"type": "STREAM_STATUS", "status": "complete"}, events)
+
+    @parameterized.expand(
+        ["assistant_message_chunk", "assistant_thought_chunk", "tool_call_started", "tool_call_updated"]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_pi_turn_activity_bypasses_heartbeat_throttling(self, event_type: str) -> None:
+        token = self._create_token()
+        generation = {"type": "pi_event", "event": {"type": event_type}}
+        completed = {"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "end_turn"}}
+        events = [generation, generation, completed, generation, generation]
+
+        with (
+            patch.object(TaskRun, "heartbeat_workflow") as heartbeat_workflow,
+            patch.object(TaskRun, "signal_agent_boot_milestone", return_value=True),
+            patch.object(TaskRun, "signal_agent_turn_completed"),
+        ):
+            status, body = self._call_ingest(
+                token, [{"seq": index, "event": event} for index, event in enumerate(events, start=1)]
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["accepted"], len(events))
+        self.assertEqual(heartbeat_workflow.call_args_list, [call(agent_active=True, force=True)] * 2)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_streaming_ingest_releases_failed_activity_claim(self) -> None:
@@ -466,6 +490,54 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(capture_rtk_savings.call_count, 2)
         self.assertEqual(self._read_notification_methods(), ["_posthog/rtk_savings"])
 
+    @parameterized.expand([("captured", None, 1), ("capture_fails", [RuntimeError("capture failed"), None], 2)])
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_process_killed_capture_is_idempotent_and_never_fails_the_batch(
+        self, _name: str, capture_side_effect: list[object] | None, expected_captures: int
+    ) -> None:
+        token = self._create_token()
+        event = {
+            "seq": 1,
+            "event": {
+                "type": "notification",
+                "notification": {
+                    "method": "_posthog/process_killed",
+                    "params": {
+                        "comm": "node",
+                        "signal": "SIGTERM",
+                        "treeRssBytes": 12 * 1024**3,
+                        "memoryCurrentBytes": 14 * 1024**3,
+                        "memoryLimitBytes": 16 * 1024**3,
+                    },
+                },
+            },
+        }
+        counter_before = REGISTRY.get_sample_value(PROCESS_KILLED_COUNTER_SAMPLE) or 0.0
+
+        with patch("posthoganalytics.capture", side_effect=capture_side_effect) as capture:
+            first_status, first_body = self._call_ingest(token, [event])
+            retry_status, retry_body = self._call_ingest(token, [event])
+
+        self.assertEqual((first_status, first_body["accepted"]), (200, 1))
+        self.assertEqual((retry_status, retry_body["duplicate"]), (200, 1))
+        self.assertEqual(capture.call_count, expected_captures)
+        self.assertEqual(capture.call_args.kwargs["event"], "sandbox_process_killed")
+        self.assertEqual(
+            capture.call_args.kwargs["uuid"],
+            str(uuid5(NAMESPACE_URL, f"posthog-task-process-killed:{self.task_run.id}:1")),
+        )
+        self.assertLessEqual(
+            {
+                "process_comm": "node",
+                "process_signal": "SIGTERM",
+                "process_tree_rss_bytes": 12 * 1024**3,
+                "memory_limit_bytes": 16 * 1024**3,
+            }.items(),
+            capture.call_args.kwargs["properties"].items(),
+        )
+        self.assertEqual(REGISTRY.get_sample_value(PROCESS_KILLED_COUNTER_SAMPLE), counter_before + 1)
+        self.assertEqual(self._read_notification_methods(), ["_posthog/process_killed"])
+
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_rtk_savings_capture_rejects_fractional_counters(self) -> None:
         token = self._create_token()
@@ -604,7 +676,7 @@ class TestTaskRunEventIngest(TestCase):
         heartbeat_released = threading.Event()
         heartbeat_timed_out = threading.Event()
 
-        def blocking_heartbeat(_run_id: str, _agent_active: bool) -> None:
+        def blocking_heartbeat(_run_id: str, _agent_active: bool, *, force: bool = False) -> None:
             heartbeat_entered.set()
             if not heartbeat_released.wait(timeout=1):
                 heartbeat_timed_out.set()

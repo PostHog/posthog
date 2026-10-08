@@ -720,7 +720,7 @@ class OauthIntegration:
                 token_info_config_fields=[],  # Handled specially in integration_from_oauth_response
                 client_id=settings.ATLASSIAN_APP_CLIENT_ID,
                 client_secret=settings.ATLASSIAN_APP_CLIENT_SECRET,
-                scope="read:jira-work write:jira-work offline_access",
+                scope="read:jira-work write:jira-work read:jira-user offline_access",
                 id_path="cloud_id",
                 name_path="site_name",
             )

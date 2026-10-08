@@ -75,6 +75,29 @@ Symbol resolution runs in resolution-mode pods via the
 See the [resolution mode README](src/modes/resolution/README.md) for
 configuration and operator guidance.
 
+## Dropping code variables (processing mode)
+
+`ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS` takes a comma-separated list of
+team ids. The default is empty, which keeps code variables for every team. An
+entry that is not a team id stops processing mode at startup, so a typo cannot
+leave a team out of the list without an error. Use
+it for a team that receives events from senders you cannot upgrade, such as
+old SDK versions that attach frame locals without masking.
+
+For a listed team, processing mode removes `code_variables` from every frame
+two times:
+
+1. On the incoming event, before it is parsed. The resolution service then
+   never stores the variables, and an event that fails to parse is returned
+   without them.
+2. On the resolved frames. A stored frame record keeps the variables of the
+   event that first resolved that frame. The frame id does not include code
+   variables, so the record is reused for later events that hit the same
+   frame. This pass removes those replayed variables.
+
+The setting does not change frame records that are already in Postgres. Remove
+their variables separately if they must not stay there.
+
 ## Remote resolution behavior
 
 The public HTTP contract stays `POST /process`: callers send an array of

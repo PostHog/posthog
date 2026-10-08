@@ -1,3 +1,4 @@
+import asyncio
 import ipaddress
 from contextlib import nullcontext
 from datetime import datetime, timedelta
@@ -11,6 +12,7 @@ from unittest.mock import ANY, AsyncMock, patch
 from django.http import HttpResponse
 from django.utils.timezone import now
 
+import redis.exceptions
 import requests.exceptions
 from boto3 import resource
 from botocore.client import Config
@@ -27,6 +29,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.rate_limit import ExportCreateBurstRateThrottle
 from posthog.settings import (
     HOGQL_INCREASED_MAX_EXECUTION_TIME,
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -41,6 +44,7 @@ from posthog.test.insight_queries import browser_filtered_pageview_query
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.api.exports import BLOCKING_EXPORTS_PER_TEAM, _blocking_exports_limiter
 from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import DATASET_EXPORT_KIND, ExportedAsset
 from products.exports.backend.source_authentication import required_scopes_for_export_target
@@ -1877,11 +1881,17 @@ class TestExports(APIBaseTest):
         self.assertEqual(asset.exception_type, "QueryError")
         self.assertEqual(asset.failure_type, "user")
 
+    def _mock_export_workflow_handle(self, mock_async_connect) -> AsyncMock:
+        mock_handle = AsyncMock()
+        mock_client = AsyncMock()
+        mock_client.start_workflow.return_value = mock_handle
+        mock_async_connect.return_value = mock_client
+        return mock_handle
+
     @patch("products.exports.backend.api.exports.async_connect")
     def test_workflow_failure_returns_201_with_failed_asset(self, mock_async_connect) -> None:
-        mock_client = AsyncMock()
-        mock_client.execute_workflow.side_effect = Exception("workflow failed")
-        mock_async_connect.return_value = mock_client
+        mock_handle = self._mock_export_workflow_handle(mock_async_connect)
+        mock_handle.result.side_effect = Exception("workflow failed")
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
@@ -1890,6 +1900,78 @@ class TestExports(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertFalse(response.json()["has_content"])
+
+    @patch("products.exports.backend.api.exports.BLOCKING_EXPORT_WAIT_TIMEOUT", timedelta(milliseconds=10))
+    @patch("products.exports.backend.api.exports.async_connect")
+    def test_export_wait_timeout_returns_201_and_leaves_workflow_running(self, mock_async_connect) -> None:
+        async def never_finishes() -> None:
+            await asyncio.Event().wait()
+
+        mock_handle = self._mock_export_workflow_handle(mock_async_connect)
+        mock_handle.result.side_effect = never_finishes
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "text/csv", "insight": self.insight.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.json()["has_content"])
+        mock_handle.result.assert_awaited_once()
+        mock_handle.cancel.assert_not_awaited()
+        mock_handle.terminate.assert_not_awaited()
+        slots_key = f"exports:blocking:per-team:{self.team.id}"
+        self.assertEqual(_blocking_exports_limiter.redis_client.zcard(slots_key), 0)
+
+    @patch("products.exports.backend.api.exports.async_connect")
+    def test_export_over_team_wait_limit_starts_without_waiting(self, mock_async_connect) -> None:
+        for i in range(BLOCKING_EXPORTS_PER_TEAM):
+            slot = _blocking_exports_limiter.use(team_id=self.team.id, task_id=f"held-{i}")
+            assert slot is not None
+            self.addCleanup(_blocking_exports_limiter.release, slot)
+        mock_handle = self._mock_export_workflow_handle(mock_async_connect)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "text/csv", "insight": self.insight.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mock_async_connect.return_value.start_workflow.assert_awaited_once()
+        mock_handle.result.assert_not_awaited()
+
+    @patch.object(_blocking_exports_limiter, "use", side_effect=redis.exceptions.ConnectionError("unavailable"))
+    @patch("products.exports.backend.api.exports.async_connect")
+    def test_export_starts_without_waiting_when_wait_limiter_fails(self, mock_async_connect, _mock_use) -> None:
+        mock_handle = self._mock_export_workflow_handle(mock_async_connect)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "text/csv", "insight": self.insight.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mock_async_connect.return_value.start_workflow.assert_awaited_once()
+        mock_handle.result.assert_not_awaited()
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_export_create_is_throttled_per_team_and_list_is_not(self, _mock_start, _enabled) -> None:
+        with patch.object(ExportCreateBurstRateThrottle, "rate", "2/minute"):
+            responses = [
+                self.client.post(
+                    f"/api/projects/{self.team.id}/exports",
+                    {"export_format": "text/csv", "insight": self.insight.id},
+                )
+                for _ in range(3)
+            ]
+            list_response = self.client.get(f"/api/projects/{self.team.id}/exports")
+
+        self.assertEqual(
+            [response.status_code for response in responses],
+            [status.HTTP_201_CREATED, status.HTTP_201_CREATED, status.HTTP_429_TOO_MANY_REQUESTS],
+        )
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
 
 
 class TestExportHeatmapSSRFValidation(APIBaseTest):

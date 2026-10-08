@@ -50,11 +50,12 @@ class TestHoneycombSource:
         schemas = self.source.get_schemas(MagicMock(), team_id=self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)
 
-    def test_all_schemas_are_full_refresh(self) -> None:
+    def test_only_slo_counts_history_is_incremental(self) -> None:
         # Honeycomb's v1 config endpoints have no server-side timestamp filter, so advertising
         # incremental would silently re-walk history every run while claiming a delta sync.
+        # Append stays off everywhere: the latest SLO counts bucket is partial and must merge.
         for schema in self.source.get_schemas(MagicMock(), team_id=self.team_id):
-            assert schema.supports_incremental is False, schema.name
+            assert schema.supports_incremental is (schema.name == "slo_counts_history"), schema.name
             assert schema.supports_append is False, schema.name
 
     def test_get_schemas_filters_by_names(self) -> None:
@@ -121,6 +122,10 @@ class TestHoneycombSource:
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
+
+    def test_unavailable_slo_counts_history_is_non_retryable(self) -> None:
+        observed = "Honeycomb SLO counts history is unavailable for this API key: every SLO returned 404"
+        assert any(key in observed for key in self.source.get_non_retryable_errors())
 
     @parameterized.expand(
         [

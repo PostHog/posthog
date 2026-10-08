@@ -514,8 +514,10 @@ class TestKnowledgeDocumentWindowAPI(APIBaseTest):
             "heading_path",
             "source_name",
             "document_title",
+            "url",
         }
         assert first["source_name"] == "Docs"
+        assert first["url"] == ""
 
     def test_window_defaults_radius(self, _ff) -> None:
         doc = self._ready_safe_document(paragraphs=20)
@@ -644,8 +646,10 @@ class TestKnowledgeDocumentSearchAPI(APIBaseTest):
             "heading_path",
             "content",
             "is_generated",
+            "url",
         }
         assert first["source_name"] == "Docs"
+        assert first["url"] == ""
         assert first["is_generated"] is False
         assert "pricing" in first["content"].lower() or "Pricing" in first["content"]
 

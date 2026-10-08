@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # REVIEW MODEL
 REVIEW_RUNTIME_ADAPTER = RuntimeAdapter.CODEX
-REVIEW_MODEL = "gpt-6-sol"
+REVIEW_MODEL = "gpt-6.1-sol"
 REVIEW_REASONING_EFFORT = ReasoningEffort.XHIGH
 # Codex's default "auto" approval mode does not auto-approve MCP tool calls, so a headless reviewer
 # stalls on the skill pull without "full-access". (Claude sandboxes bypass permissions by default

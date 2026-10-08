@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { ConditionalFormattingRule, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -22,6 +22,16 @@ const defaultQuery: DataVisualizationNode = {
         query: 'select 1',
     },
     display: ChartDisplayType.Auto,
+}
+
+const equalsRule: ConditionalFormattingRule = {
+    id: 'equals',
+    templateId: 'equals',
+    columnName: 'value',
+    input: '1',
+    color: '#FFADAD',
+    colorMode: 'light',
+    bytecode: ['_H', 1, 32, 'input', 1, 1, 32, 'value', 1, 1, 11, 38],
 }
 
 describe('dataVisualizationLogic', () => {
@@ -657,6 +667,65 @@ describe('dataVisualizationLogic', () => {
         logic.actions.setTableSorted()
 
         await expectLogic(logic).toMatchValues({ hasSortedTable: true })
+    })
+
+    test.each([
+        {
+            name: 'loads the Hog VM for a table with formatting rules',
+            display: ChartDisplayType.ActionsTable,
+            rules: [equalsRule],
+            hogVm: expect.anything(),
+        },
+        {
+            name: 'does not load the Hog VM for a table without formatting rules',
+            display: ChartDisplayType.ActionsTable,
+            rules: [],
+            hogVm: null,
+        },
+        {
+            name: 'does not load the Hog VM for an auto visualization before its data arrives',
+            display: ChartDisplayType.Auto,
+            rules: [equalsRule],
+            hogVm: null,
+        },
+        {
+            name: 'does not load the Hog VM for a chart that kept table formatting rules',
+            display: ChartDisplayType.ActionsLineGraph,
+            rules: [equalsRule],
+            hogVm: null,
+        },
+    ])('$name', async ({ display, rules, hogVm }) => {
+        const tableLogic = dataVisualizationLogic({
+            key: 'hog-vm-loading',
+            query: { ...defaultQuery, display, tableSettings: { conditionalFormatting: rules } },
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        tableLogic.mount()
+
+        await expectLogic(tableLogic).toFinishAllListeners().toMatchValues({ hogVm })
+        tableLogic.unmount()
+    })
+
+    test.each([
+        { name: 'shows a Hog VM load failure while the table needs the VM', rules: [equalsRule], failed: true },
+        { name: 'hides a Hog VM load failure once the table has no rules', rules: [], failed: false },
+    ])('$name', async ({ rules, failed }) => {
+        const tableLogic = dataVisualizationLogic({
+            key: 'hog-vm-load-failure',
+            query: {
+                ...defaultQuery,
+                display: ChartDisplayType.ActionsTable,
+                tableSettings: { conditionalFormatting: rules },
+            },
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        tableLogic.mount()
+        await expectLogic(tableLogic).toFinishAllListeners()
+
+        tableLogic.actions.setHogVmLoadError(new Error('chunk failed'))
+
+        await expectLogic(tableLogic).toMatchValues({ hogVmLoadFailed: failed })
+        tableLogic.unmount()
     })
 
     it('does not mutate the original query when updating y-axis formatting', async () => {

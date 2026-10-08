@@ -46,7 +46,11 @@ head-changing event must retract standing approvals itself:
 The one deliberate exception is **approval retention**.
 A head-changing delivery whose push left the PR's own diff byte-identical skips both the retraction and the review (`_standing_approval_retention` in the Celery task, deciding through [`logic/approval_retention.py`](backend/logic/approval_retention.py)).
 It is content-based rather than commit-based: the PR's own unified diff at the approved head against the same at the current head.
-So a merge of the base branch that touches none of the PR's files retains, and a merge that resolves a conflict inside one of them re-reviews.
+So a merge of the base branch that touches none of the PR's files retains.
+A base merge that also edits a PR file changes the diff text, because the PR's hunks move. It still retains through `base_merge_is_clean`, which proves two things.
+The lineage proof: the head has exactly two parents, the first is an approved or already retained head, and the second is an ancestor of the payload's base sha.
+The content proof: every file that differs between the two diffs is exactly the `git merge-file` result of the merge base, the approved parent and the base parent.
+A conflict resolution, or any other content that the author put in the merge commit, fails that proof and re-reviews.
 Comparing the diff text rather than per-file blob shas is deliberate, because the text carries file modes and renames, and a blob sha covers contents only.
 The one thing the text does not carry is binary content, which git renders as `Binary files ... differ` over an abbreviated blob id, so a diff mentioning one is refused rather than compared.
 
@@ -99,7 +103,9 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
   to `product=aio_stamphog` and `obo=<customer team>`, capped at `cap_usd=5` and `ttl_seconds=3600`,
   acting as the repo's connecting user. The `phs_` never enters the sandbox; a mint failure fails
   the run (no shared-key fallback); the worker revokes the token once the reviewer returns,
-  without waiting for the sandbox teardown. Do not widen the cap or TTL without a run-cost reason: they bound what a prompt-injected reviewer can
+  without waiting for the sandbox teardown. The review mints the token after the sandbox exists, so
+  the token reaches it as a file (`STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH`), never in the creation env
+  or a command line. Do not widen the cap or TTL without a run-cost reason: they bound what a prompt-injected reviewer can
   spend with a leaked token.
 - The raw-Anthropic fallback exists for a local `review_pr.py` run only; hosted runs fail closed
   without a gateway. No `ANTHROPIC_API_KEY` may enter the sandbox environment.
@@ -270,6 +276,8 @@ T2-never with it, so it answers False for every PR it exists to catch.
   registry-completeness test guards this, don't bypass it.
 - Workflow bodies follow the repo-wide determinism rules (`workflow.patched()` for new commands).
 - Activity payloads stay small; large context rides in `run.output`, not through the workflow.
+- The sandbox start and checkout run beside the context fetch, the pre-check and the bot polls, so every activity that can overlap them writes `run.output` through `_merge_run_output` (a JSONB `||` merge), never a read-modify-write `save()` from a copy loaded earlier. A stale copy drops the other activity's keys, including the sandbox claim that stops a retry from paying for a second sandbox. The merge replaces a key whole, so the sandbox start and checkout record their step timings under their own keys, not in `timings_ms`.
+- No activity waits inside for another activity's write. A waiting activity holds a worker thread and an activity slot, and enough of them starve the activities they wait for. Put the wait in the workflow and split the activity at it.
 
 ## Tests
 

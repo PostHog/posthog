@@ -2,6 +2,7 @@ import time
 import threading
 from typing import Any
 
+from temporalio import activity
 from temporalio.worker import (
     ActivityInboundInterceptor,
     ExecuteActivityInput,
@@ -11,7 +12,17 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
+
+
+@frozen
+class RunningActivity:
+    activity_type: str
+    workflow_type: str | None
+    workflow_id: str | None
+    attempt: int
+    started_at: float
 
 
 class LivenessTracker:
@@ -24,7 +35,26 @@ class LivenessTracker:
     def __init__(self):
         self._last_activity_time: float = time.time()
         self._last_workflow_time: float = time.time()
+        self._running_activities: dict[int, RunningActivity] = {}
+        self._next_activity_key = 0
         self._lock = threading.Lock()
+
+    def record_activity_start(self, activity: RunningActivity) -> int:
+        """Register a running activity and return the key that `record_activity_end` takes."""
+
+        with self._lock:
+            key = self._next_activity_key
+            self._next_activity_key += 1
+            self._running_activities[key] = activity
+            return key
+
+    def record_activity_end(self, key: int) -> None:
+        with self._lock:
+            self._running_activities.pop(key, None)
+
+    def get_running_activities(self) -> list[RunningActivity]:
+        with self._lock:
+            return list(self._running_activities.values())
 
     def record_activity_execution(self) -> None:
         """Record that an activity was executed."""
@@ -90,6 +120,7 @@ class _LivenessActivityInboundInterceptor(ActivityInboundInterceptor):
         self._tracker = get_liveness_tracker()
 
     async def execute_activity(self, input: ExecuteActivityInput) -> Any:
+        key = self._record_start() if activity.in_activity() else None
         try:
             result = await super().execute_activity(input)
             self._tracker.record_activity_execution()
@@ -98,6 +129,21 @@ class _LivenessActivityInboundInterceptor(ActivityInboundInterceptor):
         except Exception:
             self._tracker.record_activity_execution()
             raise
+        finally:
+            if key is not None:
+                self._tracker.record_activity_end(key)
+
+    def _record_start(self) -> int:
+        info = activity.info()
+        return self._tracker.record_activity_start(
+            RunningActivity(
+                activity_type=info.activity_type,
+                workflow_type=info.workflow_type,
+                workflow_id=info.workflow_id,
+                attempt=info.attempt,
+                started_at=time.time(),
+            )
+        )
 
 
 class _LivenessWorkflowInterceptor(WorkflowInboundInterceptor):

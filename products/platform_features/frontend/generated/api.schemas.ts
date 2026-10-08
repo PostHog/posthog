@@ -7,6 +7,11 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface InternalFeedbackResponseApi {
+    /** True when the feedback reached Slack. */
+    success: boolean
+}
+
 /**
  * * `1` - member
  * * `8` - administrator
@@ -36,6 +41,29 @@ export const OrganizationPluginsAccessLevelEnumApi = {
     Number6: 6,
     Number9: 9,
 } as const
+
+export interface OrganizationMemberNoticeActionApi {
+    /**
+     * Text on the button shown next to the notice.
+     * @maxLength 40
+     */
+    label: string
+    /**
+     * Link the button opens in a new tab. Must use http or https.
+     * @maxLength 2000
+     */
+    url: string
+}
+
+export interface OrganizationMemberNoticeApi {
+    /**
+     * HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.
+     * @maxLength 1000
+     */
+    message: string
+    /** Optional link button shown on the right of the banner. */
+    action?: OrganizationMemberNoticeActionApi | null
+}
 
 export type OrganizationApiTeamsItem = { [key: string]: unknown }
 
@@ -87,6 +115,8 @@ export interface OrganizationApi {
      * @nullable
      */
     read_only_mcp_access?: boolean | null
+    /** Notice shown in a banner to every member of the organization. Set to null to remove it. */
+    member_notice?: OrganizationMemberNoticeApi | null
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
@@ -195,6 +225,8 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     read_only_mcp_access?: boolean | null
+    /** Notice shown in a banner to every member of the organization. Set to null to remove it. */
+    member_notice?: OrganizationMemberNoticeApi | null
     readonly member_count?: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
@@ -1203,6 +1235,26 @@ export interface PatchedPinnedSceneTabsApi {
     homepage?: PinnedSceneTabApi | null
 }
 
+export type InternalFeedbackCreateBody = {
+    /**
+     * What the person wants to tell the developers.
+     * @maxLength 4000
+     */
+    comment: string
+    /**
+     * URL of the page the feedback is about.
+     * @maxLength 2000
+     */
+    page_url: string
+    /**
+     * CSS selector of the element the person selected. Empty for feedback about the whole page.
+     * @maxLength 1000
+     */
+    element_identifier?: string
+    /** JPEG screenshot of the page, with the selected element outlined when there is one. */
+    screenshot?: Blob
+}
+
 export type ListParams = {
     /**
      * Number of results to return per page.
@@ -1307,6 +1359,7 @@ export type ActivityLogListParams = {
      * Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".
      *
      * * `Cohort` - Cohort
+     * * `CrossProjectDashboard` - CrossProjectDashboard
      * * `FeatureFlag` - FeatureFlag
      * * `Person` - Person
      * * `Group` - Group
@@ -1359,6 +1412,7 @@ export type ActivityLogListParams = {
      * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
+     * * `AccountView` - AccountView
      * * `AlertConfiguration` - AlertConfiguration
      * * `Threshold` - Threshold
      * * `AlertSubscription` - AlertSubscription
@@ -1409,6 +1463,7 @@ export type ActivityLogListScope = (typeof ActivityLogListScope)[keyof typeof Ac
 
 export const ActivityLogListScope = {
     Cohort: 'Cohort',
+    CrossProjectDashboard: 'CrossProjectDashboard',
     FeatureFlag: 'FeatureFlag',
     Person: 'Person',
     Group: 'Group',
@@ -1461,6 +1516,7 @@ export const ActivityLogListScope = {
     OAuthApplication: 'OAuthApplication',
     User: 'User',
     Action: 'Action',
+    AccountView: 'AccountView',
     AlertConfiguration: 'AlertConfiguration',
     Threshold: 'Threshold',
     AlertSubscription: 'AlertSubscription',
@@ -1498,6 +1554,7 @@ export const ActivityLogListScope = {
 
 /**
  * * `Cohort` - Cohort
+ * * `CrossProjectDashboard` - CrossProjectDashboard
  * * `FeatureFlag` - FeatureFlag
  * * `Person` - Person
  * * `Group` - Group
@@ -1550,6 +1607,7 @@ export const ActivityLogListScope = {
  * * `OAuthApplication` - OAuthApplication
  * * `User` - User
  * * `Action` - Action
+ * * `AccountView` - AccountView
  * * `AlertConfiguration` - AlertConfiguration
  * * `Threshold` - Threshold
  * * `AlertSubscription` - AlertSubscription
@@ -1588,6 +1646,7 @@ export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof
 
 export const ActivityLogListScopesItem = {
     Cohort: 'Cohort',
+    CrossProjectDashboard: 'CrossProjectDashboard',
     FeatureFlag: 'FeatureFlag',
     Person: 'Person',
     Group: 'Group',
@@ -1640,6 +1699,7 @@ export const ActivityLogListScopesItem = {
     OAuthApplication: 'OAuthApplication',
     User: 'User',
     Action: 'Action',
+    AccountView: 'AccountView',
     AlertConfiguration: 'AlertConfiguration',
     Threshold: 'Threshold',
     AlertSubscription: 'AlertSubscription',
@@ -1855,7 +1915,7 @@ export type CommentsListParams = {
      */
     source_comment?: string
     /**
-     * Owning task for task, task_artifact, task_preview, task_browser, and desktop_canvas comment scopes.
+     * Owning task for task, task_artifact, task_preview, task_browser, and canvas comment scopes.
      */
     task_id?: string
 }

@@ -1,8 +1,10 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import { uuid } from 'lib/utils/dom'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { TableFieldsStatus, databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
@@ -11,12 +13,15 @@ import type { QueryTab } from '../sqlEditorLogic'
 import { captureBIEditorModeSelected } from './biEditorAnalytics'
 import {
     BIAggregation,
+    BIChartFit,
     BIConfig,
+    BIDataPaneFields,
     BIDataSource,
     BIDateBucket,
     BIEditorState,
     BIEditorView,
     BIField,
+    BIFilter,
     BIFilterOperator,
     BIQueryBuildResult,
     BIQueryLimit,
@@ -25,8 +30,13 @@ import {
     BISortOption,
     DEFAULT_BI_CONFIG,
     buildBIQuery,
+    changeBIFilterOperator,
     createDefaultDateFilter,
     defaultAggregationForField,
+    getBIChartFit,
+    getBIDataPaneFields,
+    getBIDataSourceKey,
+    getBIShelfEditorKey,
     getBISortOptions,
     isBIFieldCompatible,
     normalizeBIConfig,
@@ -34,6 +44,12 @@ import {
 
 export interface BIEditorLogicProps {
     tabId: string
+}
+
+export interface BICalculatedMeasureDraft {
+    index: number | null
+    name: string
+    expression: string
 }
 
 function freshBIConfig(): BIConfig {
@@ -113,9 +129,36 @@ function addFieldToConfig(config: BIConfig, field: BIField, shelf: BIShelf): BIC
             return {
                 ...sourceConfig,
                 source,
-                filters: [...sourceConfig.filters, { field, operator: 'equals', value: '' }],
+                filters: [
+                    ...sourceConfig.filters,
+                    { field, operator: field.type === 'string' ? 'in' : 'equals', value: '' },
+                ],
             }
     }
+}
+
+function fieldOnShelf(config: BIConfig, shelf: BIShelf, index: number): BIField | null {
+    switch (shelf) {
+        case 'rows':
+        case 'columns':
+            return config[shelf][index] ?? null
+        case 'values':
+            return config.values[index]?.field ?? null
+        case 'filters':
+            return config.filters[index]?.field ?? null
+    }
+}
+
+function moveFieldInConfig(config: BIConfig, fromShelf: BIShelf, fromIndex: number, toShelf: BIShelf): BIConfig {
+    if (fromShelf === 'values' && config.values[fromIndex]?.label) {
+        return config
+    }
+    const field = fieldOnShelf(config, fromShelf, fromIndex)
+    if (!field || fromShelf === toShelf) {
+        return config
+    }
+
+    return addFieldToConfig(removeFieldFromConfig(config, fromShelf, fromIndex), field, toShelf)
 }
 
 function removeFieldFromConfig(config: BIConfig, shelf: BIShelf, index: number): BIConfig {
@@ -131,27 +174,26 @@ function removeFieldFromConfig(config: BIConfig, shelf: BIShelf, index: number):
 }
 
 function setFieldExpressionInConfig(config: BIConfig, shelf: BIShelf, index: number, expression: string): BIConfig {
+    const updateField = (field: BIField): BIField => ({ ...field, expression, name: expression.trim() })
     switch (shelf) {
         case 'rows':
         case 'columns':
             return {
                 ...config,
-                [shelf]: config[shelf].map((field, fieldIndex) =>
-                    fieldIndex === index ? { ...field, expression } : field
-                ),
+                [shelf]: config[shelf].map((field, fieldIndex) => (fieldIndex === index ? updateField(field) : field)),
             }
         case 'values':
             return {
                 ...config,
                 values: config.values.map((value, valueIndex) =>
-                    valueIndex === index ? { ...value, field: { ...value.field, expression } } : value
+                    valueIndex === index ? { ...value, field: updateField(value.field) } : value
                 ),
             }
         case 'filters':
             return {
                 ...config,
                 filters: config.filters.map((filter, filterIndex) =>
-                    filterIndex === index ? { ...filter, field: { ...filter.field, expression } } : filter
+                    filterIndex === index ? { ...filter, field: updateField(filter.field) } : filter
                 ),
             }
     }
@@ -195,18 +237,50 @@ export interface biEditorLogicValues {
     databaseConnectionId: string | null // databaseTableListLogic
     databaseLoading: boolean // databaseTableListLogic
     posthogTables: DatabaseSchemaTable[] // databaseTableListLogic
+    tableFieldsStatus: TableFieldsStatus // databaseTableListLogic
     activeTab: QueryTab | null // sqlEditorLogic
     activeDropShelf: BIShelf | null
     activeExpressionEditorId: string | null
+    activeExpressionEditorTarget: 'aggregation' | 'field'
+    autoUpdate: boolean
     availableDataSources: BIDataSource[]
+    calculatedMeasureDraft: BICalculatedMeasureDraft | null
+    chartFits: Partial<Record<ChartDisplayType, BIChartFit>>
     config: BIConfig
+    dataPaneFields: BIDataPaneFields
+    dataPaneFieldsError: boolean
+    dataPaneFieldsLoading: boolean
+    dataPaneSearch: string
+    dragSessionId: string
     editorView: BIEditorView
+    filteredDataPaneFields: BIDataPaneFields
     generatedQuery: BIQueryBuildResult | null
+    hoveredChartType: ChartDisplayType | null
+    selectableDataSources: BIDataSource[]
+    showMeOpen: boolean
     sortOptions: BISortOption[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface biEditorLogicActions {
+    hydrateTableFields: (tableNames: string[]) => {
+        tableNames: string[]
+    } // databaseTableListLogic
+    loadDatabaseSuccess: (
+        database: Required<import('~/queries/schema/schema-general').DatabaseSchemaQueryResponse> | null,
+        payload?:
+            | {
+                  force?: boolean
+                  shallow?: boolean
+              }
+            | undefined
+    ) => {
+        database: Required<import('~/queries/schema/schema-general').DatabaseSchemaQueryResponse> | null
+        payload?: {
+            force?: boolean
+            shallow?: boolean
+        }
+    } // databaseTableListLogic
     setSourceQuery: (sourceQuery: import('~/queries/schema/schema-general').DataVisualizationNode) => {
         sourceQuery: import('~/queries/schema/schema-general').DataVisualizationNode
     } // sqlEditorLogic
@@ -230,6 +304,18 @@ export interface biEditorLogicActions {
     clearActiveDropShelf: (shelf: BIShelf) => {
         shelf: BIShelf
     }
+    editCalculatedMeasure: (index?: number | null) => {
+        index: number | null
+    }
+    moveFieldToShelf: (
+        fromShelf: BIShelf,
+        fromIndex: number,
+        toShelf: BIShelf
+    ) => {
+        fromIndex: number
+        fromShelf: BIShelf
+        toShelf: BIShelf
+    }
     persistState: (
         editorView: BIEditorView,
         config: BIConfig
@@ -250,14 +336,33 @@ export interface biEditorLogicActions {
     restoreState: (state: BIEditorState) => {
         state: BIEditorState
     }
-    setActiveDropShelf: (shelf: BIShelf) => {
-        shelf: BIShelf
+    runAfterChange: () => {
+        value: true
     }
-    setActiveExpressionEditorId: (fieldId: string | null) => {
+    saveCalculatedMeasure: () => {
+        value: true
+    }
+    setActiveDropShelf: (shelf: BIShelf | null) => {
+        shelf: BIShelf | null
+    }
+    setActiveExpressionEditorId: (
+        fieldId: string | null,
+        target?: 'aggregation' | 'field'
+    ) => {
         fieldId: string | null
+        target: 'aggregation' | 'field'
+    }
+    setAutoUpdate: (autoUpdate: boolean) => {
+        autoUpdate: boolean
+    }
+    setCalculatedMeasureDraft: (draft: BICalculatedMeasureDraft | null) => {
+        draft: BICalculatedMeasureDraft | null
     }
     setChartType: (chartType: ChartDisplayType) => {
         chartType: ChartDisplayType
+    }
+    setDataPaneSearch: (search: string) => {
+        search: string
     }
     setDataSource: (source: BIDataSource) => {
         source: BIDataSource
@@ -304,8 +409,14 @@ export interface biEditorLogicActions {
         index: number
         value: string
     }
+    setHoveredChartType: (chartType: ChartDisplayType | null) => {
+        chartType: ChartDisplayType | null
+    }
     setLimit: (limit: BIQueryLimit) => {
         limit: 100 | 1000 | 10000 | 50000
+    }
+    setShowMeOpen: (showMeOpen: boolean) => {
+        showMeOpen: boolean
     }
     setSort: (sort: BISort | null) => {
         sort: BISort | null
@@ -324,8 +435,22 @@ export interface biEditorLogicActions {
         customExpression: string
         index: number
     }
+    swapRowsAndColumns: () => {
+        value: true
+    }
     syncGeneratedQuery: () => {
         value: true
+    }
+    updateFilter: (
+        index: number,
+        update: Partial<Pick<BIFilter, 'enabled' | 'values' | 'valueTo'>>
+    ) => {
+        index: number
+        update: Partial<Pick<BIFilter, 'enabled' | 'values' | 'valueTo'>>
+    }
+    upsertCalculatedMeasure: (draft: BICalculatedMeasureDraft) => {
+        draft: BICalculatedMeasureDraft
+        fieldId: string
     }
 }
 
@@ -338,8 +463,27 @@ export interface biEditorLogicMeta {
             posthogTables: DatabaseSchemaTable[],
             databaseConnectionId: string | null
         ) => BIDataSource[]
+        selectableDataSources: (availableDataSources: BIDataSource[], config: BIConfig) => BIDataSource[]
         generatedQuery: (config: BIConfig) => BIQueryBuildResult | null
         sortOptions: (config: BIConfig) => BISortOption[]
+        chartFits: (config: BIConfig) => Partial<Record<ChartDisplayType, BIChartFit>>
+        dataPaneFields: (
+            config: BIConfig,
+            allTables: DatabaseSchemaTable[],
+            databaseConnectionId: string | null
+        ) => BIDataPaneFields
+        dataPaneFieldsLoading: (
+            config: BIConfig,
+            tableFieldsStatus: TableFieldsStatus,
+            databaseLoading: boolean,
+            databaseConnectionId: string | null
+        ) => boolean
+        dataPaneFieldsError: (
+            config: BIConfig,
+            tableFieldsStatus: TableFieldsStatus,
+            databaseConnectionId: string | null
+        ) => boolean
+        filteredDataPaneFields: (dataPaneFields: BIDataPaneFields, dataPaneSearch: string) => BIDataPaneFields
     }
 }
 
@@ -359,9 +503,20 @@ export const biEditorLogic = kea<biEditorLogicType>([
             sqlEditorLogic({ tabId: logicProps.tabId }),
             ['activeTab'],
             databaseTableListLogic,
-            ['allTables', 'posthogTables', 'connectionId as databaseConnectionId', 'databaseLoading'],
+            [
+                'allTables',
+                'posthogTables',
+                'connectionId as databaseConnectionId',
+                'databaseLoading',
+                'tableFieldsStatus',
+            ],
         ],
-        actions: [sqlEditorLogic({ tabId: logicProps.tabId }), ['setSourceQuery', 'syncUrlWithQuery', 'updateTab']],
+        actions: [
+            sqlEditorLogic({ tabId: logicProps.tabId }),
+            ['setSourceQuery', 'syncUrlWithQuery', 'updateTab'],
+            databaseTableListLogic,
+            ['hydrateTableFields', 'loadDatabaseSuccess'],
+        ],
     })),
     actions({
         setEditorView: (editorView: BIEditorView) => ({ editorView }),
@@ -369,15 +524,37 @@ export const biEditorLogic = kea<biEditorLogicType>([
         persistState: (editorView: BIEditorView, config: BIConfig) => ({ editorView, config }),
         addFieldToShelf: (field: BIField, shelf: BIShelf) => ({ field, shelf }),
         addBlankFieldToShelf: (shelf: BIShelf) => ({ shelf, fieldId: `bi-blank-${uuid()}` }),
+        editCalculatedMeasure: (index: number | null = null) => ({ index }),
+        setCalculatedMeasureDraft: (draft: BICalculatedMeasureDraft | null) => ({ draft }),
+        saveCalculatedMeasure: true,
+        upsertCalculatedMeasure: (draft: BICalculatedMeasureDraft) => ({ draft, fieldId: `bi-calculated-${uuid()}` }),
         clearActiveDropShelf: (shelf: BIShelf) => ({ shelf }),
+        moveFieldToShelf: (fromShelf: BIShelf, fromIndex: number, toShelf: BIShelf) => ({
+            fromShelf,
+            fromIndex,
+            toShelf,
+        }),
+        swapRowsAndColumns: true,
+        setAutoUpdate: (autoUpdate: boolean) => ({ autoUpdate }),
+        setShowMeOpen: (showMeOpen: boolean) => ({ showMeOpen }),
+        setHoveredChartType: (chartType: ChartDisplayType | null) => ({ chartType }),
+        setDataPaneSearch: (search: string) => ({ search }),
+        runAfterChange: true,
         removeFieldFromShelf: (shelf: BIShelf, index: number) => ({ shelf, index }),
-        setActiveDropShelf: (shelf: BIShelf) => ({ shelf }),
-        setActiveExpressionEditorId: (fieldId: string | null) => ({ fieldId }),
+        setActiveDropShelf: (shelf: BIShelf | null) => ({ shelf }),
+        setActiveExpressionEditorId: (fieldId: string | null, target: 'field' | 'aggregation' = 'field') => ({
+            fieldId,
+            target,
+        }),
         setChartType: (chartType: ChartDisplayType) => ({ chartType }),
         setDataSource: (source: BIDataSource) => ({ source }),
         setValueAggregation: (index: number, aggregation: BIAggregation) => ({ index, aggregation }),
         setFilterOperator: (index: number, operator: BIFilterOperator) => ({ index, operator }),
         setFilterValue: (index: number, value: string) => ({ index, value }),
+        updateFilter: (index: number, update: Partial<Pick<BIFilter, 'values' | 'valueTo' | 'enabled'>>) => ({
+            index,
+            update,
+        }),
         setLimit: (limit: BIQueryLimit) => ({ limit }),
         setSort: (sort: BISort | null) => ({ sort }),
         setFieldExpression: (shelf: BIShelf, index: number, expression: string) => ({ shelf, index, expression }),
@@ -391,7 +568,21 @@ export const biEditorLogic = kea<biEditorLogicType>([
         resetConfig: true,
         syncGeneratedQuery: true,
     }),
-    reducers({
+    reducers(() => ({
+        calculatedMeasureDraft: [
+            null as BICalculatedMeasureDraft | null,
+            {
+                setCalculatedMeasureDraft: (_, { draft }) => draft,
+                upsertCalculatedMeasure: () => null,
+                setDataSource: () => null,
+                resetConfig: () => null,
+                restoreState: () => null,
+                setEditorView: () => null,
+                removeFieldFromShelf: () => null,
+                moveFieldToShelf: () => null,
+            },
+        ],
+        dragSessionId: [uuid(), {}],
         activeDropShelf: [
             null as BIShelf | null,
             {
@@ -400,13 +591,40 @@ export const biEditorLogic = kea<biEditorLogicType>([
                     activeDropShelf === shelf ? null : activeDropShelf,
             },
         ],
+        autoUpdate: [true, { persist: true }, { setAutoUpdate: (_, { autoUpdate }) => autoUpdate }],
+        showMeOpen: [true, { persist: true }, { setShowMeOpen: (_, { showMeOpen }) => showMeOpen }],
+        hoveredChartType: [
+            null as ChartDisplayType | null,
+            { setHoveredChartType: (_, { chartType }) => chartType, setShowMeOpen: () => null },
+        ],
+        activeExpressionEditorTarget: [
+            'field' as 'field' | 'aggregation',
+            {
+                setActiveExpressionEditorId: (_, { target }) => target,
+                addBlankFieldToShelf: () => 'field',
+                addFieldToShelf: () => 'field',
+            },
+        ],
+        dataPaneSearch: [
+            '',
+            {
+                setDataPaneSearch: (_, { search }) => search,
+                setDataSource: () => '',
+            },
+        ],
         activeExpressionEditorId: [
             null as string | null,
             {
-                addBlankFieldToShelf: (_, { fieldId }) => fieldId,
+                addBlankFieldToShelf: (_, { shelf, fieldId }) => getBIShelfEditorKey(shelf, fieldId),
+                // Opens the filter editor as soon as a field lands on the filters shelf
+                addFieldToShelf: (activeExpressionEditorId, { field, shelf }) =>
+                    shelf === 'filters' ? getBIShelfEditorKey('filters', field.id) : activeExpressionEditorId,
                 setActiveExpressionEditorId: (_, { fieldId }) => fieldId,
                 resetConfig: () => null,
                 restoreState: () => null,
+                removeFieldFromShelf: () => null,
+                moveFieldToShelf: () => null,
+                swapRowsAndColumns: () => null,
                 setDataSource: () => null,
                 setEditorView: () => null,
             },
@@ -423,10 +641,33 @@ export const biEditorLogic = kea<biEditorLogicType>([
         config: [
             freshBIConfig(),
             {
+                upsertCalculatedMeasure: (config, { draft, fieldId }) => {
+                    if (!config.source) {
+                        return config
+                    }
+                    const existing = draft.index === null ? null : config.values[draft.index]
+                    const value = {
+                        field: existing?.field ?? { ...blankField(config.source, fieldId), type: 'float' as const },
+                        aggregation: 'custom' as const,
+                        customExpression: draft.expression.trim(),
+                        label: draft.name.trim(),
+                    }
+                    return {
+                        ...config,
+                        values:
+                            draft.index === null
+                                ? [...config.values, value]
+                                : config.values.map((current, index) => (index === draft.index ? value : current)),
+                    }
+                },
                 addFieldToShelf: (config, { field, shelf }) => addFieldToConfig(config, field, shelf),
                 addBlankFieldToShelf: (config, { shelf, fieldId }) =>
                     config.source ? addFieldToConfig(config, blankField(config.source, fieldId), shelf) : config,
                 removeFieldFromShelf: (config, { shelf, index }) => removeFieldFromConfig(config, shelf, index),
+                moveFieldToShelf: (config, { fromShelf, fromIndex, toShelf }) =>
+                    normalizeBIConfig(moveFieldInConfig(config, fromShelf, fromIndex, toShelf)),
+                swapRowsAndColumns: (config) =>
+                    normalizeBIConfig({ ...config, rows: config.columns, columns: config.rows }),
                 setChartType: (config, { chartType }) => normalizeBIConfig({ ...config, chartType }),
                 setDataSource: (config, { source }) => setDataSourceInConfig(config, source),
                 setValueAggregation: (config, { index, aggregation }) => ({
@@ -438,13 +679,19 @@ export const biEditorLogic = kea<biEditorLogicType>([
                 setFilterOperator: (config, { index, operator }) => ({
                     ...config,
                     filters: config.filters.map((filter, filterIndex) =>
-                        filterIndex === index ? { ...filter, operator } : filter
+                        filterIndex === index ? changeBIFilterOperator(filter, operator) : filter
                     ),
                 }),
                 setFilterValue: (config, { index, value }) => ({
                     ...config,
                     filters: config.filters.map((filter, filterIndex) =>
                         filterIndex === index ? { ...filter, value } : filter
+                    ),
+                }),
+                updateFilter: (config, { index, update }) => ({
+                    ...config,
+                    filters: config.filters.map((filter, filterIndex) =>
+                        filterIndex === index ? { ...filter, ...update } : filter
                     ),
                 }),
                 setLimit: (config, { limit }) => normalizeBIConfig({ ...config, limit }),
@@ -472,7 +719,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
                 resetConfig: freshBIConfig,
             },
         ],
-    }),
+    })),
     selectors({
         availableDataSources: [
             (selectors) => [selectors.allTables, selectors.posthogTables, selectors.databaseConnectionId],
@@ -491,6 +738,19 @@ export const biEditorLogic = kea<biEditorLogicType>([
                     .sort((first, second) => first.table.localeCompare(second.table))
             },
         ],
+        selectableDataSources: [
+            (selectors) => [selectors.availableDataSources, selectors.config],
+            (availableDataSources: BIDataSource[], config: BIConfig): BIDataSource[] => {
+                const source = config.source
+                // Keeps the chosen table selectable while tables load, or after it leaves the list
+                return !source ||
+                    availableDataSources.some(
+                        (candidate) => getBIDataSourceKey(candidate) === getBIDataSourceKey(source)
+                    )
+                    ? availableDataSources
+                    : [source, ...availableDataSources]
+            },
+        ],
         generatedQuery: [
             (selectors) => [selectors.config],
             (config: BIConfig): BIQueryBuildResult | null => buildBIQuery(config),
@@ -499,8 +759,91 @@ export const biEditorLogic = kea<biEditorLogicType>([
             (selectors) => [selectors.config],
             (config: BIConfig): BISortOption[] => getBISortOptions(config),
         ],
+        chartFits: [
+            (selectors) => [selectors.config],
+            (config: BIConfig): Partial<Record<ChartDisplayType, BIChartFit>> =>
+                Object.fromEntries(
+                    Object.values(ChartDisplayType).map((chartType) => [chartType, getBIChartFit(config, chartType)])
+                ),
+        ],
+        dataPaneFields: [
+            (selectors) => [selectors.config, selectors.allTables, selectors.databaseConnectionId],
+            (
+                config: BIConfig,
+                allTables: DatabaseSchemaTable[],
+                databaseConnectionId: string | null
+            ): BIDataPaneFields =>
+                config.source && (config.source.connectionId ?? null) === databaseConnectionId
+                    ? getBIDataPaneFields(
+                          allTables.find((table) => table.name === config.source?.table),
+                          config.source
+                      )
+                    : { dimensions: [], measures: [] },
+        ],
+        dataPaneFieldsLoading: [
+            (selectors) => [
+                selectors.config,
+                selectors.tableFieldsStatus,
+                selectors.databaseLoading,
+                selectors.databaseConnectionId,
+            ],
+            (
+                config: BIConfig,
+                tableFieldsStatus: TableFieldsStatus,
+                databaseLoading: boolean,
+                connectionId: string | null
+            ): boolean =>
+                !!config.source &&
+                (config.source.connectionId ?? null) === connectionId &&
+                (databaseLoading || tableFieldsStatus[config.source.table] === 'loading'),
+        ],
+        dataPaneFieldsError: [
+            (selectors) => [selectors.config, selectors.tableFieldsStatus, selectors.databaseConnectionId],
+            (config: BIConfig, tableFieldsStatus: TableFieldsStatus, connectionId: string | null): boolean =>
+                !!config.source &&
+                (config.source.connectionId ?? null) === connectionId &&
+                tableFieldsStatus[config.source.table] === 'error',
+        ],
+        filteredDataPaneFields: [
+            (selectors) => [selectors.dataPaneFields, selectors.dataPaneSearch],
+            (dataPaneFields: BIDataPaneFields, dataPaneSearch: string): BIDataPaneFields => {
+                const needle = dataPaneSearch.trim().toLowerCase()
+                if (!needle) {
+                    return dataPaneFields
+                }
+                const matches = (field: BIField): boolean => field.name.toLowerCase().includes(needle)
+                return {
+                    dimensions: dataPaneFields.dimensions.filter(matches),
+                    measures: dataPaneFields.measures.filter(matches),
+                }
+            },
+        ],
     }),
-    listeners(({ actions, props: logicProps, values }) => ({
+    listeners(({ actions, props: logicProps, values, cache }) => ({
+        editCalculatedMeasure: ({ index }) => {
+            if (!values.config.source) {
+                return
+            }
+            const value = index === null ? null : values.config.values[index]
+            actions.setActiveExpressionEditorId(null)
+            actions.setCalculatedMeasureDraft({
+                index,
+                name: value?.label ?? '',
+                expression: value?.customExpression ?? '',
+            })
+        },
+        saveCalculatedMeasure: () => {
+            const draft = values.calculatedMeasureDraft
+            if (draft?.name.trim() && draft.expression.trim()) {
+                actions.upsertCalculatedMeasure(draft)
+            }
+        },
+        upsertCalculatedMeasure: () => actions.runAfterChange(),
+        loadDatabaseSuccess: () => {
+            if (values.config.source && (values.config.source.connectionId ?? null) === values.databaseConnectionId) {
+                actions.hydrateTableFields([values.config.source.table])
+            }
+        },
         persistState: ({ editorView, config }) => {
             if (!values.activeTab) {
                 return
@@ -512,70 +855,84 @@ export const biEditorLogic = kea<biEditorLogicType>([
             actions.syncUrlWithQuery()
         },
         setEditorView: ({ editorView }) => {
+            cache.autoUpdateRevision = (cache.autoUpdateRevision ?? 0) + 1
             captureBIEditorModeSelected(editorView, values.config)
             actions.persistState(editorView, values.config)
             if (editorView === BIEditorView.BI) {
+                const connectionId = sqlEditorLogic({ tabId: logicProps.tabId }).values.selectedConnectionId
+                if (values.config.source && (values.config.source.connectionId ?? null) !== (connectionId ?? null)) {
+                    actions.resetConfig()
+                    return
+                }
                 actions.syncGeneratedQuery()
             }
         },
-        addFieldToShelf: () => {
+        addFieldToShelf: () => actions.runAfterChange(),
+        moveFieldToShelf: () => actions.runAfterChange(),
+        swapRowsAndColumns: () => actions.runAfterChange(),
+        setAutoUpdate: ({ autoUpdate }) => {
+            cache.autoUpdateRevision = (cache.autoUpdateRevision ?? 0) + 1
+            if (autoUpdate) {
+                actions.runAfterChange()
+            }
+        },
+        runAfterChange: async (_, breakpoint) => {
             actions.persistState(values.editorView, values.config)
             actions.syncGeneratedQuery()
+            if (!values.autoUpdate || values.editorView !== BIEditorView.BI || !values.generatedQuery) {
+                return
+            }
+            const revision = cache.autoUpdateRevision
+            // Debounced so typing a filter value or clicking through menus runs one query
+            await breakpoint(400)
+            if (
+                !values.autoUpdate ||
+                values.editorView !== BIEditorView.BI ||
+                !values.generatedQuery ||
+                revision !== cache.autoUpdateRevision
+            ) {
+                return
+            }
+            const editorLogic = sqlEditorLogic({ tabId: logicProps.tabId })
+            const lastSource = editorLogic.values.lastRunQuery?.source
+            const nextSource = values.generatedQuery.node.source
+            const dataLogic = dataNodeLogic.findMounted({ key: `data-warehouse-editor-data-node-${logicProps.tabId}` })
+            if (
+                lastSource?.query === nextSource.query &&
+                (lastSource.connectionId ?? null) === (nextSource.connectionId ?? null) &&
+                dataLogic &&
+                !dataLogic.values.queryCancelled &&
+                !dataLogic.values.responseError &&
+                (dataLogic.values.responseLoading || dataLogic.values.response)
+            ) {
+                return
+            }
+            editorLogic.actions.runQuery()
         },
-        addBlankFieldToShelf: () => {
-            actions.persistState(values.editorView, values.config)
-            actions.syncGeneratedQuery()
-        },
-        removeFieldFromShelf: () => {
-            actions.persistState(values.editorView, values.config)
-            actions.syncGeneratedQuery()
-        },
-        setChartType: () => {
-            actions.persistState(values.editorView, values.config)
-            actions.syncGeneratedQuery()
-        },
-        setDataSource: () => {
-            actions.persistState(values.editorView, values.config)
-            actions.syncGeneratedQuery()
-        },
-        setValueAggregation: () => {
-            actions.persistState(values.editorView, values.config)
-            actions.syncGeneratedQuery()
-        },
-        setFilterOperator: () => {
-            actions.persistState(values.editorView, values.config)
-            actions.syncGeneratedQuery()
-        },
-        setFilterValue: () => {
-            actions.persistState(values.editorView, values.config)
-            actions.syncGeneratedQuery()
-        },
-        setLimit: () => {
-            actions.persistState(values.editorView, values.config)
-            actions.syncGeneratedQuery()
-        },
-        setSort: () => {
-            actions.persistState(values.editorView, values.config)
-            actions.syncGeneratedQuery()
-        },
-        setFieldExpression: () => {
-            actions.persistState(values.editorView, values.config)
-            actions.syncGeneratedQuery()
-        },
-        setFieldDateBucket: () => {
-            actions.persistState(values.editorView, values.config)
-            actions.syncGeneratedQuery()
-        },
-        setValueCustomExpression: () => {
-            actions.persistState(values.editorView, values.config)
-            actions.syncGeneratedQuery()
-        },
-        setFilterCustomExpression: () => {
-            actions.persistState(values.editorView, values.config)
-            actions.syncGeneratedQuery()
-        },
+        addBlankFieldToShelf: () => actions.runAfterChange(),
+        removeFieldFromShelf: () => actions.runAfterChange(),
+        setChartType: () => actions.runAfterChange(),
+        setDataSource: () => actions.runAfterChange(),
+        setValueAggregation: () => actions.runAfterChange(),
+        setFilterOperator: () => actions.runAfterChange(),
+        setFilterValue: () => actions.runAfterChange(),
+        updateFilter: () => actions.runAfterChange(),
+        setLimit: () => actions.runAfterChange(),
+        setSort: () => actions.runAfterChange(),
+        setFieldExpression: () => actions.runAfterChange(),
+        setFieldDateBucket: () => actions.runAfterChange(),
+        setValueCustomExpression: () => actions.runAfterChange(),
+        setFilterCustomExpression: () => actions.runAfterChange(),
         setSourceQuery: ({ sourceQuery }) => {
             if (!values.activeTab?.biEditorState && values.editorView === BIEditorView.SQL) {
+                return
+            }
+            if (
+                values.editorView === BIEditorView.BI &&
+                values.config.source &&
+                (values.config.source.connectionId ?? null) !== (sourceQuery.source.connectionId ?? null)
+            ) {
+                actions.resetConfig()
                 return
             }
             actions.persistState(values.editorView, {
@@ -584,9 +941,14 @@ export const biEditorLogic = kea<biEditorLogicType>([
             })
         },
         resetConfig: () => {
+            cache.autoUpdateRevision = (cache.autoUpdateRevision ?? 0) + 1
             actions.persistState(values.editorView, values.config)
+            const dataLogic = dataNodeLogic.findMounted({ key: `data-warehouse-editor-data-node-${logicProps.tabId}` })
+            dataLogic?.actions.cancelQuery()
+            dataLogic?.actions.clearResponse()
             const editorLogic = sqlEditorLogic({ tabId: logicProps.tabId })
             const sourceQuery = editorLogic.values.sourceQuery
+            editorLogic.actions.setLastRunQuery(null)
             editorLogic.actions.setQueryInput('')
             editorLogic.actions.setSourceQuery({
                 ...sourceQuery,
@@ -602,25 +964,44 @@ export const biEditorLogic = kea<biEditorLogicType>([
             const editorLogic = sqlEditorLogic({ tabId: logicProps.tabId })
             const sourceQuery = editorLogic.values.sourceQuery
             const generatedChartSettings = values.generatedQuery.node.chartSettings
+            const chartSettings = { ...sourceQuery.chartSettings }
+            if (chartSettings.seriesBreakdownColumn?.startsWith('bi_')) {
+                delete chartSettings.xAxis
+                delete chartSettings.xAxisLabel
+                delete chartSettings.yAxis
+                delete chartSettings.seriesBreakdownColumn
+                delete chartSettings.showLegend
+            }
             editorLogic.actions.setQueryInput(values.generatedQuery.query)
             editorLogic.actions.setSourceQuery({
                 ...sourceQuery,
                 ...values.generatedQuery.node,
                 chartSettings: generatedChartSettings
                     ? {
-                          ...sourceQuery.chartSettings,
+                          ...chartSettings,
                           ...generatedChartSettings,
                           heatmap: {
                               ...sourceQuery.chartSettings?.heatmap,
                               ...generatedChartSettings.heatmap,
                           },
                       }
-                    : sourceQuery.chartSettings,
+                    : chartSettings,
                 source: {
                     ...sourceQuery.source,
                     ...values.generatedQuery.node.source,
                 },
             })
+        },
+    })),
+    subscriptions(({ actions, values }) => ({
+        config: (config: BIConfig, oldConfig: BIConfig | undefined) => {
+            if (
+                config.source &&
+                (config.source.connectionId ?? null) === values.databaseConnectionId &&
+                (!oldConfig?.source || getBIDataSourceKey(config.source) !== getBIDataSourceKey(oldConfig.source))
+            ) {
+                actions.hydrateTableFields([config.source.table])
+            }
         },
     })),
     afterMount(({ actions, values }) => {

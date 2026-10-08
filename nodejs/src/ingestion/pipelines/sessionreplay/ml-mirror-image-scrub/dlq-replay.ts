@@ -4,9 +4,10 @@ import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { logger } from '~/common/utils/logger'
 import { INGESTION_VERSION_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 
 import { REPLAY_COUNT_HEADER } from './image-batcher'
-import { CAPTURE_TIMESTAMP_HEADER, CONTENT_ENCODING_HEADER, CONTENT_TYPE_HEADER } from './image-transport'
+import { CONTENT_ENCODING_HEADER, CONTENT_TYPE_HEADER } from './image-transport'
 import { ImageScrubConsumerMetrics } from './metrics'
 
 /**

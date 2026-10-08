@@ -10,6 +10,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { useMocks } from '~/mocks/jest'
 import {
     ConversionGoalFilter,
     MARKETING_INTEGRATION_CONFIGS,
@@ -20,17 +21,30 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsAttributionBreakdown,
     MarketingAnalyticsTableQuery,
+    MarketingAnalyticsSearchRow,
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
     NodeKind,
+    SourceMap,
     WebAnalyticsPropertyFilters,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ExternalDataSource, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AccessControlLevel,
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
+
+import { searchPerformanceLogic } from 'products/marketing_analytics/frontend/search/searchPerformanceLogic'
 
 import {
     MarketingAnalyticsTab,
+    MarketingSourceStatus,
     MarketingDashboardView,
     SetupSection,
     marketingAnalyticsLogic,
@@ -58,6 +72,126 @@ describe('marketingAnalyticsLogic', () => {
             logic.unmount()
         }
         localStorage.clear()
+    })
+
+    it('keeps the search date range in the URL when restoring a tab', async () => {
+        router.actions.push(urls.marketingAnalyticsApp(), {
+            tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+            date_from: '-28d',
+            compare: 'true',
+        })
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.dateFilter.dateFrom).toBe('-28d')
+        expect(router.values.searchParams).toMatchObject({
+            date_from: '-28d',
+            tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+        })
+    })
+
+    it('keeps a connected Search Console integration selected after refreshing sources', async () => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setIntegrationFilter({
+            integrationSourceIds: ['organic', 'deleted'],
+            includeNonIntegrated: false,
+        })
+        await expectLogic(logic, () =>
+            logic.actions.loadSourcesSuccess({
+                count: 1,
+                next: null,
+                previous: null,
+                results: [
+                    {
+                        id: 'organic',
+                        source_id: 'example.com',
+                        connection_id: 'example-organic',
+                        source_type: 'GoogleSearchConsole',
+                        schemas: [
+                            {
+                                name: 'search_analytics_by_query_page',
+                                should_sync: true,
+                                table: { name: 'organic_query_pages', hogql_name: 'organic_query_pages' },
+                            } as ExternalDataSourceSchema,
+                        ],
+                        status: ExternalDataJobStatus.Completed,
+                        prefix: null,
+                        description: 'example.com',
+                        created_via: 'web',
+                        latest_error: null,
+                        sync_frequency: '24hour',
+                        job_inputs: {},
+                        user_access_level: AccessControlLevel.Admin,
+                        revenue_analytics_config: { enabled: false, include_invoiceless_charges: false },
+                    },
+                ],
+            })
+        ).toFinishAllListeners()
+        expect(logic.values.integrationFilter.integrationSourceIds).toEqual(['organic'])
+        const searchLogic = searchPerformanceLogic()
+        const unmountSearch = searchLogic.mount()
+        try {
+            expect(searchLogic.values.missingSources).toEqual(['GoogleAds'])
+            logic.actions.setCompareFilter({ compare: true })
+            logic.actions.setDates('-28d', null)
+            searchLogic.actions.setChannel('paid')
+            searchLogic.actions.setQuerySearch('missing query')
+            expect(searchLogic.values.hasActiveFilters).toBe(true)
+            expect(searchLogic.values.sources).toEqual([])
+
+            searchLogic.actions.clearFilters()
+            expect(searchLogic.values.hasActiveFilters).toBe(false)
+            expect(searchLogic.values.sources.map((source) => source.id)).toEqual(['organic'])
+            expect(searchLogic.values.query.search).toBe('')
+            expect(logic.values.compareFilter).toEqual({ compare: true })
+            const organicSource = logic.values.dataWarehouseSources!.results[0]
+            await expectLogic(logic, () =>
+                logic.actions.loadSourcesSuccess({
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    results: [
+                        organicSource,
+                        {
+                            ...organicSource,
+                            id: 'organic-other',
+                            schemas: [
+                                {
+                                    ...organicSource.schemas[0],
+                                    table: {
+                                        ...organicSource.schemas[0].table!,
+                                        name: 'other_query_pages',
+                                        hogql_name: 'other_query_pages',
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                })
+            ).toFinishAllListeners()
+            logic.actions.setIntegrationFilter({ integrationSourceIds: ['organic'] })
+            searchLogic.actions.selectRow({
+                platform: 'GoogleSearchConsole',
+                keyword: 'analytics',
+                page: null,
+            } as MarketingAnalyticsSearchRow)
+            expect(searchLogic.values.detailQuery?.sources.map((source) => source.statsTable)).toEqual([
+                'organic_query_pages',
+            ])
+            searchLogic.actions.selectRow({
+                platform: 'GoogleAds',
+                keyword: 'analytics',
+                page: null,
+            } as MarketingAnalyticsSearchRow)
+            expect(searchLogic.values.detailQuery?.sources.map((source) => source.statsTable)).toEqual([
+                'organic_query_pages',
+                'other_query_pages',
+            ])
+        } finally {
+            unmountSearch()
+        }
     })
 
     it.each<{
@@ -389,11 +523,161 @@ describe('marketingAnalyticsLogic', () => {
         expect(logic.values.unconfiguredNativeSources).toEqual([])
     })
 
-    it('keeps the selection and drops an unknown key from a filter saved by an older build', async () => {
-        localStorage.setItem(
-            STORAGE_KEY,
-            JSON.stringify({ integrationSourceIds: ['source-1'], includeNonIntegrated: true })
+    it('shows validation errors for the affected connection and clears them after reload', async () => {
+        let errors: Record<string, string[]> = {}
+        useMocks({
+            get: {
+                '/api/projects/:team_id/marketing_analytics/source_validation/': () => [
+                    200,
+                    { errors_by_source: errors },
+                ],
+            },
+        })
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS]: true })
+        const sources = ['outdated', 'current'].map(
+            (id) =>
+                ({
+                    id,
+                    source_type: 'OpenAIAds',
+                    schemas: ['campaigns', 'campaign_insights'].map((name) => ({
+                        id: `${id}-${name}`,
+                        name,
+                        should_sync: true,
+                        status: ExternalDataSchemaStatus.Completed,
+                    })),
+                }) as ExternalDataSource
         )
+        await expectLogic(logic, () =>
+            logic.actions.loadSourcesSuccess({ count: 2, next: null, previous: null, results: sources })
+        ).toFinishAllListeners()
+        expect(logic.values.allAvailableSourcesWithStatus.every(({ status }) => status === 'Completed')).toBe(true)
+
+        errors = { outdated: ["Missing 'currency_code' in 'campaign_insights'.", "Missing 'name' in 'campaigns'."] }
+        await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
+        for (const sourcesWithStatus of [
+            logic.values.allAvailableSourcesWithStatus,
+            logic.values.allExternalTablesWithStatus,
+        ]) {
+            expect(sourcesWithStatus.find((source) => source.id === 'outdated')).toMatchObject({
+                status: MarketingSourceStatus.Warning,
+                statusMessage: expect.stringContaining(errors.outdated.join(' ')),
+            })
+            expect(sourcesWithStatus.find((source) => source.id === 'current')?.status).toBe('Completed')
+        }
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS]: false })
+        expect(logic.values.allAvailableSourcesWithStatus).toEqual([])
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS]: true })
+        errors = {}
+        await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
+        for (const sourcesWithStatus of [
+            logic.values.allAvailableSourcesWithStatus,
+            logic.values.allExternalTablesWithStatus.filter((source) => sources.some(({ id }) => id === source.id)),
+        ]) {
+            expect(sourcesWithStatus.map(({ status }) => status)).toEqual(['Completed', 'Completed'])
+        }
+        useMocks({
+            get: { '/api/projects/:team_id/marketing_analytics/source_validation/': () => [500, {}] },
+        })
+        await expectLogic(logic, () => logic.actions.loadSourceValidation()).toFinishAllListeners()
+        expect(logic.values.sourceValidationError).not.toBeNull()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/marketing_analytics/source_validation/': () => [200, { errors_by_source: {} }],
+            },
+        })
+        await expectLogic(logic, () => logic.actions.loadSourceValidation()).toFinishAllListeners()
+        expect(logic.values.sourceValidationError).toBeNull()
+    })
+
+    it.each(['managed', 'self-managed'])('shows invalid mappings for a %s source until corrected', async (type) => {
+        const tableId = 'example-table'
+        const sourceId = type === 'managed' ? 'example-schema' : tableId
+        let errors: Record<string, string[]> = { [sourceId]: ['Missing required column mapping: cost'] }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/marketing_analytics/source_validation/': () => [
+                    200,
+                    { errors_by_source: errors },
+                ],
+            },
+        })
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        databaseTableListLogic.actions.loadDatabaseSuccess({
+            tables: {
+                example_campaigns: {
+                    id: tableId,
+                    name: 'example_campaigns',
+                    type: 'data_warehouse',
+                    url_pattern: 'https://example.s3.amazonaws.com/campaigns',
+                    ...(type === 'managed'
+                        ? {
+                              schema: {
+                                  id: sourceId,
+                                  name: 'example_campaigns',
+                                  should_sync: true,
+                                  incremental: false,
+                                  status: ExternalDataSchemaStatus.Completed,
+                              },
+                              source: {
+                                  id: 'example-source',
+                                  source_type: 'BigQuery',
+                                  status: 'Completed',
+                                  prefix: '',
+                              },
+                          }
+                        : {}),
+                    fields: {
+                        cost: { name: 'cost', hogql_value: 'cost', type: 'float', schema_valid: true },
+                    },
+                } satisfies DatabaseSchemaDataWarehouseTable,
+            },
+            joins: [],
+        })
+
+        for (const sourceMap of [{}, { campaign: 'campaign' }] as SourceMap[]) {
+            await expectLogic(logic, () =>
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...teamLogic.values.currentTeam!,
+                    marketing_analytics_config: { sources_map: { [sourceId]: sourceMap } },
+                })
+            ).toFinishAllListeners()
+            expect(logic.values.validExternalTables).toEqual([])
+            expect(logic.values.allAvailableSources).toEqual([])
+            expect(logic.values.allAvailableSourcesWithStatus).toEqual([
+                expect.objectContaining({
+                    id: sourceId,
+                    status: MarketingSourceStatus.Warning,
+                    statusMessage: expect.stringContaining(errors[sourceId][0]),
+                }),
+            ])
+        }
+        await expectLogic(logic, () =>
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...teamLogic.values.currentTeam!,
+                marketing_analytics_config: {
+                    sources_map: {
+                        [sourceId]: Object.fromEntries(
+                            Object.values(MarketingAnalyticsColumnsSchemaNames).map((name) => [name, name])
+                        ) as SourceMap,
+                    },
+                },
+            })
+        ).toFinishAllListeners()
+        errors = {}
+        await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
+        expect(logic.values.validExternalTables).toHaveLength(1)
+        expect(logic.values.allAvailableSourcesWithStatus).toEqual([
+            expect.objectContaining({ id: sourceId, status: ExternalDataSchemaStatus.Completed }),
+        ])
+    })
+
+    it('keeps the selection and drops an unknown key from a filter saved by an older build', async () => {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ integrationSourceIds: ['source-1'], removedOption: true }))
 
         logic = marketingAnalyticsLogic()
         logic.mount()
@@ -450,6 +734,7 @@ describe('marketingAnalyticsLogic', () => {
         await expectLogic(logic, () => logic.actions.setDates('-30d', null)).toFinishAllListeners()
         expect(router.values.searchParams).not.toHaveProperty('view')
         expect(router.values.searchParams).not.toHaveProperty('breakdown')
+        expect(new URLSearchParams(router.values.location.search).get('date_to')).toBe('')
 
         const filters: WebAnalyticsPropertyFilters = [
             {
@@ -477,6 +762,7 @@ describe('marketingAnalyticsLogic', () => {
         logic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Channel)
         await expectLogic(logic).toFinishAllListeners()
         expect(router.values.searchParams).toMatchObject({ view: 'overview', breakdown: 'channel' })
+        expect(new URLSearchParams(router.values.location.search).get('date_to')).toBe('')
 
         await expectLogic(logic, () =>
             router.actions.push(urls.marketingAnalyticsApp(), { view: 'retention', breakdown: 'source' })
@@ -541,6 +827,24 @@ describe('marketingAnalyticsLogic', () => {
             })
         }
     )
+
+    it.each([
+        ['?date_from=-7d&date_to=', { dateFrom: '-7d', dateTo: null }],
+        ['?date_from=-7d&date_to=&tab=setup&section=sources', { dateFrom: '-7d', dateTo: null }],
+        ['?date_from=-7d&date_to=-1d', { dateFrom: '-7d', dateTo: '-1d' }],
+        ['', { dateFrom: '-30d', dateTo: '2026-08-31' }],
+    ])('hydrates the date range from "%s" over a saved range', async (search, expected) => {
+        localStorage.setItem(
+            `${MOCK_TEAM_ID}__.scenes.webAnalytics.marketingAnalyticsLogic.dateFilter`,
+            JSON.stringify({ dateFrom: '-30d', dateTo: '2026-08-31', interval: 'day' })
+        )
+        router.actions.push(`${urls.marketingAnalyticsApp()}${search}`)
+
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({ dateFilter: expect.objectContaining(expected) })
+    })
 
     it.each([
         ['AppleSearchAds', FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS],

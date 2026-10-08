@@ -1,4 +1,9 @@
-import { ArrowsClockwise, ShieldWarning, XCircle } from "@phosphor-icons/react";
+import {
+  ArrowsClockwise,
+  ShieldWarning,
+  Warning,
+  XCircle,
+} from "@phosphor-icons/react";
 import { ChatMarker, ChatMarkerContent } from "@posthog/quill";
 import { Spin, Spinner } from "@posthog/ui/primitives/Spinner";
 import { Box, Callout, Flex, Text } from "@radix-ui/themes";
@@ -96,6 +101,24 @@ export function StatusNotificationView({
           </Callout.Text>
         </Callout.Root>
       </Box>
+    );
+  }
+
+  if (status === "process_killed" && message) {
+    if (chatChrome) {
+      return (
+        <ChatMarker variant="separator">
+          <ChatMarkerContent>{message}</ChatMarkerContent>
+        </ChatMarker>
+      );
+    }
+    return (
+      <div className="my-1 border-orange-6 border-l-2 py-1 pl-3 dark:border-orange-8">
+        <div className="flex items-center gap-2">
+          <Warning size={14} weight="fill" className="text-orange-9" />
+          <span className="text-[13px] text-muted-foreground">{message}</span>
+        </div>
+      </div>
     );
   }
 

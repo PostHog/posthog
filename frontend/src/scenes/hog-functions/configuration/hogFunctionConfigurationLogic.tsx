@@ -1059,7 +1059,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         )
                     if (isNew && errorTrackingTriggerEvent) {
                         posthog.capture('error_tracking_alert_created', {
-                            source: 'traditional',
+                            ui_source: 'traditional',
                             trigger_event: errorTrackingTriggerEvent,
                             subtemplate_id: res.template?.id,
                             has_custom_filters: res.filters && Object.keys(res.filters).length > 1,

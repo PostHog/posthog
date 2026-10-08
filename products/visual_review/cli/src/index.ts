@@ -459,7 +459,7 @@ async function runComplete(options: RunCompleteOptions): Promise<number> {
 
     log(`[run:${runId}] Completing run`)
 
-    let run = await client.completeRun(runId)
+    let run = await client.completeRun(runId, process.env.JOB_CHECK_RUN_ID)
 
     log(`[run:${runId}] Status: ${run.status}`)
 
@@ -692,7 +692,7 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         }
     }
 
-    let run = await client.completeRun(runId)
+    let run = await client.completeRun(runId, process.env.JOB_CHECK_RUN_ID)
     log(`[run:${runId}] Status: ${run.status}`)
 
     if (run.status !== 'completed' && run.status !== 'failed') {

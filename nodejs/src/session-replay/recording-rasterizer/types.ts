@@ -47,6 +47,25 @@ export interface ExtractThumbnailOutput {
     file_size_bytes: number
 }
 
+export interface ExtractThumbnailsInput {
+    /** The rendered analysis MP4 to cut the frames from. */
+    source_s3_uri: string
+    /** Each frame's seconds into the analysis video, and the object name it uploads under. A frame that is not
+     * `required` is left out of the output when it cannot be cut, instead of failing the batch. */
+    frames: { video_time_s: number; id: string; required?: boolean }[]
+    /** Pixels of burned-in metadata footer to crop off the bottom before scaling. */
+    footer_crop_px?: number
+    /** Output width; height follows the source aspect ratio. Defaults to 1280. */
+    width?: number
+    s3_bucket: string
+    s3_key_prefix: string
+}
+
+export interface ExtractThumbnailsOutput {
+    /** One entry per frame the video has, in input order. */
+    frames: { id: string; s3_uri: string; file_size_bytes: number }[]
+}
+
 /**
  * Extends the base InactivityPeriod from the shared protocol with
  * recording_ts fields that map segment boundaries to post-processed video

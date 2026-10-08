@@ -73,6 +73,12 @@ export const DashboardsListQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    ordering: zod
+        .enum(['-last_viewed_at'])
+        .optional()
+        .describe(
+            'Optional. `-last_viewed_at` puts the dashboards you viewed most recently first. A dashboard you never viewed sorts by its creation time. This order replaces the search relevance order.'
+        ),
     pinned: zod.boolean().optional().describe('Optional. Return only pinned dashboards.'),
     search: zod
         .string()
@@ -1274,6 +1280,8 @@ export const DashboardsCreateTextTileCreateQueryParams = () => zod.object({
 export const dashboardsCreateTextTileCreateBodyTypeDefault = `text`
 export const dashboardsCreateTextTileCreateBodyBodyMax = 4000
 
+export const dashboardsCreateTextTileCreateBodyAgentContextMax = 10000
+
 export const dashboardsCreateTextTileCreateBodyColorMax = 400
 
 export const DashboardsCreateTextTileCreateBody = () => zod.object({
@@ -1290,6 +1298,13 @@ export const DashboardsCreateTextTileCreateBody = () => zod.object({
         .max(dashboardsCreateTextTileCreateBodyBodyMax)
         .describe(
             'Markdown body for the dashboard tile. Text tiles support headings, lists, and inline formatting. Image tiles require exactly one Markdown image. Max 4000 characters.'
+        ),
+    agent_context: zod
+        .string()
+        .max(dashboardsCreateTextTileCreateBodyAgentContextMax)
+        .nullish()
+        .describe(
+            "Optional context that helps AI agents make consistent dashboard updates, such as Data Catalog metric names, data sources, tile-specific query assumptions, caveats, or editing guidance. PostHog's Data Catalog is the semantic layer. Store canonical metric definitions there, not in this field. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters."
         ),
     layouts: zod
         .object({
@@ -1485,6 +1500,8 @@ export const DashboardsUpdateTextTileCreateQueryParams = () => zod.object({
 
 export const dashboardsUpdateTextTileCreateBodyBodyMax = 4000
 
+export const dashboardsUpdateTextTileCreateBodyAgentContextMax = 10000
+
 export const dashboardsUpdateTextTileCreateBodyColorMax = 400
 
 export const DashboardsUpdateTextTileCreateBody = () => zod.object({
@@ -1495,6 +1512,13 @@ export const DashboardsUpdateTextTileCreateBody = () => zod.object({
         .max(dashboardsUpdateTextTileCreateBodyBodyMax)
         .optional()
         .describe('New markdown body for the text tile. Omit to leave the body unchanged. Max 4000 characters.'),
+    agent_context: zod
+        .string()
+        .max(dashboardsUpdateTextTileCreateBodyAgentContextMax)
+        .nullish()
+        .describe(
+            "Optional context that helps AI agents make consistent dashboard updates, such as Data Catalog metric names, data sources, tile-specific query assumptions, caveats, or editing guidance. PostHog's Data Catalog is the semantic layer. Store canonical metric definitions there, not in this field. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters."
+        ),
     layouts: zod
         .object({
             sm: zod

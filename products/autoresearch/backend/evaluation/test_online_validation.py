@@ -17,15 +17,17 @@ from products.autoresearch.backend.evaluation.online_validation import (
     OUTCOME_INGESTION_GRACE,
     STALE_RUN_AFTER,
     OnlineValidationError,
+    _auc_confidence_interval,
     _compute_validation_metrics,
     _expected_calibration_error,
     _lift_at_k,
+    _quantile_calibration_bins,
     _update_model_realized_metrics,
     find_pending_validation_dates,
     run_online_validation_for_pipeline,
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
-from products.autoresearch.backend.query import HogQLResult
+from products.autoresearch.backend.query import BATCH_QUERY, HogQLResult
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 
 FROZEN_NOW = "2026-09-11T12:00:00Z"
@@ -36,11 +38,17 @@ class TestComputeValidationMetrics(SimpleTestCase):
         return {"user-1": 0.9, "user-2": 0.8, "user-3": 0.4, "user-4": 0.3, "user-5": 0.1}
 
     def test_returns_base_counts(self):
-        metrics = _compute_validation_metrics(self._predictions(), frozenset(["user-1", "user-2"]))
+        metrics = _compute_validation_metrics(
+            self._predictions(), frozenset(["user-1", "user-2"]), prediction_date=date(2026, 9, 6)
+        )
         assert metrics["n_scored"] == 5
         assert metrics["n_positive"] == 2
         assert metrics["n_negative"] == 3
         assert metrics["base_rate"] == 0.4
+        assert metrics["mean_p_y"] == 0.5
+        assert metrics["weekday"] == 7
+        assert metrics["realized_auc_ci_low"] <= metrics["realized_auc"] <= metrics["realized_auc_ci_high"]
+        assert sum(b["n"] for b in metrics["calibration_bins"]) == 5
         assert 0.0 <= metrics["brier_score"] <= 1.0
         assert 0.0 <= metrics["calibration_error"] <= 1.0
         assert metrics["lift_at_10"] > 0.0
@@ -52,7 +60,7 @@ class TestComputeValidationMetrics(SimpleTestCase):
         ]
     )
     def test_realized_auc(self, _name, preds, expected_auc):
-        metrics = _compute_validation_metrics(preds, frozenset(["high-1", "high-2"]))
+        metrics = _compute_validation_metrics(preds, frozenset(["high-1", "high-2"]), prediction_date=date(2026, 9, 1))
         assert metrics["realized_auc"] == expected_auc
 
     @parameterized.expand(
@@ -62,12 +70,55 @@ class TestComputeValidationMetrics(SimpleTestCase):
         ]
     )
     def test_single_class_skips_only_the_auc(self, _name, labels):
-        metrics = _compute_validation_metrics({"user-1": 0.5, "user-2": 0.6}, labels)
+        metrics = _compute_validation_metrics({"user-1": 0.5, "user-2": 0.6}, labels, prediction_date=date(2026, 9, 1))
         assert metrics["warning"] == "single_class_no_auc"
         assert "realized_auc" not in metrics
+        assert "realized_auc_ci_low" not in metrics
+        assert "realized_auc_ci_high" not in metrics
+        assert metrics["mean_p_y"] == 0.55
+        assert sum(b["n"] for b in metrics["calibration_bins"]) == 2
         assert 0.0 <= metrics["brier_score"] <= 1.0
         assert 0.0 <= metrics["calibration_error"] <= 1.0
         assert "lift_at_10" in metrics
+
+
+class TestAucConfidenceInterval(SimpleTestCase):
+    def test_interval_narrows_as_the_classes_grow(self):
+        few = _auc_confidence_interval(0.75, n_pos=20, n_neg=200)
+        many = _auc_confidence_interval(0.75, n_pos=2000, n_neg=20000)
+        assert few.low < many.low < 0.75 < many.high < few.high
+        # Hanley-McNeil standard error for these counts is about 0.065.
+        assert abs((few.high - few.low) / 2 - 1.96 * 0.065) < 0.002
+
+    def test_interval_is_clipped_to_one(self):
+        interval = _auc_confidence_interval(0.99, n_pos=3, n_neg=3)
+        assert 0.0 <= interval.low < 0.99
+        assert interval.high == 1.0
+
+
+class TestQuantileCalibrationBins(SimpleTestCase):
+    def test_rare_target_scores_spread_over_ten_equal_bins(self):
+        # Every score is below 0.1, so equal-width bins would put all users in one bin.
+        y_score = np.linspace(0.001, 0.05, 100)
+        y_true = np.zeros(100, dtype=np.int32)
+        y_true[-5:] = 1
+        bins = _quantile_calibration_bins(y_true, y_score)
+        assert [b["n"] for b in bins] == [10] * 10
+        assert [b["mean_p_y"] for b in bins] == sorted(b["mean_p_y"] for b in bins)
+        assert bins[-1]["positive_rate"] == 0.5
+        assert all(b["positive_rate"] == 0.0 for b in bins[:-1])
+
+    @parameterized.expand(
+        [
+            ("all_scores_equal", [0.2] * 6, [6]),
+            ("ties_never_split", [0.1] * 5 + [0.9] * 5, [5, 5]),
+            ("tie_group_past_the_median_keeps_its_own_bin", [0.1] * 51 + [0.9] * 49, [51, 49]),
+        ]
+    )
+    def test_equal_scores_share_a_bin(self, _name, scores, expected_counts):
+        y_score = np.array(scores)
+        bins = _quantile_calibration_bins(np.zeros(len(scores), dtype=np.int32), y_score)
+        assert [b["n"] for b in bins] == expected_counts
 
 
 class TestExpectedCalibrationError(SimpleTestCase):
@@ -324,7 +375,7 @@ def _fake_hogql(
     """Answer the prediction query with ``predictions`` and the label query with ``labels``, recording each call."""
     state = {"labels_failed": False}
 
-    def side_effect(*, team, query, user, execution_mode):
+    def side_effect(*, team, query, user, execution_mode, query_context):
         if "argMax" in query.query:
             return HogQLResult(columns=["model_id", "person_id", "p_y", "emitted_role"], rows=predictions)
         if fail_labels_once and not state["labels_failed"]:
@@ -352,7 +403,7 @@ class TestRunOnlineValidationForPipeline(TeamScopedTestMixin, BaseTest):
         hogql = _fake_hogql(predictions=self._prediction_rows(4), labels=[["user-0"], ["user-1"]])
 
         with patch.object(online_validation, "run_hogql", hogql):
-            runs = run_online_validation_for_pipeline(self.pipeline)
+            runs = run_online_validation_for_pipeline(self.pipeline, query_context=BATCH_QUERY)
 
         assert [r.status for r in runs] == [AutoresearchRun.Status.COMPLETED]
         run = runs[0]
@@ -363,6 +414,7 @@ class TestRunOnlineValidationForPipeline(TeamScopedTestMixin, BaseTest):
         assert per_model["emitted_role"] == "champion"
         assert per_model["model_role"] == "champion"
         assert per_model["realized_auc"] == 1.0
+        assert per_model["weekday"] == 2
         self.champion.refresh_from_db()
         assert self.champion.realized_score == 1.0
         assert self.champion.is_preliminary is False
@@ -370,6 +422,7 @@ class TestRunOnlineValidationForPipeline(TeamScopedTestMixin, BaseTest):
         assert find_pending_validation_dates(self.pipeline) == []
 
         prediction_call, label_call = hogql.call_args_list
+        assert prediction_call.kwargs["query_context"] == label_call.kwargs["query_context"] == BATCH_QUERY
         assert prediction_call.kwargs["user"] == self.user
         assert prediction_call.kwargs["query"].values["limit"] == 5
         assert prediction_call.kwargs["query"].values["model_ids"] == (str(self.champion.pk),)
@@ -413,6 +466,28 @@ class TestRunOnlineValidationForPipeline(TeamScopedTestMixin, BaseTest):
             ("2026-09-02", AutoresearchRun.Status.COMPLETED),
         ]
         assert "Realized labels query failed" in runs[0].error
+
+    @parameterized.expand(
+        [
+            ("deadline_passed", timedelta(0), ["2026-09-01"], [date(2026, 9, 2)]),
+            ("deadline_ahead", timedelta(minutes=1), ["2026-09-01", "2026-09-02"], []),
+        ]
+    )
+    def test_a_claim_deadline_leaves_the_rest_of_the_backlog_pending(
+        self, _name, deadline_offset, validated, still_pending
+    ):
+        _inference_run(self.pipeline, self.champion, date(2026, 9, 2), rows_scored=4)
+        hogql = _fake_hogql(predictions=self._prediction_rows(4), labels=[["user-0"]])
+
+        with patch.object(online_validation, "run_hogql", hogql):
+            runs = run_online_validation_for_pipeline(
+                self.pipeline, claim_deadline=django_timezone.now() + deadline_offset
+            )
+
+        assert [(r.metrics["prediction_date"], r.status) for r in runs] == [
+            (d, AutoresearchRun.Status.COMPLETED) for d in validated
+        ]
+        assert [p.prediction_date for p in find_pending_validation_dates(self.pipeline)] == still_pending
 
     @parameterized.expand(
         [

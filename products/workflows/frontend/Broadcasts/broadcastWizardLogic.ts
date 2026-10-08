@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -46,6 +47,7 @@ import {
     parseRRuleToState,
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
+import type { UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
 import { confirmArchiveBroadcast, confirmDeleteBroadcast, restoreBroadcast } from './broadcastLifecycle'
 import {
@@ -55,6 +57,16 @@ import {
     canMoveToDraft,
     getBroadcastStatus,
 } from './broadcastsLogic'
+import {
+    COMPOSER_DRAFT_PARAM,
+    COMPOSER_DRAFT_VALUE,
+    advanceAgentDraft,
+    broadcastPath,
+    editedFields,
+    loadComposerDraft,
+    saveComposerDraft,
+    snapshotBroadcast,
+} from './broadcastUsage'
 
 export type BroadcastWizardStep = 'recipients' | 'goal' | 'content' | 'schedule' | 'review'
 
@@ -62,6 +74,15 @@ const EMAIL_AUTOSAVE_RETRIES = 3
 const EMAIL_AUTOSAVE_RETRY_MS = 2000
 
 export const BROADCAST_WIZARD_STEPS: BroadcastWizardStep[] = ['recipients', 'goal', 'content', 'schedule', 'review']
+
+// Shown in the stepper, and named to PostHog AI so it points the user at the step they can see.
+export const BROADCAST_WIZARD_STEP_LABELS: Record<BroadcastWizardStep, string> = {
+    recipients: 'Recipients',
+    goal: 'Goal',
+    content: 'Content',
+    schedule: 'Schedule',
+    review: 'Review',
+}
 
 export type BroadcastScheduleMode = 'now' | 'later' | 'recurring'
 
@@ -91,6 +112,51 @@ export const DEFAULT_BROADCAST_EMAIL: BroadcastEmailValue = {
     text: '',
     html: '',
     design: null,
+}
+
+/** Settings on the email step that the email content itself does not carry. */
+export interface BroadcastEmailSettings {
+    /** The opt-out category. People who opted out of it are skipped. */
+    messageCategoryId: string | null
+    messageCategoryType: string | null
+    trackingEnabled: boolean
+    utmTagsEnabled: boolean
+    utmParams: UtmTagValues
+}
+
+export const DEFAULT_BROADCAST_EMAIL_SETTINGS: BroadcastEmailSettings = {
+    messageCategoryId: null,
+    messageCategoryType: null,
+    trackingEnabled: true,
+    utmTagsEnabled: false,
+    utmParams: {},
+}
+
+function readEmailSettings(broadcast: HogFlowApi): BroadcastEmailSettings | null {
+    const config = findAction(broadcast, 'function_email')?.config
+    if (!config) {
+        return null
+    }
+    return {
+        messageCategoryId: config.message_category_id ?? null,
+        messageCategoryType: config.message_category_type ?? null,
+        trackingEnabled: config.tracking_enabled !== false,
+        utmTagsEnabled: config.utm_tags_enabled === true,
+        utmParams: config.utm_params ?? {},
+    }
+}
+
+function emailSettingsConfig(settings: BroadcastEmailSettings | undefined): Record<string, any> {
+    if (!settings) {
+        return {}
+    }
+    return {
+        message_category_id: settings.messageCategoryId ?? undefined,
+        message_category_type: settings.messageCategoryType ?? undefined,
+        tracking_enabled: settings.trackingEnabled,
+        utm_tags_enabled: settings.utmTagsEnabled,
+        utm_params: settings.utmParams,
+    }
 }
 
 export const DEFAULT_BROADCAST_CONVERSION: HogFlowConversionApi = {
@@ -152,6 +218,7 @@ export interface broadcastWizardLogicValues {
     effectiveTimezone: string
     email: BroadcastEmailValue
     emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+    emailSettings: BroadcastEmailSettings
     expandedRunIds: string[]
     expandedRunOverride: string[] | null
     firstInvalidStep: BroadcastWizardStep | null
@@ -270,6 +337,9 @@ export interface broadcastWizardLogicActions {
         broadcast: HogFlowApi | null
         payload?: any
     }
+    loadExternalEdit: () => {
+        value: true
+    }
     moveToDraft: () => {
         value: true
     }
@@ -283,6 +353,9 @@ export interface broadcastWizardLogicActions {
         value: true
     }
     replayDeferredEdit: () => {
+        value: true
+    }
+    reportReviewVisit: () => {
         value: true
     }
     restoreBroadcast: () => {
@@ -305,6 +378,9 @@ export interface broadcastWizardLogicActions {
     }
     setEmailRateLimit: (emailRateLimit: HogFlowEmailSendingRateLimitApi | null) => {
         emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+    }
+    setEmailSettings: (settings: Partial<BroadcastEmailSettings>) => {
+        settings: Partial<BroadcastEmailSettings>
     }
     setExpandedRunOverride: (runIds: string[]) => {
         runIds: string[]
@@ -369,7 +445,8 @@ export interface broadcastWizardLogicMeta {
             goalEnabled: boolean,
             conversion: HogFlowConversionApi,
             email: BroadcastEmailValue,
-            emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+            emailRateLimit: HogFlowEmailSendingRateLimitApi | null,
+            emailSettings: BroadcastEmailSettings
         ) => HogFlowApi | null
         broadcastId: (broadcast: HogFlowApi | null, id: string) => string | null
         expandedRunIds: (expandedRunOverride: string[] | null, batchJobs: HogFlowBatchJobApi[]) => string[]
@@ -447,12 +524,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         nextStep: true,
         prevStep: true,
         continueStep: true,
+        reportReviewVisit: true,
         setName: (name: string) => ({ name }),
         saveName: true,
         setAudienceProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setGoalEnabled: (enabled: boolean) => ({ enabled }),
         setConversion: (conversion: HogFlowConversionApi) => ({ conversion }),
         setEmailRateLimit: (emailRateLimit: HogFlowEmailSendingRateLimitApi | null) => ({ emailRateLimit }),
+        setEmailSettings: (settings: Partial<BroadcastEmailSettings>) => ({ settings }),
         setEmail: (email: BroadcastEmailValue) => ({ email }),
         setScheduleMode: (mode: BroadcastScheduleMode) => ({ mode }),
         setSendAt: (sendAt: string | null) => ({ sendAt }),
@@ -472,6 +551,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         draftAutosaved: (broadcast: HogFlowApi) => ({ broadcast }),
         applyExternalEdit: (broadcast: HogFlowApi, base: HogFlowApi | null) => ({ broadcast, base }),
         replayDeferredEdit: true,
+        loadExternalEdit: true,
         expandRun: (runId: string) => ({ runId }),
         collapseRun: (runId: string) => ({ runId }),
         setExpandedRunOverride: (runIds: string[]) => ({ runIds }),
@@ -622,6 +702,17 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         : state,
             },
         ],
+        emailSettings: [
+            DEFAULT_BROADCAST_EMAIL_SETTINGS,
+            {
+                setEmailSettings: (state, { settings }) => ({ ...state, ...settings }),
+                hydrateFromBroadcast: (state, { broadcast }) => readEmailSettings(broadcast) ?? state,
+                applyExternalEdit: (state, { broadcast, base }) =>
+                    changedElsewhere(broadcast, base, readEmailSettings)
+                        ? (readEmailSettings(broadcast) ?? state)
+                        : state,
+            },
+        ],
         email: [
             DEFAULT_BROADCAST_EMAIL,
             {
@@ -741,7 +832,16 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     selectors({
         // The saved broadcast overlaid with the editor's unsaved state, in the shape the AI assistant reads.
         broadcastAsWorkflow: [
-            (s) => [s.broadcast, s.name, s.audienceProperties, s.goalEnabled, s.conversion, s.email, s.emailRateLimit],
+            (s) => [
+                s.broadcast,
+                s.name,
+                s.audienceProperties,
+                s.goalEnabled,
+                s.conversion,
+                s.email,
+                s.emailRateLimit,
+                s.emailSettings,
+            ],
             (
                 broadcast: HogFlowApi | null,
                 name: string,
@@ -749,7 +849,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 goalEnabled: boolean,
                 conversion: HogFlowConversionApi,
                 email: BroadcastEmailValue,
-                emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+                emailRateLimit: HogFlowEmailSendingRateLimitApi | null,
+                emailSettings: BroadcastEmailSettings
             ): HogFlowApi | null =>
                 broadcast
                     ? ({
@@ -761,6 +862,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                               conversion,
                               email,
                               emailRateLimit,
+                              emailSettings,
                               // A workflow shaped like a broadcast keeps its own step ids in the agent's view.
                               broadcast,
                           }),
@@ -934,7 +1036,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 if (!recurringRepeating) {
                     return `Sends once on ${dayjs(recurringStartsAt).tz(effectiveTimezone).format('MMMM D, YYYY h:mm A')} (${effectiveTimezone})`
                 }
-                return buildSummary(scheduleState, recurringStartsAt)
+                return buildSummary(scheduleState, recurringStartsAt, effectiveTimezone)
             },
         ],
         rateLimitedSendDuration: [
@@ -988,6 +1090,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             if (step === 'content') {
                 actions.ensureDraft()
             }
+            actions.reportReviewVisit()
         },
         nextStep: () => {
             // Listeners run after reducers, so this sees the step just navigated to.
@@ -997,6 +1100,50 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             if (values.currentStep === 'content') {
                 actions.ensureDraft()
             }
+            actions.reportReviewVisit()
+        },
+        prevStep: () => {
+            actions.reportReviewVisit()
+        },
+        reportReviewVisit: async (_, breakpoint) => {
+            if (values.currentStep !== 'review') {
+                cache.reviewBlockReported = false
+                return
+            }
+            if (cache.reviewBlockReported) {
+                return
+            }
+            // Senders load after the step renders, so let the blocking issues settle before reading them.
+            await breakpoint(2000)
+            const issues = values.stepValidationErrors.review
+            if (values.currentStep !== 'review' || issues.length === 0 || values.integrationsLoading) {
+                return
+            }
+            cache.reviewBlockReported = true
+            // pinned: analytics event name
+            posthog.capture('broadcast launch blocked', {
+                broadcast_id: values.broadcastId,
+                path: broadcastPath(values.broadcastId),
+                blocking_issues: issues,
+            })
+        },
+        applyExternalEdit: ({ broadcast, base }) => {
+            // PostHog AI can change the recipients, so the audience size shown must follow.
+            if (changedElsewhere(broadcast, base, readAudience)) {
+                actions.loadBlastRadius()
+            }
+            const composerDraft = loadComposerDraft(broadcast.id)
+            if (!composerDraft) {
+                return
+            }
+            saveComposerDraft(broadcast.id, {
+                agentDraft: advanceAgentDraft(
+                    composerDraft.agentDraft,
+                    snapshotBroadcast(broadcast),
+                    base ? snapshotBroadcast(base) : null
+                ),
+                agentEdits: composerDraft.agentEdits + 1,
+            })
         },
         ensureDraft: async () => {
             // The AI assistant edits the saved broadcast, so the content step needs one to exist even
@@ -1034,6 +1181,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             ) {
                 router.actions.replace(urls.broadcast(values.broadcastId), { step: values.currentStep })
             }
+        },
+        setEmailSettings: () => {
+            // Tracking and category live on the email step, so they share its autosave and pending flag.
+            actions.setEmail(values.email)
         },
         setEmail: async (_, breakpoint) => {
             // Keeps the saved draft in step with the editor, so an AI edit starts from what the user
@@ -1140,7 +1291,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 actions.resourceEdited(deferred)
             }
         },
-        resourceEdited: async ({ event }, breakpoint) => {
+        resourceEdited: ({ event }) => {
             const broadcast = values.broadcast
             if (
                 !broadcast ||
@@ -1150,6 +1301,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             ) {
                 return
             }
+            actions.loadExternalEdit()
+        },
+        loadExternalEdit: async (_, breakpoint) => {
+            const broadcast = values.broadcast
+            if (!broadcast || broadcast.status !== 'draft' || !values.currentProjectId) {
+                return
+            }
+            await getSaveQueue(cache, values).whenIdle()
             await breakpoint(200)
             const fresh = await hogFlowsRetrieve(String(values.currentProjectId), broadcast.id).catch(() => null)
             breakpoint()
@@ -1258,6 +1417,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             await saves.whenIdle()
             breakpoint()
             if (cache.autosaveConflict) {
+                captureLaunchFailed(values.broadcastId, 'edited_elsewhere')
                 actions.launchBroadcastFinished()
                 return
             }
@@ -1283,13 +1443,21 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 // it would confirm N recipients and deliver to the first slice. Stop at the step that
                 // can fix it. Mirrors the guard on the workflow editor's manual trigger.
                 if (blastRadius.limit != null && blastRadius.affected > blastRadius.limit) {
+                    captureLaunchFailed(broadcastId, 'audience_over_limit')
                     actions.launchBroadcastFinished()
                     actions.setStep('recipients')
                     actions.showSavedDraftUrl()
                     lemonToast.error(
-                        `This audience is above the project's batch limit of ${humanFriendlyNumber(
+                        `This project can send a broadcast to up to ${humanFriendlyNumber(
                             blastRadius.limit
-                        )}. Add filters to narrow it, then launch again.`
+                        )} people right now. Add filters to narrow the audience, then launch again.`,
+                        {
+                            button: {
+                                label: 'See sending limits',
+                                action: () => router.actions.push(urls.workflows('reputation')),
+                                dataAttr: 'broadcast-launch-limit-see-sending-limits',
+                            },
+                        }
                     )
                     return
                 }
@@ -1347,11 +1515,33 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 // no-op there. Store the activated broadcast so the scene swaps to the read-only summary
                 // instead of leaving a live send button on a broadcast that already went out.
                 actions.saveBroadcastFinished(activated)
+                const composerDraft = loadComposerDraft(broadcastId)
+                // pinned: analytics event name
+                posthog.capture('broadcast launched', {
+                    broadcast_id: broadcastId,
+                    path: broadcastPath(broadcastId),
+                    schedule_mode: values.scheduleMode,
+                    audience_filter_count: values.audienceProperties.length,
+                    has_goal: values.goalEnabled,
+                    seconds_since_created: activated
+                        ? Math.round((Date.now() - new Date(activated.created_at).getTime()) / 1000)
+                        : null,
+                    ...(composerDraft
+                        ? {
+                              edited_fields: editedFields(
+                                  composerDraft.agentDraft,
+                                  snapshotBroadcast(buildBroadcastPayload(values))
+                              ),
+                              agent_edits_after_draft: composerDraft.agentEdits,
+                          }
+                        : {}),
+                })
                 actions.loadBatchJobs()
                 actions.launchBroadcastFinished()
                 router.actions.push(urls.broadcast(broadcastId))
             } catch (error: any) {
                 if (error instanceof EditedElsewhereError) {
+                    captureLaunchFailed(broadcastId, 'edited_elsewhere')
                     actions.applyExternalEdit(error.latest, values.broadcast)
                     actions.launchBroadcastFinished()
                     lemonToast.info(
@@ -1369,6 +1559,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         lemonToast.error('The broadcast is still active but has nothing scheduled. Reload the page.')
                     }
                 }
+                captureLaunchFailed(broadcastId, 'error')
                 actions.launchBroadcastFinished()
                 lemonToast.error(`Couldn't launch the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
                 // The launch saved the draft first, so a reload of /broadcasts/new would orphan it.
@@ -1462,18 +1653,24 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 actions.loadBatchJobs()
             }
         },
-        hydrateFromBroadcast: () => {
+        hydrateFromBroadcast: ({ broadcast }) => {
             if (values.broadcast?.status !== 'draft') {
                 return
             }
-            // A draft just saved from /broadcasts/new carries the step it was on. Otherwise resume at the
-            // first incomplete step; complete drafts land on review.
-            const { step, ...searchParams } = router.values.searchParams
+            // A draft just saved from /broadcasts/new carries the step it was on, and a composer draft says so.
+            // Otherwise resume at the first incomplete step; complete drafts land on review.
+            const { step, [COMPOSER_DRAFT_PARAM]: from, ...searchParams } = router.values.searchParams
+            if (from === COMPOSER_DRAFT_VALUE && !loadComposerDraft(broadcast.id)) {
+                // What the agent drafted, so the launch can report which fields the person changed.
+                saveComposerDraft(broadcast.id, { agentDraft: snapshotBroadcast(broadcast), agentEdits: 0 })
+            }
             if (BROADCAST_WIZARD_STEPS.includes(step)) {
                 actions.setStep(step)
-                router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
             } else {
                 actions.setStep(values.firstInvalidStep ?? 'review')
+            }
+            if (step !== undefined || from !== undefined) {
+                router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
             }
         },
         loadBroadcastFailure: () => {
@@ -1489,6 +1686,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         }
     }),
 ])
+
+function captureLaunchFailed(
+    broadcastId: string | null | undefined,
+    reason: 'audience_over_limit' | 'edited_elsewhere' | 'error'
+): void {
+    // pinned: analytics event name
+    posthog.capture('broadcast launch failed', { broadcast_id: broadcastId, path: broadcastPath(broadcastId), reason })
+}
 
 function getSaveQueue(cache: Record<string, any>, values: broadcastWizardLogicType['values']): ResourceSaveQueue {
     return (cache.saveQueue ??= new ResourceSaveQueue({
@@ -1575,6 +1780,7 @@ export function buildBroadcastPayload(values: {
     conversion: HogFlowConversionApi
     email: BroadcastEmailValue
     emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+    emailSettings?: BroadcastEmailSettings
     broadcast?: HogFlowApi | null
 }): Record<string, any> {
     const existing = values.broadcast
@@ -1599,6 +1805,7 @@ export function buildBroadcastPayload(values: {
                             ...action,
                             config: {
                                 ...action.config,
+                                ...emailSettingsConfig(values.emailSettings),
                                 inputs: {
                                     ...action.config?.inputs,
                                     email: { ...action.config?.inputs?.email, value: values.email },
@@ -1639,6 +1846,7 @@ export function buildBroadcastPayload(values: {
                 updated_at: 0,
                 config: {
                     template_id: 'template-email',
+                    ...emailSettingsConfig(values.emailSettings),
                     inputs: {
                         email: { value: values.email },
                     },

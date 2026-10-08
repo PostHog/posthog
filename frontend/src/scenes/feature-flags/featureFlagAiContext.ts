@@ -1,8 +1,7 @@
 import { FeatureFlagType } from '~/types'
 
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
-
-import { isV1FeatureFlagConfig } from './featureFlagConfigFormat'
 
 // The backend rejects a text attachment longer than this and fails the whole send with a 400
 // (MAX_TEXT_LENGTH in products/posthog_ai/backend/context_wrapper.py), so an oversized flag has to

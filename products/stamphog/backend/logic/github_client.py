@@ -381,6 +381,15 @@ class RepoPathEntry:
     text: str
 
 
+@frozen
+class CommitComparison:
+    """The history summary of a two-commit compare."""
+
+    # GitHub's relation of the head to the base: "ahead", "behind", "identical" or "diverged".
+    status: str
+    merge_base_sha: str
+
+
 class StamphogGitHubClient:
     """Installation-scoped GitHub client for one Stamphog App installation.
 
@@ -757,6 +766,45 @@ class StamphogGitHubClient:
         finally:
             response.close()
         return b"".join(chunks).decode("utf-8", errors="replace")
+
+    def get_commit_parents(self, repo: str, sha: str) -> list[str]:
+        """The parent shas of a commit, in git's order, so a merge commit lists its first parent first."""
+        path = f"/repos/{repo}/git/commits/{sha}"
+        response = self._request("GET", path, endpoint="/repos/{owner}/{repo}/git/commits/{commit_sha}")
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to fetch commit {sha} in {repo}: {response.text[:300]}", status_code=response.status_code
+            )
+        data = self._json(response, path)
+        parents = data.get("parents") if isinstance(data, dict) else None
+        if not isinstance(parents, list):
+            raise StamphogGitHubError(f"Unexpected commit payload for {sha} in {repo}")
+        return [str(parent.get("sha") or "") for parent in parents if isinstance(parent, dict)]
+
+    def compare_commits(self, repo: str, base_sha: str, head_sha: str) -> CommitComparison:
+        """How ``head_sha`` relates to ``base_sha`` in history, and their merge base.
+
+        The status is GitHub's: ``ahead`` or ``identical`` means that ``base_sha`` is an ancestor of
+        ``head_sha``. The endpoint also returns the changed files, which this method does not read.
+        """
+        path = f"/repos/{repo}/compare/{base_sha}...{head_sha}"
+        # One commit per page, because only the summary fields are read.
+        response = self._request(
+            "GET", path, endpoint="/repos/{owner}/{repo}/compare/{basehead}", params={"per_page": 1}
+        )
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to compare {base_sha}...{head_sha} in {repo}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+        data = self._json(response, path)
+        if not isinstance(data, dict):
+            raise StamphogGitHubError(f"Unexpected compare payload for {base_sha}...{head_sha} in {repo}")
+        merge_base = data.get("merge_base_commit")
+        return CommitComparison(
+            status=str(data.get("status") or ""),
+            merge_base_sha=str((merge_base or {}).get("sha") or "") if isinstance(merge_base, dict) else "",
+        )
 
     def get_pr_reviews(self, repo: str, number: int) -> list[dict]:
         """Fetch the PR's top-level reviews, paginating through GitHub's list endpoint.

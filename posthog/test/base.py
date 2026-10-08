@@ -1794,6 +1794,34 @@ def _create_event(**kwargs):
     return kwargs["event_uuid"]
 
 
+def _create_flag_evaluations(team_id: int, flag_key: str, count: int = 1, timestamp: dt.datetime | None = None) -> None:
+    """Insert `count` $feature_flag_called rows for flag_key into flag_evaluations. Unlike _create_event, it writes
+    the rows immediately."""
+    timestamp = timestamp or dt.datetime.now(dt.UTC)
+    properties = json.dumps({"$feature_flag": flag_key, "$feature_flag_response": True})
+    # writable_flag_evaluations does not declare flag_key. The shard computes it from properties.$feature_flag.
+    sync_execute(
+        """
+        INSERT INTO writable_flag_evaluations
+            (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id)
+        VALUES
+        """,
+        [
+            (
+                str(uuid.uuid4()),
+                "$feature_flag_called",
+                properties,
+                timestamp,
+                team_id,
+                "evaluator",
+                timestamp,
+                str(uuid.uuid4()),
+            )
+            for _ in range(count)
+        ],
+    )
+
+
 def _warn_if_session_id_malformed(session_id: str):
     try:
         session_id_parsed = uuid.UUID(session_id)

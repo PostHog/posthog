@@ -9,6 +9,8 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { sqlEditorDraftStorage } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
+
 import { userLogic } from './userLogic'
 
 describe('userLogic', () => {
@@ -27,6 +29,59 @@ describe('userLogic', () => {
         })
         initKeaTests()
         userLogic.mount()
+    })
+
+    describe('SQL draft logout cleanup', () => {
+        beforeEach(() => {
+            localStorage.clear()
+            sessionStorage.clear()
+        })
+
+        afterEach(() => {
+            localStorage.clear()
+            sessionStorage.clear()
+            jest.restoreAllMocks()
+        })
+
+        it.each([undefined, '/api/agentic/authorize?state=example-state'])(
+            'clears drafts without removing preferences when logging out to %s',
+            (nextUrl) => {
+                let submittedNext: string | null = null
+                const submit = jest
+                    .spyOn(HTMLFormElement.prototype, 'submit')
+                    .mockImplementation(function (this: HTMLFormElement) {
+                        submittedNext = this.querySelector<HTMLInputElement>('input[name="next"]')?.value ?? null
+                        this.remove()
+                    })
+                for (const teamId of [1, 2]) {
+                    sqlEditorDraftStorage(MOCK_DEFAULT_USER.uuid, teamId, 'new')?.set({ q: 'SELECT unfinished' })
+                }
+                localStorage.setItem('theme', 'dark')
+                sessionStorage.setItem('other-session-state', 'keep')
+
+                userLogic.actions.logout(false, nextUrl)
+
+                expect(submit).toHaveBeenCalledTimes(1)
+                expect(submittedNext).toEqual(nextUrl ?? null)
+                expect(Object.keys(localStorage)).toEqual(['theme'])
+                expect(Object.keys(sessionStorage)).toEqual(['other-session-state'])
+            }
+        )
+
+        it('clears this tab’s session copy when another tab removes the shared draft', () => {
+            const draft = sqlEditorDraftStorage(MOCK_DEFAULT_USER.uuid, 1, 'new')!
+            draft.set({ q: 'SELECT unfinished' })
+            const key = localStorage.key(0)!
+            window.dispatchEvent(new StorageEvent('storage', { key, newValue: 'null', storageArea: localStorage }))
+            expect(draft.get(true)).toEqual({ q: 'SELECT unfinished' })
+
+            localStorage.removeItem(key)
+
+            window.dispatchEvent(new StorageEvent('storage', { key, newValue: null, storageArea: localStorage }))
+
+            expect(sessionStorage.getItem(key)).toBeNull()
+            expect(draft.get(true)).toBeNull()
+        })
     })
 
     describe('optimistic theme mode', () => {

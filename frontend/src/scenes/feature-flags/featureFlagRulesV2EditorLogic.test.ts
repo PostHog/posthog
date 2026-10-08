@@ -6,6 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -95,14 +96,17 @@ describe('featureFlagRulesV2EditorLogic', () => {
         })
 
         it('adds the rollout fields when a rule becomes a percentage rollout and drops them when it stops', () => {
-            const rollout = withRuleType({ ...NEW_TARGETED_RELEASE_RULE, id: 'rule-beta' }, 'percentage_rollout')
-            expect(rollout).toMatchObject({
-                id: 'rule-beta',
+            const rule = { ...NEW_TARGETED_RELEASE_RULE, id: 'rule-beta', description: 'Beta users' }
+            const rollout = withRuleType(rule, 'percentage_rollout')
+            expect(rollout).toEqual({
+                ...rule,
                 rule_type: 'percentage_rollout',
+                rollout_percentage: 0,
+                on_rollout_miss: 'continue',
                 assignment_algorithm: 'sha1_60_v1',
                 assign_by: 'person',
             })
-            expect(withRuleType(rollout, 'targeted_release')).not.toHaveProperty('rollout_percentage')
+            expect(withRuleType(rollout, 'targeted_release')).toEqual(rule)
         })
 
         it.each([
@@ -184,23 +188,28 @@ describe('featureFlagRulesV2EditorLogic', () => {
     describe('editing a stored flag', () => {
         let logic: ReturnType<typeof featureFlagRulesV2EditorLogic.build>
 
+        let pageLogic: ReturnType<typeof featureFlagLogic.build>
+
         beforeEach(async () => {
-            // The editor mounts once the flag page has loaded the row.
-            const pageLogic = featureFlagLogic({ id: 7 })
+            // The editor mounts once the flag page has loaded the row and entered edit mode.
+            pageLogic = featureFlagLogic({ id: 7 })
             pageLogic.mount()
-            await expectLogic(pageLogic).toDispatchActions(['loadFeatureFlagSuccess']).toFinishAllListeners()
+            await expectLogic(pageLogic, () => pageLogic.actions.editFeatureFlag(true))
+                .toDispatchActions(['loadFeatureFlagSuccess'])
+                .toFinishAllListeners()
             logic = featureFlagRulesV2EditorLogic({ id: 7 })
             logic.mount()
         })
 
-        it('replaces the whole document and carries the row version', async () => {
+        it('replaces the whole document, carries the row version and shows the saved flag', async () => {
             const update = jest.spyOn(api, 'update').mockResolvedValue({ ...V2_FLAG, version: 4 })
 
             const [firstKey, secondKey] = logic.values.ruleKeys
             logic.actions.moveRule(1, 0)
             expect(logic.values.ruleKeys).toEqual([secondKey, firstKey])
             await expectLogic(logic, () => logic.actions.saveRulesV2Flag())
-                .toDispatchActions(['saveRulesV2FlagSuccess', 'editFeatureFlag', 'loadFeatureFlag'])
+                .toDispatchActions(['saveRulesV2FlagSuccess', 'loadFeatureFlagSuccess', 'editFeatureFlag'])
+                .toNotHaveDispatchedActions(['loadFeatureFlag'])
                 .toFinishAllListeners()
 
             const body = update.mock.calls[0][1] as Record<string, any>
@@ -208,6 +217,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
             expect(body.filters.rules.map((rule: { id: string }) => rule.id)).toEqual(['rule-rollout', 'rule-beta'])
             expect(JSON.stringify(body)).not.toContain('seed')
             expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '7')
+            expect(pageLogic.values).toMatchObject({ isEditingFlag: false, featureFlag: { version: 4 } })
         })
 
         it.each([
@@ -248,6 +258,20 @@ describe('featureFlagRulesV2EditorLogic', () => {
             expect(update).toHaveBeenCalledTimes(1)
         })
 
+        it('does not save a key change whose confirmation is cancelled', async () => {
+            const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const update = jest.spyOn(api, 'update')
+
+            logic.actions.setDraft({ key: 'checkout-v2' })
+            logic.actions.saveRulesV2Flag()
+            expect(openDialog.mock.calls.map(([props]) => props.title)).toEqual(['Change flag key?'])
+            openDialog.mock.calls[0][0].onAfterClose?.()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(update).not.toHaveBeenCalled()
+            expect(logic.values.saving).toBe(false)
+        })
+
         it('saves with the version its draft was loaded from, even after the page refreshed underneath', async () => {
             const update = jest.spyOn(api, 'update').mockResolvedValue({ ...V2_FLAG, version: 6 })
             // A background refresh (for example after an AI change) replaces the page's flag while the draft is open.
@@ -276,7 +300,6 @@ describe('featureFlagRulesV2EditorLogic', () => {
         })
 
         it('keeps unsaved edits when the flag page URL is pushed again', async () => {
-            const pageLogic = featureFlagLogic({ id: 7 })
             router.actions.push(urls.featureFlag(7))
             await expectLogic(pageLogic).toDispatchActions(['loadFeatureFlagSuccess']).toFinishAllListeners()
             pageLogic.actions.editFeatureFlag(true)
@@ -287,6 +310,11 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({ isEditingFlag: true })
             expect(logic.values.draft.config.default_value).toBeNull()
+
+            // Cancel leaves the draft dirty, so closing the editor is what lets later pushes reach the page.
+            expect(pageLogic.values.rulesV2DraftDirty).toBe(true)
+            logic.unmount()
+            expect(pageLogic.values.rulesV2DraftDirty).toBe(false)
         })
 
         it.each([
@@ -309,6 +337,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 reason: 'Choose a value for every condition in rule 2.',
             },
             { condition: 'an is-set check', operator: PropertyOperator.IsSet, value: null, reason: null },
+            { condition: 'an is-not-set check', operator: PropertyOperator.IsNotSet, value: null, reason: null },
         ])('with $condition, the save guard says $reason', ({ operator, value, reason }) => {
             const rule = logic.values.draft.config.rules[1]
             logic.actions.updateRule(1, {
@@ -318,7 +347,24 @@ describe('featureFlagRulesV2EditorLogic', () => {
             expect(logic.values.saveDisabledReason).toBe(reason)
         })
 
-        it('shows a validation error against its field and clears it on the next edit', async () => {
+        it.each([
+            { key: '', reason: 'Please set a key' },
+            { key: 'a'.repeat(401), reason: 'Key must be 400 characters or less.' },
+        ])('with the key $key.length characters long, the save guard says $reason', ({ key, reason }) => {
+            logic.actions.setDraft({ key })
+            expect(logic.values.saveDisabledReason).toBe(reason)
+        })
+
+        it('saves a stored flag in a project that requires evaluation contexts, which only a create must set', () => {
+            enabledFeaturesLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.FLAG_EVALUATION_TAGS]: true })
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, require_evaluation_contexts: true })
+
+            logic.actions.setDraft({ name: 'Renamed' })
+            expect(logic.values.saveDisabledReason).toBeNull()
+        })
+
+        it('shows a validation error against its field and in a toast, and clears it on the next edit', async () => {
+            const toastError = jest.spyOn(lemonToast, 'error')
             jest.spyOn(api, 'update').mockRejectedValue({
                 status: 400,
                 attr: 'filters.rules[1].rollout_percentage',
@@ -331,6 +377,13 @@ describe('featureFlagRulesV2EditorLogic', () => {
                     saveError: { field: 'filters.rules[1].rollout_percentage', message: 'Must be at most 100.' },
                     saving: false,
                 })
+            expect(toastError).toHaveBeenCalledWith('Flag not saved: Must be at most 100.')
+
+            logic.actions.updateRule(1, { ...logic.values.draft.config.rules[1] })
+            expect(logic.values).toMatchObject({
+                hasUnsavedChanges: false,
+                saveError: { message: 'Must be at most 100.' },
+            })
 
             logic.actions.setConfig({ default_value: null })
             expect(logic.values.saveError).toBeNull()
@@ -349,15 +402,13 @@ describe('featureFlagRulesV2EditorLogic', () => {
 
             await expectLogic(logic, () => logic.actions.saveRulesV2Flag()).toDispatchActions([
                 'editFeatureFlag',
-                'loadFeatureFlag',
+                'refreshFeatureFlag',
             ])
-            await expectLogic(featureFlagLogic({ id: 7 }))
-                .toDispatchActions(['loadFeatureFlagSuccess'])
-                .toFinishAllListeners()
+            await expectLogic(pageLogic).toDispatchActions(['refreshFeatureFlagSuccess']).toFinishAllListeners()
             expect(logic.values).toMatchObject({ saveError: null, saving: false })
-            expect(featureFlagLogic({ id: 7 }).values.featureFlag).toMatchObject({
-                name: 'Renamed elsewhere',
-                version: 4,
+            expect(pageLogic.values).toMatchObject({
+                isEditingFlag: false,
+                featureFlag: { name: 'Renamed elsewhere', version: 4 },
             })
         })
     })

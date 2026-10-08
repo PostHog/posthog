@@ -11,9 +11,13 @@ import { NotebookNodeProps } from 'scenes/notebooks/types'
 
 import { FeatureFlagType } from '~/types'
 
+import {
+    featureFlagConfigFormatLabel,
+    isV1FeatureFlagConfig,
+} from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { FeatureFlagConfigReadonlyNotice } from 'products/feature_flags/frontend/FeatureFlagConfigReadonlyNotice'
+
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
-import { featureFlagConfigFormatLabel, isV1FeatureFlagConfig } from './featureFlagConfigFormat'
-import { FeatureFlagConfigReadonlyNotice } from './FeatureFlagConfigReadonlyNotice'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 
@@ -247,7 +251,7 @@ function FeatureFlagCompactEditor({ attributes }: NotebookNodeProps<FeatureFlagN
                     />
                 )}
 
-                {!featureFlag.is_remote_configuration ? (
+                {isV1FeatureFlagConfig(featureFlag.filters) && !featureFlag.is_remote_configuration ? (
                     <div className="flex justify-end gap-2 border-t pt-3">
                         <LemonButton
                             type="secondary"

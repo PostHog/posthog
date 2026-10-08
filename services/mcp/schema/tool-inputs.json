@@ -62,7 +62,7 @@
             ]
         },
         "BillingUsageTypesSchema": {
-            "description": "Array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. [\"event_count_in_period\",\"recording_count_in_period\"]. Omit for all types.",
+            "description": "Array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. [\"event_count_in_period\",\"recording_count_in_period\"]. Omit for all types.",
             "anyOf": [
                 {
                     "type": "array",
@@ -145,6 +145,18 @@
                     "minLength": 1,
                     "maxLength": 4000,
                     "description": "Markdown body. For image, provide exactly one Markdown image. For text, provide Markdown content that is not an image-only body."
+                },
+                "agent_context": {
+                    "description": "Optional context for AI agents, such as semantic layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "maxLength": 10000
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "layouts": {
                     "description": "Optional dashboard-grid layout for desktop (sm) and mobile (xs).",
@@ -744,6 +756,319 @@
             },
             "required": ["insightId"]
         },
+        "OfflineExperimentUploadItemsSchema": {
+            "description": "Complete immutable declarations for referenced items. Omit existing items to reuse them without a payload.",
+            "maxItems": 1000,
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Caller-generated UUID for one input/output execution. Reuse for exact retries."
+                    },
+                    "case_key": {
+                        "description": "Stable case identifier for matching inputs across experiments.",
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 255
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "trial": {
+                        "description": "Identifier for a repeated execution of the same case.",
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 255
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "dataset_item_identifier": {
+                        "description": "Stable item identifier in an external dataset.",
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 255
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "dataset_item_version_identifier": {
+                        "description": "Pinned item-version identifier in an external dataset.",
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 255
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "dataset_item_version_id": {
+                        "description": "UUID of the hosted item version in the experiment's dataset revision.",
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "application_trace_id": {
+                        "description": "Trace identifier for the application execution that produced this output.",
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 255
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "payload": {
+                        "description": "Optional input/output payload, up to 1 MiB and 32 JSON levels. Omission, {} and null properties differ.",
+                        "type": "object",
+                        "properties": {
+                            "input": {
+                                "anyOf": [
+                                    {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {}
+                                    },
+                                    {
+                                        "type": "array",
+                                        "items": {}
+                                    },
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "output": {
+                                "anyOf": [
+                                    {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {}
+                                    },
+                                    {
+                                        "type": "array",
+                                        "items": {}
+                                    },
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "expected_output": {
+                                "anyOf": [
+                                    {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {}
+                                    },
+                                    {
+                                        "type": "array",
+                                        "items": {}
+                                    },
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "metadata": {
+                                "anyOf": [
+                                    {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {}
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "required": ["id"]
+            }
+        },
+        "OfflineExperimentUploadResultsSchema": {
+            "minItems": 1,
+            "maxItems": 1000,
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "item_id": {
+                        "type": "string",
+                        "description": "UUID of an item declared in this request or already accepted in this experiment."
+                    },
+                    "scorer_version_id": {
+                        "type": "string",
+                        "description": "Exact UUID of an existing scorer version in this project."
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["ok", "error", "skipped", "not_applicable"],
+                        "description": "Outcome of this scorer execution.\n\n* `ok` - OK\n* `error` - Error\n* `skipped` - Skipped\n* `not_applicable` - Not applicable"
+                    },
+                    "value": {
+                        "description": "Required for ok: finite number, boolean, or distinct category keys matching the scorer version.",
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "minItems": 1,
+                                "type": "array",
+                                "items": {
+                                    "type": "string",
+                                    "maxLength": 128
+                                }
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "error_code": {
+                        "description": "Optional stable error code, permitted only for error outcomes.",
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 128
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "evaluator_trace_id": {
+                        "description": "Trace identifier of the evaluator that produced this result.",
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 255
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "evaluated_at": {
+                        "description": "Caller-supplied evaluation time in ISO 8601 format.",
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "payload": {
+                        "description": "Optional reasoning, error message, and metadata, up to 256 KiB and 32 JSON levels.",
+                        "type": "object",
+                        "properties": {
+                            "reasoning": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "error_message": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "metadata": {
+                                "anyOf": [
+                                    {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {}
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "required": ["item_id", "scorer_version_id", "status"]
+            },
+            "description": "One to 1,000 unique item/scorer-version results. The entire request commits atomically."
+        },
         "OrganizationGetAllSchema": {
             "type": "object",
             "properties": {}
@@ -1265,6 +1590,29 @@
                             "type": "integer",
                             "minimum": 1,
                             "maximum": 9007199254740991
+                        },
+                        "passing_rule": {
+                            "description": "Optional passing categories. Omit or set null for neutral scores. Each version keeps its own rule.",
+                            "anyOf": [
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "categories": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string",
+                                                "maxLength": 128
+                                            },
+                                            "description": "Passing category keys. Every returned category must be included."
+                                        }
+                                    },
+                                    "required": ["categories"],
+                                    "additionalProperties": false
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
                         }
                     },
                     "required": ["options"],
@@ -1286,6 +1634,30 @@
                             "description": "Optional increment step for numeric input, e.g. 1 or 0.5.",
                             "type": "number",
                             "exclusiveMinimum": 0
+                        },
+                        "passing_rule": {
+                            "description": "Optional passing rule. Omit or set null for neutral scores. Each version keeps its own rule.",
+                            "anyOf": [
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "operator": {
+                                            "type": "string",
+                                            "enum": ["gte", "lte"],
+                                            "description": "Pass at or above (gte), or at or below (lte), the threshold."
+                                        },
+                                        "threshold": {
+                                            "type": "number",
+                                            "description": "Finite passing threshold within any configured score bounds."
+                                        }
+                                    },
+                                    "required": ["operator", "threshold"],
+                                    "additionalProperties": false
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
                         }
                     },
                     "additionalProperties": false,
@@ -1303,13 +1675,24 @@
                             "description": "Optional label shown for the false branch (e.g. \"No\").",
                             "type": "string",
                             "minLength": 1
+                        },
+                        "true_is_failure": {
+                            "description": "Whether true means failure. False, omitted, or null means true passes in offline evaluations.",
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
                         }
                     },
                     "additionalProperties": false,
                     "description": "Config shape used when kind is \"boolean\"."
                 }
             ],
-            "description": "Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode), numeric (min/max/step), or boolean (true_label/false_label). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch."
+            "description": "Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode + optional passing_rule.categories), numeric (min/max/step + optional passing_rule), or boolean (true_label/false_label + optional true_is_failure). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch."
         },
         "TaskAgentCreateSchema": {
             "type": "object",

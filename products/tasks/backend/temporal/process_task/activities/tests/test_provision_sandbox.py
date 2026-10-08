@@ -3,9 +3,11 @@ import sys
 import socket
 import asyncio
 import subprocess
+import dataclasses
 from pathlib import Path
 
 import pytest
+from unittest.mock import MagicMock
 
 from django.test import override_settings
 
@@ -62,6 +64,45 @@ def _context_for_desktop_bootstrap(
         custom_image_name=image_name,
         desktop_workspace_warm_enabled=warm_enabled,
     )
+
+
+@pytest.mark.parametrize("marker", [None, "scout_trial", "scout_trial_judge"])
+@override_settings(
+    DEBUG=False,
+    SANDBOX_AGENT_OTEL_LOGS_URL="https://telemetry.example/logs",
+    SANDBOX_AGENT_OTEL_LOGS_TOKEN="synthetic-token",
+)
+def test_private_trial_keeps_the_pinned_model_after_overload(mocker, marker: str | None) -> None:
+    context = _context_for_desktop_bootstrap()
+    context.state = {marker: {"version": 1}} if marker else {}
+    context.agent_otel_telemetry_enabled = True
+    for name in ("run_gateway_env_vars", "mcp_exec_skills_env_vars", "get_git_identity_env_vars"):
+        mocker.patch.object(provision_sandbox_module, name, return_value={})
+    mocker.patch.object(provision_sandbox_module, "get_sandbox_jwt_public_key", return_value="public-key")
+
+    task = mocker.Mock(is_scout_experiment=marker is not None)
+    environment = provision_sandbox_module._build_environment_variables(context, task, "", "fake-token")
+
+    assert environment.get("POSTHOG_DISABLE_MODEL_FALLBACK") == ("1" if marker else None)
+    assert environment.get("POSTHOG_AGENT_OTEL_LOGS_TOKEN") == (None if marker else "synthetic-token")
+
+
+def test_judge_does_not_inherit_github_credentials(mocker) -> None:
+    context = _context_for_desktop_bootstrap()
+    context.state = {"github_read_access": True, "scout_trial_judge": {"version": 1}}
+    task = Task(origin_product="signals_scout", origin_key="scout-trial-judge:synthetic-evaluation:synthetic-launch")
+    token = mocker.patch.object(provision_sandbox_module, "get_sandbox_github_token")
+    readonly_token = mocker.patch.object(provision_sandbox_module, "get_readonly_github_token")
+
+    assert (
+        provision_sandbox_module._resolve_sandbox_github_token(
+            context, task=task, actor_user=None, repository=None, has_repo=False
+        )
+        == ""
+    )
+    assert context.github_read_access is False
+    token.assert_not_called()
+    readonly_token.assert_not_called()
 
 
 class _ShellSandbox:
@@ -681,6 +722,7 @@ def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step:
     mocker.patch.object(provision_sandbox_module, "increment_snapshot_usage")
     mocker.patch.object(provision_sandbox_module, "increment_snapshot_restore")
     task_run = mocker.patch.object(provision_sandbox_module, "TaskRun")
+    mocker.patch.object(provision_sandbox_module, "pinned_agent_version", return_value="1.2.3")
 
     with pytest.raises(SandboxRateLimitedError):
         async_to_sync(provision_sandbox_module._create_sandbox_for_repository)(
@@ -688,28 +730,29 @@ def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step:
         )
 
     sandbox.destroy.assert_called_once_with()
-    task_run.update_state_atomic.assert_called_once_with("run-id", updates={"agent_version": "1.2.3"})
+    task_run.update_state_atomic.assert_called_once_with(
+        "run-id", updates={"agent_version": "1.2.3", "agent_version_expected": "1.2.3"}, remove_keys=[]
+    )
     task_run.clear_sandbox_connection_state_atomic.assert_called_once_with("run-id", "sandbox-id")
 
 
-@pytest.mark.parametrize(
-    ("manifest_result", "version"),
-    [
-        (ExecutionResult(stdout='{"version": "1.2.3"}', stderr="", exit_code=0), "1.2.3"),
-        (ExecutionResult(stdout="{}", stderr="", exit_code=0), None),
-        (ExecutionResult(stdout="not json", stderr="", exit_code=0), None),
-        (ExecutionResult(stdout="", stderr="not found", exit_code=1), None),
-        (RuntimeError("manifest read failed"), None),
-    ],
-)
-def test_create_sandbox_records_installed_agent_version(
-    mocker, manifest_result: ExecutionResult | Exception, version: str | None
-) -> None:
-    context = _context_for_desktop_bootstrap()
+_MANIFEST_1_2_3 = ExecutionResult(stdout='{"version": "1.2.3"}', stderr="", exit_code=0)
+
+
+def _create_and_record_agent_version(
+    mocker,
+    manifest_result: ExecutionResult | Exception,
+    pinned: str | None,
+    *,
+    context: TaskProcessingContext | None = None,
+    prepared: PrepareSandboxForRepositoryOutput | None = None,
+    snapshot_restored: bool = False,
+) -> tuple[MagicMock, list[dict[str, str]]]:
+    context = context or _context_for_desktop_bootstrap()
     context.state = {"await_user_message": True}
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.config.image_fallback = None
-    sandbox.config.snapshot_restored = False
+    sandbox.config.snapshot_restored = snapshot_restored
     sandbox.config.ttl_seconds = 60
     sandbox.start_cpu_billing_sampler.return_value = True
     sandbox.launch_dev_stack_bootstrap.return_value = False
@@ -733,17 +776,111 @@ def test_create_sandbox_records_installed_agent_version(
     ):
         mocker.patch.object(provision_sandbox_module, name)
     mocker.patch.object(provision_sandbox_module, "_build_sandbox_tags", return_value={})
+    mocker.patch.object(provision_sandbox_module, "pinned_agent_version", return_value=pinned)
     update_state = mocker.patch.object(provision_sandbox_module.TaskRun, "update_state_atomic")
+    warning = mocker.spy(provision_sandbox_module.logger, "warning")
 
     result = async_to_sync(provision_sandbox_module._create_sandbox_for_repository)(
-        CreateSandboxForRepositoryInput(context=context, prepared=_prepared_for_create())
+        CreateSandboxForRepositoryInput(context=context, prepared=prepared or _prepared_for_create())
     )
 
     assert result.sandbox_id == "sandbox-id"
-    if version:
-        update_state.assert_called_once_with("run-id", updates={"agent_version": version})
+    mismatch_extras = [
+        call.kwargs["extra"]
+        for call in warning.call_args_list
+        if call.args[0] == "Sandbox agent version differs from the pinned version"
+    ]
+    return update_state, mismatch_extras
+
+
+@pytest.mark.parametrize(
+    ("manifest_result", "pinned", "updates", "remove_keys", "warns"),
+    [
+        (_MANIFEST_1_2_3, "1.2.3", {"agent_version": "1.2.3", "agent_version_expected": "1.2.3"}, [], False),
+        (_MANIFEST_1_2_3, "1.2.4", {"agent_version": "1.2.3", "agent_version_expected": "1.2.4"}, [], True),
+        (_MANIFEST_1_2_3, None, {"agent_version": "1.2.3"}, ["agent_version_expected"], False),
+        (
+            ExecutionResult(stdout="{}", stderr="", exit_code=0),
+            "1.2.4",
+            {"agent_version_expected": "1.2.4"},
+            ["agent_version"],
+            False,
+        ),
+        (
+            ExecutionResult(stdout="not json", stderr="", exit_code=0),
+            "1.2.4",
+            {"agent_version_expected": "1.2.4"},
+            ["agent_version"],
+            False,
+        ),
+        (
+            ExecutionResult(stdout="", stderr="not found", exit_code=1),
+            "1.2.4",
+            {"agent_version_expected": "1.2.4"},
+            ["agent_version"],
+            False,
+        ),
+        (RuntimeError("manifest read failed"), None, {}, ["agent_version", "agent_version_expected"], False),
+    ],
+)
+def test_create_sandbox_records_installed_agent_version(
+    mocker,
+    manifest_result: ExecutionResult | Exception,
+    pinned: str | None,
+    updates: dict[str, str],
+    remove_keys: list[str],
+    warns: bool,
+) -> None:
+    update_state, mismatch_extras = _create_and_record_agent_version(mocker, manifest_result, pinned)
+
+    update_state.assert_called_once_with("run-id", updates=updates, remove_keys=remove_keys)
+    expected_extras = (
+        [{"run_id": "run-id", "sandbox_id": "sandbox-id", "agent_version": "1.2.3", "agent_version_expected": "1.2.4"}]
+        if warns
+        else []
+    )
+    assert mismatch_extras == expected_extras
+
+
+@pytest.mark.parametrize(
+    ("source", "compared"),
+    [
+        ("hogland_golden", False),
+        ("custom_vm_image", False),
+        ("filesystem_snapshot", False),
+        ("directory_snapshot", True),
+    ],
+)
+def test_create_sandbox_compares_the_agent_with_the_pin_only_for_pinned_images(
+    mocker, source: str, compared: bool
+) -> None:
+    context = _context_for_desktop_bootstrap(image_name="custom-image" if source == "custom_vm_image" else None)
+    context.sandbox_backend = "hogland" if source == "hogland_golden" else "modal"
+    context.use_modal_vm_sandbox = source == "custom_vm_image"
+    prepared = _prepared_for_create()
+    restored = source.endswith("_snapshot")
+    if restored:
+        prepared = dataclasses.replace(
+            prepared,
+            snapshot_external_id="snapshot-id",
+            used_snapshot=True,
+            snapshot_kind=SNAPSHOT_KIND_DIRECTORY if source == "directory_snapshot" else SNAPSHOT_KIND_FILESYSTEM,
+        )
+
+    update_state, mismatch_extras = _create_and_record_agent_version(
+        mocker, _MANIFEST_1_2_3, "1.2.4", context=context, prepared=prepared, snapshot_restored=restored
+    )
+
+    if compared:
+        update_state.assert_called_once_with(
+            "run-id", updates={"agent_version": "1.2.3", "agent_version_expected": "1.2.4"}, remove_keys=[]
+        )
+        assert len(mismatch_extras) == 1
     else:
-        update_state.assert_called_once_with("run-id", remove_keys=["agent_version"])
+        update_state.assert_called_once_with(
+            "run-id", updates={"agent_version": "1.2.3"}, remove_keys=["agent_version_expected"]
+        )
+        assert mismatch_extras == []
 
 
 def test_create_reads_the_sandbox_template_from_the_run_context(mocker):

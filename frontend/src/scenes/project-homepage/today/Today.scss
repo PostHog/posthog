@@ -1,0 +1,478 @@
+// The Today layout keeps its own "paper" palette. Colours that also appear on tinted surfaces stay literal,
+// the rest switch with the app theme. The app layout shares it so the page behind the rail matches.
+.Today,
+.TodayAppLayout {
+    --today-ink: #151515;
+    --today-muted: #8d8d88;
+    --today-faint: #a3a39e;
+    --today-paper: #f7f7f5;
+    --today-line: #e5e5e0;
+    --today-card: #fff;
+    --today-soft: #efefeb;
+    --today-soft-2: #f2f2ee;
+    --today-drawer: #fbfbf9;
+    --today-secondary-text: #5f5f5a;
+    --today-body-text: #454541;
+    --today-input-border: #deded8;
+    --today-focus-border: #a7a7a0;
+    --today-success-text: #24733a;
+    --today-success-fill: #e8f6eb;
+    --today-button: #151515;
+    --today-button-hover: #33332f;
+    --today-button-text: #fff;
+    --today-pill: #eeeeea;
+    --today-pill-border: #e2e2dc;
+    --today-ease: cubic-bezier(0.23, 1, 0.32, 1);
+    --today-ease-in-out: cubic-bezier(0.645, 0.045, 0.355, 1);
+    --today-ease-rise: cubic-bezier(0.22, 1, 0.36, 1);
+    --today-ease-nudge: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --today-card-shadow: 0 1px 2px #00000008, 0 12px 32px -24px #00000059;
+
+    [theme='dark'] & {
+        --today-ink: #f1f1ee;
+        --today-muted: #a6a6a0;
+        --today-faint: #82827c;
+        --today-paper: #161615;
+        --today-line: #2c2c2a;
+        --today-card: #1f1f1d;
+        --today-soft: #262624;
+        --today-soft-2: #232321;
+        --today-drawer: #1b1b1a;
+        --today-secondary-text: #b5b5ae;
+        --today-body-text: #d4d4ce;
+        --today-input-border: #353532;
+        --today-focus-border: #5c5c57;
+        --today-success-text: #7fd694;
+        --today-success-fill: #1d3323;
+        --today-button: #f1f1ee;
+        --today-button-hover: #d9d9d4;
+        --today-button-text: #151515;
+        --today-pill: #262624;
+        --today-pill-border: #333331;
+    }
+}
+
+.Today {
+    font-family: var(--font-sans);
+    color: var(--today-ink);
+    background: var(--today-paper);
+    -webkit-font-smoothing: antialiased;
+}
+
+.Today__label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--today-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+}
+
+.Today__page {
+    animation: Today__page-in 0.18s ease-out both;
+}
+
+// In the base layer, so layered component styles (quill) win over it; an unlayered rule beats any layer.
+@layer base {
+    :where(.Today) button {
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
+    }
+}
+
+:where(.Today) :focus-visible {
+    outline: 2px solid var(--today-ink);
+    outline-offset: 3px;
+}
+
+// Text fields show focus on their container's border instead.
+:where(.Today) :is(input, textarea):focus-visible {
+    outline: none;
+}
+
+// Sidebar
+
+.TodaySidebar__list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+// Lines up with the row titles: the row padding plus the icon and its gap.
+.TodaySidebar__more {
+    align-self: flex-start;
+    padding-inline: 0;
+    margin: 2px 0 0 65px;
+    font-size: 12px;
+    color: var(--today-muted);
+
+    &:hover {
+        color: var(--today-ink);
+    }
+}
+
+.TodaySidebar__more--empty {
+    color: var(--today-faint);
+
+    &:hover {
+        color: var(--today-faint);
+    }
+}
+
+.TodayNavItem {
+    border-radius: 10px;
+}
+
+.TodayNavItem__marker {
+    width: 30px;
+    height: 30px;
+    color: var(--report-color);
+    background: color-mix(in sRGB, var(--report-color) 10%, var(--today-card));
+    border: 1px solid color-mix(in sRGB, var(--report-color) 25%, var(--today-card));
+    border-radius: var(--radius-sm);
+    transition:
+        color 0.16s,
+        background 0.16s,
+        border-color 0.16s;
+
+    // Center the tile; quill nudges media down when an item has a description.
+    &.quill-item__media {
+        align-self: center;
+        translate: none;
+    }
+
+    svg {
+        width: 16px;
+        height: 16px;
+    }
+}
+
+.TodayNavItem[data-active='true'] .TodayNavItem__marker {
+    color: #fff;
+    background: var(--report-color);
+    border-color: var(--report-color);
+}
+
+.TodayNavItem__title {
+    min-width: 0;
+}
+
+.TodayNavItem[data-state='done'] .TodayNavItem__title,
+.TodayReportLink[data-state='done'] {
+    text-decoration: line-through;
+}
+
+// Dismissed is not done: it stays readable, only quieter, and the left bar says why.
+.TodayNavItem[data-state='dismissed'] .quill-item__content,
+.TodayReportLink[data-state='dismissed'] {
+    opacity: 0.55;
+}
+
+// Home
+
+.TodayHome,
+.TodayReport {
+    width: min(840px, 100% - 144px);
+    margin: 0 auto;
+
+    @container main-content (max-width: 900px) {
+        width: min(100% - 72px, 700px);
+    }
+
+    @container main-content (max-width: 600px) {
+        width: calc(100% - 40px);
+    }
+}
+
+.TodayHome {
+    padding: 94px 0 140px;
+
+    @container main-content (max-width: 600px) {
+        padding: 20px 0 64px;
+    }
+}
+
+.TodayReport {
+    padding: 56px 0 140px;
+
+    @container main-content (max-width: 600px) {
+        padding: 12px 0 64px;
+    }
+}
+
+.TodayHome__meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--today-faint);
+    letter-spacing: 0.02em;
+
+    time {
+        font-variant-numeric: tabular-nums;
+        color: var(--today-ink);
+        white-space: nowrap;
+    }
+}
+
+.TodayHome__intro {
+    max-width: 680px;
+    margin-top: clamp(72px, 12vh, 120px);
+    font-size: 16px;
+    line-height: 1.7;
+    color: var(--today-muted);
+    letter-spacing: -0.005em;
+
+    p {
+        margin: 0;
+    }
+
+    p + p {
+        margin-top: 7px;
+    }
+}
+
+.TodayHome__greeting {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 10px;
+    font-size: 21px;
+    font-weight: 560;
+    color: var(--today-ink);
+    letter-spacing: -0.015em;
+}
+
+.TodayHome__badge {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--today-faint);
+    letter-spacing: 0;
+    border: 1px solid color-mix(in sRGB, var(--today-ink) 12%, transparent);
+    border-radius: 999px;
+}
+
+.TodayChipStack {
+    position: relative;
+    display: inline-block;
+    width: 130px;
+    height: 26px;
+    margin-left: 10px;
+    vertical-align: -8px;
+    isolation: isolate;
+}
+
+.TodayChipStack__chip {
+    --index: 0;
+    --report-color: #5c5c57;
+
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: calc(6 - var(--index));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    color: #fff;
+    background: var(--report-color);
+    border: 3px solid var(--today-paper);
+    border-radius: 8px;
+    box-shadow: 0 1px 2px #00000024;
+    transition: transform 0.18s;
+    transform: translateX(calc(var(--index) * 16px)) rotate(var(--tilt));
+
+    svg {
+        width: 13px;
+        height: 13px;
+    }
+
+    .TodayChipStack:hover & {
+        transform: translateX(calc(var(--index) * 23px)) rotate(0);
+    }
+
+    .TodayChipStack:hover &:hover {
+        z-index: 20;
+        transform: translateX(calc(var(--index) * 23px)) translateY(-4px) rotate(-6deg) scale(1.08);
+    }
+
+    &[data-active='true'] {
+        z-index: 20;
+        transform: translateX(calc(var(--index) * 16px)) translateY(-4px) rotate(-8deg) scale(1.08);
+    }
+}
+
+.TodayReportLink {
+    padding: 0;
+    color: inherit;
+    text-align: inherit;
+    text-decoration: underline;
+    text-decoration-thickness: 1.5px;
+    text-decoration-color: color-mix(in sRGB, var(--today-ink) 18%, transparent);
+    text-underline-offset: 5px;
+    transition:
+        color 0.16s,
+        text-decoration-color 0.16s;
+
+    &:hover,
+    &[data-active='true'] {
+        color: var(--today-ink);
+        text-decoration-color: var(--today-ink);
+    }
+}
+
+.TodayHome__highlight {
+    padding: 0.02em 0.2em 0.08em;
+    margin: 0 -0.03em;
+    background: #ffbda380;
+    border-radius: 0.26em;
+    box-decoration-break: clone;
+
+    .TodayReportLink,
+    .TodayReportLink:hover,
+    .TodayReportLink[data-active='true'] {
+        font-weight: 500;
+        color: #ff4800;
+        text-decoration: none;
+    }
+
+    [theme='dark'] & {
+        background: #ff48002e;
+
+        .TodayReportLink,
+        .TodayReportLink:hover,
+        .TodayReportLink[data-active='true'] {
+            color: #ff9e7a;
+        }
+    }
+}
+
+.TodayHome__progress {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: var(--today-faint);
+}
+
+.TodayHome__foot {
+    margin-top: 48px;
+
+    button {
+        color: var(--today-ink);
+        text-decoration: underline;
+        text-decoration-color: color-mix(in sRGB, var(--today-ink) 20%, transparent);
+        text-underline-offset: 5px;
+
+        &:hover {
+            color: #ff5c1c;
+        }
+    }
+}
+
+// Ask box
+
+.TodayAsk {
+    max-width: 760px;
+    margin-top: 76px;
+}
+
+// Report page
+
+.TodayReport__kicker {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--report-color);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.TodayTile {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    color: #fff;
+    background: var(--tile-color, var(--report-color));
+    border-radius: 8px;
+
+    svg {
+        width: 15px;
+        height: 15px;
+    }
+}
+
+.TodayReport__heading {
+    max-width: 560px;
+    margin: 14px 0 12px;
+    font-size: 18px;
+    font-weight: 560;
+    line-height: 1.3;
+    text-wrap: balance;
+    letter-spacing: -0.015em;
+}
+
+.TodayReport__body {
+    max-width: 600px;
+    margin-top: 24px;
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--today-muted);
+
+    > * + * {
+        margin-top: 20px;
+    }
+}
+
+// Evidence and prompts
+
+.TodayEvidence,
+.TodayPrompts {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 600px;
+    margin-top: 48px;
+}
+
+.TodayEvidence__note,
+.TodayPrompts__hint {
+    margin: 0;
+    font-size: 12px;
+    color: var(--today-muted);
+}
+
+// Keyframes
+
+@keyframes Today__page-in {
+    from {
+        opacity: 0;
+        transform: translateY(2px);
+    }
+}
+
+@container main-content (max-width: 600px) {
+    .TodayHome__intro {
+        margin-top: 32px;
+    }
+
+    .TodayAsk {
+        margin-top: 40px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .Today *,
+    .Today *::before,
+    .Today *::after {
+        transition: none !important;
+        animation-duration: 1ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}

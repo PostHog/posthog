@@ -1219,7 +1219,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         }).url,
                         excludedProperties: [
                             ...(excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? []),
-                            ...hiddenEventNames(featureFlags, includeHiddenEvents),
+                            ...hiddenEventNames(currentTeam?.flag_evaluations_mode, includeHiddenEvents),
                         ],
                         ...withKeywordShortcuts<Record<string, any>>(
                             {

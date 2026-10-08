@@ -19,10 +19,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.fullstory.fullstory import (
-    ENDPOINTS,
     FullStoryResumeConfig,
     fullstory_source,
     validate_credentials as validate_fullstory_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.fullstory.settings import (
+    APPEND_ONLY_ENDPOINTS,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fullstory import (
     FullStorySourceConfig,
@@ -61,9 +65,9 @@ class FullStorySource(ResumableSource[FullStorySourceConfig, FullStoryResumeConf
             name=ExternalDataSourceType.FULLSTORY,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Fullstory",
-            caption="""Enter your Fullstory API key to pull your Fullstory user data into the PostHog Data warehouse.
+            caption="""Enter your Fullstory API key to pull your Fullstory users, segments, sessions, and events into the PostHog Data warehouse.
 
-You can create an API key in Fullstory under Settings > Integrations & API Keys > API Keys. A key with at least the Viewer permission level is sufficient for syncing.""",
+You can create an API key in Fullstory under Settings > Integrations & API Keys > API Keys. A key with the Viewer permission level can sync users and segments. The sessions table needs the Admin or Architect level, and the events table needs the Segment Export add-on on your Fullstory plan.""",
             iconPath="/static/services/fullstory.png",
             docsUrl="https://posthog.com/docs/cdp/sources/fullstory",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -91,9 +95,7 @@ You can create an API key in Fullstory under Settings > Integrations & API Keys 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # The users listing has no updated-since filter (no incremental fields), so it is
-        # full-refresh only; session/event data only exists behind async Data Export jobs (a follow-up).
-        return build_endpoint_schemas(ENDPOINTS, {}, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, append_only=APPEND_ONLY_ENDPOINTS)
 
     def validate_credentials(
         self,
@@ -122,4 +124,7 @@ You can create an API key in Fullstory under Settings > Integrations & API Keys 
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )

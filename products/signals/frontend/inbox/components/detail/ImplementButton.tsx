@@ -6,6 +6,9 @@ import { LemonButton, LemonMenuOverlay, lemonToast } from '@posthog/lemon-ui'
 
 import {
     buildClaudeCodeDeepLink,
+    buildClaudeCodeVSCodeDeepLink,
+    buildClaudeCodeWebLink,
+    buildClaudeDesktopDeepLink,
     buildCodexDeepLink,
     buildCursorDeepLink,
     buildPostHogCodeDeepLink,
@@ -28,35 +31,57 @@ const SLOT_CLAIM_DISABLED_REASON: Record<ImplementationSlotClaim, string> = {
     shipped_pr: 'This report already has a pull request. Open it in the task log to continue it.',
 }
 
+function openDeepLink(buildDeepLink: (prompt: string) => string): (prompt: string) => void {
+    return (prompt) => window.open(buildDeepLink(prompt), '_blank')
+}
+
 const IMPLEMENTATION_AGENTS: {
     key: AgentPromptDestination
     name: string
     icon: JSX.Element
-    buildDeepLink: (prompt: string) => string
+    open: (prompt: string) => void
 }[] = [
     {
         key: 'posthog-code',
         name: 'PostHog Desktop',
         icon: <IconLogomark />,
-        buildDeepLink: buildPostHogCodeDeepLink,
+        open: openDeepLink(buildPostHogCodeDeepLink),
     },
     {
         key: 'claude-code',
-        name: 'Claude Code',
+        name: 'Claude Code CLI',
         icon: <AgentLogo logo={claudeLogo} />,
-        buildDeepLink: buildClaudeCodeDeepLink,
+        open: openDeepLink(buildClaudeCodeDeepLink),
+    },
+    {
+        key: 'claude-desktop',
+        name: 'Claude Desktop',
+        icon: <AgentLogo logo={claudeLogo} />,
+        open: openDeepLink(buildClaudeDesktopDeepLink),
+    },
+    {
+        key: 'claude-code-vscode',
+        name: 'Claude Code in VS Code',
+        icon: <AgentLogo logo={claudeLogo} />,
+        open: openDeepLink(buildClaudeCodeVSCodeDeepLink),
+    },
+    {
+        key: 'claude-code-web',
+        name: 'Claude Code on the web',
+        icon: <AgentLogo logo={claudeLogo} />,
+        open: (prompt) => window.open(buildClaudeCodeWebLink(prompt), '_blank', 'noopener,noreferrer'),
     },
     {
         key: 'cursor',
         name: 'Cursor',
         icon: <AgentLogo logo={cursorLogo} logoClassName="dark:invert" />,
-        buildDeepLink: buildCursorDeepLink,
+        open: openDeepLink(buildCursorDeepLink),
     },
     {
         key: 'codex',
         name: 'Codex',
         icon: <AgentLogo logo={openaiLogo} />,
-        buildDeepLink: buildCodexDeepLink,
+        open: openDeepLink(buildCodexDeepLink),
     },
 ]
 
@@ -182,10 +207,7 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
                                                         key: agent.key,
                                                         label: agent.name,
                                                         icon: agent.icon,
-                                                        onClick: () =>
-                                                            runImplementationPrompt(agent.key, (prompt) => {
-                                                                window.open(agent.buildDeepLink(prompt), '_blank')
-                                                            }),
+                                                        onClick: () => runImplementationPrompt(agent.key, agent.open),
                                                     }))}
                                                 />
                                             ),

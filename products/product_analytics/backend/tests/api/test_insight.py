@@ -22,6 +22,7 @@ from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework import status
 
@@ -52,8 +53,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
-from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.errors import wrap_clickhouse_query_error
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -4190,30 +4193,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
 
 class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
-    @parameterized.expand(
-        [
-            ("ExposedCHQueryError", "NO_COMMON_TYPE error from ClickHouse", None),
-            ("ExposedHogQLError", "Invalid HogQL syntax", "hogql_error"),
-            ("HogVMException", "Global variable not found: variables", None),
-        ]
-    )
-    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    def test_retrieve_degrades_in_place_for_exposed_errors(
-        self, _name: str, error_message: str, expected_error_code: str | None, mock_calculate: mock.MagicMock
-    ) -> None:
-        from posthog.hogql.errors import ExposedHogQLError
-
-        from posthog.errors import ExposedCHQueryError
-
-        from common.hogvm.python.utils import HogVMException
-
-        error_classes: dict[str, type] = {
-            "ExposedCHQueryError": ExposedCHQueryError,
-            "ExposedHogQLError": ExposedHogQLError,
-            "HogVMException": HogVMException,
-        }
-        mock_calculate.side_effect = error_classes[_name](error_message)
-
+    def _query_status_of_a_failed_refresh(self) -> dict:
         insight = Insight.objects.create(
             team=self.team,
             query={
@@ -4227,10 +4207,67 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         # The failure must ride on query_status so a dashboard tile renders its own error state
         # while the response as a whole succeeds.
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        query_status = response.json()["query_status"]
+        return response.json()["query_status"]
+
+    @parameterized.expand(
+        [
+            ("ExposedCHQueryError", "NO_COMMON_TYPE error from ClickHouse", None),
+            ("ExposedHogQLError", "Invalid HogQL syntax", "hogql_error"),
+            ("HogVMException", "Global variable not found: variables", None),
+            ("RuntimeError", "Unexpected calculation failure", None),
+        ]
+    )
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_retrieve_degrades_in_place_for_non_capacity_errors(
+        self, _name: str, error_message: str, expected_error_code: str | None, mock_calculate: mock.MagicMock
+    ) -> None:
+        from posthog.hogql.errors import ExposedHogQLError
+
+        from posthog.errors import ExposedCHQueryError
+
+        from common.hogvm.python.utils import HogVMException
+
+        error_classes: dict[str, type] = {
+            "ExposedCHQueryError": ExposedCHQueryError,
+            "ExposedHogQLError": ExposedHogQLError,
+            "HogVMException": HogVMException,
+            "RuntimeError": RuntimeError,
+        }
+        mock_calculate.side_effect = error_classes[_name](error_message)
+
+        query_status = self._query_status_of_a_failed_refresh()
+
         self.assertTrue(query_status["error"])
         self.assertIn(error_message, query_status["error_message"])
         self.assertEqual(query_status["error_code"], expected_error_code)
+
+    @parameterized.expand(
+        [
+            ("cluster_at_capacity", ClickHouseAtCapacity(), ClickHouseAtCapacity.default_detail),
+            (
+                "org_concurrency_limit",
+                ConcurrencyLimitExceeded("internal limiter details"),
+                "concurrency_limit_exceeded",
+            ),
+            (
+                "no_free_clickhouse_connection",
+                wrap_clickhouse_query_error(ServerException("no free connection", 203)),
+                ClickHouseAtCapacity.default_detail,
+            ),
+        ]
+    )
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_retrieve_labels_every_capacity_failure_as_rate_limited(
+        self, _name: str, error: Exception, expected_message: str, mock_calculate: mock.MagicMock
+    ) -> None:
+        mock_calculate.side_effect = error
+
+        query_status = self._query_status_of_a_failed_refresh()
+
+        # The dashboard retries on this code, so every transient capacity failure has to carry it.
+        self.assertTrue(query_status["error"])
+        self.assertEqual(query_status["error_code"], "rate_limited")
+        self.assertEqual(query_status["error_message"], expected_message)
 
 
 class TestInsightQueryScan(APIBaseTest):

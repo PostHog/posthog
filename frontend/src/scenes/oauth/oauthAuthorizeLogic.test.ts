@@ -2,14 +2,19 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { decodeParams, router } from 'kea-router'
 
-import { DEFAULT_OAUTH_SCOPES } from 'lib/scopes'
+import { DEFAULT_OAUTH_SCOPES, getScopeGroupLabel } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
-import { describeOAuthError, oauthAuthorizeLogic } from './oauthAuthorizeLogic'
+import {
+    describeOAuthError,
+    oauthAuthorizeLogic,
+    scopeGroupAccessLevel,
+    scopeGroupLevelTooltip,
+} from './oauthAuthorizeLogic'
 
 describe('oauthAuthorizeLogic', () => {
     let logic: ReturnType<typeof oauthAuthorizeLogic.build>
@@ -113,7 +118,9 @@ describe('oauthAuthorizeLogic', () => {
         // Privileged/hidden objects are never grantable via /authorize; including them
         // would make the server reject the whole submit.
         expect(scopes).not.toContain('llm_gateway:read')
-        expect(scopes).not.toContain('metrics:read')
+        expect(scopes).not.toContain('wizard_session:read')
+        // metrics is OAuth-grantable, so the fallback keeps it.
+        expect(scopes).toContain('metrics:read')
     })
 
     it('uses the server-computed read set when expanding the wildcard', () => {
@@ -480,6 +487,63 @@ describe('oauthAuthorizeLogic', () => {
             ['a non-list field value', { state: 'Not a valid string.' }],
         ])('returns null for %s, so the caller falls back', (_name, data) => {
             expect(describeOAuthError(data)).toBeNull()
+        })
+    })
+    describe('grouping', () => {
+        it('keeps a short request flat and groups only past the threshold', () => {
+            logic.actions.setScopes(['openid', 'feature_flag:write', 'session_recording:write', 'insight:write'])
+            expect(logic.values.scopeRowsGrouped).toBe(false)
+            logic.actions.setScopes([
+                'openid',
+                ...[
+                    'insight',
+                    'dashboard',
+                    'query',
+                    'cohort',
+                    'action',
+                    'person',
+                    'survey',
+                    'experiment',
+                    'notebook',
+                    'logs',
+                    'error_tracking',
+                ].map((object) => `${object}:read`),
+            ])
+            expect(logic.values.scopeRowsGrouped).toBe(true)
+            const groups = logic.values.scopeGroups
+            expect(groups.flatMap((group) => group.rows)).toHaveLength(logic.values.adjustableScopeRows.length)
+            for (const group of groups) {
+                expect(group.rows.length).toBeGreaterThan(0)
+                expect(group.rows.map((row) => getScopeGroupLabel(row.key))).toEqual(group.rows.map(() => group.label))
+            }
+        })
+
+        it('sets every row of a group with one group action, clamped to each ceiling', () => {
+            logic.actions.setScopes(['openid', 'session_recording:write', 'session_recording_playlist:read'])
+            logic.actions.setScopeGroupAccess(['session_recording', 'session_recording_playlist'], 'none')
+            expect(logic.values.effectiveScopes).toEqual(['openid'])
+            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('none')
+            expect(scopeGroupLevelTooltip(logic.values.adjustableScopeRows, 'none', 'Test app')).toBeUndefined()
+            const [recordingRow, playlistRow] = logic.values.adjustableScopeRows
+            const requiredRows = [{ ...recordingRow, minLevel: 'read' as const, value: 'read' as const }, playlistRow]
+            expect(scopeGroupAccessLevel(requiredRows)).toBe('none')
+            expect(scopeGroupLevelTooltip(requiredRows, 'none', 'Test app')).toBe(
+                '1 of these permissions stays on. Test app requires it.'
+            )
+            logic.actions.setScopeGroupAccess(['session_recording', 'session_recording_playlist'], 'write')
+            expect(logic.values.effectiveScopes).toEqual([
+                'openid',
+                'session_recording:write',
+                'session_recording_playlist:read',
+            ])
+            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('write')
+            expect(scopeGroupLevelTooltip(logic.values.adjustableScopeRows, 'write', 'Test app')).toBe(
+                '1 of these permissions stays at read. Test app did not request write access.'
+            )
+            logic.actions.setScopeAccess('session_recording', 'read')
+            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('read')
+            logic.actions.setScopeAccess('session_recording_playlist', 'none')
+            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBeUndefined()
         })
     })
 })

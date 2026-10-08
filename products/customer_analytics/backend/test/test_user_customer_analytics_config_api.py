@@ -14,10 +14,12 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.customer_analytics.backend.models import (
     AccountRelationshipDefinition,
     CustomPropertyDefinition,
@@ -28,8 +30,17 @@ from products.customer_analytics.backend.models import (
 DISABLED_TASK_DIGEST = {"enabled": False, "send_time": "09:00", "cadence": "weekdays"}
 
 
-def config_body(pinned_properties: list[dict[str, str]], task_digest: dict[str, Any] | None = None) -> dict[str, Any]:
-    return {"pinned_properties": pinned_properties, "task_digest": task_digest or DISABLED_TASK_DIGEST}
+def config_body(
+    pinned_properties: list[dict[str, str]],
+    task_digest: dict[str, Any] | None = None,
+    account_detail_tabs: dict[str, Any] | None = None,
+) -> dict:
+    return {
+        "pinned_properties": pinned_properties,
+        "task_digest": task_digest or DISABLED_TASK_DIGEST,
+        "account_detail_tabs": account_detail_tabs
+        or {"ordered_tab_ids": [], "hidden_tab_ids": [], "default_tab_id": None},
+    }
 
 
 class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
@@ -54,13 +65,29 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
             name=f"Relationship {uuid4()}",
         )
 
-    def test_get_creates_empty_config_without_rewriting_an_explicit_empty_list(self) -> None:
+    def test_get_inherits_dynamic_defaults_without_rewriting_an_explicit_empty_list(self) -> None:
+        default_property = self._custom_property()
+        project_config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+        project_config.default_pinned_properties = [{"kind": "custom_property", "id": str(default_property.id)}]
+        project_config.save(update_fields=["default_pinned_properties"])
+
         response = self.client.get(self.endpoint)
 
+        inherited = [{"kind": "custom_property", "id": str(default_property.id)}]
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertEqual(response.json(), config_body([]))
+        self.assertEqual(response.json(), config_body(inherited))
         config = UserCustomerAnalyticsConfig.objects.for_team(self.team.id).get(user_id=self.user.id)
-        self.assertEqual(config.properties, {"pinned_properties": []})
+        self.assertEqual(config.properties, {})
+
+        default_relationship = self._relationship()
+        project_config.default_pinned_properties = [{"kind": "relationship", "id": str(default_relationship.id)}]
+        project_config.save(update_fields=["default_pinned_properties"])
+        self.assertEqual(
+            self.client.get(self.endpoint).json(),
+            config_body([{"kind": "relationship", "id": str(default_relationship.id)}]),
+        )
+        config.refresh_from_db()
+        self.assertEqual(config.properties, {})
 
         legacy_definition = self._custom_property()
         config.properties = {"pinned_properties": [], "future_setting": "kept"}
@@ -75,6 +102,18 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
         config.refresh_from_db()
         self.assertEqual(config.properties, {"pinned_properties": [], "future_setting": "kept"})
         self.assertEqual(config.updated_at, updated_at)
+
+        config.pinned_custom_property_definition_ids = []
+        config.save(update_fields=["pinned_custom_property_definition_ids"])
+        self.assertEqual(self.client.get(self.endpoint).json(), config_body(project_config.default_pinned_properties))
+        config.refresh_from_db()
+        self.assertEqual(config.properties, {"pinned_properties": [], "future_setting": "kept"})
+
+        cleared = self.client.patch(self.endpoint, {"pinned_properties": []}, format="json")
+        self.assertEqual(cleared.json(), config_body([]))
+        config.refresh_from_db()
+        self.assertTrue(config.properties["pinned_properties_override"])
+        self.assertEqual(self.client.get(self.endpoint).json(), config_body([]))
 
     def test_get_migrates_legacy_custom_property_ids_in_order(self) -> None:
         first = self._custom_property()
@@ -116,6 +155,11 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
         self.assertEqual(config.properties["pinned_properties"], pinned_properties)
         self.assertEqual(config.pinned_custom_property_definition_ids, [first_custom.id, second_custom.id])
 
+        project_config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+        project_config.default_pinned_properties = [{"kind": "relationship", "id": str(relationship.id)}]
+        project_config.save(update_fields=["default_pinned_properties"])
+        self.assertEqual(self.client.get(self.endpoint).json(), config_body(pinned_properties))
+
         payload: dict[str, object] | None
         for payload in ({}, None):
             with self.subTest(payload=payload):
@@ -130,6 +174,7 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
         self.assertEqual(cleared.json(), config_body([]))
         config.refresh_from_db()
         self.assertEqual(config.properties["pinned_properties"], [])
+        self.assertTrue(config.properties["pinned_properties_override"])
         self.assertEqual(config.pinned_custom_property_definition_ids, [])
 
     def test_config_is_isolated_by_requesting_user_and_project(self) -> None:
@@ -167,6 +212,26 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
             UserCustomerAnalyticsConfig.objects.unscoped().filter(team_id=other_team.id, user_id=self.user.id).count(),
             1,
         )
+
+    def test_task_digest_only_row_keeps_inheriting_project_defaults(self) -> None:
+        default_property = self._custom_property()
+        inherited = [{"kind": "custom_property", "id": str(default_property.id)}]
+        project_config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+        project_config.default_pinned_properties = inherited
+        project_config.save(update_fields=["default_pinned_properties"])
+
+        response = self.client.patch(
+            self.endpoint,
+            {"task_digest": {"enabled": True, "send_time": "07:30"}},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.json(),
+            config_body(inherited, {"enabled": True, "send_time": "07:30", "cadence": "weekdays"}),
+        )
+        config = UserCustomerAnalyticsConfig.objects.for_team(self.team.id).get(user_id=self.user.id)
+        self.assertNotIn("pinned_properties", config.properties)
 
     def test_patch_task_digest_keeps_the_rest_of_the_configuration(self) -> None:
         pinned = [{"kind": "custom_property", "id": str(self._custom_property().id)}]
@@ -208,19 +273,60 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
         self.assertEqual(response.json()["attr"], f"task_digest__{field}")
         self.assertEqual(self.client.get(self.endpoint).json(), config_body([]))
 
+    def test_patch_account_detail_tabs_preserves_other_configuration(self) -> None:
+        pinned = [{"kind": "custom_property", "id": str(self._custom_property().id)}]
+        self.client.patch(self.endpoint, {"pinned_properties": pinned}, format="json")
+        self.client.patch(
+            self.endpoint,
+            {"task_digest": {"enabled": True, "send_time": "07:30", "cadence": "every_day"}},
+            format="json",
+        )
+        account_detail_tabs = {
+            "ordered_tab_ids": ["system:usage", "view:11111111-2222-4333-8444-555555555555"],
+            "hidden_tab_ids": ["system:notes"],
+            "default_tab_id": "system:usage",
+        }
+
+        response = self.client.patch(self.endpoint, {"account_detail_tabs": account_detail_tabs}, format="json")
+
+        expected = config_body(
+            pinned, {"enabled": True, "send_time": "07:30", "cadence": "every_day"}, account_detail_tabs
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json(), expected)
+
+        rejected = self.client.patch(
+            self.endpoint,
+            {
+                "pinned_properties": [],
+                "task_digest": {"enabled": False},
+                "account_detail_tabs": {**account_detail_tabs, "hidden_tab_ids": ["not-a-tab"]},
+            },
+            format="json",
+        )
+
+        self.assertEqual(rejected.status_code, status.HTTP_400_BAD_REQUEST, rejected.json())
+        self.assertEqual(rejected.json()["attr"], "account_detail_tabs")
+        self.assertEqual(self.client.get(self.endpoint).json(), expected)
+
     def test_environment_url_resolves_to_the_canonical_team(self) -> None:
         # `for_team` canonicalizes its filter but not the create kwargs, so an environment (child
         # team) id in the URL must resolve to the parent before the row is looked up or created.
         # A raw id makes the lookup never match and the unique constraint reject every later call.
         environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
         environment_endpoint = f"/api/projects/{environment.id}/user_customer_analytics_config/@me/"
-        pinned = [{"kind": "custom_property", "id": str(self._custom_property().id)}]
+        inherited = [{"kind": "custom_property", "id": str(self._custom_property().id)}]
+        project_config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+        project_config.default_pinned_properties = inherited
+        project_config.save(update_fields=["default_pinned_properties"])
+        pinned = [{"kind": "relationship", "id": str(self._relationship().id)}]
 
         first = self.client.get(environment_endpoint)
         saved = self.client.patch(environment_endpoint, {"pinned_properties": pinned}, format="json")
         reread = self.client.get(environment_endpoint)
 
         self.assertEqual(first.status_code, status.HTTP_200_OK, first.json())
+        self.assertEqual(first.json(), config_body(inherited))
         self.assertEqual(saved.status_code, status.HTTP_200_OK, saved.json())
         self.assertEqual(reread.status_code, status.HTTP_200_OK, reread.json())
         self.assertEqual(reread.json(), config_body(pinned))

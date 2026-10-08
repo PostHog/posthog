@@ -572,7 +572,6 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                                       displayLabel: 'Self-driving',
                                       category: PINNED_CATEGORY,
                                       visualOrder: 1,
-                                      tags: ['beta'],
                                   }
                                 : item
                     ),

@@ -752,6 +752,14 @@ export const SelectionModeEnumApi = {
     Multiple: 'multiple',
 } as const
 
+export interface CategoricalScorePassingRuleApi {
+    /**
+     * Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.
+     * @items.maxLength 128
+     */
+    categories: string[]
+}
+
 export interface CategoricalScoreDefinitionConfigApi {
     /** Ordered categorical options available to the scorer. */
     options: CategoricalScoreOptionApi[]
@@ -772,6 +780,30 @@ export interface CategoricalScoreDefinitionConfigApi {
      * @nullable
      */
     max_selections?: number | null
+    /** Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
+    passing_rule?: CategoricalScorePassingRuleApi | null
+}
+
+/**
+ * * `gte` - At or above
+ * * `lte` - At or below
+ */
+export type NumericScorePassingRuleSerializerOperatorEnumApi =
+    (typeof NumericScorePassingRuleSerializerOperatorEnumApi)[keyof typeof NumericScorePassingRuleSerializerOperatorEnumApi]
+
+export const NumericScorePassingRuleSerializerOperatorEnumApi = {
+    Gte: 'gte',
+    Lte: 'lte',
+} as const
+
+export interface NumericScorePassingRuleApi {
+    /** Pass at or above (gte), or at or below (lte), the threshold.
+     *
+     * * `gte` - At or above
+     * * `lte` - At or below */
+    operator: NumericScorePassingRuleSerializerOperatorEnumApi
+    /** Finite passing threshold within any configured score bounds. */
+    threshold: number
 }
 
 export interface NumericScoreDefinitionConfigApi {
@@ -790,9 +822,16 @@ export interface NumericScoreDefinitionConfigApi {
      * @nullable
      */
     step?: number | null
+    /** Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
+    passing_rule?: NumericScorePassingRuleApi | null
 }
 
 export interface BooleanScoreDefinitionConfigApi {
+    /**
+     * Whether true means failure. False, omitted, or null means true passes in offline evaluations.
+     * @nullable
+     */
+    true_is_failure?: boolean | null
     /** Optional label for a true value. */
     true_label?: string
     /** Optional label for a false value. */
@@ -956,6 +995,13 @@ export interface OfflineResultPageApi {
     results: OfflineResultReadApi[]
 }
 
+export interface OfflineResultCellsApi {
+    /** Selected authorized versions, including versions with no results for these items. */
+    scorer_versions: OfflineScorerVersionReadApi[]
+    /** Submitted results for the exact selected items and versions; at most 1,000 cells. */
+    results: OfflineResultCellApi[]
+}
+
 /**
  * @nullable
  */
@@ -1056,6 +1102,21 @@ export interface OfflineScorerSummaryApi {
      * @nullable
      */
     true_rate: number | null
+    /**
+     * Successful results passing the pinned rule. Boolean scores default to true passing; null for unconfigured numeric or categorical scorers.
+     * @nullable
+     */
+    pass_count: number | null
+    /**
+     * Successful results failing the pinned rule; null for unconfigured numeric or categorical scorers.
+     * @nullable
+     */
+    fail_count: number | null
+    /**
+     * Passing fraction among successful results; null without successful results or an applicable rule. Boolean scores default to true passing. Excludes errors, skipped, not-applicable, and missing results.
+     * @nullable
+     */
+    pass_rate: number | null
     /** Pinned categorical distribution; multiselect rates may sum above one. */
     categories: OfflineCategorySummaryApi[]
 }
@@ -1209,6 +1270,64 @@ export interface OfflineHistoryPageApi {
     next_cursor: string | null
     /** Experiment/scorer-version history page. */
     results: OfflineHistoryPointApi[]
+}
+
+export interface TracePersonApi {
+    distinctId: string
+    label: string
+}
+
+export interface TraceNodeStatsApi {
+    costUsd: number | null
+    inputTokens: number | null
+    outputTokens: number | null
+    cacheReadTokens: number | null
+    cacheWriteTokens: number | null
+    latencyMs: number | null
+}
+
+export type TraceNodeKindEnumApi = (typeof TraceNodeKindEnumApi)[keyof typeof TraceNodeKindEnumApi]
+
+export const TraceNodeKindEnumApi = {
+    Trace: 'trace',
+    Span: 'span',
+    Generation: 'generation',
+    Embedding: 'embedding',
+} as const
+
+export interface TraceNodeApi {
+    id: string
+    kind: TraceNodeKindEnumApi
+    name: string
+    model: string | null
+    stats: TraceNodeStatsApi
+    hasError: boolean
+    children: TraceNodeApi[]
+}
+
+export interface TraceTimelineRowApi {
+    id: string
+    kind: TraceNodeKindEnumApi
+    name: string
+    depth: number
+    startMs: number
+    durationMs: number | null
+    hasError: boolean
+}
+
+export interface TraceApi {
+    id: string
+    name: string | null
+    createdAt: string
+    sessionId: string | null
+    person: TracePersonApi | null
+    totals: TraceNodeStatsApi
+    hasError: boolean
+    errorCount: number
+    tree: TraceNodeApi[]
+    timeline: TraceTimelineRowApi[]
+    totalMs: number
+    threadNodeIds: string[]
 }
 
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
@@ -1701,6 +1820,7 @@ export const EvaluationStatusEnumApi = {
  * * `provider_key_quota_exceeded` - Provider API key quota exceeded
  * * `provider_key_rate_limited` - Provider API key is rate limited
  * * `model_not_found` - Model not found
+ * * `model_not_supported` - Model does not support chat completions
  * * `hog_error` - Hog evaluation code failed
  */
 export type EvaluationStatusReasonEnumApi =
@@ -1715,6 +1835,7 @@ export const EvaluationStatusReasonEnumApi = {
     ProviderKeyQuotaExceeded: 'provider_key_quota_exceeded',
     ProviderKeyRateLimited: 'provider_key_rate_limited',
     ModelNotFound: 'model_not_found',
+    ModelNotSupported: 'model_not_supported',
     HogError: 'hog_error',
 } as const
 
@@ -1734,6 +1855,7 @@ export const EvaluationTypeEnumApi = {
 /**
  * * `boolean` - Boolean (Pass/Fail)
  * * `numeric` - Numeric
+ * * `categorical` - Categorical
  * * `sentiment` - Sentiment
  */
 export type OutputTypeEnumApi = (typeof OutputTypeEnumApi)[keyof typeof OutputTypeEnumApi]
@@ -1741,7 +1863,19 @@ export type OutputTypeEnumApi = (typeof OutputTypeEnumApi)[keyof typeof OutputTy
 export const OutputTypeEnumApi = {
     Boolean: 'boolean',
     Numeric: 'numeric',
+    Categorical: 'categorical',
     Sentiment: 'sentiment',
+} as const
+
+/**
+ * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+ */
+export type EvaluationApiOutputConfigSelectionMode =
+    (typeof EvaluationApiOutputConfigSelectionMode)[keyof typeof EvaluationApiOutputConfigSelectionMode]
+
+export const EvaluationApiOutputConfigSelectionMode = {
+    Single: 'single',
+    Multiple: 'multiple',
 } as const
 
 export type EvaluationConditionApiPropertiesItem = { [key: string]: unknown }
@@ -1788,6 +1922,7 @@ export const EvaluationTargetEnumApi = {
  * * `together_ai` - Together AI
  * * `minimax` - MiniMax
  * * `zeabur` - Zeabur AI Hub
+ * * `system_one` - System One
  * * `openai_compatible` - OpenAI-compatible
  */
 export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
@@ -1802,6 +1937,7 @@ export const LLMProviderEnumApi = {
     TogetherAi: 'together_ai',
     Minimax: 'minimax',
     Zeabur: 'zeabur',
+    SystemOne: 'system_one',
     OpenaiCompatible: 'openai_compatible',
 } as const
 
@@ -1834,7 +1970,7 @@ export type EvaluationApiEvaluationConfig =
       }
     | {
           /**
-           * Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
+           * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
            * @minLength 1
            */
           source: string
@@ -1844,32 +1980,53 @@ export type EvaluationApiEvaluationConfig =
           source?: 'user_messages'
       }
 
-/**
- * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
- * @nullable
- */
-export type EvaluationApiOutputConfigPassingRule = {
-    /** Pass at or above (gte), or at or below (lte), the threshold. */
-    operator: 'gte' | 'lte'
-    /** Finite passing threshold within any configured score bounds. */
-    threshold: number
-} | null
+export type EvaluationApiOutputConfigOptionsItem = {
+    /**
+     * Stable category key.
+     * @minLength 1
+     * @maxLength 128
+     * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+     */
+    key: string
+    /**
+     * Category display label.
+     * @minLength 1
+     * @maxLength 256
+     */
+    label: string
+}
 
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
+ * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
+ */
+export type EvaluationApiOutputConfigPassingRule =
+    | {
+          /** Pass at or above (gte), or at or below (lte), the threshold. */
+          operator: 'gte' | 'lte'
+          /** Finite passing threshold within any configured score bounds. */
+          threshold: number
+      }
+    | {
+          /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+          categories: string[]
+      }
+    | null
+
+/**
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
  */
 export type EvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
-    /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -1881,9 +2038,14 @@ export type EvaluationApiOutputConfig = {
      */
     step?: number | null
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
+     * Categorical output options. Keys identify stored results; labels are displayed to users.
+     * @minItems 1
+     * @maxItems 100
      */
+    options?: EvaluationApiOutputConfigOptionsItem[]
+    /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+    selection_mode?: EvaluationApiOutputConfigSelectionMode
+    /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
     passing_rule?: EvaluationApiOutputConfigPassingRule
 }
 
@@ -1952,13 +2114,14 @@ export interface EvaluationApi {
     evaluation_type: EvaluationTypeEnumApi
     /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
     evaluation_config?: EvaluationApiEvaluationConfig
-    /** Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.
+    /** Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.
      *
      * * `boolean` - Boolean (Pass/Fail)
      * * `numeric` - Numeric
+     * * `categorical` - Categorical
      * * `sentiment` - Sentiment */
     output_type: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
     output_config?: EvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
@@ -2117,7 +2280,7 @@ export type PatchedEvaluationApiEvaluationConfig =
       }
     | {
           /**
-           * Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
+           * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
            * @minLength 1
            */
           source: string
@@ -2127,32 +2290,64 @@ export type PatchedEvaluationApiEvaluationConfig =
           source?: 'user_messages'
       }
 
-/**
- * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
- * @nullable
- */
-export type PatchedEvaluationApiOutputConfigPassingRule = {
-    /** Pass at or above (gte), or at or below (lte), the threshold. */
-    operator: 'gte' | 'lte'
-    /** Finite passing threshold within any configured score bounds. */
-    threshold: number
-} | null
+export type PatchedEvaluationApiOutputConfigOptionsItem = {
+    /**
+     * Stable category key.
+     * @minLength 1
+     * @maxLength 128
+     * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+     */
+    key: string
+    /**
+     * Category display label.
+     * @minLength 1
+     * @maxLength 256
+     */
+    label: string
+}
 
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
+ * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+ */
+export type PatchedEvaluationApiOutputConfigSelectionMode =
+    (typeof PatchedEvaluationApiOutputConfigSelectionMode)[keyof typeof PatchedEvaluationApiOutputConfigSelectionMode]
+
+export const PatchedEvaluationApiOutputConfigSelectionMode = {
+    Single: 'single',
+    Multiple: 'multiple',
+} as const
+
+/**
+ * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
+ */
+export type PatchedEvaluationApiOutputConfigPassingRule =
+    | {
+          /** Pass at or above (gte), or at or below (lte), the threshold. */
+          operator: 'gte' | 'lte'
+          /** Finite passing threshold within any configured score bounds. */
+          threshold: number
+      }
+    | {
+          /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+          categories: string[]
+      }
+    | null
+
+/**
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
  */
 export type PatchedEvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
-    /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -2164,9 +2359,14 @@ export type PatchedEvaluationApiOutputConfig = {
      */
     step?: number | null
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
+     * Categorical output options. Keys identify stored results; labels are displayed to users.
+     * @minItems 1
+     * @maxItems 100
      */
+    options?: PatchedEvaluationApiOutputConfigOptionsItem[]
+    /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+    selection_mode?: PatchedEvaluationApiOutputConfigSelectionMode
+    /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
     passing_rule?: PatchedEvaluationApiOutputConfigPassingRule
 }
 
@@ -2235,13 +2435,14 @@ export interface PatchedEvaluationApi {
     evaluation_type?: EvaluationTypeEnumApi
     /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
     evaluation_config?: PatchedEvaluationApiEvaluationConfig
-    /** Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.
+    /** Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.
      *
      * * `boolean` - Boolean (Pass/Fail)
      * * `numeric` - Numeric
+     * * `categorical` - Categorical
      * * `sentiment` - Sentiment */
     output_type?: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
     output_config?: PatchedEvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
@@ -2268,32 +2469,64 @@ export interface PatchedEvaluationApi {
     readonly user_access_level?: string | null
 }
 
-/**
- * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
- * @nullable
- */
-export type TestHogRequestApiOutputConfigPassingRule = {
-    /** Pass at or above (gte), or at or below (lte), the threshold. */
-    operator: 'gte' | 'lte'
-    /** Finite passing threshold within any configured score bounds. */
-    threshold: number
-} | null
+export type TestHogRequestApiOutputConfigOptionsItem = {
+    /**
+     * Stable category key.
+     * @minLength 1
+     * @maxLength 128
+     * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+     */
+    key: string
+    /**
+     * Category display label.
+     * @minLength 1
+     * @maxLength 256
+     */
+    label: string
+}
 
 /**
- * Output settings used to validate the preview, including numeric bounds and allows_na.
+ * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+ */
+export type TestHogRequestApiOutputConfigSelectionMode =
+    (typeof TestHogRequestApiOutputConfigSelectionMode)[keyof typeof TestHogRequestApiOutputConfigSelectionMode]
+
+export const TestHogRequestApiOutputConfigSelectionMode = {
+    Single: 'single',
+    Multiple: 'multiple',
+} as const
+
+/**
+ * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
+ */
+export type TestHogRequestApiOutputConfigPassingRule =
+    | {
+          /** Pass at or above (gte), or at or below (lte), the threshold. */
+          operator: 'gte' | 'lte'
+          /** Finite passing threshold within any configured score bounds. */
+          threshold: number
+      }
+    | {
+          /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+          categories: string[]
+      }
+    | null
+
+/**
+ * Output settings used to validate the preview, including bounds, categories, and allows_na.
  */
 export type TestHogRequestApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
-    /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -2305,9 +2538,14 @@ export type TestHogRequestApiOutputConfig = {
      */
     step?: number | null
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
+     * Categorical output options. Keys identify stored results; labels are displayed to users.
+     * @minItems 1
+     * @maxItems 100
      */
+    options?: TestHogRequestApiOutputConfigOptionsItem[]
+    /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+    selection_mode?: TestHogRequestApiOutputConfigSelectionMode
+    /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
     passing_rule?: TestHogRequestApiOutputConfigPassingRule
 }
 
@@ -2316,6 +2554,7 @@ export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
 /**
  * * `boolean` - Boolean (Pass/Fail)
  * * `numeric` - Numeric
+ * * `categorical` - Categorical
  */
 export type HogEvaluationOutputTypeEnumApi =
     (typeof HogEvaluationOutputTypeEnumApi)[keyof typeof HogEvaluationOutputTypeEnumApi]
@@ -2323,6 +2562,7 @@ export type HogEvaluationOutputTypeEnumApi =
 export const HogEvaluationOutputTypeEnumApi = {
     Boolean: 'boolean',
     Numeric: 'numeric',
+    Categorical: 'categorical',
 } as const
 
 export interface TestHogTargetConfigApi {
@@ -2341,15 +2581,16 @@ export interface TestHogTargetConfigApi {
 }
 
 export interface TestHogRequestApi {
-    /** Expected output: boolean or numeric. Sentiment is not supported by Hog.
+    /** Expected output: boolean, numeric, or categorical. Sentiment is not supported by Hog.
      *
      * * `boolean` - Boolean (Pass/Fail)
-     * * `numeric` - Numeric */
+     * * `numeric` - Numeric
+     * * `categorical` - Categorical */
     output_type?: HogEvaluationOutputTypeEnumApi
-    /** Output settings used to validate the preview, including numeric bounds and allows_na. */
+    /** Output settings used to validate the preview, including bounds, categories, and allows_na. */
     output_config?: TestHogRequestApiOutputConfig
     /**
-     * Hog source code to test. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
+     * Hog source code to test. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
      * @minLength 1
      */
     source: string
@@ -2374,6 +2615,11 @@ export interface TestHogRequestApi {
 }
 
 export interface TestHogResultItemApi {
+    /**
+     * Selected category keys. An empty list is an applicable result; null means no categorical result was produced.
+     * @nullable
+     */
+    categories?: string[] | null
     /**
      * Raw numeric score, or null when no numeric score was produced.
      * @nullable
@@ -2649,6 +2895,23 @@ export interface LLMProviderKeyApi {
     readonly error_message: string | null
     api_key?: string
     readonly api_key_masked: string
+    /** Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before /systemone. */
+    base_url?: string
+    /**
+     * Model ID served by the System One endpoint.
+     * @maxLength 100
+     */
+    system_one_model?: string
+    /**
+     * Configured provider base URL (read-only, for display)
+     * @nullable
+     */
+    readonly base_url_display: string | null
+    /**
+     * Configured System One model ID.
+     * @nullable
+     */
+    readonly system_one_model_display: string | null
     /** Azure OpenAI endpoint URL */
     azure_endpoint?: string
     /**
@@ -2666,13 +2929,6 @@ export interface LLMProviderKeyApi {
      * @nullable
      */
     readonly api_version_display: string | null
-    /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
-    base_url?: string
-    /**
-     * OpenAI-compatible base URL (read-only, for display)
-     * @nullable
-     */
-    readonly base_url_display: string | null
     set_as_active?: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -2946,31 +3202,63 @@ export const GenerationStatusEnumApi = {
 } as const
 
 /**
- * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
- * @nullable
+ * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
  */
-export type EvaluationReportMetricsApiOutputConfigPassingRule = {
-    /** Pass at or above (gte), or at or below (lte), the threshold. */
-    operator: 'gte' | 'lte'
-    /** Finite passing threshold within any configured score bounds. */
-    threshold: number
-} | null
+export type EvaluationReportMetricsApiOutputConfigSelectionMode =
+    (typeof EvaluationReportMetricsApiOutputConfigSelectionMode)[keyof typeof EvaluationReportMetricsApiOutputConfigSelectionMode]
+
+export const EvaluationReportMetricsApiOutputConfigSelectionMode = {
+    Single: 'single',
+    Multiple: 'multiple',
+} as const
+
+export type EvaluationReportMetricsApiOutputConfigOptionsItem = {
+    /**
+     * Stable category key.
+     * @minLength 1
+     * @maxLength 128
+     * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+     */
+    key: string
+    /**
+     * Category display label.
+     * @minLength 1
+     * @maxLength 256
+     */
+    label: string
+}
 
 /**
- * Numeric score configuration and passing rule used for both report periods.
+ * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
+ */
+export type EvaluationReportMetricsApiOutputConfigPassingRule =
+    | {
+          /** Pass at or above (gte), or at or below (lte), the threshold. */
+          operator: 'gte' | 'lte'
+          /** Finite passing threshold within any configured score bounds. */
+          threshold: number
+      }
+    | {
+          /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+          categories: string[]
+      }
+    | null
+
+/**
+ * Output configuration and passing rule used for both report periods.
  */
 export type EvaluationReportMetricsApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
-    /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -2982,9 +3270,14 @@ export type EvaluationReportMetricsApiOutputConfig = {
      */
     step?: number | null
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
+     * Categorical output options. Keys identify stored results; labels are displayed to users.
+     * @minItems 1
+     * @maxItems 100
      */
+    options?: EvaluationReportMetricsApiOutputConfigOptionsItem[]
+    /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+    selection_mode?: EvaluationReportMetricsApiOutputConfigSelectionMode
+    /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
     passing_rule?: EvaluationReportMetricsApiOutputConfigPassingRule
 }
 
@@ -3011,12 +3304,13 @@ export type EvaluationReportMetricsApiPreviousResultCounts = { [key: string]: nu
 export type EvaluationReportMetricsApiPreviousResultRates = { [key: string]: number } | null
 
 export interface EvaluationReportMetricsApi {
-    /** Numeric score configuration and passing rule used for both report periods. */
+    /** Output configuration and passing rule used for both report periods. */
     output_config?: EvaluationReportMetricsApiOutputConfig
     /** Evaluation result type. Stored metrics without this field represent boolean evaluations.
      *
      * * `boolean` - Boolean (Pass/Fail)
      * * `numeric` - Numeric
+     * * `categorical` - Categorical
      * * `sentiment` - Sentiment */
     output_type?: OutputTypeEnumApi
     /** Number of evaluation results in the report period. */
@@ -3045,12 +3339,12 @@ export interface EvaluationReportMetricsApi {
      */
     previous_result_rates?: EvaluationReportMetricsApiPreviousResultRates
     /**
-     * Boolean or numeric pass percentage, excluding N/A results. Null when no numeric scores were produced.
+     * Pass percentage excluding N/A. With no applicable results, numeric and categorical reports return null; boolean reports return 0.
      * @nullable
      */
     pass_rate?: number | null
     /**
-     * Boolean or numeric pass percentage for the previous period, or null when unavailable.
+     * Pass percentage for boolean, numeric, or categorical results in the previous period, or null when unavailable.
      * @nullable
      */
     previous_pass_rate?: number | null
@@ -3241,6 +3535,23 @@ export interface PatchedLLMProviderKeyApi {
     readonly error_message?: string | null
     api_key?: string
     readonly api_key_masked?: string
+    /** Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before /systemone. */
+    base_url?: string
+    /**
+     * Model ID served by the System One endpoint.
+     * @maxLength 100
+     */
+    system_one_model?: string
+    /**
+     * Configured provider base URL (read-only, for display)
+     * @nullable
+     */
+    readonly base_url_display?: string | null
+    /**
+     * Configured System One model ID.
+     * @nullable
+     */
+    readonly system_one_model_display?: string | null
     /** Azure OpenAI endpoint URL */
     azure_endpoint?: string
     /**
@@ -3258,13 +3569,6 @@ export interface PatchedLLMProviderKeyApi {
      * @nullable
      */
     readonly api_version_display?: string | null
-    /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
-    base_url?: string
-    /**
-     * OpenAI-compatible base URL (read-only, for display)
-     * @nullable
-     */
-    readonly base_url_display?: string | null
     set_as_active?: boolean
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -3422,6 +3726,16 @@ export interface PatchedScoreDefinitionMetadataApi {
 }
 
 export interface ScoreDefinitionNewVersionApi {
+    /**
+     * Updated scorer name, saved with this version.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Updated scorer description, saved with this version.
+     * @nullable
+     */
+    description?: string | null
     /** Next immutable scorer configuration. */
     config: ScoreDefinitionConfigApi
     /**
@@ -3501,6 +3815,8 @@ export interface SummarizeRequestApi {
     data?: unknown
     /** Force regenerate summary, bypassing cache */
     force_refresh?: boolean
+    /** Bound the input to a cost-conscious size instead of the full model context window. Use it when you summarize many traces at once and need only a short result such as the title. */
+    compact_context?: boolean
     /**
      * LLM model to use (defaults based on provider)
      * @nullable
@@ -4135,6 +4451,34 @@ export interface TaggerConditionApi {
 }
 
 /**
+ * * `openai` - Openai
+ * * `anthropic` - Anthropic
+ * * `gemini` - Gemini
+ * * `openrouter` - Openrouter
+ * * `fireworks` - Fireworks
+ * * `azure_openai` - Azure OpenAI
+ * * `together_ai` - Together AI
+ * * `minimax` - MiniMax
+ * * `zeabur` - Zeabur AI Hub
+ * * `openai_compatible` - OpenAI-compatible
+ */
+export type LLMCompletionProviderEnumApi =
+    (typeof LLMCompletionProviderEnumApi)[keyof typeof LLMCompletionProviderEnumApi]
+
+export const LLMCompletionProviderEnumApi = {
+    Openai: 'openai',
+    Anthropic: 'anthropic',
+    Gemini: 'gemini',
+    Openrouter: 'openrouter',
+    Fireworks: 'fireworks',
+    AzureOpenai: 'azure_openai',
+    TogetherAi: 'together_ai',
+    Minimax: 'minimax',
+    Zeabur: 'zeabur',
+    OpenaiCompatible: 'openai_compatible',
+} as const
+
+/**
  * Nested serializer for model configuration.
  */
 export interface TaggerModelConfigurationApi {
@@ -4150,7 +4494,7 @@ export interface TaggerModelConfigurationApi {
      * * `minimax` - MiniMax
      * * `zeabur` - Zeabur AI Hub
      * * `openai_compatible` - OpenAI-compatible */
-    provider: LLMProviderEnumApi
+    provider: LLMCompletionProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
      * @maxLength 100
@@ -4205,7 +4549,7 @@ export interface TaggerModelConfigurationWriteApi {
      * * `minimax` - MiniMax
      * * `zeabur` - Zeabur AI Hub
      * * `openai_compatible` - OpenAI-compatible */
-    provider: LLMProviderEnumApi
+    provider: LLMCompletionProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
      * @maxLength 100
@@ -4514,6 +4858,21 @@ export type AiObservabilityOfflineExperimentsItemsResultsListParams = {
     scorer_version_ids?: string
 }
 
+export type AiObservabilityOfflineExperimentsResultCellsRetrieveParams = {
+    /**
+     * Comma-separated list of 1 to 50 distinct item UUIDs belonging to this experiment.
+     * @minLength 1
+     * @maxLength 1849
+     */
+    item_ids: string
+    /**
+     * Comma-separated list of 1 to 20 distinct authorized scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids: string
+}
+
 export type AiObservabilityOfflineExperimentsScorerSummariesListParams = {
     /**
      * Continuation cursor returned by the previous page.
@@ -4626,6 +4985,13 @@ export type AiObservabilityOfflineScorersHistoryListParams = {
      * @maxLength 255
      */
     suite_key?: string
+}
+
+export type AiObservabilityTracesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
 }
 
 export type DatasetItemsListParams = {
@@ -4883,6 +5249,7 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     Openai: 'openai',
     OpenaiCompatible: 'openai_compatible',
     Openrouter: 'openrouter',
+    SystemOne: 'system_one',
     TogetherAi: 'together_ai',
     Zeabur: 'zeabur',
 } as const

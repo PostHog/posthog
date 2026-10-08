@@ -28,6 +28,7 @@ from posthog.temporal.common.logger import get_logger, get_write_only_logger
 from posthog.usage_ingestion.client import UsageRecord, areport_usage
 
 from products.batch_exports.backend.billing import is_billable_run
+from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import (
     BackfillDetails,
@@ -809,7 +810,7 @@ async def try_cancel_running_backfills(batch_export_id: str) -> int | None:
 
 
 def make_internal_events_payload(
-    status: BatchExportRun.Status | str,
+    status: BatchExportRunStatus | str,
     team_id: int,
     batch_export_id: str,
     batch_export_run_id: str,
@@ -887,7 +888,7 @@ def make_internal_events_payload(
 
 
 def make_app_metrics_payloads(
-    status: BatchExportRun.Status | str,
+    status: BatchExportRunStatus | str,
     team_id: int,
     batch_export_id: str,
     batch_export_run_id: str,

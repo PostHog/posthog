@@ -512,7 +512,7 @@ class TestOAuthAPI(APIBaseTest):
             self.base_authorization_post_body,
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_authorize_post_authorization_granted(self):
@@ -3728,6 +3728,46 @@ class TestOAuthAPI(APIBaseTest):
             response = self.client.get(f"{self.base_authorization_url}&scope=dashboard:read&approval_prompt=auto")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_render.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("team", None, None),
+            ("team", "{ }", "{ }"),
+            ("organization", "invalid", "invalid"),
+        ]
+    )
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_auto_approval_inherits_token_access_instead_of_query_parameters(
+        self, access_level: str, teams_param: str | None, orgs_param: str | None
+    ) -> None:
+        scoped_teams = [self.team.id] if access_level == "team" else []
+        scoped_organizations = [str(self.organization.id)] if access_level == "organization" else []
+        self._set_scope_split(["experiment:read"], [])
+        OAuthAccessToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token=f"existing_{access_level}_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="experiment:read",
+            scoped_teams=scoped_teams,
+            scoped_organizations=scoped_organizations,
+        )
+
+        url = f"{self.base_authorization_url}&scope=experiment:read&approval_prompt=auto"
+        if teams_param is not None and orgs_param is not None:
+            url += f"&scoped_teams={quote(teams_param)}&scoped_organizations={quote(orgs_param)}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        code = parse_qs(urlparse(response["Location"]).query)["code"][0]
+        grant = OAuthGrant.objects.get(code=code)
+        self.assertEqual(grant.scoped_teams, scoped_teams)
+        self.assertEqual(grant.scoped_organizations, scoped_organizations)
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        token_data = token_response.json()
+        self.assertEqual(token_data["scoped_teams"], scoped_teams)
+        self.assertEqual(token_data["scoped_organizations"], scoped_organizations)
 
     def test_authorize_get_passes_required_scopes_to_consent_page(self):
         self._set_scope_split(["experiment:read"], ["dashboard:read"])

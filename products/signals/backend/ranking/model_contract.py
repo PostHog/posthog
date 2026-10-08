@@ -61,6 +61,15 @@ def classification_thresholds(metadata: Mapping[str, Any]) -> dict[str, float]:
     }
 
 
+def head_lifts(scores: Mapping[str, float], metadata: Mapping[str, Any]) -> dict[str, float]:
+    """Each head's probability over its base rate, the saved refit threshold. A head without a
+    positive saved threshold has no lift, and no other value may stand in for it."""
+    thresholds = classification_thresholds(metadata)
+    return {
+        head: probability / thresholds[head] for head, probability in scores.items() if thresholds.get(head, 0.0) > 0.0
+    }
+
+
 def trained_head_files(metadata: Mapping[str, Any], known_heads: Collection[str]) -> dict[str, str]:
     """The `<head>.ubj` object name per head the candidate fit, of the heads in `known_heads`.
 

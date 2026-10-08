@@ -13,7 +13,7 @@ the stamp exists to cover there.
 
 Credentials, the client and its config come from batch exports' S3 destination:
 
-- `_get_s3_integration` resolves all three shapes an S3-family integration can take. A
+- `get_s3_integration` resolves all three shapes an S3-family integration can take. A
   role-based AWS integration keeps `aws_role_arn` in `config` with an empty `sensitive_config`,
   so reading key credentials off it raises. The AssumeRole flow behind it
   (`get_credentials_using_user_aws_role`) also refuses a role whose policy has no external-id
@@ -52,17 +52,17 @@ import botocore.exceptions
 from posthog.models.integration import AWSS3RoleBasedIntegration, S3CompatibleIntegration
 from posthog.models.team import Team
 
-from products.batch_exports.backend.service import AWSCredentials
-from products.batch_exports.backend.temporal.destinations.constants import S3_SUPPORTED_COMPRESSIONS
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+from products.batch_exports.backend.facade.contracts import AWSCredentials
+from products.batch_exports.backend.facade.destinations.s3 import (
+    S3_SUPPORTED_COMPRESSIONS,
     ConcurrentS3Consumer,
     IntermittentUploadPartTimeoutError,
     PolicyStatement,
-    _get_s3_integration,
     get_credentials_using_user_aws_role,
+    get_s3_integration,
     s3_client,
 )
-from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer
+from products.batch_exports.backend.facade.pipeline import ParquetStreamTransformer
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,
@@ -308,7 +308,7 @@ class S3DestinationWriter:
         if self._ctx.integration_id is None:
             raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
 
-        integration = await _get_s3_integration(self._ctx.integration_id, self._ctx.team_id)
+        integration = await get_s3_integration(self._ctx.integration_id, self._ctx.team_id)
 
         endpoint_url: str | None = None
         refresh_credentials: RefreshCredentials | None = None

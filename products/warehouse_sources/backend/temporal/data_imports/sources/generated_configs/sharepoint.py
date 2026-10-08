@@ -6,4 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class SharePointSourceConfig(config.Config):
-    pass
+    tenant_id: str
+    client_id: str
+    client_secret: str
+    site_urls: str | None = None

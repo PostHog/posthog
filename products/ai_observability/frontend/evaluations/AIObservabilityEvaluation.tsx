@@ -39,6 +39,7 @@ import { ByokModelPickerNotice } from '../ByokModelPickerNotice'
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
+import { CategoricalEvaluationConfig } from './components/CategoricalEvaluationConfig'
 import { EvaluationBackfillsTab } from './components/EvaluationBackfillsTab'
 import { EvaluationCodeEditor } from './components/EvaluationCodeEditor'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
@@ -48,7 +49,12 @@ import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { NumericEvaluationConfig } from './components/NumericEvaluationConfig'
-import { EVALUATION_RUNS_QUERY_LIMIT, formatNumericEvaluationScore, numericOutputConfigError } from './constants'
+import {
+    EVALUATION_RUNS_QUERY_LIMIT,
+    formatNumericEvaluationScore,
+    numericOutputConfigError,
+    categoricalOutputConfigError,
+} from './constants'
 import {
     evaluationOffersSessionTarget,
     evaluationSupportsReportHistory,
@@ -96,12 +102,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
         canEnable,
         canEnableReason,
         modelSelectionRequired,
+        numericBoundsRequired,
     } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const numericEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_NUMERIC_EVALS]
     const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
-    const backfillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_BACKFILLS]
     const {
         setEvaluationName,
         setEvaluationDescription,
@@ -118,6 +124,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         patchTargetConfig,
         setActiveTab,
     } = useActions(llmEvaluationLogic)
+    const categoricalEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CATEGORICAL_EVALS]
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
     const settingsUrl = combineUrl(urls.aiObservabilityEvaluations(), { ...searchParams, tab: 'settings' }).url
@@ -134,7 +141,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
         return <NotFound object="evaluation" />
     }
     const openInPlaygroundUrl =
-        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && evaluation.id
+        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) &&
+        evaluation.id &&
+        evaluation.model_configuration?.provider !== 'system_one'
             ? combineUrl(urls.aiObservabilityPlayground(), { source_evaluation_id: evaluation.id }).url
             : null
 
@@ -177,9 +186,11 @@ export function AIObservabilityEvaluation(): JSX.Element {
               : 'Add an evaluation prompt before saving'
           : !hasSelectedJudgeModel
             ? 'Select a judge model before saving'
-            : evaluation.output_type === 'numeric'
-              ? (numericOutputConfigError(evaluation.output_config) ?? undefined)
-              : undefined
+            : evaluation.output_type === 'categorical'
+              ? (categoricalOutputConfigError(evaluation.output_config) ?? undefined)
+              : evaluation.output_type === 'numeric'
+                ? (numericOutputConfigError(evaluation.output_config, numericBoundsRequired) ?? undefined)
+                : undefined
 
     const focusTriggers = (): void => {
         setActiveTab('configuration')
@@ -491,19 +502,18 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                 />
                             ),
                         },
-                    !isNewEvaluation &&
-                        backfillsEnabled && {
-                            key: 'backfills',
-                            label: 'Backfills',
-                            'data-attr': 'llma-evaluation-backfills-tab',
-                            content: (
-                                <EvaluationBackfillsTab
-                                    evaluationId={evaluation.id}
-                                    userAccessLevel={evaluation.user_access_level ?? undefined}
-                                    onConfigurationClick={() => setActiveTab('configuration')}
-                                />
-                            ),
-                        },
+                    !isNewEvaluation && {
+                        key: 'backfills',
+                        label: 'Backfills',
+                        'data-attr': 'llma-evaluation-backfills-tab',
+                        content: (
+                            <EvaluationBackfillsTab
+                                evaluationId={evaluation.id}
+                                userAccessLevel={evaluation.user_access_level ?? undefined}
+                                onConfigurationClick={() => setActiveTab('configuration')}
+                            />
+                        ),
+                    },
                     {
                         key: 'configuration',
                         label: 'Configuration',
@@ -534,7 +544,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                             ...option,
                                                             disabledReason:
                                                                 !isNewEvaluation &&
-                                                                evaluation.output_type === 'numeric' &&
+                                                                ['numeric', 'categorical'].includes(
+                                                                    evaluation.output_type
+                                                                ) &&
                                                                 option.value === 'sentiment'
                                                                     ? 'Create a new evaluation to change its output type.'
                                                                     : undefined,
@@ -600,9 +612,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     </LemonField.Pure>
                                                     <p className="text-muted text-sm -mt-2">
                                                         {isSessionTarget
-                                                            ? 'Runs once per session on every trace it contains, after the session settles. Only fires for events that carry an AI session id.'
+                                                            ? 'Runs once per session on every trace it contains, after the session settles. Only fires for generations that have an $ai_session_id property.'
                                                             : evaluation.target === 'trace'
-                                                              ? 'Runs once per trace on all of its events together, after it settles.'
+                                                              ? 'Runs once per trace on all of its events together, after it settles. Only fires for generations that have an $ai_trace_id property.'
                                                               : 'Runs on each matching generation event individually, right after it is ingested.'}
                                                     </p>
                                                     {isAggregateTarget && (
@@ -720,6 +732,14 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         options={[
                                                             { value: 'boolean', label: 'Boolean' },
                                                             {
+                                                                value: 'categorical',
+                                                                label: 'Categorical',
+                                                                disabledReason:
+                                                                    isNewEvaluation && !categoricalEvaluationsEnabled
+                                                                        ? 'Categorical evaluations are not enabled for this project.'
+                                                                        : undefined,
+                                                            },
+                                                            {
                                                                 value: 'numeric',
                                                                 label: 'Numeric score',
                                                                 disabledReason:
@@ -729,7 +749,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                             },
                                                         ]}
                                                         onChange={(value) =>
-                                                            setOutputType(value as 'boolean' | 'numeric')
+                                                            setOutputType(
+                                                                value as 'boolean' | 'numeric' | 'categorical'
+                                                            )
                                                         }
                                                         disabledReason={
                                                             !isNewEvaluation
@@ -740,10 +762,17 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     />
                                                 </LemonField.Pure>
                                             )}
+                                            {evaluation.output_type === 'categorical' && (
+                                                <CategoricalEvaluationConfig
+                                                    config={evaluation.output_config}
+                                                    onChange={patchOutputConfig}
+                                                />
+                                            )}
                                             {evaluation.output_type === 'numeric' && (
                                                 <NumericEvaluationConfig
                                                     config={evaluation.output_config}
                                                     onChange={patchOutputConfig}
+                                                    requiresBounds={numericBoundsRequired}
                                                 />
                                             )}
                                             <LemonField.Pure label="Description (optional)">
@@ -919,17 +948,24 @@ export function AIObservabilityEvaluation(): JSX.Element {
 }
 
 function EvaluationModelPicker(): JSX.Element {
-    const { hasByokKeys, byokModels, providerModelGroups, byokModelsLoading, providerKeysLoading } =
+    const { byokModels, evaluationProviderModelGroups, byokModelsLoading, providerKeysLoading } =
         useValues(modelPickerLogic)
-    const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired } = useValues(llmEvaluationLogic)
+    const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired, evaluation } =
+        useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
 
     // Evals always run on the team's own provider key, so only BYOK models are offered.
     const selectedModelName = byokModels.find((m) => m.id === selectedModel)?.name
-    const groups = providerModelGroups
+    const groups = evaluationProviderModelGroups.filter(
+        (group) =>
+            evaluation?.output_type === 'boolean' ||
+            evaluation?.output_type === 'categorical' ||
+            evaluation?.output_type === 'numeric' ||
+            group.provider !== 'system_one'
+    )
     const loading = byokModelsLoading || providerKeysLoading
 
-    const footerLink = getModelPickerFooterLink(hasByokKeys)
+    const footerLink = getModelPickerFooterLink(groups.some((group) => !group.disabledReason))
 
     return (
         <div className="bg-bg-light border rounded p-6">
@@ -951,7 +987,16 @@ function EvaluationModelPicker(): JSX.Element {
                             selectedModelName={selectedModelName}
                             data-attr="evaluation-model-selector"
                         />
-                        <ByokModelPickerNotice />
+                        <ByokModelPickerNotice forEvaluation />
+                        {evaluation?.model_configuration?.provider === 'system_one' && (
+                            <p className="text-sm text-muted mt-2">
+                                {evaluation.output_type === 'categorical'
+                                    ? 'This judge selects categories without written reasoning. For multiple selections, each category is included when its probability is 50% or higher.'
+                                    : evaluation.output_type === 'numeric'
+                                      ? 'This judge estimates a score between your minimum and maximum without written reasoning. Define what low and high scores mean in your evaluation prompt. Scores can be fractional.'
+                                      : 'This judge returns a probability without written reasoning. A probability of 50% or higher produces a true result.'}
+                            </p>
+                        )}
                         {modelSelectionRequired && !selectedModel && (
                             <p className="text-sm text-danger mt-1">Select a judge model.</p>
                         )}

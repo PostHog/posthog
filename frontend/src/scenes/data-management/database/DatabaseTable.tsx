@@ -117,8 +117,8 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                     title: 'Column',
                     key: 'key',
                     dataIndex: 'name',
-                    render: function RenderColumn(column) {
-                        return <code>{column}</code>
+                    render: function RenderColumn(_, { name }) {
+                        return <code>{name}</code>
                     },
                 },
                 {

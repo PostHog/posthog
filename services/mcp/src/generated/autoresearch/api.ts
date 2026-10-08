@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 20 enabled ops
+ * PostHog API - MCP 23 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -184,6 +184,23 @@ export const AutoresearchModelsRetrieveParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * List and retrieve inference and validation runs for a pipeline.
+ */
+export const AutoresearchRunsListParams = () => zod.object({
+    pipeline_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AutoresearchRunsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
 /**
@@ -408,6 +425,8 @@ export const autoresearchTrainingRunsCompleteCreateBodyRecommendedNextMax = 2000
 export const autoresearchTrainingRunsCompleteCreateBodyDistillationDefault = ``
 export const autoresearchTrainingRunsCompleteCreateBodyDistillationMax = 2000
 
+export const autoresearchTrainingRunsCompleteCreateBodyReportNotebookShortIdDefault = ``
+
 export const AutoresearchTrainingRunsCompleteCreateBody = () => zod
     .object({
         best_iteration_id: zod
@@ -433,6 +452,12 @@ export const AutoresearchTrainingRunsCompleteCreateBody = () => zod
             .default(autoresearchTrainingRunsCompleteCreateBodyDistillationDefault)
             .describe(
                 'A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters.'
+            ),
+        report_notebook_short_id: zod
+            .string()
+            .default(autoresearchTrainingRunsCompleteCreateBodyReportNotebookShortIdDefault)
+            .describe(
+                'Short id of the report notebook you built for this run. Stored in the run summary only if the notebook exists in this project; an unknown id is dropped and does not fail the completion.'
             ),
     })
     .describe('Input for finalizing a training run. The backend selects\/promotes the champion.')
@@ -605,6 +630,46 @@ export const AutoresearchRetrieveParams = () => zod.object({
 })
 
 /**
+ * Return the realized metrics online validation recorded for each model on each validated prediction date, newest date first. Each row has realized AUC with a 95% interval, Brier score, calibration error, quantile calibration bins, mean predicted probability against the base rate, lift, and the model's role when it emitted and now. The rows come from the validation runs, so a former champion that a promotion archived keeps its history. Read-only; it runs no queries.
+ * @summary Read realized performance history
+ */
+export const AutoresearchOnlinePerformanceRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this autoresearch pipeline.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const autoresearchOnlinePerformanceRetrieveQueryLimitDefault = 60
+export const autoresearchOnlinePerformanceRetrieveQueryLimitMax = 180
+
+export const AutoresearchOnlinePerformanceRetrieveQueryParams = () => zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .max(autoresearchOnlinePerformanceRetrieveQueryLimitMax)
+        .default(autoresearchOnlinePerformanceRetrieveQueryLimitDefault)
+        .describe(
+            'Maximum number of validated prediction dates to return, newest first (default 60, at most 180). Each date returns one row per model that emitted predictions on it.'
+        ),
+})
+
+/**
+ * Start scoring the inference population using the champion model. Scoring runs in the background: it emits autoresearch_prediction events for each scored user and sets the pipeline's output_person_property on each scored person. The response returns at once with the running run. A second request while a run is running returns that run and starts nothing. The daily Temporal inference workflow also scores each pipeline on its cadence.
+ * @summary Run inference (score users)
+ */
+export const AutoresearchScoreCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this autoresearch pipeline.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * Start an asynchronous training run for this pipeline. Creates a Task/TaskRun sandbox where the autoresearch agent iterates on features and models, and returns the run immediately with status 'running'. Poll the training run until it reaches a terminal status (completed or failed). A pipeline's first run has no champion until it completes and promotion runs; on a retrain the existing champion stays live and keeps scoring until a new one is promoted.
  * @summary Start a training run
  */
@@ -672,7 +737,7 @@ export const AutoresearchResolveTemplateCreateBody = () => zod.object({
 })
 
 /**
- * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: 'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail, and the other 'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create.
+ * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: 'horizon_exceeds_lookback' and an 'error' 'population_too_large' mean a run would fail, and the other 'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create.
  * @summary Validate a pipeline definition
  */
 export const AutoresearchValidateCreateParams = () => zod.object({

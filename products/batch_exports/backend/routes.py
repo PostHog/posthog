@@ -1,6 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
-from products.batch_exports.backend.api import (
+from products.batch_exports.backend.presentation.views import (
     batch_export as batch_exports,
     file_download,
 )
@@ -27,11 +27,4 @@ def register_routes(routers: RouterRegistry) -> None:
         batch_exports.BatchExportBackfillViewSet,
         "project_batch_export_backfills",
         ["team_id", "batch_export_id"],
-    )
-
-    routers.organizations.register(
-        r"batch_exports",
-        batch_exports.BatchExportOrganizationViewSet,
-        "batch_exports",
-        ["organization_id"],
     )

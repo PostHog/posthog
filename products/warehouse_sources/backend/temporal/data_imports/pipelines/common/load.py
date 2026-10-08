@@ -21,17 +21,21 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.d
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.metrics import POST_LOAD_DURATION_SECONDS
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
+    note_post_load_phase,
+    post_load_phase,
+    recorded_phase,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     sync_engineering_analytics_views,
     sync_revenue_analytics_views,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
-from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import QueryFolderPointerHistory
-from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
-from products.warehouse_sources.backend.temporal.data_imports.util import (
-    DOUBLE_BUFFERED_QUERY_FOLDERS_FLAG,
-    prepare_s3_files_for_querying,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+    own_linked_table,
+    set_initial_sync_complete,
 )
+from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import QueryFolderPointerHistory
+from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
@@ -271,24 +275,28 @@ async def _seed_cdc_companion_from_snapshot(
     )
 
 
+@recorded_phase("delta_maintenance")
 async def _run_delta_maintenance(
     schema: ExternalDataSchema,
     delta_table_ref: "DeltaTableRef",
     is_cdc_companion: bool,
     logger: FilteringBoundLogger,
-    partition_count_fallback: int | None,
 ) -> None:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
         DeltaMaintenance,
     )
 
     # Threshold maintenance for every sync type: most final batches leave the table with nothing
-    # to compact, and an unconditional compact still lists and plans every file. Compact when
-    # fragmented, otherwise vacuum once enough commits have accrued; see DeltaMaintenance.run_scheduled.
+    # to compact, and an unconditional compact still lists and plans every file. Vacuum when the
+    # commit or time cadence is due, then compact when compaction can remove files; see
+    # DeltaMaintenance.run_scheduled. A non-CDC sync also compacts once its small merge files add up
+    # (see compact_if_fragmented).
     logger.debug("Running threshold-based delta maintenance")
     with POST_LOAD_DURATION_SECONDS.labels(operation="maintenance").time():
         await DeltaMaintenance(delta_table_ref).run_scheduled(
-            schema, is_cdc_companion=is_cdc_companion, partition_count_fallback=partition_count_fallback
+            schema,
+            is_cdc_companion=is_cdc_companion,
+            compact_small_files=not schema.is_cdc,
         )
 
 
@@ -303,6 +311,7 @@ def _stored_sync_type_config(schema_id: Any, team_id: int) -> Any:
     )
 
 
+@recorded_phase("publish")
 async def _publish_queryable_files(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
@@ -334,23 +343,23 @@ async def _publish_queryable_files(
 
         existing_queryable_folder = await _get_companion_queryable_folder()
     else:
-        existing_queryable_folder = await database_sync_to_async_pool(
-            lambda: schema.table.queryable_folder if schema.table else None
-        )()
 
-    double_buffer = await database_sync_to_async_pool(is_schema_flag_enabled)(
-        schema, DOUBLE_BUFFERED_QUERY_FOLDERS_FLAG
+        def _own_queryable_folder() -> str | None:
+            table = own_linked_table(schema, job.pipeline)
+            return table.queryable_folder if table is not None else None
+
+        existing_queryable_folder = await database_sync_to_async_pool(_own_queryable_folder)()
+
+    sync_type_config = await database_sync_to_async_pool(_stored_sync_type_config)(schema.id, job.team_id)
+    pointer_history = QueryFolderPointerHistory.from_config(
+        sync_type_config, f"{NamingConvention.normalize_identifier(resource_name)}__query"
     )
-    pointer_history = None
-    if double_buffer:
-        sync_type_config = await database_sync_to_async_pool(_stored_sync_type_config)(schema.id, job.team_id)
-        pointer_history = QueryFolderPointerHistory.from_config(
-            sync_type_config, f"{NamingConvention.normalize_identifier(resource_name)}__query"
-        )
 
     # File URIs are listed after delta maintenance so the queryable folder serves the compacted
     # layout rather than the pre-compaction small files.
-    file_uris = await delta_table_ref.get_file_uris()
+    with post_load_phase("list_live_files"):
+        file_uris = await delta_table_ref.get_file_uris()
+        note_post_load_phase(live_files=len(file_uris))
     logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
     with POST_LOAD_DURATION_SECONDS.labels(operation="prepare_s3").time():
         folder = await prepare_s3_files_for_querying(
@@ -361,12 +370,13 @@ async def _publish_queryable_files(
             existing_queryable_folder=existing_queryable_folder,
             logger=logger,
             refresh_file_uris=delta_table_ref.get_file_uris,
-            double_buffer=double_buffer,
+            double_buffer=True,
             pointer_history=pointer_history,
         )
     return folder
 
 
+@recorded_phase("sync_bookkeeping")
 async def _finalize_sync_bookkeeping(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
@@ -390,6 +400,7 @@ async def _finalize_sync_bookkeeping(
         await finalize_desc_sort_incremental_value(resource, schema, last_incremental_field_value, logger)
 
 
+@recorded_phase("register_table")
 async def _register_table(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
@@ -408,6 +419,11 @@ async def _register_table(
     # snapshot rather than from another log read.
     delta_table = await delta_table_ref.get_delta_table()
     delta_schema_json = delta_table.schema().to_json() if delta_table is not None else None
+    # Only a table whose run count is not its size reads the count. The handle is the one the publish
+    # step listed, so the count matches the files the query folder now holds.
+    live_row_count = (
+        await delta_table_ref.get_live_row_count() if schema.table_row_count_is_cumulative or row_count == 0 else None
+    )
 
     logger.debug("Validating schema and updating table")
     with POST_LOAD_DURATION_SECONDS.labels(operation="validate_schema").time():
@@ -421,10 +437,12 @@ async def _register_table(
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
             primary_keys=resource.primary_keys if resource is not None else None,
             delta_schema_json=delta_schema_json,
+            live_row_count=live_row_count,
         )
     logger.debug("Finished validating schema and updating table")
 
 
+@recorded_phase("cdc_post_load")
 async def _run_cdc_post_load(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
@@ -456,6 +474,7 @@ async def _run_cdc_post_load(
                 queryable_folder=queryable_folder,
                 table_schema_dict=table_schema_dict,
                 set_as_schema_table=schema.cdc_table_mode == "cdc_only",
+                live_row_count=await delta_table_ref.get_live_row_count(),
             )
         logger.debug("Finished registering CDC companion table")
         return
@@ -589,6 +608,11 @@ def _repartitioned_during_job(schema: ExternalDataSchema, job: ExternalDataJob) 
         return True
 
 
+def _post_load_step_phase_name(step: PostLoadStep) -> str:
+    name = getattr(step, "__name__", type(step).__name__)
+    return name.strip("_").removesuffix("_step")
+
+
 async def _run_post_load_steps(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
@@ -598,14 +622,15 @@ async def _run_post_load_steps(
     logger: FilteringBoundLogger,
 ) -> None:
     for step in POST_LOAD_STEPS:
-        await step(
-            job=job,
-            schema=schema,
-            source=source,
-            delta_table_ref=delta_table_ref,
-            is_cdc_companion=is_cdc_companion,
-            logger=logger,
-        )
+        with post_load_phase(_post_load_step_phase_name(step)):
+            await step(
+                job=job,
+                schema=schema,
+                source=source,
+                delta_table_ref=delta_table_ref,
+                is_cdc_companion=is_cdc_companion,
+                logger=logger,
+            )
 
 
 async def run_post_load_operations(
@@ -680,13 +705,7 @@ async def run_post_load_operations(
         await _run_post_load_steps(job, schema, source, delta_table_ref, is_cdc_companion, logger)
         return None
 
-    await _run_delta_maintenance(
-        schema,
-        delta_table_ref,
-        is_cdc_companion,
-        logger,
-        partition_count_fallback=resource.partition_count if resource is not None else None,
-    )
+    await _run_delta_maintenance(schema, delta_table_ref, is_cdc_companion, logger)
 
     queryable_folder = await _publish_queryable_files(
         job, schema, delta_table_ref, resource_name, is_cdc_companion, logger

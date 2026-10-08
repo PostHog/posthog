@@ -24,7 +24,7 @@ def _strip_empty_breakdowns(clean_metric: dict) -> None:
     """Remove a breakdownFilter that carries no breakdowns before hashing.
 
     An empty breakdown list is the same metric config as no breakdowns, but the two dict shapes hash to
-    different values. Saved-metric resolution (`merge_saved_metric_breakdowns`) injects
+    different values. Saved-metric resolution (`resolve_saved_metric_definition`) injects
     `breakdownFilter.breakdowns = []` when the experiment link has none, so without this normalization the
     merged dict would hash away from an identical config stored without a breakdownFilter, and rows written
     under one shape would be invisible to readers hashing the other.

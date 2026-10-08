@@ -22,6 +22,7 @@ function savedBroadcast(overrides: { name: string; subject: string; updatedAt: s
         created_at: '2026-01-01T00:00:00Z',
         created_by: { id: 1, uuid: 'user-1', email: 'user@example.com', hedgehog_config: null },
         updated_at: overrides.updatedAt,
+        last_run: null,
         trigger: { type: 'batch', filters: { properties: [] } },
         conversion: null,
         email_sending_rate_limit: null,
@@ -59,6 +60,7 @@ describe('broadcastWizardLogic', () => {
     let latest: HogFlowApi
     let releaseCreate: () => void
     let patchedSubjects: string[]
+    let patchedTracking: unknown[]
     let patchedNames: string[]
     let holdPatch: Promise<void> | null
     let onPatchStarted: (() => void) | null
@@ -66,6 +68,7 @@ describe('broadcastWizardLogic', () => {
 
     beforeEach(() => {
         patchedSubjects = []
+        patchedTracking = []
         patchedNames = []
         holdPatch = null
         onPatchStarted = null
@@ -94,13 +97,14 @@ describe('broadcastWizardLogic', () => {
                             savedBroadcast({ name: body.name ?? '', subject: '', updatedAt: '2026-09-24T10:00:05Z' }),
                         ]
                     }
-                    const subject = body.actions.find((action) => action.type === 'function_email').config.inputs.email
-                        .value.subject
+                    const emailConfig = body.actions.find((action) => action.type === 'function_email').config
+                    const subject = emailConfig.inputs.email.value.subject
                     if (failPatches > 0) {
                         failPatches -= 1
                         return [500, { detail: 'Simulated outage' }]
                     }
                     patchedSubjects.push(subject)
+                    patchedTracking.push(emailConfig.tracking_enabled)
                     onPatchStarted?.()
                     if (holdPatch) {
                         await holdPatch
@@ -187,16 +191,31 @@ describe('broadcastWizardLogic', () => {
         expect(router.values.searchParams).toEqual({ step: 'content' })
     })
 
-    it('saves an email edit made while the draft is created before leaving /broadcasts/new', async () => {
+    it.each([
+        {
+            edit: 'an email edit',
+            apply: (): void =>
+                logic.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, subject: 'Typed during the create' }),
+            subject: 'Typed during the create',
+            tracking: true,
+        },
+        {
+            edit: 'turning tracking off',
+            apply: (): void => logic.actions.setEmailSettings({ trackingEnabled: false }),
+            subject: '',
+            tracking: false,
+        },
+    ])('saves $edit made while the draft is created before leaving /broadcasts/new', async (testCase) => {
         router.actions.push('/broadcasts/new')
         logic.actions.setStep('content')
-        logic.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, subject: 'Typed during the create' })
+        testCase.apply()
         releaseCreate()
 
         await expectLogic(logic).toDispatchActions(['draftAutosaved', 'draftAutosaved'])
         await expectLogic(logic).toDispatchActions(['showSavedDraftUrl']).toFinishAllListeners()
 
-        expect(patchedSubjects).toEqual(['Typed during the create'])
+        expect(patchedSubjects).toEqual([testCase.subject])
+        expect(patchedTracking).toEqual([testCase.tracking])
         expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
     })
 

@@ -7,12 +7,18 @@ use uuid::Uuid;
 use crate::{
     error::EventError,
     fingerprinting::{Fingerprint, FingerprintRecordPart, FingerprintVersion},
-    frames::releases::{ReleaseInfo, ReleaseRecord},
+    frames::{
+        releases::{ReleaseInfo, ReleaseRecord},
+        RawFrame,
+    },
     issue_resolution::{Issue, IssueSeverity},
     langs::native::DebugImage,
     modes::processing::normalization::{normalize_legacy_tags, normalize_wire_order},
     recursively_sanitize_properties,
-    types::{event::AnyEvent, ExceptionList, ProcessedExceptionProperties, RawExceptionProperties},
+    types::{
+        event::AnyEvent, ExceptionList, ProcessedExceptionProperties, RawExceptionProperties,
+        Stacktrace,
+    },
 };
 
 use super::ProcessedExceptionPropertiesWire;
@@ -201,6 +207,27 @@ impl<S> ExceptionEvent<S> {
 
     pub fn uuid(&self) -> Uuid {
         self.uuid
+    }
+
+    /// Resolved frames need this even when the event sent none: stored records replay old ones.
+    pub fn drop_code_variables(&mut self) {
+        for exception in self.exception_list.iter_mut() {
+            match &mut exception.stack {
+                Some(Stacktrace::Raw { frames }) => {
+                    for frame in frames.iter_mut() {
+                        if let RawFrame::Python(python) = frame {
+                            python.code_variables = None;
+                        }
+                    }
+                }
+                Some(Stacktrace::Resolved { frames }) => {
+                    for frame in frames.iter_mut() {
+                        frame.code_variables = None;
+                    }
+                }
+                None => {}
+            }
+        }
     }
 
     pub fn team_id(&self) -> i32 {

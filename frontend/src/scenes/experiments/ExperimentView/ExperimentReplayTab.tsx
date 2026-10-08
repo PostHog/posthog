@@ -259,6 +259,7 @@ function LinkedScannersCard({
                                 {scanner.name}
                             </Link>
                             <LemonTag type="muted">{scannerTypeLabel(scanner.scannerType)}</LemonTag>
+                            {scanner.startsAtLaunch && <LemonTag type="highlight">Starts at launch</LemonTag>}
                         </span>
                         <span className="text-muted shrink-0">
                             {pluralize(scanner.observationsThisMonth, 'observation')} this month

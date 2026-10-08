@@ -28,6 +28,8 @@ import type {
     EventIngestionRestrictionApi,
     EventMatchRequestApi,
     EventMatchResponseApi,
+    EventPropertyValuesResponseApi,
+    EventsValuesRetrieveParams,
     ExportedAssetApi,
     ExportedAssetCreateApi,
     ExportsListParams,
@@ -1593,6 +1595,45 @@ export const emojiSearchSuggestRetrieve = async (
     options?: RequestInit
 ): Promise<EmojiSearchResponseApi> => {
     return apiMutator<EmojiSearchResponseApi>(getEmojiSearchSuggestRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEventsValuesRetrieveUrl = (projectId: string, params: EventsValuesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        const explodeParameters = ['event_name']
+
+        if (Array.isArray(value) && explodeParameters.includes(key)) {
+            value.forEach((v) => {
+                normalizedParams.append(key, v === null ? 'null' : String(v))
+            })
+            return
+        }
+
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/events/values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/events/values/`
+}
+
+/**
+ * List values of an event property from recent events.
+ */
+export const eventsValuesRetrieve = async (
+    projectId: string,
+    params: EventsValuesRetrieveParams,
+    options?: RequestInit
+): Promise<EventPropertyValuesResponseApi> => {
+    return apiMutator<EventPropertyValuesResponseApi>(getEventsValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

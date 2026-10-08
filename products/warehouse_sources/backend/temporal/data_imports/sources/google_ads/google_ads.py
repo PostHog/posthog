@@ -787,6 +787,15 @@ _RECEIVE_LIMIT_EXHAUSTED_SIGNATURE = "Received message larger than max"
 # ``UNKNOWN`` status, which covers far too broad a range of unrelated failures to retry blindly.
 _AUTH_BACKEND_UNKNOWN_ERROR_SIGNATURE = "Authentication backend unknown error"
 
+# gRPC's Python client surfaces a peer-initiated HTTP/2 stream reset (a load balancer recycling the
+# underlying connection, a momentary backend restart) as a bare ``UNKNOWN`` status with this detail
+# string rather than a code that already maps to a transient status — a long-documented, widely
+# reported gRPC behavior, not an application-level failure. The request itself was never processed,
+# so a retry on a fresh stream is safe and typically succeeds. Matched on this specific message for
+# the same reason as the auth-backend signature above: the bare ``UNKNOWN`` status alone is too broad
+# a signal to retry blindly.
+_STREAM_REMOVED_ERROR_SIGNATURE = "Stream removed"
+
 
 def _is_transient_grpc_error(exc: BaseException) -> bool:
     """Return True for a transient gRPC failure Google's guidance says to retry.
@@ -796,12 +805,15 @@ def _is_transient_grpc_error(exc: BaseException) -> bool:
     (whose ``code()`` returns the ``StatusCode``) can also propagate. The Google Ads SDK additionally
     re-wraps the transport error in a ``GoogleAdsException`` when it can pull an ads ``failure`` from
     the trailing metadata (e.g. a backend ``DEADLINE_EXCEEDED`` returned alongside the status); the
-    gRPC status then lives on the wrapped ``error``, so we unwrap and inspect it too.
+    gRPC status then lives on the wrapped ``error``, so we unwrap and inspect it too. A bare
+    ``UNKNOWN`` status is only treated as transient for the specific messages known to be benign
+    (see ``_AUTH_BACKEND_UNKNOWN_ERROR_SIGNATURE`` and ``_STREAM_REMOVED_ERROR_SIGNATURE``).
     """
     if isinstance(exc, google_api_exceptions.ServiceUnavailable | google_api_exceptions.InternalServerError):
         return True
     if isinstance(exc, google_api_exceptions.Unknown):
-        return _AUTH_BACKEND_UNKNOWN_ERROR_SIGNATURE in str(exc)
+        message = str(exc)
+        return _AUTH_BACKEND_UNKNOWN_ERROR_SIGNATURE in message or _STREAM_REMOVED_ERROR_SIGNATURE in message
     candidate: typing.Any = exc.error if isinstance(exc, GoogleAdsException) else exc
     # ``ResourceExhausted`` exposes ``code`` as an HTTP int, not a callable ``StatusCode``, so the
     # gapic-wrapped form is matched by type rather than via the ``code()`` check below.

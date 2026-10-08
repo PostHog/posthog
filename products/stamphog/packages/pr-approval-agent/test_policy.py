@@ -115,6 +115,30 @@ OLD_DENY_PATTERN_DEFS = {
             "\\.nvmrc",
         ]
     },
+    "devex_guardrails": {
+        "paths": [
+            "^\\.github/scripts/migration-deletion-allowlist\\.txt$",
+            "^\\.semgrep/rules/devex/",
+            "^\\.semgrep/rules/security/prefer-codegen-api\\.",
+            "^frontend/src/lib/api-ratchet-baseline\\.txt$",
+            "^posthog/(egress|ingress)/agents\\.md$",
+            "^posthog/egress/(limiter|observability|transport)/",
+            "^posthog/ingress/(dispatch|observability|verify)/",
+            "^posthog/ingress/views\\.py$",
+            "^posthog/management/migration_analysis/",
+            "^posthog/migration_helpers/",
+            "^posthog/product_urls\\.py$",
+            "^posthog/settings/nextgensquash\\.py$",
+            "^posthog/test/repo_invariants/(dataclass_secret_field_exemptions\\.txt|setup_import_baseline\\.txt)$",
+            "^posthog/test/repo_invariants/test_(admin_url_conf|dataclass_secret_fields|generated_files_are_registered|migration_dependencies_share_a_database|migration_run_before|model_crossing_uses|model_enum_defaults|squash_partial_fallback|startup_import_budget)\\.py$",
+            "^products/(architecture\\.md|isolation_baseline\\.txt|readme\\.md)$",
+            "^docs/internal/django-startup-time\\.md$",
+            "^docs/published/handbook/engineering/type-system\\.md$",
+            "^tools/hogli-commands/hogli_commands/(api_ratchet|projections|tach_lint)\\.py$",
+            "^tools/hogli-commands/hogli_commands/product_structure\\.yaml$",
+            "^tools/hogli-commands/hogli_commands/product/(baseline|checks|crossings|isolation|reverse_accessors)\\.py$",
+        ]
+    },
 }
 OLD_ALLOW_ONLY_EXTENSIONS = {
     ".txt",
@@ -646,8 +670,9 @@ def test_policy_file_only_pr_is_t2_never(path: str) -> None:
 def test_reviewer_system_composes_guidance_and_scaffold() -> None:
     # Wording changes are governed by human review (stamphog_policy deny), not a
     # frozen snapshot; this only guards the composition seam itself.
-    guidance = policy.review_guidance_path().read_text()
+    guidance = reviewer._load_review_guidance()
     assert reviewer.REVIEWER_SYSTEM == guidance + reviewer._REVIEWER_SCAFFOLD_TAIL
+    assert guidance.startswith(policy.review_guidance_path().read_text())
     assert "showstoppers" in guidance
     assert "Verdicts:" in reviewer._REVIEWER_SCAFFOLD_TAIL
 

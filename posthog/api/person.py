@@ -90,12 +90,12 @@ from posthog.utils import (
 from products.ai_training.backend.facade.api import queue_person_training_deletion
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
-from products.workflows.backend.api.message_assets import (
+from products.workflows.backend.facade.api import get_workflow_names
+from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetSerializer,
     PersonMessageAssetsRequestSerializer,
     fetch_message_assets_for_person,
 )
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -979,7 +979,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             OpenApiParameter(
                 "delete_events",
                 OpenApiTypes.BOOL,
-                description="If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday",
+                description="If true, queue a task to delete all events for this person. The task does not run right away. It is batched with other deletions and runs weekly.",
                 default=False,
             ),
         ],
@@ -1673,13 +1673,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Single lookup for every workflow referenced by this page of rows so the tab shows
         # human-readable names instead of raw UUIDs. Deleted workflows drop out of the map
         # and the row's `function_name` stays empty — the frontend falls back to `function_id`.
-        # HogFlow.id is a UUID column; ClickHouse function_id is a plain string, so coerce
-        # both sides to string when building the lookup dict.
-        function_ids = {row.function_id for row in data}
-        name_by_id = {
-            str(pk): (name or "")
-            for pk, name in HogFlow.objects.filter(team_id=self.team_id, id__in=function_ids).values_list("id", "name")
-        }
+        # HogFlow.id is a UUID column; ClickHouse function_id is a plain string, so the names come
+        # back keyed by the string id.
+        name_by_id = get_workflow_names(team_id=self.team_id, workflow_ids={row.function_id for row in data})
         enriched = [dataclasses.replace(row, function_name=name_by_id.get(row.function_id, "")) for row in data]
         return response.Response(MessageAssetSerializer(enriched, many=True).data)
 
@@ -1717,7 +1713,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise NotFound(detail="Person not found.")
 
     @extend_schema(
-        description="Reset a distinct_id for a deleted person. This allows the distinct_id to be used again.",
+        description="Fix a distinct_id that stays hidden after its person was deleted and created again. Does nothing if no live person uses this distinct_id. In that case, send a new event for it instead.",
     )
     @action(methods=["POST"], detail=False, required_scopes=["person:write"])
     def reset_person_distinct_id(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:

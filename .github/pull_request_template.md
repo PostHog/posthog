@@ -12,7 +12,7 @@
 
 <!-- For each change a person can notice, say what they will now see or do differently, not only the code path that does it. Mark the rest as mechanical so a reviewer knows nothing user-visible is hiding in it. -->
 
-<!-- If there are frontend changes, please include screenshots. -->
+<!-- If there are frontend changes, please include screenshots. For a new interaction that one screenshot cannot show, a short GIF or animated WebP of the flow can replace the after screenshot. -->
 <!-- PostHog employees: `hogli pr:upload-image <file>` uploads to the public PostHog/pr-assets repo and prints markdown to paste here. Never upload customer data, secrets, or internal info. -->
 
 <!-- If a reference design was involved, include a link to the relevant Figma frame! -->
@@ -22,22 +22,22 @@
 <!-- Describe steps to reproduce and verify the changes, and what the expected behavior is. -->
 <!-- Include automated tests if possible, otherwise describe the manual testing routine. -->
 <!-- Agents: do NOT claim manual testing you haven't done. State what the agent wasn't able to do and list only the automated tests you (the agent) actually ran. -->
-<!-- Added or changed tests? Name the regression each group catches that no existing test did — if you can't name it, it probably shouldn't be in this PR. https://posthog.com/handbook/engineering/conventions/backend-coding#testing -->
+<!-- For each group of added or changed tests, name the distinct regression, the closest existing test checked, and why this test level is needed. If no new test is needed, name the existing coverage or explain why a test would not help. Do not add tests solely to raise patch coverage. https://posthog.com/handbook/engineering/conventions/backend-coding#testing -->
+
+**Test rationale:** [Name the regression and closest existing test, or explain why no new test is needed.]
+
 <!-- Don't recite pass counts for suites CI runs; the checks report those with more authority. Link the evidence instead (run, permalink, error tracking issue), and say what you did not check. Long transcripts go in a <details> block. -->
 
 👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._
 
 ## Release status
 
-<!-- Select exactly one. Agents must inspect the changed code for feature flag checks before choosing. -->
+<!-- Keep exactly one line and delete the other two. Agents must inspect the changed code for feature flag checks before choosing. -->
+<!-- Plain bullets, not checkboxes: GitHub counts every checkbox in the body as an open task. The changelog bot reads the hidden markers. -->
 
-- [ ] No feature flag controls this change <!-- release-status: no-feature-flag -->
-- [ ] This change is behind a feature flag and is not available to users <!-- release-status: behind-feature-flag -->
-- [ ] This change makes a previously flagged feature available to everyone <!-- release-status: fully-available -->
-
-## Automatic notifications
-
-- [ ] Publish to changelog?
+- No feature flag controls this change <!-- release-status: no-feature-flag -->
+- This change is behind a feature flag and is not available to users <!-- release-status: behind-feature-flag -->
+- This change makes a previously flagged feature available to everyone <!-- release-status: fully-available -->
 
 ## Docs update
 

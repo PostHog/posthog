@@ -107,8 +107,9 @@ build.
 
 ## Reporting & lifecycle
 
-- **PR comment** — a sticky comment (`<!-- hogbox-preview-comment -->`) staged
-  building → ready → failed, with the URL, login, and what's running.
+- **PR comment** — a `Hogbox preview` section in the shared `🤖 CI report` comment
+  (`.github/scripts/post-hogbox-preview-section.mjs`), staged
+  building → ready → failed → torn down, with the URL, login, and what's running.
 - **GitHub Deployment** — a `preview-pr-<n>` environment (in_progress → success
   /failure + URL), so the preview shows in the PR's Deployments UI.
 - **Teardown** — on PR close (`pr-closed.yml`) + on the fast path in

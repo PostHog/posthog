@@ -19,7 +19,7 @@ Connection handling comes from batch exports' Azure Blob destination:
   aim the client at an internal address.
 - The client tuning is theirs too. `read_timeout` is the one that matters: the SDK default is
   60 seconds, which a single large block can exceed on a slow link.
-- `_is_authorization_failure_response_error` is what separates "the credentials cannot write
+- `is_authorization_failure_response_error` is what separates "the credentials cannot write
   here" from a transient response error, so the first is reported as a permissions problem.
 
 `AzureBlobConsumer` itself is not used, even though it touches no Temporal metric meter and so
@@ -49,13 +49,13 @@ from azure.storage.blob.aio import BlobServiceClient, ContainerClient, Exponenti
 
 from posthog.models.integration.azure_blob import EndpointNotAllowedError, validate_azure_blob_connection_string
 
-from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
+from products.batch_exports.backend.facade.destinations.azure_blob import (
+    AZURE_BLOB_SUPPORTED_COMPRESSIONS,
     MalformedConnectionStringError,
-    _get_azure_blob_integration,
-    _is_authorization_failure_response_error,
+    get_azure_blob_integration,
+    is_authorization_failure_response_error,
 )
-from products.batch_exports.backend.temporal.destinations.constants import AZURE_BLOB_SUPPORTED_COMPRESSIONS
-from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer
+from products.batch_exports.backend.facade.pipeline import ParquetStreamTransformer
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,
@@ -209,7 +209,7 @@ class AzureBlobDestinationWriter:
         if self._ctx.integration_id is None:
             raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
 
-        integration = await _get_azure_blob_integration(self._ctx.integration_id, self._ctx.team_id)
+        integration = await get_azure_blob_integration(self._ctx.integration_id, self._ctx.team_id)
 
         try:
             await asyncio.to_thread(validate_azure_blob_connection_string, integration.connection_string)
@@ -237,7 +237,7 @@ class AzureBlobDestinationWriter:
         except ResourceNotFoundError:
             raise ContainerNotFoundError(self._container)
         except HttpResponseError as err:
-            if _is_authorization_failure_response_error(err):
+            if is_authorization_failure_response_error(err):
                 raise MissingContainerPermissionsError(self._container)
             raise
 

@@ -132,7 +132,7 @@ import {
     DATE_FORMAT,
     type OpenEndedColumnMap,
     type SurveyQueryFilters,
-    type SurveyResponseContextColumn,
+    type SurveyResponseColumn,
     type SurveyResponseOutcome,
     buildAggregateQuery,
     buildOpenEndedQuery,
@@ -152,6 +152,7 @@ import {
     isThumbQuestion,
     sanitizeSurvey,
     sanitizeSurveyAppearance,
+    surveyResponseColumnId,
     validateSurveyAppearance,
     v1TargetingFlagFilters,
 } from './utils'
@@ -721,7 +722,7 @@ export interface surveyLogicValues {
     processedSurveyStats: SurveyStats | null
     projectTreeRef: ProjectTreeRef
     propertyFilters: AnyPropertyFilter[]
-    responseContextColumns: SurveyResponseContextColumn[]
+    responseColumns: SurveyResponseColumn[]
     responsesExportQuery: DataTableNode | null
     resultsFiltersExpanded: boolean
     resultsRequeryInProgress: boolean
@@ -833,6 +834,9 @@ export interface surveyLogicActions {
     } // eventUsageLogic
     loadSurveys: () => any // surveysLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
+    addResponseColumn: (column: SurveyResponseColumn) => {
+        column: SurveyResponseColumn
+    }
     archiveResponse: (responseUuid: string) => {
         responseUuid: string
     }
@@ -1138,6 +1142,9 @@ export interface surveyLogicActions {
     removeQuestion: (questionIndex: number) => {
         questionIndex: number
     }
+    removeResponseColumn: (column: SurveyResponseColumn) => {
+        column: SurveyResponseColumn
+    }
     resetBranchingForQuestion: (questionIndex: any) => {
         questionIndex: any
     }
@@ -1262,13 +1269,6 @@ export interface surveyLogicActions {
         questionIndex: any
         responseValue: any
         specificQuestionIndex: any
-    }
-    setResponseContextColumn: (
-        column: SurveyResponseContextColumn,
-        show: boolean
-    ) => {
-        column: 'current_url' | 'person_id' | 'session_id'
-        show: boolean
     }
     setResponseExpanded: (
         uuid: string,
@@ -1449,7 +1449,7 @@ export interface surveyLogicMeta {
             answerFilters: EventPropertyFilter[],
             timestampFilter: string,
             archivedResponsesFilter: string,
-            responseContextColumns: ('current_url' | 'person_id' | 'session_id')[]
+            responseColumns: SurveyResponseColumn[]
         ) => DataTableNode | null
         responsesExportQuery: (
             survey: NewSurvey | Survey,
@@ -1457,7 +1457,7 @@ export interface surveyLogicMeta {
             answerFilters: EventPropertyFilter[],
             timestampFilter: string,
             archivedResponsesFilter: string,
-            responseContextColumns: ('current_url' | 'person_id' | 'session_id')[]
+            responseColumns: SurveyResponseColumn[]
         ) => DataTableNode | null
         targetingFlagFilters: (survey: NewSurvey | Survey) => FeatureFlagFilters | undefined
         urlMatchTypeValidationError: (survey: NewSurvey | Survey) => string | null
@@ -1606,7 +1606,8 @@ export const surveyLogic = kea<surveyLogicType>([
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
-        setResponseContextColumn: (column: SurveyResponseContextColumn, show: boolean) => ({ column, show }),
+        addResponseColumn: (column: SurveyResponseColumn) => ({ column }),
+        removeResponseColumn: (column: SurveyResponseColumn) => ({ column }),
         setResponseExpanded: (uuid: string, expanded: boolean) => ({ uuid, expanded }),
         toggleResponseExpansion: (uuid: string) => ({ uuid }),
         setBaseStatsResults: (results: SurveyBaseStatsResult) => ({ results }),
@@ -2026,6 +2027,12 @@ export const surveyLogic = kea<surveyLogicType>([
         }
 
         return {
+            addResponseColumn: ({ column }) => {
+                posthog.capture('survey response column added', { column_type: column.type })
+            },
+            removeResponseColumn: ({ column }) => {
+                posthog.capture('survey response column removed', { column_type: column.type })
+            },
             createSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} created</>)
                 actions.loadSurveys()
@@ -2496,16 +2503,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 setFilterSurveyStatsByDistinctId: (_, { filterByDistinctId }) => filterByDistinctId,
             },
         ],
-        responseContextColumns: [
-            [] as SurveyResponseContextColumn[],
+        responseColumns: [
+            [] as SurveyResponseColumn[],
             { persist: true },
             {
-                setResponseContextColumn: (state, { column, show }) => {
-                    if (show === state.includes(column)) {
-                        return state
-                    }
-                    return show ? [...state, column] : state.filter((key) => key !== column)
-                },
+                addResponseColumn: (state, { column }) =>
+                    state.some((existing) => surveyResponseColumnId(existing) === surveyResponseColumnId(column))
+                        ? state
+                        : [...state, column],
+                removeResponseColumn: (state, { column }) =>
+                    state.filter((existing) => surveyResponseColumnId(existing) !== surveyResponseColumnId(column)),
             },
         ],
         resultsRequeryInProgress: [
@@ -3098,7 +3105,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 s.answerFilters,
                 s.timestampFilter,
                 s.archivedResponsesFilter,
-                s.responseContextColumns,
+                s.responseColumns,
             ],
             (
                 survey: Survey,
@@ -3106,7 +3113,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 answerFilters: EventPropertyFilter[],
                 timestampFilter: string,
                 archivedResponsesFilter: string,
-                responseContextColumns: SurveyResponseContextColumn[]
+                responseColumns: SurveyResponseColumn[]
             ): DataTableNode | null => {
                 if (survey.id === 'new') {
                     return null
@@ -3122,7 +3129,7 @@ export const surveyLogic = kea<surveyLogicType>([
                                 timestampFilter,
                                 archivedResponsesFilter,
                             },
-                            responseContextColumns
+                            responseColumns
                         ),
                         filters: { properties: propertyFilters },
                     },
@@ -3145,7 +3152,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 s.answerFilters,
                 s.timestampFilter,
                 s.archivedResponsesFilter,
-                s.responseContextColumns,
+                s.responseColumns,
             ],
             (
                 survey: Survey,
@@ -3153,7 +3160,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 answerFilters: EventPropertyFilter[],
                 timestampFilter: string,
                 archivedResponsesFilter: string,
-                responseContextColumns: SurveyResponseContextColumn[]
+                responseColumns: SurveyResponseColumn[]
             ): DataTableNode | null => {
                 if (survey.id === 'new') {
                     return null
@@ -3165,7 +3172,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         timestampFilter,
                         archivedResponsesFilter,
                     },
-                    responseContextColumns
+                    responseColumns
                 )
                 return { ...query, source: { ...query.source, filters: { properties: propertyFilters } } }
             },

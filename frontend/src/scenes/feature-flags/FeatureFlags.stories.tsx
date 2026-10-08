@@ -13,6 +13,7 @@ import { featureFlagLogic } from './featureFlagLogic'
 
 const STALE_FLAG_ID = 1498
 const RULES_V2_FLAG_ID = 1802
+const DELETED_FLAG_ID = 1526
 
 const meta: Meta = {
     component: App,
@@ -52,6 +53,9 @@ const meta: Meta = {
                 ],
                 '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => {
                     const flag = featureFlags.results.find((r) => r.id === Number(params['flagId']))
+                    if (flag?.id === DELETED_FLAG_ID) {
+                        return [200, { ...flag, deleted: true, can_edit: true }]
+                    }
                     if (flag?.id !== STALE_FLAG_ID) {
                         return [200, flag]
                     }
@@ -193,6 +197,14 @@ export const RulesV2FeatureFlag: Story = {
     },
 }
 
+// Without the editor flag, `?edit=true` must still show the read-only view, because the v1 form's full save would
+// rewrite the document.
+export const RulesV2FeatureFlagEditDeepLink: Story = {
+    parameters: {
+        pageUrl: `${urls.featureFlag(RULES_V2_FLAG_ID)}?edit=true`,
+    },
+}
+
 export const NewRulesV2FeatureFlag: Story = {
     parameters: {
         pageUrl: urls.featureFlagNew({ format: 'rules_v2' }),
@@ -225,6 +237,12 @@ export const StaleFeatureFlagWithAiAssessment: Story = {
             },
             { timeout: 30000 }
         )
+    },
+}
+
+export const DeletedFeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(DELETED_FLAG_ID),
     },
 }
 

@@ -69,7 +69,12 @@ from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.permissions import AccessControlPermission
-from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
+from posthog.rate_limit import (
+    BurstRateThrottle,
+    LLMPromptFetchRateThrottle,
+    LLMPromptPublishBurstRateThrottle,
+    SustainedRateThrottle,
+)
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
@@ -81,7 +86,6 @@ from products.ai_observability.backend.prompt_references import (
     PromptReferenceResolutionError,
     assemble_prompt_payload,
     get_active_references_to,
-    prompt_partials_enabled,
 )
 
 logger = structlog.get_logger(__name__)
@@ -109,8 +113,10 @@ class LLMPromptViewSet(
     def get_throttles(self):
         if self.action == "update_by_name":
             return [LLMPromptPublishBurstRateThrottle(), BurstRateThrottle(), SustainedRateThrottle()]
-        if self.action in ["get_by_name", "resolve_by_name"]:
-            return [BurstRateThrottle(), SustainedRateThrottle()]
+        # SDK read paths (get_all() hits list) get a dedicated per-minute budget, so a
+        # polling fleet cannot exhaust the shared sustained budget for the whole API key.
+        if self.action in ["list", "get_by_name", "resolve_by_name"]:
+            return [LLMPromptFetchRateThrottle()]
 
         return super().get_throttles()
 
@@ -274,14 +280,12 @@ class LLMPromptViewSet(
             return isinstance(item.get("prompt"), str) and bool(PROMPT_REFERENCE_REGEX.search(item["prompt"]))
 
         # A tag-free row is trivially resolved: its raw and assembled content are
-        # identical, so it gets [] without consulting the flag. Null stays the
-        # marker for tags that were left in place.
+        # identical, so it gets []. Null stays the marker for tags that were
+        # left in place.
         for item in items:
             if not has_tags(item):
                 item["resolved_references"] = []
         if not any(has_tags(item) for item in items):
-            return items
-        if not prompt_partials_enabled(self.team):
             return items
         resolved_items: list[dict[str, Any]] = []
         shared_memo: dict[tuple[str, str | None, str | None], tuple[str, int]] = {}
@@ -436,7 +440,7 @@ class LLMPromptViewSet(
                 )
             return self._prompt_not_found_response(prompt_name)
 
-        if resolve and content_mode == "full" and prompt_partials_enabled(self.team):
+        if resolve and content_mode == "full":
             try:
                 prompt = assemble_prompt_payload(self.team, prompt)
             except PromptReferenceResolutionError as err:

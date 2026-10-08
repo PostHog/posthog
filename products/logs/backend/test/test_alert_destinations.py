@@ -4,12 +4,12 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.alerts.backend.facade.contracts import (
+from products.alerts.backend.facade.destinations import build_alert_destination_config, validate_destination_data
+from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
 )
-from products.alerts.backend.facade.destinations import build_alert_destination_config, validate_destination_data
 from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     EVENT_KINDS,

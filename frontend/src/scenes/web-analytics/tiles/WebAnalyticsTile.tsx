@@ -77,6 +77,7 @@ import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleCompo
 import { ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
+import { MarketingAnalyticsCrossSell } from 'products/web_analytics/frontend/marketing/MarketingAnalyticsCrossSell'
 
 import { CreateSurveyButton } from '../CrossSellButtons/CreateSurveyButton'
 import { ErrorTrackingButton } from '../CrossSellButtons/ErrorTrackingButton'
@@ -1029,6 +1030,7 @@ export const WebStatsTableTile = ({
     headerSlot,
     uniqueKey,
     enablePagination,
+    tileId,
 }: QueryWithInsightProps<DataTableNode> & {
     breakdownBy: WebStatsBreakdown
     control?: JSX.Element
@@ -1213,6 +1215,9 @@ export const WebStatsTableTile = ({
             >
                 <Query uniqueKey={uniqueKey} attachTo={attachTo} query={query} readOnly={true} context={context} />
             </WebAnalyticsTileSkeletonGate>
+            {tileId === TileId.SOURCES &&
+                productTab === ProductTab.ANALYTICS &&
+                uniqueKey.startsWith('WebAnalytics.') && <MarketingAnalyticsCrossSell breakdown={breakdownBy} />}
         </div>
     )
 }

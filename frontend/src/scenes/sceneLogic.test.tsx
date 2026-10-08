@@ -1,4 +1,4 @@
-import { MOCK_USER_UUID } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_USER_UUID } from 'lib/api.mock'
 
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
@@ -16,7 +16,14 @@ import { urls } from 'scenes/urls'
 import * as exporterViewLogic from '~/exporter/exporterViewLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, AccessControlResourceType, ActivityTab, type AppContext } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityTab,
+    type AppContext,
+    type OrganizationType,
+    type TeamType,
+} from '~/types'
 
 import { sceneLogic } from './sceneLogic'
 import type { testLogicType } from './sceneLogic.testType'
@@ -35,9 +42,12 @@ const sceneImport = (): any => ({ scene: { component: Component, logic: testLogi
 
 const testScenes: Record<string, () => any> = {
     [Scene.Alerts]: sceneImport,
+    [Scene.AIObservabilityEvaluations]: sceneImport,
     [Scene.Billing]: sceneImport,
     [Scene.DataManagement]: sceneImport,
     [Scene.OrganizationCreateFirst]: sceneImport,
+    [Scene.OrganizationDeactivated]: sceneImport,
+    [Scene.OrganizationPendingDeletion]: sceneImport,
     [Scene.PasswordResetComplete]: sceneImport,
     [Scene.ProjectCreateFirst]: sceneImport,
     [Scene.Settings]: sceneImport,
@@ -218,6 +228,19 @@ describe('sceneLogic', () => {
         expect(router.values.hashParams).toEqual(hash)
     })
 
+    it('redirects a copied event link to the activity list filtered to its uuid and event name', async () => {
+        const uuid = '0190a4c2-0000-7000-8000-000000000001'
+        router.actions.push(urls.event(uuid, '2026-01-01T00:00:00.000Z', '$feature_flag_called'))
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(
+            urls.activity(ActivityTab.ExploreEvents)
+        )
+        expect(router.values.hashParams.q.source).toMatchObject({
+            event: '$feature_flag_called',
+            properties: [{ key: `uuid = '${uuid}'` }],
+        })
+    })
+
     it.each([
         ['the product root', () => '/engineering-analytics', () => urls.engineeringAnalytics()],
         [
@@ -272,6 +295,31 @@ describe('sceneLogic', () => {
             [Scene.DataManagement]: expectedAnnotation,
             [Scene.Settings]: expectedSettings,
         })
+    })
+
+    it.each([
+        [AccessControlLevel.Viewer, Scene.AIObservabilityEvaluations],
+        [AccessControlLevel.None, Scene.ErrorAccessDenied],
+    ])('gates the combined evaluations entry with scorer access %s', async (scorerAccess, expectedScene) => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                effective_resource_access_control: {
+                    ...priorAppContext?.effective_resource_access_control,
+                    [AccessControlResourceType.Evaluation]: AccessControlLevel.None,
+                    [AccessControlResourceType.LlmAnalytics]: scorerAccess,
+                },
+            } as AppContext
+            logic.actions.setScene(Scene.AIObservabilityEvaluations, 'aiObservabilityEvaluations', {
+                params: {},
+                searchParams: {},
+                hashParams: {},
+            })
+            await expectLogic(logic).toMatchValues({ activeSceneId: expectedScene })
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
     })
 
     it('does not blanket deny the combined alerts scene without insight access', async () => {
@@ -600,5 +648,110 @@ describe('sceneLogic', () => {
                 expect(router.values.hashParams).toEqual(expectedHash)
             }
         )
+    })
+
+    describe('a blocked organization', () => {
+        let priorAppContext: AppContext | undefined
+
+        beforeEach(() => {
+            priorAppContext = window.POSTHOG_APP_CONTEXT
+        })
+
+        afterEach(() => {
+            window.POSTHOG_APP_CONTEXT = priorAppContext as AppContext
+        })
+
+        const notOnboarded: Partial<TeamType> = {
+            ingested_event: false,
+            completed_snippet_onboarding: false,
+            has_completed_onboarding_for: {},
+        }
+
+        it.each([
+            [
+                'keeps a deactivated member on the block page after a client-side link',
+                { is_active: false },
+                {},
+                urls.eventDefinitions(),
+                urls.organizationDeactivated(),
+                Scene.OrganizationDeactivated,
+            ],
+            [
+                'sends a deactivated member on an unknown path to the block page',
+                { is_active: false },
+                {},
+                '/no-such-page',
+                urls.organizationDeactivated(),
+                Scene.OrganizationDeactivated,
+            ],
+            [
+                'opens billing for a deactivated member',
+                { is_active: false },
+                {},
+                urls.organizationBilling(),
+                urls.organizationBilling(),
+                Scene.Billing,
+            ],
+            [
+                'keeps a pending-deletion member off onboarding when the project has no events',
+                { is_pending_deletion: true },
+                notOnboarded,
+                urls.eventDefinitions(),
+                urls.organizationPendingDeletion(),
+                Scene.OrganizationPendingDeletion,
+            ],
+        ])('%s', async (_name, organization, team, target, expectedRoute, expectedScene) => {
+            logic.unmount()
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, ...team }, MOCK_DEFAULT_PROJECT, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                teams: [MOCK_DEFAULT_TEAM],
+                ...organization,
+            } as OrganizationType)
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+
+            router.actions.push(target)
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
+            expect(logic.values.sceneId).toEqual(expectedScene)
+        })
+
+        it.each([urls.organizationDeactivated(), urls.organizationPendingDeletion()])(
+            'lets a member whose organization is open leave %s',
+            async (blockPage) => {
+                router.actions.push(blockPage)
+                await expectLogic(logic).delay(1)
+
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+            }
+        )
+
+        it("loads the page for a deactivated member's link into another organization's project", async () => {
+            logic.unmount()
+            initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                teams: [MOCK_DEFAULT_TEAM],
+                is_active: false,
+            } as OrganizationType)
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+            await expectLogic(logic).delay(1)
+            const originalLocation = Object.getOwnPropertyDescriptor(window, 'location')!
+            Object.defineProperty(window, 'location', { configurable: true, value: { ...window.location, href: '' } })
+            try {
+                router.actions.push('/project/424242/dashboard')
+                await expectLogic(logic).delay(1)
+
+                expect(window.location.href).toEqual('/project/424242/dashboard')
+                expect(logic.values.sceneId).toEqual(Scene.OrganizationDeactivated)
+            } finally {
+                Object.defineProperty(window, 'location', originalLocation)
+            }
+        })
     })
 })

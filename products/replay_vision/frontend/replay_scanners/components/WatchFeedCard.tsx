@@ -2,7 +2,7 @@ import { useActions } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconFlag, IconPlay, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import posthog from 'lib/posthog-typed'
@@ -16,8 +16,9 @@ import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { UnviewedObservationTag } from '../../components/UnviewedObservationTag'
 import type { ReplayObservationApi, WatchFeedItemApi, WatchFeedReasonApi } from '../../generated/api.schemas'
 import { OBSERVATION_ORIGIN_PARAM, WATCH_FEED_ORIGIN } from '../../utils/breadcrumbs'
-import { citedTextToPlainText, citedTimestampRange } from '../../utils/citations'
+import { citedTextToPlainText } from '../../utils/citations'
 import { ScannerType } from '../types'
+import { type WatchFeedView, watchFeedLogic } from '../watchFeedLogic'
 
 const roundScore = (value: number): number => Math.round(value * 100) / 100
 
@@ -126,6 +127,8 @@ export function watchReasonCopy(reason: WatchFeedReasonApi): string {
             return 'The scanner judged this session worth watching.'
         case 'friction':
             return 'The session shows signs of friction, like errors, retries, or dead ends.'
+        case 'jev_watchable':
+            return 'The decision model judged this session worth watching.'
         case 'unviewed_recent':
             return 'New since you last looked.'
         case 'recent':
@@ -136,20 +139,18 @@ export function watchReasonCopy(reason: WatchFeedReasonApi): string {
     }
 }
 
-/** The moment span the observation cites, read from the type's cited field. */
-export function observationClipRange(observation: ReplayObservationApi): { startMs: number; endMs: number } | null {
-    const result = readResult(observation)
-    if (!result) {
-        return null
-    }
-    const scannerType =
-        (observation.scanner_snapshot?.scanner_type as ScannerType | undefined) ??
-        (result.scanner_type as ScannerType | undefined)
-    const [text, segments] =
-        scannerType === 'summarizer'
-            ? [result.summary, result.summary_segments]
-            : [result.reasoning, result.reasoning_segments]
-    return typeof text === 'string' ? citedTimestampRange(text, segments) : null
+/** Seconds of lead-in before the key moment, so the viewer sees what led up to it. */
+const KEY_MOMENT_LEAD_IN_S = 3
+
+/** The session offset of the moment the scan's answer rests on most, or null on scans that did not pick one. */
+export function observationKeyMomentMs(observation: ReplayObservationApi): number | null {
+    const keyMomentMs = readResult(observation)?.key_moment_ms
+    return typeof keyMomentMs === 'number' && Number.isFinite(keyMomentMs) && keyMomentMs >= 0 ? keyMomentMs : null
+}
+
+/** Where the player starts: a short lead-in before the key moment, or the recording's start without one. */
+export function watchStartSeconds(keyMomentMs: number | null): number {
+    return keyMomentMs === null ? 0 : Math.max(0, Math.floor(keyMomentMs / 1000) - KEY_MOMENT_LEAD_IN_S)
 }
 
 /**
@@ -202,12 +203,26 @@ interface WatchFeedCardProps {
     position: number
 }
 
-export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Element {
-    const { observation, reason } = item
+interface WatchFeedCardData {
+    keyMomentMs: number | null
+    scannerType: ScannerType | undefined
+    scannerName: string
+    person: string | null | undefined
+    headline: ReturnType<typeof watchCardHeadline>
+    observationUrl: string
+    captureObservationOpened: () => void
+    watchClipInModal: () => void
+}
+
+/** What both card layouts show and do, so the grid and the list open and report clips the same way. */
+function useWatchFeedCardData(
+    { observation, reason }: WatchFeedItemApi,
+    position: number,
+    view: WatchFeedView
+): WatchFeedCardData {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
-    const clip = observationClipRange(observation)
     const result = readResult(observation)
-    // Fall back to the result's own scanner_type when the snapshot is absent, like observationClipRange,
+    // Fall back to the result's own scanner_type when the snapshot is absent, like watchCardHeadline,
     // so a scan with no snapshot still places its outcome in the right spot.
     const scannerType =
         (observation.scanner_snapshot?.scanner_type as ScannerType | undefined) ??
@@ -215,14 +230,12 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
     const scannerName = (observation.scanner_snapshot?.name as string | undefined) || '(untitled scanner)'
     const person = observation.recording_subject_email || observation.distinct_id
     const headline = watchCardHeadline(observation)
-    const clipDuration =
-        clip && clip.endMs > clip.startMs
-            ? colonDelimitedDuration(Math.ceil((clip.endMs - clip.startMs) / 1000), null)
-            : null
-    // t=0 when nothing is cited, so the observation page still opens with the player expanded. `from`
-    // marks the feed as the origin, so the observation's back button returns here rather than the scanner.
+    const keyMomentMs = observationKeyMomentMs(observation)
+    const startSeconds = watchStartSeconds(keyMomentMs)
+    // t is always set, so the observation page opens with the player expanded. `from` marks the feed as the
+    // origin, so the observation's back button returns here rather than the scanner.
     const observationUrl = combineUrl(urls.replayVisionObservation(observation.id), {
-        t: clip ? Math.floor(clip.startMs / 1000) : 0,
+        t: startSeconds,
         [OBSERVATION_ORIGIN_PARAM]: WATCH_FEED_ORIGIN,
     }).url
     const capture = (target: 'clip_modal' | 'observation'): void => {
@@ -232,22 +245,147 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
             observation_id: observation.id,
             position,
             reason_kind: reason.kind,
+            has_key_moment: keyMomentMs !== null,
             target,
+            view,
         })
     }
     const watchClipInModal = (): void => {
         capture('clip_modal')
-        // The modal's own `initialTimestamp` is an absolute unix-ms time, but a clip start is an
-        // offset into the recording. The player reads `?t=<seconds>` as an offset on first load and
-        // the modal preserves existing search params, so set (or clear) `t` before opening.
+        // The modal's own `initialTimestamp` is an absolute unix-ms time, but the key moment is an offset
+        // into the recording. The player reads `?t=<seconds>` as an offset on first load and the modal
+        // preserves existing search params, so set `t` before opening. Without a key moment, clear any stale
+        // `t` so the clip starts from the beginning.
         const { location, searchParams, hashParams } = router.values
         router.actions.replace(
             location.pathname,
-            { ...searchParams, t: clip ? Math.floor(clip.startMs / 1000) : undefined },
+            { ...searchParams, t: keyMomentMs === null ? undefined : startSeconds },
             hashParams
         )
         openSessionPlayer({ id: observation.session_id })
     }
+    return {
+        keyMomentMs,
+        scannerType,
+        scannerName,
+        person,
+        headline,
+        observationUrl,
+        captureObservationOpened: () => capture('observation'),
+        watchClipInModal,
+    }
+}
+
+function WatchClipPoster({
+    observation,
+    keyMomentMs,
+    onWatch,
+    className,
+}: {
+    observation: ReplayObservationApi
+    keyMomentMs: number | null
+    onWatch: () => void
+    className?: string
+}): JSX.Element {
+    return (
+        <button
+            type="button"
+            onClick={onWatch}
+            className="relative z-10 block w-full cursor-pointer"
+            data-attr="vision-watch-clip"
+            aria-label="Watch clip"
+        >
+            <ObservationThumbnail observation={observation} className={className}>
+                <span className="flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">
+                    <IconPlayFilled aria-hidden />
+                    Watch clip
+                </span>
+            </ObservationThumbnail>
+            {keyMomentMs !== null && (
+                <Tooltip title="Key moment: where the scan's answer rests most. The clip starts just before it.">
+                    <span className="absolute bottom-1 right-1 text-xs tabular-nums bg-bg-light border rounded px-1">
+                        {colonDelimitedDuration(Math.floor(keyMomentMs / 1000), null)}
+                    </span>
+                </Tooltip>
+            )}
+        </button>
+    )
+}
+
+function WatchCardPerson({
+    observation,
+    person,
+}: {
+    observation: ReplayObservationApi
+    person: string | null | undefined
+}): JSX.Element {
+    return (
+        <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
+            {person &&
+                (observation.distinct_id ? (
+                    <Link
+                        to={urls.personByDistinctId(observation.distinct_id)}
+                        className="relative z-10 truncate min-w-0 text-muted"
+                        data-attr="vision-watch-feed-person"
+                    >
+                        {person}
+                    </Link>
+                ) : (
+                    <span className="truncate min-w-0">{person}</span>
+                ))}
+            {person && <span aria-hidden>·</span>}
+            <TZLabel time={observation.created_at} className="shrink-0" />
+        </div>
+    )
+}
+
+function WatchCardScanner({
+    observation,
+    scannerType,
+    scannerName,
+}: {
+    observation: ReplayObservationApi
+    scannerType: ScannerType | undefined
+    scannerName: string
+}): JSX.Element {
+    return (
+        // Above the overlay link so the outcome's hover tooltip stays reachable. The summarizer's
+        // outcome is the title + body, so it adds no chip here.
+        <div className="relative z-10 flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+            {/* One text flow, so on a narrow card the question starts beside the badge and wraps under it
+                instead of the whole question dropping to its own line. */}
+            <p className="m-0 min-w-0 text-xs leading-5">
+                {scannerType && (
+                    <span className="inline-flex align-middle mr-1.5">
+                        <ScannerTypeBadge scannerType={scannerType} />
+                    </span>
+                )}
+                {/* The question says what the result answers; the scanner's name is a hover away. */}
+                {observation.prompt_question ? (
+                    <Tooltip title={scannerName}>
+                        <span>{observation.prompt_question}</span>
+                    </Tooltip>
+                ) : (
+                    <span className="text-muted">{scannerName}</span>
+                )}
+            </p>
+            {scannerType !== 'summarizer' && <ObservationResultSummary observation={observation} />}
+        </div>
+    )
+}
+
+export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Element {
+    const { observation, reason } = item
+    const {
+        keyMomentMs,
+        scannerType,
+        scannerName,
+        person,
+        headline,
+        observationUrl,
+        captureObservationOpened,
+        watchClipInModal,
+    } = useWatchFeedCardData(item, position, 'list')
 
     return (
         <div
@@ -256,28 +394,9 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
         >
             {!observation.viewed && <span className="absolute inset-y-0 left-0 w-1 rounded-l bg-accent" aria-hidden />}
             {/* The thumbnail is the watch affordance, so the whole poster opens the clip modal.
-                The New tag and the duration sit outside the poster, which clips its own overflow. */}
+                The New tag and the key moment sit outside the poster, which clips its own overflow. */}
             <div className="relative hidden @md:block w-64 shrink-0 self-start">
-                <button
-                    type="button"
-                    onClick={watchClipInModal}
-                    className="relative z-10 block w-full cursor-pointer"
-                    data-attr="vision-watch-clip"
-                    aria-label="Watch clip"
-                >
-                    <ObservationThumbnail observation={observation}>
-                        <span className="flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">
-                            <IconPlayFilled aria-hidden />
-                            {clipDuration ? `Watch ${clipDuration}` : 'Watch clip'}
-                        </span>
-                    </ObservationThumbnail>
-                    {clip && (
-                        <span className="absolute bottom-1 right-1 text-xs tabular-nums bg-bg-light border rounded px-1">
-                            {colonDelimitedDuration(Math.floor(clip.startMs / 1000), null)} to{' '}
-                            {colonDelimitedDuration(Math.floor(clip.endMs / 1000), null)}
-                        </span>
-                    )}
-                </button>
+                <WatchClipPoster observation={observation} keyMomentMs={keyMomentMs} onWatch={watchClipInModal} />
                 {/* Sits above the button, so it lets clicks through to open the clip. */}
                 {!observation.viewed && (
                     <UnviewedObservationTag className="absolute top-1 left-1 z-10 pointer-events-none" />
@@ -285,11 +404,11 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
             </div>
             <div className="flex-1 min-w-0 flex flex-col gap-1.5">
                 {/* Stretched to cover the card: clicking anywhere opens the observation with the
-                    player expanded at the first cited moment. Inner links and the thumbnail button
-                    sit above it via `relative z-10`, so the anchors never nest. */}
+                    player expanded. Inner links and the thumbnail button sit above it via
+                    `relative z-10`, so the anchors never nest. */}
                 <Link
                     to={observationUrl}
-                    onClick={() => capture('observation')}
+                    onClick={captureObservationOpened}
                     className="text-default after:absolute after:inset-0 after:content-['']"
                     data-attr="vision-watch-feed-card-body"
                 >
@@ -299,29 +418,8 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                         {headline?.title ?? scannerName}
                     </h3>
                 </Link>
-                <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
-                    {person &&
-                        (observation.distinct_id ? (
-                            <Link
-                                to={urls.personByDistinctId(observation.distinct_id)}
-                                className="relative z-10 truncate min-w-0 text-muted"
-                                data-attr="vision-watch-feed-person"
-                            >
-                                {person}
-                            </Link>
-                        ) : (
-                            <span className="truncate min-w-0">{person}</span>
-                        ))}
-                    {person && <span aria-hidden>·</span>}
-                    <TZLabel time={observation.created_at} className="shrink-0" />
-                </div>
-                {/* Above the overlay link so the outcome's hover tooltip stays reachable. The
-                    summarizer's outcome is the title + body above, so it adds no chip here. */}
-                <div className="relative z-10 flex flex-wrap items-center gap-2 min-w-0">
-                    {scannerType && <ScannerTypeBadge scannerType={scannerType} />}
-                    <span className="text-muted text-xs truncate">{scannerName}</span>
-                    {scannerType !== 'summarizer' && <ObservationResultSummary observation={observation} />}
-                </div>
+                <WatchCardPerson observation={observation} person={person} />
+                <WatchCardScanner observation={observation} scannerType={scannerType} scannerName={scannerName} />
                 {headline?.body && (
                     <p className="text-muted text-xs m-0 line-clamp-2">
                         <CitedText text={headline.body.text} segments={headline.body.segments} />
@@ -344,5 +442,230 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                 </LemonButton>
             </div>
         </div>
+    )
+}
+
+/**
+ * The one sentence a jev-arm card leads with. The scan's notability sentence names the finding, so
+ * it outranks prose derived from the result; the derived headline covers scans from before
+ * notability shipped, and the scanner's name covers scans with no prose at all.
+ */
+export function jevCardSentence(observation: ReplayObservationApi, reason: WatchFeedReasonApi): string {
+    if (reason.notability_reason) {
+        return reason.notability_reason
+    }
+    const headline = watchCardHeadline(observation)
+    return headline?.title ?? ((observation.scanner_snapshot?.name as string | undefined) || '(untitled scanner)')
+}
+
+/**
+ * One muted line of context under the sentence: the scan's prose the sentence did not use. A card
+ * leading with the notability sentence gets the whole derived narration; a card already leading
+ * with the derived headline gets the prose after it. A filler row gets none, so it stays small.
+ */
+export function jevCardContext(observation: ReplayObservationApi, reason: WatchFeedReasonApi): string | null {
+    if (FILLER_REASON_KINDS.has(reason.kind)) {
+        return null
+    }
+    const headline = watchCardHeadline(observation)
+    if (reason.notability_reason) {
+        return [headline?.title, headline?.body?.text].filter(Boolean).join(' ') || null
+    }
+    return headline?.body?.text ?? null
+}
+
+function JevCardScannerChip({
+    observation,
+    scannerName,
+}: {
+    observation: ReplayObservationApi
+    scannerName: string
+}): JSX.Element {
+    const { setScannerIdsFilter } = useActions(watchFeedLogic)
+    const verdict = readResult(observation)?.verdict
+    return (
+        <Tooltip
+            title={
+                <div className="flex flex-col gap-0.5">
+                    <span className="font-semibold">{scannerName}</span>
+                    {observation.prompt_question && (
+                        <span>
+                            {observation.prompt_question}
+                            {typeof verdict === 'string' && verdict ? ` Answered ${verdict}.` : ''}
+                        </span>
+                    )}
+                    <span className="italic">Click to show only this scanner's clips</span>
+                </div>
+            }
+        >
+            <LemonTag
+                className="max-w-60 cursor-pointer"
+                forceClickable
+                onClick={() => setScannerIdsFilter([observation.scanner_id])}
+                data-attr="vision-watch-feed-scanner-chip"
+            >
+                <span className="truncate">{scannerName}</span>
+            </LemonTag>
+        </Tooltip>
+    )
+}
+
+/** The jev arm's card body: one sentence plus one meta line. The scanner's question, verdict, and
+ * remaining prose sit behind the chip's tooltip and the observation page, so the feed stays scannable. */
+function JevCardBody({ item, data }: { item: WatchFeedItemApi; data: WatchFeedCardData }): JSX.Element {
+    const { observation, reason } = item
+    // A filler row carries no finding, so it must not read like one.
+    const filler = FILLER_REASON_KINDS.has(reason.kind)
+    const context = jevCardContext(observation, reason)
+    return (
+        <>
+            <Link
+                to={data.observationUrl}
+                onClick={data.captureObservationOpened}
+                className="text-default after:absolute after:inset-0 after:content-['']"
+                data-attr="vision-watch-feed-card-body"
+            >
+                <h3 className={`text-sm m-0 line-clamp-2 ${filler ? 'font-medium text-secondary' : 'font-semibold'}`}>
+                    {!observation.viewed && <span className="sr-only">New: </span>}
+                    {jevCardSentence(observation, reason)}
+                </h3>
+            </Link>
+            {context && <p className="text-muted text-xs m-0 line-clamp-1">{context}</p>}
+            <div className="relative z-10 flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+                <JevCardScannerChip observation={observation} scannerName={data.scannerName} />
+                <WatchCardPerson observation={observation} person={data.person} />
+            </div>
+        </>
+    )
+}
+
+/** The jev arm's list card. Same shell and affordances as WatchFeedCard, with the body cut to
+ * JevCardBody's three lines and the poster sized down so the card hugs its content. */
+export function JevWatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Element {
+    const { observation } = item
+    const data = useWatchFeedCardData(item, position, 'list')
+    return (
+        <div
+            className="@container relative border rounded bg-bg-light p-3 flex gap-3 hover:border-accent"
+            data-attr="vision-watch-feed-card"
+        >
+            {!observation.viewed && <span className="absolute inset-y-0 left-0 w-1 rounded-l bg-accent" aria-hidden />}
+            <div className="relative hidden @md:block w-44 shrink-0 self-start">
+                <WatchClipPoster
+                    observation={observation}
+                    keyMomentMs={data.keyMomentMs}
+                    onWatch={data.watchClipInModal}
+                />
+                {!observation.viewed && (
+                    <UnviewedObservationTag className="absolute top-1 left-1 z-10 pointer-events-none" />
+                )}
+            </div>
+            <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
+                <JevCardBody item={item} data={data} />
+                <LemonButton
+                    type="secondary"
+                    size="xsmall"
+                    icon={<IconPlay />}
+                    onClick={data.watchClipInModal}
+                    className="@md:hidden self-start relative z-10"
+                    data-attr="vision-watch-clip"
+                >
+                    Watch clip
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
+/** The jev arm's grid card: the same shell as WatchFeedGridCard with the body cut to two lines. */
+export function JevWatchFeedGridCard({ item, position }: WatchFeedCardProps): JSX.Element {
+    const { observation } = item
+    const data = useWatchFeedCardData(item, position, 'grid')
+    return (
+        <LemonCard
+            className="relative flex flex-col rounded-lg p-0 overflow-hidden hover:border-accent"
+            data-attr="vision-watch-feed-grid-card"
+        >
+            {!observation.viewed && <span className="absolute inset-x-0 top-0 h-1 z-20 bg-accent" aria-hidden />}
+            <div className="relative">
+                <WatchClipPoster
+                    observation={observation}
+                    keyMomentMs={data.keyMomentMs}
+                    onWatch={data.watchClipInModal}
+                    className="rounded-none border-0"
+                />
+                {!observation.viewed && (
+                    <UnviewedObservationTag className="absolute top-2 left-2 z-10 pointer-events-none" />
+                )}
+            </div>
+            <div className="flex flex-col gap-2 p-3 min-w-0 flex-1">
+                <JevCardBody item={item} data={data} />
+            </div>
+        </LemonCard>
+    )
+}
+
+/** The thumbnail-first layout for the grid view, with the feed's reason as its own closing section. */
+export function WatchFeedGridCard({ item, position }: WatchFeedCardProps): JSX.Element {
+    const { observation, reason } = item
+    const {
+        keyMomentMs,
+        scannerType,
+        scannerName,
+        person,
+        headline,
+        observationUrl,
+        captureObservationOpened,
+        watchClipInModal,
+    } = useWatchFeedCardData(item, position, 'grid')
+
+    return (
+        <LemonCard
+            className="relative flex flex-col rounded-lg p-0 overflow-hidden hover:border-accent"
+            data-attr="vision-watch-feed-grid-card"
+        >
+            {!observation.viewed && <span className="absolute inset-x-0 top-0 h-1 z-20 bg-accent" aria-hidden />}
+            {/* The card clips its own corners and draws its own edge, so the poster goes edge to edge. */}
+            <div className="relative">
+                <WatchClipPoster
+                    observation={observation}
+                    keyMomentMs={keyMomentMs}
+                    onWatch={watchClipInModal}
+                    className="rounded-none border-0"
+                />
+                {!observation.viewed && (
+                    <UnviewedObservationTag className="absolute top-2 left-2 z-10 pointer-events-none" />
+                )}
+            </div>
+            <div className="flex flex-col gap-1.5 p-3 min-w-0 flex-1">
+                {/* Stretched over the card like the list card, so a click outside the poster and inner
+                    links opens the observation. */}
+                <Link
+                    to={observationUrl}
+                    onClick={captureObservationOpened}
+                    className="text-default after:absolute after:inset-0 after:content-['']"
+                    data-attr="vision-watch-feed-card-body"
+                >
+                    <h3 className="text-sm font-semibold m-0 line-clamp-2">
+                        {!observation.viewed && <span className="sr-only">New: </span>}
+                        {headline?.title ?? scannerName}
+                    </h3>
+                </Link>
+                <WatchCardPerson observation={observation} person={person} />
+                <WatchCardScanner observation={observation} scannerType={scannerType} scannerName={scannerName} />
+                {headline?.body && (
+                    <p className="text-muted text-xs m-0 line-clamp-2">
+                        <CitedText text={headline.body.text} segments={headline.body.segments} />
+                    </p>
+                )}
+                <div className="mt-auto flex flex-col gap-1 border-t pt-2" data-attr="vision-watch-feed-why">
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-muted">
+                        <IconFlag className="shrink-0 text-accent" aria-hidden />
+                        Why this recording
+                    </span>
+                    <span className="text-xs">{watchReasonCopy(reason)}</span>
+                </div>
+            </div>
+        </LemonCard>
     )
 }

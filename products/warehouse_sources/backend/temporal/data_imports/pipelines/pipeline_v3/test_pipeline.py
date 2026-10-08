@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 _PIPELINE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
+_SAFE_POINT = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.safe_point"
 _LANES = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.lanes"
 _CONSUMER = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer"
 _PRODUCER = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer"
@@ -75,6 +76,7 @@ def _make_pipeline() -> PipelineV3:
     pipeline._reset_pipeline = False
     pipeline._delta_table_ref = MagicMock(is_first_sync=True)
     pipeline._resumable_source_manager = None
+    pipeline._source_cursor_manager = None
     pipeline._internal_schema = MagicMock()
     pipeline._sinks = MagicMock(
         clear=AsyncMock(),
@@ -518,10 +520,6 @@ class TestLaneFanOut:
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.finalize_desc_sort_incremental_value",
                 AsyncMock(),
             ),
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.advance_xmin_state",
-                AsyncMock(),
-            ),
         ):
             await pipeline._finalize(row_count=1)
 
@@ -536,10 +534,6 @@ class TestLaneFanOut:
         with (
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.finalize_desc_sort_incremental_value",
-                AsyncMock(),
-            ),
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.advance_xmin_state",
                 AsyncMock(),
             ),
         ):
@@ -671,8 +665,7 @@ class TestCompanionJob:
                 lambda fn: AsyncMock(side_effect=lambda *a, **k: fn(*a, **k)),
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue."
-                "jobs_db.BatchQueue.fail_batches_for_job_sync"
+                "products.warehouse_sources_queue.backend.core.jobs_db.BatchQueue.fail_batches_for_job_sync"
             ) as swept,
         ):
             async_to_sync(pipeline._fail_companion_jobs)()
@@ -790,11 +783,31 @@ class TestFinalizeStagesTheWatermarkFirst:
                 f"{_PIPELINE}.finalize_desc_sort_incremental_value",
                 AsyncMock(side_effect=lambda *_a, **_k: order.append("stage")),
             ),
-            patch(f"{_PIPELINE}.advance_xmin_state", AsyncMock()),
         ):
             await pipeline._finalize(row_count=1)
 
         assert order == ["stage", "send"]
+
+    @pytest.mark.asyncio
+    async def test_the_source_cursor_is_staged_for_the_loader_before_the_final_batch_notification(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._batch_results = [MagicMock()]
+        pipeline._last_incremental_field_value = None
+        pipeline._s3_batch_writer = MagicMock(get_run_uuid=MagicMock(return_value="run-1"))
+        payload = {"kind": "postgres_xmin", "data": {}}
+        pipeline._source_cursor_manager = MagicMock(staged_payload=MagicMock(return_value=payload))
+        order: list[str] = []
+        schema = MagicMock()
+        schema.stage_source_cursor.side_effect = lambda *_a: order.append("stage")
+        pipeline._schema = schema
+        pipeline._send_final_batches = AsyncMock(side_effect=lambda *_a, **_k: order.append("send"))  # type: ignore[method-assign]
+
+        with patch(f"{_PIPELINE}.finalize_desc_sort_incremental_value", AsyncMock()):
+            await pipeline._finalize(row_count=1)
+
+        assert order == ["stage", "send"]
+        schema.stage_source_cursor.assert_called_once_with("run-1", payload)
+        schema.update_source_cursor.assert_not_called()
 
 
 class TestZeroBatchRunStampsTheFullRunMarker:
@@ -812,6 +825,21 @@ class TestZeroBatchRunStampsTheFullRunMarker:
         update.assert_called_once()
         assert "last_full_run_at" in update.call_args.kwargs["updates"]
         assert "extra_model_fields" not in update.call_args.kwargs
+
+    @pytest.mark.asyncio
+    async def test_a_run_that_extracted_nothing_stores_its_source_cursor_directly(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._batch_results = []
+        payload = {"kind": "postgres_xmin", "data": {}}
+        pipeline._source_cursor_manager = MagicMock(staged_payload=MagicMock(return_value=payload))
+        schema = MagicMock()
+        pipeline._schema = schema
+
+        with patch(f"{_PIPELINE}.update_sync_type_config_keys", new=MagicMock()):
+            await pipeline._finalize(row_count=0)
+
+        schema.update_source_cursor.assert_called_once_with(payload)
+        schema.stage_source_cursor.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_a_bookkeeping_failure_does_not_fail_the_sync(self) -> None:
@@ -977,6 +1005,50 @@ class TestResumeCursorCommit:
         assert cast(AsyncMock, pipeline._process_batch).await_count == 1
         assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == ["a"]
 
+    @pytest.mark.asyncio
+    async def test_an_empty_page_safe_point_hands_off_at_shutdown_with_its_cursor(self) -> None:
+        redis = MagicMock()
+        manager = _manager()
+
+        def items():
+            manager.save_state(_Cursor("a"))
+            yield [{"id": "a"}]
+            for page in ("b", "c"):
+                manager.save_state(_Cursor(page))
+                manager.safe_point()
+
+        pipeline = _runnable_pipeline(manager, items)
+        shutdown = WorkerShuttingDownError("id", "type", "queue", 1, "workflow", "workflow_type")
+        cast(MagicMock, pipeline._shutdown_monitor).raise_if_is_worker_shutdown.side_effect = _raise_on_second_call(
+            shutdown
+        )
+
+        await _run_expecting(pipeline, redis, WorkerShuttingDownError)
+
+        assert cast(AsyncMock, pipeline._process_batch).await_count == 1
+        assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == ["b"]
+
+    @pytest.mark.asyncio
+    async def test_empty_page_safe_points_commit_the_cursor_when_nothing_is_unwritten(self) -> None:
+        redis = MagicMock()
+        manager = _manager()
+
+        def items():
+            for page in ("a", "b"):
+                manager.save_state(_Cursor(page))
+                manager.safe_point()
+            yield from ()
+            raise RuntimeError("page budget")
+
+        pipeline = _runnable_pipeline(manager, items)
+        pipeline._pg_producer = _recording_producer()
+
+        with patch(f"{_SAFE_POINT}.SAFE_POINT_COMMIT_INTERVAL_SECONDS", 0):
+            await _run_expecting(pipeline, redis, RuntimeError)
+
+        cast(AsyncMock, pipeline._process_batch).assert_not_awaited()
+        assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == ["a", "b"]
+
 
 def _recording_producer(events: list[str] | None = None) -> PostgresProducer:
     """A real producer over a mocked queue connection, so the rows it inserts can be read back."""
@@ -1067,7 +1139,6 @@ class TestFinalMarkerIsTheLastDataRow:
                 "handle_reset_or_full_refresh",
                 "handle_corrupted_delta_log",
                 "finalize_desc_sort_incremental_value",
-                "advance_xmin_state",
             ):
                 stack.enter_context(patch(f"{_PIPELINE}.{name}", new_callable=AsyncMock))
             for name in ("validate_incremental_sync", "record_source_item_stats", "update_sync_type_config_keys"):

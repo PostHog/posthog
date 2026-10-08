@@ -3025,6 +3025,58 @@ class TestLockPhaseTransactionPolicy:
             assert violation.startswith("❌ BLOCKED")
             assert fragment in violation
 
+    @pytest.mark.parametrize(
+        "atomic,drops,blocked",
+        [
+            (True, [["created_by_id", "team_id"]], True),
+            (False, [["created_by_id", "team_id"]], True),
+            (True, [["team_id", "widget_id"]], False),
+            (False, ["created_by_id", "team_id"], False),
+        ],
+    )
+    def test_one_drop_must_not_lock_two_hot_parents(self, monkeypatch, atomic, drops, blocked):
+        state = ProjectState()
+        state.add_model(
+            ModelState(
+                app_label="posthog",
+                name="Child",
+                fields=[
+                    ("id", models.AutoField(primary_key=True)),
+                    ("team", models.ForeignKey("posthog.Team", on_delete=models.CASCADE)),
+                    ("created_by", models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True)),
+                    ("widget", models.ForeignKey("posthog.Widget", on_delete=models.CASCADE)),
+                ],
+                options={"db_table": "posthog_child"},
+            )
+        )
+        for name, table in [("Team", "posthog_team"), ("User", "posthog_user"), ("Widget", "posthog_widget")]:
+            state.add_model(
+                ModelState(
+                    app_label="posthog",
+                    name=name,
+                    fields=[("id", models.AutoField(primary_key=True))],
+                    options={"db_table": table},
+                )
+            )
+        monkeypatch.setattr(LockPhaseTransactionPolicy, "_state_before", lambda _s, _m: state)
+        migration = MagicMock()
+        migration.app_label = "posthog"
+        migration.name = "0001_test"
+        migration.atomic = atomic
+        migration.operations = [
+            migrations.SeparateDatabaseAndState(
+                state_operations=[migrations.DeleteModel(name="Child")],
+                database_operations=[DropForeignKey("posthog_child", column=column) for column in drops],
+            )
+        ]
+
+        violations = LockPhaseTransactionPolicy().check_migration(migration)
+
+        assert len(violations) == (1 if blocked else 0)
+        if blocked:
+            assert violations[0].startswith("❌ BLOCKED")
+            assert "posthog_team, posthog_user" in violations[0]
+
 
 class TestGeneratedNameDropPolicy:
     @parameterized.expand(

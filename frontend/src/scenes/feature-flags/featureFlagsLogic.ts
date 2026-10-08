@@ -2,10 +2,9 @@ import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers,
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { LemonDialog, PaginationManual } from '@posthog/lemon-ui'
+import { LemonDialog, PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { isApprovalRequiredError } from 'lib/api-error'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -19,10 +18,14 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb, FeatureFlagType } from '~/types'
 
+import {
+    STALE_ROW_VERSION_RELOADED_MESSAGE,
+    isStaleRowVersionError,
+    rowVersionToken,
+} from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
 
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
-import { isV1FeatureFlagConfig } from './featureFlagConfigFormat'
 import { openFeatureFlagDisableDialog } from './featureFlagDisableDialog'
 
 export const FLAGS_PER_PAGE = 100
@@ -224,9 +227,6 @@ export interface featureFlagsLogicValues {
         tags?: string[] | undefined
         type?: string | undefined
     }
-    rowVersionToken: (id: number) => {
-        version?: number | undefined
-    }
     shouldShowEmptyState: boolean
     sidePanelContext: SidePanelSceneContext
 }
@@ -423,9 +423,6 @@ export interface featureFlagsLogicMeta {
             hasActiveFilters: boolean
         ) => boolean
         pagination: (filters: FeatureFlagsFilters, featureFlags: FeatureFlagsResult) => PaginationManual
-        rowVersionToken: (featureFlags: FeatureFlagsResult) => (id: number) => {
-            version?: number | undefined
-        }
         displayedFlags: (featureFlags: FeatureFlagsResult) => FeatureFlagType[]
     }
 }
@@ -486,7 +483,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     }
                 },
                 updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
-                    const versioned = values.rowVersionToken(id)
+                    const versioned = rowVersionToken(values.featureFlags.results.find((flag) => flag.id === id))
                     try {
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                         const response = await api.update(
@@ -508,11 +505,17 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                                   ? 'disable this feature flag'
                                   : 'update this feature flag'
                         handleFlagApprovalRequired(e, id, actionDescription)
-                        if (versioned.version !== undefined && e?.status === 409 && !isApprovalRequiredError(e)) {
+                        if (isStaleRowVersionError(versioned, e)) {
+                            // The global error toast skips every 409, so say why the click seemed to do nothing.
+                            lemonToast.error(e?.detail || STALE_ROW_VERSION_RELOADED_MESSAGE)
                             // The row version we sent is stale: the conflicting write may have replaced the whole
                             // document, so take the fresh row whole, not only its version.
-                            const fresh = await featureFlagsRetrieve(String(values.currentProjectId), id)
-                            actions.updateFlag(fresh as unknown as FeatureFlagType)
+                            try {
+                                const fresh = await featureFlagsRetrieve(String(values.currentProjectId), id)
+                                actions.updateFlag(fresh as unknown as FeatureFlagType)
+                            } catch {
+                                // The 409 stays the failure this loader reports.
+                            }
                         }
                         throw e
                     }
@@ -535,7 +538,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                             `api/projects/${values.currentProjectId}/feature_flags/${id}`,
                             {
                                 ...(archived ? { archived: true, active: false } : { archived: false }),
-                                ...values.rowVersionToken(id),
+                                ...rowVersionToken(values.featureFlags.results.find((flag) => flag.id === id)),
                             }
                         )
                         const updatedFlags = values.featureFlags.results.map((flag) =>
@@ -688,16 +691,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             (): SidePanelSceneContext => ({
                 activity_scope: ActivityScope.FEATURE_FLAG,
             }),
-        ],
-        rowVersionToken: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsResult) =>
-                (id: number): { version?: number } => {
-                    const flag = featureFlags.results.find((candidate) => candidate.id === id)
-                    return !flag || isV1FeatureFlagConfig(flag.filters) || flag.version === null
-                        ? {}
-                        : { version: flag.version }
-                },
         ],
         displayedFlags: [
             (s) => [s.featureFlags],

@@ -13,14 +13,20 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 
 import { AccessControlLevel, AccessControlResourceType, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
 
+import {
+    UNSUPPORTED_CONFIG_DISABLED_REASON,
+    featureFlagConfigFormat,
+    isRulesV2FeatureFlagConfig,
+    isV1FeatureFlagConfig,
+} from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { FeatureFlagConfigReadonlyNotice } from 'products/feature_flags/frontend/FeatureFlagConfigReadonlyNotice'
+import { FeatureFlagRulesV2Readonly } from 'products/feature_flags/frontend/FeatureFlagRulesV2Readonly'
+
 import { EditableOverviewSection } from './EditableOverviewSection'
-import { featureFlagConfigFormat, isRulesV2FeatureFlagConfig, isV1FeatureFlagConfig } from './featureFlagConfigFormat'
-import { FeatureFlagConfigReadonlyNotice } from './FeatureFlagConfigReadonlyNotice'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsReadonly } from './FeatureFlagReleaseConditionsReadonly'
-import { FeatureFlagRulesV2Readonly } from './FeatureFlagRulesV2Readonly'
 import { FeatureFlagVariantsSection } from './FeatureFlagVariantsSection'
 import { JSONEditorInput } from './JSONEditorInput'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
@@ -161,7 +167,7 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                                         !featureFlag.can_edit
                                             ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
                                             : featureFlagConfigFormat(featureFlag.filters) === 'unsupported'
-                                              ? 'This flag is stored in a configuration version this page cannot change.'
+                                              ? UNSUPPORTED_CONFIG_DISABLED_REASON
                                               : null
                                     }
                                     label="Enable feature flag"
@@ -172,7 +178,7 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                         )}
                     </div>
 
-                    <EditableOverviewSection editOptions={{ expandAdvanced: true }} readOnly={!v1Filters}>
+                    <EditableOverviewSection editOptions={{ expandAdvanced: true }}>
                         <div className="flex flex-col gap-4">
                             <div className="font-semibold">Advanced options</div>
 

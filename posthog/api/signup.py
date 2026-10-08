@@ -866,7 +866,7 @@ def lookup_invite_for_saml(email: str, saml_relay_state: str) -> Optional[Organi
     if config is None:
         return None
     return (
-        OrganizationInvite.objects.filter(target_email=email, organization_id=config.organization_id)
+        OrganizationInvite.objects.filter(target_email__iexact=email, organization_id=config.organization_id)
         .order_by("-created_at")
         .first()
     )
@@ -944,7 +944,7 @@ def process_social_domain_jit_provisioning_signup(
             if not user:
                 try:
                     invite: OrganizationInvite = OrganizationInvite.objects.get(
-                        target_email=email, organization=domain_instance.organization
+                        target_email__iexact=email, organization=domain_instance.organization
                     )
                     invite.validate(user=None, email=email)
                     # Capture before invite.use() deletes the invite row.

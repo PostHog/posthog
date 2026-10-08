@@ -65,6 +65,7 @@ CAMPAIGN_PROPERTIES: list[str] = [
     "epik",  # pinterest
     "qclid",  # quora
     "sccid",  # snapchat
+    "oppref",  # openai ads
     "irclid",  # impact
     "_kx",  # klaviyo
 ]
@@ -131,7 +132,7 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
     *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
-# IF UPDATING THIS, ALSO RUN `pnpm run taxonomy:build` to update core-filter-definitions-by-group.json
+# IF UPDATING THIS, ALSO RUN `hogli build:projections` to update core-filter-definitions-by-group.json
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
         # in front end this key is the empty string
@@ -569,7 +570,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$workflows_email_bounced": {
             "label": "Workflow email bounced",
-            "description": "Fires when a workflow email bounces.",
+            "description": 'Fires when a workflow email bounces. The `$bounce_type` property holds `hard` when the address will never accept mail (it is also added to the suppression list), `soft` when the failure is temporary such as a full mailbox, and `unknown` when the provider could not tell. `$bounce_sub_type` holds the provider\'s own reason, such as "MailboxFull". Bounces recorded before these properties shipped carry neither.',
         },
         "$workflows_email_blocked": {
             "label": "Workflow email marked as spam",
@@ -2064,6 +2065,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "sccid",
             "description": "Snapchat Click ID",
         },
+        "oppref": {
+            "label": "oppref",
+            "description": "OpenAI Ads Click ID",
+        },
         "irclid": {
             "label": "irclid",
             "description": "Impact Click ID",
@@ -2546,6 +2551,17 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
             "examples": [True, False],
         },
+        "$ai_evaluation_probability": {
+            "label": "AI evaluation probability",
+            "description": "The probability of a true verdict for a boolean evaluation.",
+            "examples": [0.9],
+            "type": "Numeric",
+        },
+        "$ai_evaluation_categorical_result": {
+            "label": "AI evaluation categorical result",
+            "description": "The category keys returned by an online evaluation. An empty list is an applicable result with no matching categories.",
+            "examples": ['["resolved"]', '["fast", "reliable"]', "[]"],
+        },
         "$ai_evaluation_numeric_result": {
             "label": "AI evaluation numeric result",
             "description": "The raw numeric score returned by an online evaluation.",
@@ -2936,6 +2952,31 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Field path the PostHog API's validation error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set for validation failures.",
             "examples": ["actions__N__inputs__email", "query"],
         },
+        "$mcp_validation_fields": {
+            "label": "MCP validation fields",
+            "description": "Parameter paths the MCP server's own input schema rejected, as `path:code` (for example `id:invalid_type`). Names from the tool's schema, never caller values. Only set when the server rejected the input before calling PostHog.",
+            "examples": ["id:invalid_type", "filters.groups:required"],
+        },
+        "$mcp_input_keys": {
+            "label": "MCP input keys",
+            "description": "Top-level argument names the caller sent on a tool call, success or failure: every direct-mode call, `render-ui`, and an exec `call` (parsed from the command string). Exec discovery verbs (tools, search, info, schema) carry none, so rate against rows where it is set rather than every $mcp_tool_call. Recorded by the @posthog/mcp SDK helper: names the tool declares, including its aliases, capped at 20. Undeclared names become one `[redacted]` entry. Names only, never values. Group by it with $mcp_input_aliases_used to see how agents spell a parameter.",
+            "examples": ["id", "experimentId", "filters, key, name"],
+        },
+        "$mcp_input_aliases_used": {
+            "label": "MCP input aliases used",
+            "description": "Declared parameter aliases the call relied on, as `alias:canonical` (for example `experimentId:id`). Present only when the call did not send the canonical name and used one of its aliases instead. Both names come from the tool's own alias map. Recorded by the @posthog/mcp SDK helper. Measures how much traffic the alias layer rescues, and which spellings agents reach for.",
+            "examples": ["experimentId:id", "flagKey:key"],
+        },
+        "$mcp_exec_verb": {
+            "label": "MCP exec verb",
+            "description": "Which exec dispatcher verb the request ran: tools, search, info, schema, call, learn, or `unrecognized` for a verb the server does not accept. Only set in exec mode ($mcp_mode).",
+            "examples": ["call", "info", "unrecognized"],
+        },
+        "$mcp_exec_target_tool": {
+            "label": "MCP exec target tool",
+            "description": "The tool an exec info, schema, or call verb named, when it resolves to a tool in the server's catalog; `unrecognized` otherwise so the caller's own token is never recorded. Links an `info` read to the `call` that follows it.",
+            "examples": ["experiment-get", "unrecognized"],
+        },
         "$mcp_auth_method": {
             "label": "MCP auth method",
             "description": "Which credential the MCP request authenticated with, derived from the bearer token's prefix: oauth, personal_api_key, id_jag, none, or unknown. Stamped on every event by PostHog's own MCP server. Use it to tell an OAuth connector apart from an API-key connection — for example when a user works around a broken OAuth flow by switching to a personal API key.",
@@ -2965,6 +3006,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP server name",
             "description": "The advertised name of the MCP server that handled the request.",
             "examples": ["PostHog"],
+        },
+        "$mcp_server_build": {
+            "label": "MCP server build",
+            "description": "The exact immutable build identifier that the MCP host supplies, such as a Git commit SHA or container image digest. Use it to connect an event to deployed code when one server version has multiple builds.",
+            "examples": ["b3b941584bae0123"],
         },
         "$mcp_server_version": {
             "label": "MCP server version",
@@ -3061,8 +3107,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_protocol_version": {
             "label": "MCP protocol version",
-            "description": "The MCP protocol version negotiated between client and server during initialize.",
-            "examples": ["2025-11-25", "2025-06-18"],
+            "description": "The MCP protocol revision the request was made under, such as 2025-11-25 or 2026-07-28.",
+            "examples": ["2025-11-25", "2025-06-18", "2026-07-28"],
         },
         "$mcp_transport": {
             "label": "MCP transport",
@@ -3887,6 +3933,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$group_key": {
             "label": "Group key",
             "description": "Specified group key",
+            "type": "String",
+            # Not a row in the group's property JSON — it is the group's key column. Marked
+            # virtual so the property definitions API still offers it as a selectable filter.
+            "virtual": True,
         },
         "$virt_revenue": {
             "description": "The total revenue for this group. This will always be the current total revenue even when referring to a group via events.",

@@ -282,7 +282,7 @@ Each product defines its public interface as **frozen dataclasses** in `backend/
 
 ### Rules:
 
-- No Django imports
+- No Django imports, in `contracts.py` and in `enums.py`. An enum that backs model or serializer choices is a `LabeledStrEnum` or `LabeledIntEnum` from `posthog/enums.py`, not a `models.TextChoices`
 - Immutable (`frozen=True`)
 - Small, hashable, stable
 - Facades accept them as inputs and return them as outputs

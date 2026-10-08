@@ -449,6 +449,7 @@ async fn test_evaluate_feature_flags_with_errors() {
                 has_experiment: false,
             },
             conditions: None,
+            config_outcome: Default::default(),
         }
     );
     let legacy_response = LegacyFlagsResponse::from_response(result);
@@ -928,6 +929,7 @@ async fn test_evaluate_feature_flags_details() {
                 has_experiment: false,
             },
             conditions: None,
+            config_outcome: Default::default(),
         }
     );
     assert_eq!(
@@ -950,6 +952,7 @@ async fn test_evaluate_feature_flags_details() {
                 has_experiment: false,
             },
             conditions: None,
+            config_outcome: Default::default(),
         }
     );
 }

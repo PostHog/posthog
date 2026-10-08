@@ -29,6 +29,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.slack.formatting import (
     channel_id_from_target as _channel_id_from_target,
     escape_slack_mrkdwn as _escape_mrkdwn,
+    markdown_links_to_labels,
 )
 from posthog.slack.markdown import slack_markdown_block as _markdown_block
 
@@ -306,6 +307,9 @@ def _summary_excerpt(summary: str) -> str:
     first_line = text.splitlines()[0].strip()
     if not first_line:
         return ""
+    if len(first_line) <= _SUMMARY_EXCERPT_MAX_LEN:
+        return first_line
+    first_line = markdown_links_to_labels(first_line)
     if len(first_line) <= _SUMMARY_EXCERPT_MAX_LEN:
         return first_line
     return first_line[: _SUMMARY_EXCERPT_MAX_LEN - 3].rstrip() + "..."
