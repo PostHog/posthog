@@ -1,6 +1,13 @@
 import { urls } from 'scenes/urls'
 
-import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
+import type { TodayReportCard } from '~/layout/today/todayPreviewCards'
+
+import type {
+    BriefingApi,
+    BriefingItemApi,
+    BriefingItemStateEnumApi,
+    TodayItemReasonEnumApi,
+} from 'products/today/frontend/generated/api.schemas'
 
 import { TodayReportSource, sourceStyle } from './todaySignalReports'
 
@@ -10,6 +17,78 @@ export type TodayItemOpenSurface = 'briefing' | 'chip' | 'sidebar'
 /** A report takes the style of the product its signals came from, the way the inbox shows it. */
 export function itemSource(item: Pick<BriefingItemApi, 'source' | 'source_product'>): TodayReportSource {
     return sourceStyle(item.source_product ?? item.source)
+}
+
+const REASON_LABELS: Record<TodayItemReasonEnumApi, string> = {
+    claimed_by_you: 'You claimed it',
+    waiting_for_you: 'Waiting for your input',
+    suggested_reviewer: 'You are a suggested reviewer',
+    urgent_for_project: 'Urgent, and nobody owns it',
+    dashboard_you_viewed: 'A dashboard you viewed',
+    dashboard_you_starred: 'A dashboard you starred',
+    insight_you_viewed: 'An insight you viewed',
+    insight_you_starred: 'An insight you starred',
+    alert_firing: 'An alert you follow is firing',
+    assigned_ticket: 'Assigned to you',
+    assigned_error_issue: 'Assigned to you or your role',
+    review_requested: 'Your review was requested',
+    your_pull_request: 'Your pull request',
+}
+
+/** Why the briefing picked the item, as the hover card says it. */
+export function itemReasonLabel(item: Pick<BriefingItemApi, 'reason'>): string {
+    return REASON_LABELS[item.reason]
+}
+
+const STATE_LABELS: Record<BriefingItemStateEnumApi, string | null> = {
+    open: null,
+    done: 'Resolved',
+    dismissed: 'Dismissed',
+    left: 'Not yours',
+}
+
+/** What happened to the item since the briefing was written, or null while it is still open. */
+export function itemStateLabel(item: Pick<BriefingItemApi, 'state'>): string | null {
+    return STATE_LABELS[item.state]
+}
+
+// The briefing reasons a report gets when it names the person, the reports the for_you count covers.
+const NAMES_PERSON_REASONS: ReadonlySet<TodayItemReasonEnumApi> = new Set(['waiting_for_you', 'suggested_reviewer'])
+
+export function itemNamesPerson(item: Pick<BriefingItemApi, 'reason'>): boolean {
+    return NAMES_PERSON_REASONS.has(item.reason)
+}
+
+const REPORT_STATUS_STATES: Record<string, BriefingItemStateEnumApi> = {
+    resolved: 'done',
+    suppressed: 'dismissed',
+    deleted: 'dismissed',
+}
+
+/** A report's status in the briefing's terms, the way the backend gives briefing items their live state. */
+export function reportItemState(status: string): BriefingItemStateEnumApi {
+    return REPORT_STATUS_STATES[status] ?? 'open'
+}
+
+export function briefingItemReportCard(item: BriefingItemApi): TodayReportCard {
+    return {
+        key: item.key,
+        reportId: itemReportId(item),
+        title: item.title,
+        reason: itemReasonLabel(item),
+        stateLabel: itemStateLabel(item),
+        resolved: item.state === 'done',
+        canLeaveReview: itemNamesPerson(item),
+        priority: item.report?.priority ?? null,
+        summary: item.report?.summary || null,
+        pullRequestState: item.report?.pull_request_state ?? null,
+        pullRequestUrl: item.report?.pull_request_url ?? null,
+        signalCount: item.report?.signal_count ?? null,
+        updatedAt: item.report?.updated_at ?? null,
+        metrics: item.report?.metrics ?? [],
+        charts: item.report?.charts ?? [],
+        sourceLabel: itemSource(item).label,
+    }
 }
 
 /** The report id of a `report:<id>` item, else null. */

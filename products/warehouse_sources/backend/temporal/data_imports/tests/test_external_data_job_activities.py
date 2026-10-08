@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     CANCELLED_RUN_MESSAGE,
+    RAILWAY_PROXY_CONNECTION_MESSAGE,
     SYNC_RUN_STALLED_MESSAGE,
     SYNC_RUN_TOO_LONG_MESSAGE,
     TRANSIENT_EGRESS_MESSAGE,
@@ -394,6 +395,30 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
             "vendor_service_unavailable",
             ExternalDataSourceType.APPLESEARCHADS,
             "503 Server Error: Service Temporarily Unavailable for url: https://api.example.com/v1/things",
+            TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
+        ),
+        # Railway's TCP proxy, which the generic connection-drop copy would otherwise claim. Both
+        # shapes are matched, because a customer configures either the proxy host or its address.
+        (
+            "railway_proxy_by_host",
+            ExternalDataSourceType.POSTGRES,
+            'connection failed: connection to server at "test.proxy.rlwy.net" (198.51.100.7), '
+            "port 31234 failed: server closed the connection unexpectedly",
+            RAILWAY_PROXY_CONNECTION_MESSAGE,
+        ),
+        (
+            "railway_proxy_by_address",
+            ExternalDataSourceType.POSTGRES,
+            'connection failed: connection to server at "66.33.22.7", port 31234 failed: '
+            "server closed the connection unexpectedly",
+            RAILWAY_PROXY_CONNECTION_MESSAGE,
+        ),
+        # Railway's HTTP domain is not its TCP proxy, so a REST source hosted on Railway keeps the
+        # copy for its own failure rather than being told to check a connection limit.
+        (
+            "railway_hosted_rest_api",
+            ExternalDataSourceType.APPLESEARCHADS,
+            "503 Server Error: Service Temporarily Unavailable for url: https://api.up.railway.app/v1/things",
             TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
         ),
     ]

@@ -11,7 +11,7 @@ from django.db.models import QuerySet
 
 import posthoganalytics
 
-from posthog.event_usage import groups
+from posthog.event_usage import AnalyticsProps, groups
 
 from products.access_control.backend.facade.api import valid_role_member_user_ids
 
@@ -653,6 +653,7 @@ def create_external_reference(
     config: dict[str, Any] | None = None,
     external_context: dict[str, Any] | None = None,
     distinct_id: int | str,
+    analytics_props: AnalyticsProps | None = None,
 ) -> contracts.ErrorTrackingExternalReference:
     reference, created = external_references.create_external_reference(
         team_id=team_id,
@@ -669,6 +670,7 @@ def create_external_reference(
             distinct_id=distinct_id,
             groups=groups(reference.issue.team.organization, reference.issue.team),
             properties={
+                **(analytics_props or {}),
                 "issue_id": reference.issue_id,
                 "integration_kind": reference.integration.kind,
                 # Distinguish linking an existing issue from creating a brand-new one.

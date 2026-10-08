@@ -2,9 +2,9 @@
 Pipeline/metrics wiring for warehouse_sources.
 
 Re-exports the data-import pipeline internals (v3 S3 helpers and health server),
-the app-metric emitters, the CDC extraction input, and the pipeline-
-version + schema-sync helpers that sibling products (data_warehouse, error_tracking) and
-core (the ducklake copy workflow) reach into while orchestrating or observing imports.
+the app-metric emitters, the CDC extraction input, and the schema-sync helpers that
+sibling products (data_warehouse, error_tracking) and core (the ducklake copy workflow)
+reach into while orchestrating or observing imports.
 
 These live deep under ``temporal.data_imports`` and pull heavy dependencies (temporalio,
 dlt, boto3, ...), so — like ``facade.source_management`` — the module resolves names lazily
@@ -22,7 +22,6 @@ _LAZY = {
     "mark_job_failed_if_not_terminal": "pipelines.pipeline_v3.postgres_queue.consumer",
     "release_v3_pipeline_lock": "pipelines.pipeline_v3.sync_lock",
     "CDCExtractionInput": "cdc.workflows",
-    "is_pipeline_v3_enabled": "workflow_activities.create_job_model",
     "SyncNewSchemasActivityInputs": "workflow_activities.sync_new_schemas",
     "finish_row_tracking": "row_tracking",
     "HealthState": "products.warehouse_sources_queue.backend.core.health",

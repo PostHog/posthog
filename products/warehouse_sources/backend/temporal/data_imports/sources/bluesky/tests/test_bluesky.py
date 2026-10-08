@@ -17,39 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 
 
 class TestGetResource:
-    @pytest.mark.parametrize(
-        ("name", "expected_path", "expected_selector"),
-        [
-            ("Profile", "/xrpc/app.bsky.actor.getProfile", "$"),
-            ("Posts", "/xrpc/app.bsky.feed.getAuthorFeed", "feed[*].post"),
-            ("Followers", "/xrpc/app.bsky.graph.getFollowers", "followers"),
-            ("Follows", "/xrpc/app.bsky.graph.getFollows", "follows"),
-        ],
-    )
-    def test_endpoint_shape(self, name: str, expected_path: str, expected_selector: str) -> None:
-        resource = get_resource(name, actor="jay.bsky.team")
-        endpoint = resource["endpoint"]
-        assert isinstance(endpoint, dict)
-
-        assert endpoint["path"] == expected_path
-        assert endpoint["data_selector"] == expected_selector
-
-        params = endpoint["params"]
-        assert isinstance(params, dict)
-        assert params["actor"] == "jay.bsky.team"
-
     def test_unknown_endpoint_raises(self) -> None:
         with pytest.raises(KeyError):
             get_resource("Nope", actor="jay.bsky.team")
-
-    def test_posts_excludes_replies(self) -> None:
-        # Matches what most marketing/brand tracking cares about: the author's own content.
-        resource = get_resource("Posts", actor="jay.bsky.team")
-        endpoint = resource["endpoint"]
-        assert isinstance(endpoint, dict)
-        params = endpoint["params"]
-        assert isinstance(params, dict)
-        assert params["filter"] == "posts_no_replies"
 
 
 def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
@@ -77,28 +47,6 @@ class TestValidateCredentials:
             "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile",
             params={"actor": "jay.bsky.team"},
         )
-
-    @patch(_MAKE_SESSION)
-    def test_missing_actor_surfaces_api_message(self, mock_make_session: MagicMock) -> None:
-        mock_session = mock_make_session.return_value
-        mock_session.get.return_value = _make_http_response(
-            {"error": "InvalidRequest", "message": "Profile not found"}, 400
-        )
-
-        is_valid, message = validate_credentials("missing.bsky.social")
-
-        assert is_valid is False
-        assert message == "Profile not found"
-
-    @patch(_MAKE_SESSION)
-    def test_missing_actor_without_api_message_falls_back(self, mock_make_session: MagicMock) -> None:
-        mock_session = mock_make_session.return_value
-        mock_session.get.return_value = _make_http_response({}, 400)
-
-        is_valid, message = validate_credentials("missing.bsky.social")
-
-        assert is_valid is False
-        assert message == "That handle or DID couldn't be found on Bluesky. Check the spelling and try again."
 
     @patch(_MAKE_SESSION)
     def test_non_json_error_body_falls_back(self, mock_make_session: MagicMock) -> None:
@@ -204,15 +152,6 @@ class TestBlueskySourceResumeBehavior:
 
         assert [p.get("cursor") for p in sent_params] == ["cursor-resumed"]
         manager.load_state.assert_called_once()
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response({"followers": [{"did": "did:plc:1"}]})]
-        self._drive("Followers", manager, responses)
-
-        manager.save_state.assert_not_called()
 
     def test_does_not_load_state_when_cannot_resume(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)

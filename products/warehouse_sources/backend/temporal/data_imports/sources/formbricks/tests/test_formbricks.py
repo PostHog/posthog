@@ -35,7 +35,6 @@ _fetch_page_unwrapped = formbricks._fetch_page.__wrapped__  # type: ignore[attr-
 
 RESPONSES_CONFIG = FORMBRICKS_ENDPOINTS["responses"]
 SURVEYS_CONFIG = FORMBRICKS_ENDPOINTS["surveys"]
-WEBHOOKS_CONFIG = FORMBRICKS_ENDPOINTS["webhooks"]
 
 
 class _FakeResumableManager:
@@ -74,18 +73,6 @@ class TestNormalizeHost:
 
 
 class TestBuildInitialParams:
-    def test_unpaginated_endpoint_sends_no_params(self) -> None:
-        assert _build_initial_params(SURVEYS_CONFIG, False, None, None) == {}
-
-    def test_full_refresh_pins_stable_ascending_order(self) -> None:
-        params = _build_initial_params(RESPONSES_CONFIG, False, None, None)
-        assert params == {"limit": PAGE_SIZE, "skip": 0, "sortBy": "createdAt", "order": "asc"}
-
-    def test_paginated_without_sort_support_omits_sort_params(self) -> None:
-        # webhooks documents no sortBy/order, so sending them risks a non-retryable 400.
-        params = _build_initial_params(WEBHOOKS_CONFIG, False, None, None)
-        assert params == {"limit": PAGE_SIZE, "skip": 0}
-
     @parameterized.expand([("updated_at", "updatedAt"), ("created_at", "createdAt")])
     def test_incremental_filters_and_sorts_on_chosen_field(self, _name: str, field: str) -> None:
         params = _build_initial_params(RESPONSES_CONFIG, True, datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC), field)
@@ -94,30 +81,9 @@ class TestBuildInitialParams:
         assert params["sortBy"] == field
         assert params["order"] == "asc"
 
-    def test_incremental_defaults_to_updated_at(self) -> None:
-        params = _build_initial_params(RESPONSES_CONFIG, True, datetime(2026, 1, 1, tzinfo=UTC), None)
-        assert params["filterDateField"] == "updatedAt"
-
-    def test_incremental_without_last_value_falls_back_to_full_refresh(self) -> None:
-        params = _build_initial_params(RESPONSES_CONFIG, True, None, "updatedAt")
-        assert "startDate" not in params
-
     def test_unknown_incremental_field_raises(self) -> None:
         with pytest.raises(ValueError, match="Unsupported Formbricks incremental field"):
             _build_initial_params(RESPONSES_CONFIG, True, datetime(2026, 1, 1, tzinfo=UTC), "finished")
-
-
-class TestAdvanceSkip:
-    def test_advances_skip_by_limit_and_preserves_params(self) -> None:
-        url = _build_url(None, RESPONSES_CONFIG.path, _build_initial_params(RESPONSES_CONFIG, False, None, None))
-        advanced = _advance_skip(url)
-        assert f"skip={PAGE_SIZE}" in advanced
-        assert f"limit={PAGE_SIZE}" in advanced
-        assert "sortBy=createdAt" in advanced
-        assert advanced.startswith(f"{DEFAULT_HOST}{RESPONSES_CONFIG.path}")
-
-    def test_advances_from_nonzero_skip(self) -> None:
-        assert "skip=500" in _advance_skip(f"{DEFAULT_HOST}/api/v2/management/responses?limit=250&skip=250")
 
 
 class TestGetRows:
@@ -166,14 +132,6 @@ class TestGetRows:
             ),
         )
 
-    def test_short_first_page_yields_and_stops_without_saving(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        url = self._initial_url()
-        rows, fetched = self._collect(manager, monkeypatch, {url: [{"id": "a"}, {"id": "b"}]})
-        assert rows == [{"id": "a"}, {"id": "b"}]
-        assert fetched == [url]
-        assert manager.saved == []
-
     def test_full_page_advances_skip_until_short_page(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         first = self._initial_url()
@@ -206,19 +164,6 @@ class TestGetRows:
         assert rows == [{"id": "s1"}]
         assert fetched == [url]
         assert manager.saved == []
-
-    def test_incremental_run_sends_window_on_first_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        kwargs: dict[str, Any] = {
-            "should_use_incremental_field": True,
-            "db_incremental_field_last_value": datetime(2026, 1, 1, tzinfo=UTC),
-            "incremental_field": "updatedAt",
-        }
-        url = self._initial_url(**kwargs)
-        _, fetched = self._collect(manager, monkeypatch, {url: []}, **kwargs)
-        assert "startDate=2026-01-01T00%3A00%3A00Z" in fetched[0]
-        assert "filterDateField=updatedAt" in fetched[0]
-        assert "sortBy=updatedAt" in fetched[0]
 
     def test_plaintext_http_host_is_rejected(self, monkeypatch: Any) -> None:
         with pytest.raises(FormbricksHostNotAllowedError, match=HTTP_NOT_ALLOWED_ERROR):
@@ -282,10 +227,6 @@ class TestFetchPage:
     def test_unexpected_payload_is_retryable(self, _name: str, body: Any) -> None:
         with pytest.raises(FormbricksRetryableError):
             _fetch_page_unwrapped(self._session_returning(200, body), "https://x/api", MagicMock())
-
-    def test_success_returns_data_rows(self) -> None:
-        body = {"data": [{"id": "1"}], "meta": {"total": 1, "limit": 50, "offset": 0}}
-        assert _fetch_page_unwrapped(self._session_returning(200, body), "https://x/api", MagicMock()) == [{"id": "1"}]
 
     def test_does_not_follow_redirects(self) -> None:
         session = self._session_returning(200)

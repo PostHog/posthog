@@ -7,13 +7,13 @@ from django.db import transaction
 
 import structlog
 
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-from products.workflows.backend.presentation.views.hog_flow import (
+from products.workflows.backend.facade.secrets import (
     TemplateCache,
     merge_secret_maps,
     plaintext_secret_map,
     strip_secrets_from_content,
 )
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = structlog.get_logger(__name__)
 

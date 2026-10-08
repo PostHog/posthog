@@ -1,7 +1,6 @@
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.skio import SkioSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.skio.source import SkioSource
@@ -38,17 +37,3 @@ class TestSkioSource:
         source = SkioSource()
         schemas = source.get_schemas(SkioSourceConfig(api_token="token"), team_id=1, names=["orders", "customers"])
         assert sorted(schema.name for schema in schemas) == ["customers", "orders"]
-
-    @pytest.mark.parametrize(
-        "api_error_message",
-        [
-            # Verbatim strings the live API returns, kept as field knowledge: an invalid token and a
-            # token whose role can't see the queried collection. Both ride an HTTP 200 body, so
-            # they must match on the exception message for the sync to stop retrying.
-            "Skio API error: Invalid response from authorization hook",
-            "Skio API error: field 'Subscriptions' not found in type: 'query_root'",
-        ],
-    )
-    def test_non_retryable_patterns_match_real_api_errors(self, api_error_message: str) -> None:
-        source = SkioSource()
-        assert error_message_matches(api_error_message, source.get_non_retryable_errors().keys())

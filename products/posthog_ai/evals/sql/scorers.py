@@ -6,13 +6,8 @@ funnel / retention judges in shape but lives outside ``product_analytics/``
 because ``execute-sql`` is a general-purpose tool, not a product-analytics
 one.
 
-The judge prompt is forked from the CI ``SQL_SEMANTICS_CORRECTNESS_PROMPT``
-in ``ee/hogai/eval/scorers/sql.py`` — same HogQL guidance, but graded on
-the six-bucket ``GRADED_ALIGNMENT_*`` scale used by the rest of the
-sandboxed evals instead of binary Pass/Fail. The ``database_schema``
-placeholder is dropped: the sandboxed run doesn't surface a schema dump
-to scorers, and the judge has the user prompt + reference SQL to anchor
-on without it.
+The judge uses the ``GRADED_ALIGNMENT_*`` scale and compares the query with the user prompt and reference SQL.
+The sandbox run does not provide a schema dump to scorers.
 
 The shared judge plumbing (``JudgedScorer``, alignment constants,
 ``JUDGE_MODEL``) lives in ``products/posthog_ai/eval_harness/scorers/``; only the

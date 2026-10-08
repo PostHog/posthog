@@ -128,23 +128,42 @@ const ROOTS = [
     {
         root: 'src/scenes/dashboard/Dashboard.tsx',
         label: 'dashboard scene',
-        // 2026-10-01: 12.25 MiB (4720 files), linked stylesheet included. ~10% headroom.
-        budgetBytes: 14_130_000,
-        forbidden: [],
+        // 2026-10-05: 9.93 MiB (3517 files), linked stylesheet included. ~10% headroom.
+        budgetBytes: 11_450_000,
+        forbidden: [
+            // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
+            'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
+            // Only web analytics insights render this tile. A hit means a static import put the web
+            // analytics stack on every page that shows an insight.
+            'src/scenes/web-analytics/tiles/WebAnalyticsTile.tsx',
+        ],
     },
     {
-        root: 'src/scenes/project-homepage/ProjectHomepage.tsx',
-        label: 'project home scene',
-        // 2026-10-01: 14.94 MiB (5579 files), linked stylesheet included. ~10% headroom.
-        budgetBytes: 17_240_000,
-        forbidden: [],
+        root: [
+            AUTHENTICATED_SHELL,
+            'src/scenes/project-homepage/ProjectHomepage.tsx',
+            'src/scenes/project-homepage/today/TodayHome.tsx',
+        ],
+        label: 'today home path',
+        budgetBytes: 9_000_000,
+        forbidden: [
+            'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
+            'src/scenes/project-homepage/today/TodayReportPage.tsx',
+            'src/queries/Query/Query.tsx',
+        ],
     },
     {
         root: 'src/scenes/activity/explore/EventsScene.tsx',
         label: 'events scene',
-        // 2026-10-01: 11.48 MiB (4382 files), linked stylesheet included. ~10% headroom.
-        budgetBytes: 13_250_000,
-        forbidden: [],
+        // 2026-10-05: 9.55 MiB (3371 files), linked stylesheet included. ~10% headroom.
+        budgetBytes: 11_020_000,
+        forbidden: [
+            // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
+            'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
+            // Only web analytics insights render this tile. A hit means a static import put the web
+            // analytics stack on every page that shows an insight.
+            'src/scenes/web-analytics/tiles/WebAnalyticsTile.tsx',
+        ],
     },
     {
         root: 'src/scenes/session-recordings/detail/SessionRecordingDetail.tsx',
@@ -442,7 +461,7 @@ for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
         files: eagerBytesByFile.size,
         budgetBytes,
         overBudget,
-        forbidden,
+        forbidden: forbidden.map(forbiddenPattern),
         forbiddenHits,
         largest: largest.map(([f, b]) => ({ file: f, bytes: b })),
     })

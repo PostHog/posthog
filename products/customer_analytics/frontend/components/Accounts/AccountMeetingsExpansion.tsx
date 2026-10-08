@@ -17,6 +17,7 @@ import {
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import gongIcon from 'public/services/gong.png'
@@ -228,8 +229,17 @@ export function AccountMeetingsExpansion({
         {
             title: 'When',
             key: 'start_time',
-            width: 140,
-            render: (_, meeting) => <TZLabel time={meeting.start_time} />,
+            width: 180,
+            render: (_, meeting) => (
+                <div className="flex items-center gap-1 whitespace-nowrap">
+                    <TZLabel time={meeting.start_time} />
+                    {meeting.is_recurring && dayjs(meeting.start_time).isAfter(dayjs()) && (
+                        <LemonTag type="muted" size="small" title="Later occurrences of this series are hidden">
+                            Recurring
+                        </LemonTag>
+                    )}
+                </div>
+            ),
             sorter: (a, b) => a.start_time.localeCompare(b.start_time),
         },
         {

@@ -26,9 +26,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from products.signals.backend.report_charts import _unstorable_text
 from products.signals.backend.report_metrics import (
     MAX_METRIC_UNIT_LENGTH,
     ReportMetric,
@@ -197,6 +199,13 @@ class MetricThresholdConfig(BaseModel):
     )
     unit: str | None = Field(default=None, max_length=MAX_METRIC_UNIT_LENGTH, description="Optional value suffix.")
 
+    @field_validator("unit")
+    @classmethod
+    def unit_must_be_storable(cls, value: str | None) -> str | None:
+        if value is not None and (reason := _unstorable_text(value)) is not None:
+            raise ValueError(f"unit must not contain {reason}")
+        return value
+
     @field_validator("baseline_value", mode="before")
     @classmethod
     def baseline_must_be_a_plain_number(cls, value: object) -> object:
@@ -364,6 +373,10 @@ class CheckSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    existing_check_id: UUID | None = Field(
+        default=None, description="ID of the existing check being retained or revised. Omit for a new check."
+    )
+
     title: str = Field(
         max_length=MAX_CHECK_TITLE_LENGTH,
         description="Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.",
@@ -381,7 +394,8 @@ class CheckSpec(BaseModel):
         le=MAX_CHECK_SOAK_HOURS,
         description=(
             "How long after the report is resolved to wait before measuring. The fix has to have "
-            f"been live a while for the result to mean anything. Defaults to {DEFAULT_CHECK_SOAK_HOURS} hours."
+            f"been live a while for the result to mean anything. Defaults to {DEFAULT_CHECK_SOAK_HOURS} hours "
+            "for a new check; omission preserves an existing check’s wait."
         ),
     )
 

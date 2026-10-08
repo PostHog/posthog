@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from posthog.schema_enums import AlertState as InsightAlertState
 
-from products.alerts.backend.facade.lifecycle import (
+from products.alerts_platform.backend.facade.lifecycle import (
     AlertCheckOutcome,
     AlertPolicy,
     AlertSnapshot,
@@ -35,13 +35,31 @@ INSIGHT_ALERT_POLICY = AlertPolicy(
 )
 
 
-def snapshot_from_alert(alert: AlertConfiguration) -> AlertSnapshot:
+def insight_snapshot(
+    state: AlertState,
+    *,
+    last_notified_at: datetime | None,
+    snooze_until: datetime | None = None,
+    firing_started_at: datetime | None = None,
+) -> AlertSnapshot:
+    """The machine's view of an insight alert. The model keeps no failure counter, so an ERRORED
+    state reads as one failure. The platform's parallel run builds its view here too, so both
+    stacks announce an error on the same check."""
     return AlertSnapshot(
-        state=AlertState[InsightAlertState(alert.state).name],
+        state=state,
         cooldown=timedelta(0),
+        last_notified_at=last_notified_at,
+        snooze_until=snooze_until,
+        consecutive_failures=1 if state == AlertState.ERRORED else 0,
+        firing_started_at=firing_started_at,
+    )
+
+
+def snapshot_from_alert(alert: AlertConfiguration) -> AlertSnapshot:
+    return insight_snapshot(
+        AlertState[InsightAlertState(alert.state).name],
         last_notified_at=alert.last_notified_at,
         snooze_until=alert.snoozed_until,
-        consecutive_failures=1 if alert.state == InsightAlertState.ERRORED else 0,
     )
 
 

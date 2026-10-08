@@ -173,6 +173,161 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["count"] == 2
 
+    def test_list_reads_champions_in_one_query(self):
+        validated = self._make_pipeline(name="Validated")
+        AutoresearchModel.objects.create(
+            pipeline=validated,
+            role=AutoresearchModel.Role.ARCHIVED,
+            model_recipe={"stub": True},
+            recipe_hash="old",
+            metrics={"realized": {"lift_at_10": 9.0, "prediction_date": "2026-01-01"}},
+        )
+        AutoresearchModel.objects.create(
+            pipeline=validated,
+            role=AutoresearchModel.Role.CHAMPION,
+            model_recipe={"stub": True},
+            recipe_hash="validated",
+            holdout_score=0.81,
+            realized_score=0.78,
+            is_preliminary=False,
+            metrics={"realized": {"lift_at_10": 2.4, "prediction_date": "2026-01-02"}},
+        )
+        preliminary = self._make_pipeline(name="Preliminary")
+        AutoresearchModel.objects.create(
+            pipeline=preliminary,
+            role=AutoresearchModel.Role.CHAMPION,
+            model_recipe={"stub": True},
+            recipe_hash="preliminary",
+            holdout_score=0.72,
+            is_preliminary=True,
+        )
+        for name, n_positive in (("No positives", 0), ("Zero lift", 3)):
+            AutoresearchModel.objects.create(
+                pipeline=self._make_pipeline(name=name),
+                role=AutoresearchModel.Role.CHAMPION,
+                model_recipe={"stub": True},
+                recipe_hash=name,
+                holdout_score=0.81,
+                realized_score=0.78,
+                is_preliminary=False,
+                metrics={"realized": {"n_positive": n_positive, "lift_at_10": 0.0, "prediction_date": "2026-01-02"}},
+            )
+        self._make_pipeline(name="Untrained")
+        champion = AutoresearchModel.objects.get(pipeline=validated, role=AutoresearchModel.Role.CHAMPION)
+        finished = AutoresearchTrainingRun.objects.create(pipeline=validated, status="completed", iteration_budget=5)
+        AutoresearchIteration.objects.create(
+            pipeline=validated,
+            training_run=finished,
+            iteration_number=0,
+            recipe_hash="a",
+            recipe_snapshot={},
+            status="kept",
+        )
+        now = django_timezone.now()
+        for rows_scored, minutes_ago in [(100, 60), (250, 5)]:
+            AutoresearchRun.objects.create(
+                pipeline=validated,
+                run_type=AutoresearchRun.RunType.INFERENCE,
+                status="completed",
+                rows_scored=rows_scored,
+                completed_at=now - timedelta(minutes=minutes_ago),
+            )
+        for prediction_date, auc, minutes_ago in [
+            ("2026-01-02", 0.7, 30),
+            ("2026-01-01", 0.6, 20),
+            ("2026-01-02", 0.75, 10),
+        ]:
+            AutoresearchRun.objects.create(
+                pipeline=validated,
+                run_type=AutoresearchRun.RunType.VALIDATION,
+                status="completed",
+                completed_at=now - timedelta(minutes=minutes_ago),
+                metrics={"prediction_date": prediction_date, "per_model": {str(champion.pk): {"realized_auc": auc}}},
+            )
+        live = AutoresearchTrainingRun.objects.create(pipeline=preliminary, status="running", iteration_budget=8)
+        for number, holdout, description in [(0, 0.72, "baseline"), (1, 0.69, "try fewer features")]:
+            AutoresearchIteration.objects.create(
+                pipeline=preliminary,
+                training_run=live,
+                iteration_number=number,
+                recipe_hash=f"r{number}",
+                recipe_snapshot={},
+                holdout_score=holdout,
+                status="kept" if number == 0 else "discarded",
+                agent_description=description,
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            resp = self.client.get(f"{self.base_url}/")
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert sum("autoresearchmodel" in q["sql"].lower() for q in queries.captured_queries) == 1
+        by_name = {row["name"]: row for row in resp.json()["results"]}
+        assert {
+            name: (
+                row["people_scored"],
+                row["training_run_count"],
+                row["experiment_count"],
+                row["champion_realized_auc_trend"],
+                row["live_training_run"] and {k: v for k, v in row["live_training_run"].items() if k != "id"},
+            )
+            for name, row in by_name.items()
+        } == {
+            "Validated": (
+                250,
+                1,
+                1,
+                [
+                    {"prediction_date": "2026-01-01", "realized_auc": 0.6},
+                    {"prediction_date": "2026-01-02", "realized_auc": 0.75},
+                ],
+                None,
+            ),
+            "Preliminary": (
+                None,
+                1,
+                2,
+                [],
+                {
+                    "iteration_budget": 8,
+                    "experiment_count": 2,
+                    "best_holdout_score": 0.72,
+                    "latest_agent_description": "try fewer features",
+                },
+            ),
+            "No positives": (None, 0, 0, [], None),
+            "Zero lift": (None, 0, 0, [], None),
+            "Untrained": (None, 0, 0, [], None),
+        }
+
+        busy = self._make_pipeline(name="Busy")
+        busy_run = AutoresearchTrainingRun.objects.create(pipeline=busy, status="running", iteration_budget=3)
+        AutoresearchIteration.objects.create(
+            pipeline=busy, training_run=busy_run, iteration_number=0, recipe_hash="b", recipe_snapshot={}, status="kept"
+        )
+        with CaptureQueriesContext(connection) as more_queries:
+            self.client.get(f"{self.base_url}/")
+
+        def autoresearch_queries(captured: CaptureQueriesContext) -> int:
+            return sum('"autoresearch_' in q["sql"] for q in captured.captured_queries)
+
+        assert autoresearch_queries(more_queries) == autoresearch_queries(queries)
+        assert {
+            name: (
+                row["champion_holdout_auc"],
+                row["champion_realized_auc"],
+                row["champion_lift_at_10"],
+                row["champion_is_preliminary"],
+            )
+            for name, row in by_name.items()
+        } == {
+            "Validated": (0.81, 0.78, 2.4, False),
+            "Preliminary": (0.72, None, None, True),
+            "No positives": (0.81, 0.78, None, False),
+            "Zero lift": (0.81, 0.78, 0.0, False),
+            "Untrained": (None, None, None, None),
+        }
+
     def test_archived_pipelines_excluded_from_list(self):
         self._make_pipeline(name="Active")
         self._make_pipeline(name="Archived", status=AutoresearchPipeline.Status.ARCHIVED)
@@ -850,6 +1005,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["count"] == 1
         assert resp.json()["results"][0]["role"] == "champion"
+        assert resp.json()["results"][0]["in_shadow_set"] is True
         # The agent brief tells agents to look up a champion's bundle via source_training_run.
         assert resp.json()["results"][0]["source_training_run"] == str(training_run.id)
 
@@ -886,6 +1042,64 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         resp = self.client.get(f"{self.base_url}/{pipeline.id}/runs/")
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["count"] == 1
+
+    def test_online_performance_keeps_an_archived_former_champion(self):
+        pipeline = self._make_pipeline()
+        former = AutoresearchModel.objects.create(
+            pipeline=pipeline, role=AutoresearchModel.Role.ARCHIVED, model_recipe={}, recipe_hash="old"
+        )
+        champion = AutoresearchModel.objects.create(
+            pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION, model_recipe={}, recipe_hash="new"
+        )
+        now = django_timezone.now()
+
+        def validation(prediction_date: str, per_model: dict, *, completed_minutes_ago: int, run_status="completed"):
+            return AutoresearchRun.objects.create(
+                pipeline=pipeline,
+                run_type=AutoresearchRun.RunType.VALIDATION,
+                status=run_status,
+                completed_at=now - timedelta(minutes=completed_minutes_ago),
+                metrics={"prediction_date": prediction_date, "horizon_days": 7, "per_model": per_model},
+            )
+
+        def metrics(role: str, auc: float) -> dict:
+            return {"emitted_role": role, "model_role": role, "n_scored": 10, "n_positive": 2, "realized_auc": auc}
+
+        validation("2026-09-01", {str(former.pk): metrics("champion", 0.6)}, completed_minutes_ago=30)
+        populated = {
+            **metrics("champion", 0.7),
+            "mean_p_y": 0.4,
+            "realized_auc_ci_low": 0.65,
+            "realized_auc_ci_high": 0.75,
+            "calibration_bins": [{"n": 10, "mean_p_y": 0.4, "positive_rate": 0.2}],
+        }
+        latest = validation("2026-09-01", {str(former.pk): populated}, completed_minutes_ago=20)
+        validation(
+            "2026-09-02", {str(champion.pk): metrics("champion", 0.9)}, completed_minutes_ago=5, run_status="failed"
+        )
+        validation("2026-09-03", {str(champion.pk): metrics("champion", 0.8)}, completed_minutes_ago=10)
+
+        resp = self.client.get(f"{self.base_url}/{pipeline.id}/online_performance/")
+
+        assert resp.status_code == status.HTTP_200_OK
+        rows = resp.json()["rows"]
+        assert [(r["prediction_date"], r["model_id"], r["realized_auc"]) for r in rows] == [
+            ("2026-09-03", str(champion.pk), 0.8),
+            ("2026-09-01", str(former.pk), 0.7),
+        ]
+        assert rows[1]["validation_run_id"] == str(latest.pk)
+        assert (rows[1]["emitted_role"], rows[1]["current_role"]) == ("champion", "archived")
+        assert rows[1]["weekday"] == 2
+        assert (rows[1]["mean_p_y"], rows[1]["realized_auc_ci_low"], rows[1]["realized_auc_ci_high"]) == (
+            0.4,
+            0.65,
+            0.75,
+        )
+        assert rows[1]["calibration_bins"] == [{"n": 10, "mean_p_y": 0.4, "positive_rate": 0.2}]
+        assert rows[0]["realized_auc_ci_low"] is None and rows[0]["calibration_bins"] is None
+
+        limited = self.client.get(f"{self.base_url}/{pipeline.id}/online_performance/?limit=1").json()["rows"]
+        assert [r["prediction_date"] for r in limited] == ["2026-09-03"]
 
     def test_models_not_leaked_across_pipelines(self):
         pipeline_a = self._make_pipeline(name="Pipeline A")

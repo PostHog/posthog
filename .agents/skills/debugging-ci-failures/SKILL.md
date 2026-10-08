@@ -153,6 +153,7 @@ practice that is most of the queue. So:
   The branch is ephemeral; the run and its logs stay on GitHub, and the
   warehouse keeps its jobs under that `head_branch` (query 8 in the
   `investigating-ci-failures` references).
+  Backend CI is the exception when `CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT` hands the batch to Depot CI: the backend tests then run on Depot, and the `Django Tests Pass` check links that run.
 - The PR's own checks can be green with the failing job **skipped** or
   narrowed. On the PR, path filters see only that diff and the Django suite runs
   a selected subset; on the queue branch the diff is every carried PR's and the
@@ -302,8 +303,8 @@ is copy-ready; that skill also owns the wider investigation.
 Read the result as:
 
 - **Low percentage, recent hours mostly green** — transient. Report and move on.
-  For a queued PR, recommend re-enqueueing rather than a code change; posting
-  `/trunk merge` yourself needs approval, per the Safety rules above.
+  For a queued PR, recommend re-enqueueing rather than a code change; running
+  `trunk merge` yourself needs approval, per the Safety rules above.
 - **Recent hours entirely red** — an outage, not a flake. Say so, and stop
   telling people to retry. Check <https://www.githubstatus.com/> before
   attributing it to this repository; a platform incident makes every other

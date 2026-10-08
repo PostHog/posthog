@@ -22,6 +22,7 @@ from products.feature_flags.backend.api.staff_cache import _team_ids_field
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
 from products.feature_flags.backend.flag_evaluations_mode import (
+    FLAG_EVALUATIONS_MODES_HELP,
     OrganizationModeChange,
     UnknownIdsError,
     get_organizations_of_teams,
@@ -111,11 +112,8 @@ class StaffTeamConfigSerializer(serializers.Serializer):
         choices=FlagEvaluationsMode.choices,
         help_text=(
             "Which table the $feature_flag_called data of this team's organization is read from. Every team of "
-            "an organization shares one mode. 0 reads events, 1 and 2 read flag_evaluations. 2 is reserved for "
-            "ingestion to stop writing $feature_flag_called to events. Ingestion ignores 2 until that support "
-            "deploys, so 2 acts as 1 until then. This is the stored mode: while the "
-            "FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab "
-            "read events anyway."
+            f"an organization shares one mode. {FLAG_EVALUATIONS_MODES_HELP} This is the stored mode: while the "
+            "FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway."
         ),
     )
     feature_flag_count = serializers.IntegerField(
@@ -171,11 +169,7 @@ class StaffTeamConfigMutationSerializer(serializers.Serializer):
 class StaffFlagEvaluationsModeMutationSerializer(serializers.Serializer):
     flag_evaluations_mode = serializers.ChoiceField(
         choices=FlagEvaluationsMode.choices,
-        help_text=(
-            "Target flag_evaluations mode. 0 reads events, 1 reads flag_evaluations, 2 also stops writing "
-            "$feature_flag_called to events. Ingestion ignores 2 until its support for 2 deploys, so 2 acts "
-            "as 1 until then."
-        ),
+        help_text=f"Target flag_evaluations mode. {FLAG_EVALUATIONS_MODES_HELP}",
     )
     team_ids = serializers.ListField(
         child=serializers.IntegerField(),
@@ -189,8 +183,9 @@ class StaffFlagEvaluationsModeMutationSerializer(serializers.Serializer):
     allow_downgrade = serializers.BooleanField(
         default=False,
         help_text=(
-            "Also lower organizations that are above the target mode. Once ingestion acts on mode 2, lowering "
-            "an organization from 2 leaves a gap in the events table for the time it spent on 2."
+            "Also lower organizations that are above the target mode. Lowering an organization from 2 restarts "
+            "the events writes that ingestion stopped for its teams in the ingestion allowlist. The events table "
+            "keeps a gap for those teams for the time the organization spent on 2."
         ),
     )
     dry_run = serializers.BooleanField(
@@ -213,6 +208,9 @@ class StaffOrganizationModeChangeSerializer(DataclassSerializer):
             "organization_id": {"help_text": "Organization id."},
             "organization_name": {"help_text": "Organization name."},
             "team_count": {"help_text": "Teams of the organization. They all read the organization's mode."},
+            "running_experiments_on_feature_flag_called": {
+                "help_text": "Running experiments of the organization that count exposures on $feature_flag_called. On teams in the ingestion allowlist, mode 2 stops those exposures."
+            },
             "changed": {
                 "help_text": "True when the write moved the organization to the target mode, or would on a dry run."
             },

@@ -11,6 +11,7 @@
 //! inputs in place in typed arrays that the sidecar allocates, and the produce lanes' ref dedup
 //! caches (`dedup`), which hold their entries outside the V8 heap.
 
+mod brotli;
 mod dedup;
 mod pixels;
 
@@ -606,6 +607,23 @@ fn ref_dedup_cache_stats(mut cx: FunctionContext) -> JsResult<JsObject> {
     Ok(result)
 }
 
+fn compress_brotli_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
+    let input = cx.argument::<JsBuffer>(0)?.as_slice(&cx).to_vec();
+    let quality = cx.argument::<JsNumber>(1)?.value(&mut cx);
+    if !(quality.fract() == 0.0 && (2.0..=11.0).contains(&quality)) {
+        return cx.throw_range_error(format!(
+            "brotli quality must be an integer from 2 to 11, got {quality}"
+        ));
+    }
+    let promise = cx
+        .task(move || brotli::compress(&input, quality as u8))
+        .promise(|mut cx, compressed| match compressed {
+            Ok(compressed) => Ok(JsBuffer::external(&mut cx, compressed)),
+            Err(error) => cx.throw_error(error),
+        });
+    Ok(promise)
+}
+
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("initAnonymizer", init_anonymizer)?;
@@ -628,6 +646,7 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
         ref_dedup_cache_release_transport_urls,
     )?;
     cx.export_function("refDedupCacheStats", ref_dedup_cache_stats)?;
+    cx.export_function("compressBrotli", compress_brotli_ffi)?;
     Ok(())
 }
 
