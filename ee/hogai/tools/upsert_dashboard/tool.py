@@ -215,14 +215,17 @@ class UpsertDashboardTool(MaxTool):
         insight_ids = action.insight_ids or []
         artifacts = await self._get_visualization_artifacts(insight_ids) if insight_ids else []
 
-        dashboard, resolved_insights = await self._update_dashboard_with_tiles(
-            dashboard,
-            action.name,
-            action.description,
-            insight_ids,
-            artifacts,
-            action.layout_mode,
-        )
+        try:
+            dashboard, resolved_insights = await self._update_dashboard_with_tiles(
+                dashboard,
+                action.name,
+                action.description,
+                insight_ids,
+                artifacts,
+                action.layout_mode,
+            )
+        except ValidationError as error:
+            raise MaxToolRetryableError(str(error.detail)) from error
         await self._report_dashboard_action(dashboard, "dashboard updated")
 
         if artifacts:
@@ -450,6 +453,15 @@ class UpsertDashboardTool(MaxTool):
         # 2. Create new tiles or restore soft deleted
         for insight_id, insight in zip(insight_ids, resolved_insights):
             existing_tile = short_id_to_tile.get(insight_id)
+            becomes_live = existing_tile is None or existing_tile.deleted
+            if becomes_live:
+                check_can_add_insight_to_shared_dashboard(
+                    self._user, dashboard, insight.query, self.user_access_control
+                )
+                if error := blocked_access_for_subscribed_dashboard_tile(
+                    self._user, dashboard, insight.query, self.user_access_control
+                ):
+                    raise ValidationError(error)
 
             if existing_tile:
                 # Restore if soft deleted

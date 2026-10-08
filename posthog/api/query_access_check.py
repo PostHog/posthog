@@ -24,14 +24,10 @@ def blocked_access_for_user(user: User, team: Team, queries: list[dict[str, Any]
     if not queries:
         return []
 
-    # One context for all queries: the publisher's schema is built on first prepare and reused.
-    context = HogQLContext(
-        team_id=team.pk,
-        team=team,
-        user=user,
-        enable_select_queries=True,
-        modifiers=create_default_modifiers_for_user(user, team),
-    )
+    # One context per distinct modifier set: the schema is built on first prepare and reused. The
+    # query's own modifiers must shape it, because a warehouse events mapping can put an expression
+    # into the schema, and the run would compile that expression against the same modifiers.
+    contexts: dict[str, HogQLContext] = {}
     blocked: set[str] = set()
     for query in queries:
         try:
@@ -41,6 +37,13 @@ def blocked_access_for_user(user: User, team: Team, queries: list[dict[str, Any]
                 continue
             # Resource-level check first for product runners (logs, metrics, customer analytics, ...)
             runner.validate_query_runner_access(user)
+            modifiers = create_default_modifiers_for_user(user, team, runner.modifiers)
+            context_key = modifiers.model_dump_json()
+            context = contexts.get(context_key)
+            if context is None:
+                context = contexts[context_key] = HogQLContext(
+                    team_id=team.pk, team=team, user=user, enable_select_queries=True, modifiers=modifiers
+                )
             prepare_ast_for_printing(runner.to_query(), context=context, dialect="clickhouse")
         except UserAccessControlError as e:
             blocked.add(e.resource)
