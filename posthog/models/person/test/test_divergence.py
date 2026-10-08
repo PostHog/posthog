@@ -916,38 +916,16 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         self._ch_mapping_row("target", person.uuid, 100, deleted=True)
         return person
 
-    @parameterized.expand(
-        [
-            (
-                "merge_not_applied_before_the_reread",
-                False,
-                "merge_queued",
-                (0, 10, {**CH_PROPERTIES, **CH_ONLY_PROPERTIES}),
-            ),
-            ("merge_applied_before_the_reread", True, "repaired", (0, 11, {**CH_ONLY_PROPERTIES, **PG_PROPERTIES})),
-        ]
-    )
-    def test_reset_sends_a_stale_persons_clickhouse_only_properties_before_raising_postgres(
-        self, _name: str, merge_applied: bool, person_outcome: str, ch_person: tuple[int, int, dict[str, Any]]
-    ) -> None:
+    def test_reset_raises_a_stale_person_only_after_ingestion_applied_its_clickhouse_only_properties(self) -> None:
         person = self._stale_person_with_target({**CH_PROPERTIES, **CH_ONLY_PROPERTIES})
         stored = get_active_fake().stored_person(self.team.pk, str(person.uuid))
         assert stored is not None
 
-        def ingest(**_: Any) -> MagicMock:
-            if merge_applied:
-                stored.properties = json.dumps({**CH_ONLY_PROPERTIES, **PG_PROPERTIES}).encode()
-            return MagicMock()
+        with patch("posthog.models.person.divergence.capture_internal") as capture:
+            first = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
 
-        with patch("posthog.models.person.divergence.capture_internal", side_effect=ingest) as capture:
-            summary = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
-
-        assert summary is not None
-        assert (summary.person_outcomes, summary.mapping_outcomes, summary.undelivered) == (
-            {person_outcome: 1},
-            {"repaired": 1},
-            0,
-        )
+        assert first is not None
+        assert (first.person_outcomes, first.mapping_outcomes) == ({"merge_queued": 1}, {"skipped_stale": 1})
         capture.assert_called_once()
         sent = dict(capture.call_args.kwargs)
         sent.pop("timestamp")
@@ -959,8 +937,20 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             "properties": {"$set_once": CH_ONLY_PROPERTIES},
             "process_person_profile": True,
         }
+        get_active_fake().assert_not_called("set_person_version_floor")
+        get_active_fake().assert_not_called("set_person_distinct_id_version_floor")
+        assert self._pg_version(person) == 5
+        assert self._ch_person(person.uuid) == (0, 10, {**CH_PROPERTIES, **CH_ONLY_PROPERTIES})
+
+        stored.properties = json.dumps({**CH_ONLY_PROPERTIES, **PG_PROPERTIES}).encode()
+        with patch("posthog.models.person.divergence.capture_internal") as capture:
+            second = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
+
+        assert second is not None
+        assert (second.person_outcomes, second.mapping_outcomes) == ({"repaired": 1}, {"repaired": 1})
+        capture.assert_not_called()
         assert self._pg_version(person) == 11
-        assert self._ch_person(person.uuid) == ch_person
+        assert self._ch_person(person.uuid) == (0, 11, {**CH_ONLY_PROPERTIES, **PG_PROPERTIES})
         assert self._ch_mapping("target") == (str(person.uuid), 0, 101)
 
     def test_reset_republishes_a_stale_person_whose_clickhouse_properties_postgres_already_holds(self) -> None:

@@ -1023,16 +1023,15 @@ def _execute_plan(
     person = plan.person
     if person is None:
         return [_person_action(plan, "skipped_not_live")]
-    stale_merge_keys: set[str] | None = None
     if plan.kind == "stale" and not include_stale:
         refusal: RepairOutcome | None = "skipped_stale"
         if apply and stale_merge_distinct_id is not None:
             missing = _clickhouse_only_properties(plan)
-            # The merge goes out before the raise, so a send that fails leaves Postgres below ClickHouse and
-            # the next ingestion update cannot overwrite the ClickHouse-only properties.
-            refusal = _queue_stale_merge(plan, stale_merge_distinct_id, missing) if missing else None
-            if refusal is None and missing:
-                stale_merge_keys = set(missing)
+            # A later reset that finds nothing missing raises Postgres. Capture accepting the $set does not mean
+            # ingestion applies it, and a raise without the merged properties lets the next update overwrite them.
+            refusal = (
+                (_queue_stale_merge(plan, stale_merge_distinct_id, missing) or "merge_queued") if missing else None
+            )
         if refusal is not None:
             return [
                 _person_action(plan, refusal),
@@ -1091,14 +1090,6 @@ def _execute_plan(
         person_outcome = "skipped_not_divergent"
     elif reread is None:
         person_outcome = "skipped_not_live"
-    elif stale_merge_keys is not None and not (
-        plan.target_version is not None
-        and int(reread.version or 0) >= plan.target_version
-        and stale_merge_keys <= (reread.properties or {}).keys()
-    ):
-        # A row without the merged properties would erase them from ClickHouse; once ingestion applies the
-        # $set_once, its own publish lands above ClickHouse because Postgres now is.
-        person_outcome = "merge_queued"
     elif plan.target_version is None or int(reread.version or 0) < plan.target_version:
         # The replica has not caught up with the raise, so its properties may predate the raised version.
         person_outcome = "skipped_reread_lagging"
@@ -1281,9 +1272,10 @@ def repair_persons(
 def repair_distinct_id(team_id: int, distinct_id: str, *, delivery_timeout_seconds: float) -> RepairSummary | None:
     """Repair the live person that owns ``distinct_id``, and that one mapping, where ClickHouse disagrees.
 
-    It always applies. For a stale person it sends the ClickHouse winner's properties that Postgres lacks to
-    ingestion as $set_once, so newer Postgres values win, and then raises Postgres above ClickHouse. It leaves
-    the person stale when the team has property access rules.
+    It always applies. For a stale person whose ClickHouse winner holds properties Postgres lacks, it sends them
+    to ingestion as $set_once, so newer Postgres values win, and writes nothing else. A later reset, once
+    ingestion applied them, raises Postgres above ClickHouse and republishes. It leaves the person stale when the
+    team has property access rules.
     """
     owner = get_person_by_distinct_id(team_id, distinct_id, distinct_id_limit=0)
     if owner is None:
