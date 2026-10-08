@@ -70,7 +70,7 @@ Metrics:
 
 - `ingestion_consumer_request_events` and `ingestion_consumer_request_bytes` record each request as sent. They show whether requests reach the pack target.
 - `ingestion_consumer_request_queue_wait_seconds{kind=fresh|replay}` records how long a request's oldest message waited, including the pack budget.
-- `ingestion_consumer_batcher_pack_seals_total{reason=full|deadline|flush}` counts why the packer built each request: at the target, at the budget deadline, or at shutdown.
+- `ingestion_consumer_batcher_packed_requests_total{reason=target|deadline|shutdown}` counts why the packer built each request: at the target, at the budget deadline, or at shutdown.
 - The `ingestion_consumer_batcher_*` gauges report keys, queued messages and bytes, claimed and waiting keys, unplaced work, and in-flight requests.
 
 ## Debug API

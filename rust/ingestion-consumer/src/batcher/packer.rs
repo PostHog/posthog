@@ -1,5 +1,8 @@
 //! Packs ready key runs into requests near a target size, one request per
 //! free worker slot.
+//!
+//! Worst case: 2 × target − 1 events, or 2 × target − 2 bytes plus the largest
+//! message. Keys join below the target, and a run is capped at the target.
 
 use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
@@ -30,18 +33,18 @@ impl PackTargets {
 }
 
 #[derive(Clone, Copy)]
-enum SealReason {
-    Full,
+enum PackReason {
+    AtTarget,
     Deadline,
-    Flush,
+    Shutdown,
 }
 
-impl SealReason {
+impl PackReason {
     fn as_str(self) -> &'static str {
         match self {
-            SealReason::Full => "full",
-            SealReason::Deadline => "deadline",
-            SealReason::Flush => "flush",
+            PackReason::AtTarget => "target",
+            PackReason::Deadline => "deadline",
+            PackReason::Shutdown => "shutdown",
         }
     }
 }
@@ -85,10 +88,10 @@ impl Packer {
         keys.promote_due(now);
         let mut requests = Vec::new();
         while requests.len() < free_slots {
-            let Some((class, reason)) = self.next_to_seal(keys, now, draining) else {
+            let Some((class, reason)) = self.next_request_class(keys, now, draining) else {
                 break;
             };
-            requests.push(self.seal(keys, class, reason));
+            requests.push(self.build_request(keys, class, reason));
         }
         if !keys.has_ready() {
             self.reservation = None;
@@ -96,19 +99,19 @@ impl Packer {
         requests
     }
 
-    fn next_to_seal(
+    fn next_request_class(
         &mut self,
         keys: &KeyQueues,
         now: Instant,
         draining: bool,
-    ) -> Option<(RequestClass, SealReason)> {
-        if let Some(class) = self.full_class(keys) {
-            return Some((class, SealReason::Full));
+    ) -> Option<(RequestClass, PackReason)> {
+        if let Some(class) = self.class_at_target(keys) {
+            return Some((class, PackReason::AtTarget));
         }
         let class = keys.oldest_ready_class()?;
         if draining {
             self.reservation = None;
-            return Some((class, SealReason::Flush));
+            return Some((class, PackReason::Shutdown));
         }
         let deadline = *self
             .reservation
@@ -117,17 +120,22 @@ impl Packer {
             return None;
         }
         self.reservation = None;
-        Some((class, SealReason::Deadline))
+        Some((class, PackReason::Deadline))
     }
 
-    fn seal(&self, keys: &mut KeyQueues, class: RequestClass, reason: SealReason) -> Request {
+    fn build_request(
+        &self,
+        keys: &mut KeyQueues,
+        class: RequestClass,
+        reason: PackReason,
+    ) -> Request {
         let runs = keys.take_runs(class, |taken| self.targets.reached(taken));
-        counter!("ingestion_consumer_batcher_pack_seals_total", "reason" => reason.as_str())
+        counter!("ingestion_consumer_batcher_packed_requests_total", "reason" => reason.as_str())
             .increment(1);
         Request::from_runs(class, runs)
     }
 
-    fn full_class(&self, keys: &KeyQueues) -> Option<RequestClass> {
+    fn class_at_target(&self, keys: &KeyQueues) -> Option<RequestClass> {
         keys.ready_sizes()
             .iter()
             .find(|(_, size)| self.targets.reached(*size))
