@@ -128,12 +128,22 @@ def _page_rows(largest_row_bytes: int, *, max_rows: int, max_bytes: int, max_pag
     return max(1, min(ceiling, max_bytes // largest_row_bytes))
 
 
+def page_rows_after_retries(page_rows: int, retries: int) -> int:
+    """The page ceiling for an attempt that follows `retries` failed attempts.
+
+    A page that is too large does not raise. The kernel kills the worker, and the retry reads the
+    same rows again. Half the page per retry is the only way such a read gets past them.
+    """
+    return max(1, page_rows >> min(retries, 30))
+
+
 def fetch_row_batches(
     fetch: Callable[[int], Sequence[RowT] | None],
     *,
     max_rows: int,
     max_bytes: int | None = None,
     max_page_rows: int | None = None,
+    size_pages_by_average: bool = False,
 ) -> Iterator[list[RowT]]:
     """Yield row batches bounded by `max_rows` and by accumulated bytes.
 
@@ -144,6 +154,12 @@ def fetch_row_batches(
     `max_rows` outright, so the caller's chunk size bounds the batch and not the fetch.
 
     `max_page_rows` is a caller-imposed ceiling, for a driver whose own limits cap a single fetch.
+
+    `size_pages_by_average` is for a driver that pays a query and a round trip per fetch. The
+    default sizes a page as if every row were as wide as the widest row seen, which costs a
+    streaming driver nothing. A paging driver pays for it on every table that mixes narrow rows
+    with an occasional wide one: its pages stay small for the whole read. With this set, a page is
+    sized from the average row of the page before it, so only a run of wide rows shrinks it.
     """
     budget = EXTRACT_BATCH_MAX_BYTES if max_bytes is None else max_bytes
     page_ceiling = max_page_rows or MAX_FETCH_PAGE_ROWS
@@ -195,7 +211,8 @@ def fetch_row_batches(
         # otherwise stay stuck on tiny pages for the rest of the read, and one that has genuinely
         # widened re-shrinks on its very next page anyway.
         largest_row_bytes = max(widest_in_page, largest_row_bytes // 2)
-        page_rows = _page_rows(largest_row_bytes, max_rows=max_rows, max_bytes=budget, max_page_rows=page_ceiling)
+        row_bytes_for_next_page = -(-page_bytes // len(page)) if size_pages_by_average else largest_row_bytes
+        page_rows = _page_rows(row_bytes_for_next_page, max_rows=max_rows, max_bytes=budget, max_page_rows=page_ceiling)
 
     if batch:
         yield batch

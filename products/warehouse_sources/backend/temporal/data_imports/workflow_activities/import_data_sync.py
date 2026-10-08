@@ -639,6 +639,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
                 activity_attempt=current_import_attempt(),
+                activity_retries=current_activity_attempt() - 1,
                 source_cursor=source_cursor_manager,
             )
 

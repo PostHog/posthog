@@ -927,8 +927,10 @@ class TestKeysetReadPath:
         return mock_connect, cursor, plan_check
 
     @staticmethod
-    def _keyset_source(manager):
-        source = MySQLImplementation().build_pipeline(_make_config(), _make_inputs(), resumable_source_manager=manager)
+    def _keyset_source(manager, **inputs):
+        source = MySQLImplementation().build_pipeline(
+            _make_config(), _make_inputs(**inputs), resumable_source_manager=manager
+        )
         assert source.supports_resume is True
         return source
 
@@ -984,6 +986,14 @@ class TestKeysetReadPath:
 
         assert manager.save_state.call_count == 1
         manager.clear_state.assert_not_called()
+
+    def test_a_retry_reads_smaller_pages(self, keyset_mocks):
+        _, cursor, _ = keyset_mocks
+        cursor.fetchall.side_effect = [[(1,)], []]
+
+        list(cast(Generator, self._keyset_source(self._fake_manager(), activity_retries=1).items()))
+
+        assert "LIMIT 1" in cursor.execute.call_args_list[0].args[0]
 
     def test_resumes_from_the_persisted_checkpoint(self, keyset_mocks):
         manager = self._fake_manager()

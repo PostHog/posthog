@@ -206,10 +206,11 @@ def _to_table(columns: list[str], rows) -> pa.Table:
 class _FakePages:
     # Serves a fixed dataset back through keyset SQL: parses `id > N` out of the built SQL, applies
     # the LIMIT, and records every query so the walk itself can be asserted.
-    def __init__(self, all_ids: list[int], chunk_size: int, body: str = "row"):
+    def __init__(self, all_ids: list[int], chunk_size: int, body: str = "row", wide_ids: frozenset[int] = frozenset()):
         self.all_ids = sorted(all_ids)
         self.chunk_size = chunk_size
         self.body = body
+        self.wide_ids = wide_ids
         self.queries: list[str] = []
         self.limits: list[int] = []
 
@@ -222,7 +223,9 @@ class _FakePages:
         page = remaining[: min(limit, self.chunk_size)]
         if not page:
             return None
-        return KeysetPage(columns=["id", "body"], rows=[(i, self.body) for i in page])
+        return KeysetPage(
+            columns=["id", "body"], rows=[(i, "x" * 200 if i in self.wide_ids else self.body) for i in page]
+        )
 
 
 def test_iter_keyset_pages_walks_whole_table_in_order():
@@ -427,3 +430,45 @@ def test_a_batch_that_ends_inside_a_page_checkpoints_its_own_last_row():
     assert first.column("id").to_pylist() == [1, 2]
     assert second.column("id").to_pylist() == [3, 4]
     assert saved == [2]
+
+
+def test_an_occasional_wide_row_does_not_shrink_the_pages():
+    pages = _FakePages(all_ids=list(range(1, 41)), chunk_size=10, wide_ids=frozenset({5, 15, 25, 35}))
+
+    with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", 1_000):
+        tables = list(
+            iter_keyset_pages(
+                builder=_BUILDER,
+                schema="db",
+                table_name="t",
+                keyset_column="id",
+                chunk_size=10,
+                run_page=pages.run_page,
+                to_table=_to_table,
+                initial_last_value=None,
+            )
+        )
+
+    assert [v.as_py() for table in tables for v in table.column("id")] == list(range(1, 41))
+    assert set(pages.limits) == {10}
+
+
+def test_a_retry_reads_smaller_pages():
+    pages = _FakePages(all_ids=list(range(1, 9)), chunk_size=8)
+
+    tables = list(
+        iter_keyset_pages(
+            builder=_BUILDER,
+            schema="db",
+            table_name="t",
+            keyset_column="id",
+            chunk_size=8,
+            run_page=pages.run_page,
+            to_table=_to_table,
+            initial_last_value=None,
+            retries=2,
+        )
+    )
+
+    assert [v.as_py() for table in tables for v in table.column("id")] == list(range(1, 9))
+    assert set(pages.limits) == {2}

@@ -170,6 +170,10 @@ class SourceInputs:
     # Temporal's attempt number for this activity, starting at 1. A source can read a retry
     # differently from a first run, because the first run has already shown what fails.
     activity_attempt: int = 1
+    # Failed attempts of this activity execution before this one. A worker hand-off does not count.
+    # A source that resumes can read smaller pages after a failure, because a page that is too
+    # large kills the worker instead of raising.
+    activity_retries: int = 0
     # Set for a source that implements `CursorSource`. It holds the cursor stored by the last
     # successful run, or no cursor when this run rebuilds the table.
     source_cursor: Optional[SourceCursorManager[Any]] = None

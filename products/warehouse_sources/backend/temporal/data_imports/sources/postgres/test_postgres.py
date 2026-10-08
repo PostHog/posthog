@@ -4224,6 +4224,7 @@ class TestChunkedRereadAfterRecoveryConflict:
         chunking: _TableChunking | None = None,
         lock_timeout_before_each_page: bool = False,
         page_error: BaseException | None = None,
+        activity_retries: int = 0,
     ) -> list[int | str]:
         @contextmanager
         def fake_tunnel():
@@ -4289,6 +4290,7 @@ class TestChunkedRereadAfterRecoveryConflict:
                 team_id=1,
                 is_xmin=is_xmin,
                 activity_attempt=activity_attempt,
+                activity_retries=activity_retries,
                 resumable_source_manager=resumable_source_manager,
             )
             self.last_response = response
@@ -4577,6 +4579,18 @@ class TestChunkedRereadAfterRecoveryConflict:
         assert max(self.last_scan.limits) == 4
         # Once a page shows what a row weighs, a page holds no more than one batch budget.
         assert self.last_scan.limits[-1] == 2
+
+    def test_a_retry_reads_smaller_seek_pages(self):
+        ids = self._read_ids(
+            should_use_incremental_field=False,
+            rows_before_conflict=0,
+            primary_keys=["id"],
+            chunking=_TableChunking(batch_rows=6, fetch_rows=4),
+            activity_retries=1,
+        )
+
+        assert ids == [row[0] for row in self._ROWS]
+        assert max(self.last_scan.limits) == 2
 
     def test_a_batch_that_ends_inside_a_page_checkpoints_its_own_last_row(self):
         # The first page reads rows 1 to 4, and the byte budget closes the first batch after row 2.
