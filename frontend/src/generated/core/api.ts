@@ -99,6 +99,9 @@ import type {
     SearchIntentRequestApi,
     SearchIntentResponseApi,
     SharingConfigurationApi,
+    TerminalNetplayMailboxApi,
+    TerminalNetplayMailboxRetrieveParams,
+    TerminalNetplaySignalApi,
     ToolbarEntitlementsApi,
     TwoFactorStatusApi,
     UploadedMediaApi,
@@ -2684,6 +2687,59 @@ export const taxonomicSearchIntentMatchEventsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(eventMatchRequestApi),
+    })
+}
+
+export const getTerminalNetplayMailboxRetrieveUrl = (
+    projectId: string,
+    params: TerminalNetplayMailboxRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/terminal_netplay/mailbox/?${stringifiedParams}`
+        : `/api/projects/${projectId}/terminal_netplay/mailbox/`
+}
+
+/**
+ * Read and clear a terminal's WebRTC mailbox. Reading the host mailbox keeps the room open.
+ */
+export const terminalNetplayMailboxRetrieve = async (
+    projectId: string,
+    params: TerminalNetplayMailboxRetrieveParams,
+    options?: RequestInit
+): Promise<TerminalNetplayMailboxApi> => {
+    return apiMutator<TerminalNetplayMailboxApi>(getTerminalNetplayMailboxRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTerminalNetplaySignalCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/terminal_netplay/signal/`
+}
+
+/**
+ * Send a WebRTC session description to another terminal in a Doom room.
+ */
+export const terminalNetplaySignalCreate = async (
+    projectId: string,
+    terminalNetplaySignalApi: TerminalNetplaySignalApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTerminalNetplaySignalCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(terminalNetplaySignalApi),
     })
 }
 

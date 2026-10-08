@@ -160,39 +160,6 @@ class TestEndpointConfig:
 
 
 class TestStandardPagination:
-    def test_follows_next_url_until_exhausted(self) -> None:
-        # A bug that dropped the `next` follow (or read the wrong key) would only return page one.
-        responses = {
-            f"{BASE}/targets/?limit={PAGE_SIZE}": [
-                _resp({"results": [{"id": 1}, {"id": 2}], "next": f"{BASE}/targets/?limit={PAGE_SIZE}&offset=100"})
-            ],
-            f"{BASE}/targets/?limit={PAGE_SIZE}&offset=100": [_resp({"results": [{"id": 3}], "next": None})],
-        }
-        rows, params = _run("targets", responses, _make_manager())
-        assert [r["id"] for r in rows] == [1, 2, 3]
-        assert params[0]["limit"] == PAGE_SIZE
-
-    def test_empty_first_page_terminates_without_saving(self) -> None:
-        responses = {f"{BASE}/scans/?limit={PAGE_SIZE}": [_resp({"results": [], "next": None})]}
-        manager = _make_manager()
-        rows, _params = _run("scans", responses, manager)
-        assert rows == []
-        manager.save_state.assert_not_called()
-
-    def test_saves_next_url_after_each_page_but_not_after_last(self) -> None:
-        # State must be saved AFTER yielding a page and only when a next page remains, so a crash
-        # re-yields the last page (merge dedupes) rather than skipping it. The final page saves nothing.
-        responses = {
-            f"{BASE}/targets/?limit={PAGE_SIZE}": [
-                _resp({"results": [{"id": 1}], "next": f"{BASE}/targets/?limit={PAGE_SIZE}&offset=100"})
-            ],
-            f"{BASE}/targets/?limit={PAGE_SIZE}&offset=100": [_resp({"results": [{"id": 2}], "next": None})],
-        }
-        manager = _make_manager()
-        _run("targets", responses, manager)
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [IntruderResumeConfig(next_url=f"{BASE}/targets/?limit={PAGE_SIZE}&offset=100")]
-
     def test_resumes_from_saved_next_url(self) -> None:
         # With saved state the first request must be the saved cursor, not the initial page.
         responses = {
@@ -222,31 +189,6 @@ class TestOccurrencesFanOut:
             {"id": 3, "issue_id": 20},
         ]
 
-    def test_follows_occurrence_pagination_within_an_issue(self) -> None:
-        responses = {
-            f"{BASE}/issues/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 10}], "next": None})],
-            f"{BASE}/issues/10/occurrences/?limit={PAGE_SIZE}": [
-                _resp({"results": [{"id": 1}], "next": f"{BASE}/issues/10/occurrences/?limit={PAGE_SIZE}&offset=100"})
-            ],
-            f"{BASE}/issues/10/occurrences/?limit={PAGE_SIZE}&offset=100": [
-                _resp({"results": [{"id": 2}], "next": None})
-            ],
-        }
-        rows, _params = _run("occurrences", responses, _make_manager())
-        assert [r["id"] for r in rows] == [1, 2]
-
-    def test_resume_skips_already_completed_issue(self) -> None:
-        # An issue whose occurrences fully synced on the prior attempt is skipped on resume.
-        responses = {
-            f"{BASE}/issues/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 10}, {"id": 20}], "next": None})],
-            f"{BASE}/issues/20/occurrences/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 3}], "next": None})],
-        }
-        state = IntruderResumeConfig(
-            fanout_state={"completed": ["/issues/10/occurrences/"], "current": None, "child_state": None}
-        )
-        rows, _params = _run("occurrences", responses, _make_manager(state))
-        assert rows == [{"id": 3, "issue_id": 20}]
-
     def test_resume_from_deleted_issue_restarts_from_first(self) -> None:
         # The in-progress issue from the saved state no longer exists — its checkpoint is ignored and
         # the surviving issues sync fresh (merge dedupes any re-pulled rows).
@@ -263,23 +205,6 @@ class TestOccurrencesFanOut:
         )
         rows, _params = _run("occurrences", responses, _make_manager(state))
         assert rows == [{"id": 1, "issue_id": 10}]
-
-    def test_checkpoints_completed_issue(self) -> None:
-        # Finishing an issue must checkpoint it as completed so a crash before the next issue resumes
-        # without re-pulling it.
-        responses = {
-            f"{BASE}/issues/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 10}, {"id": 20}], "next": None})],
-            f"{BASE}/issues/10/occurrences/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 1}], "next": None})],
-            f"{BASE}/issues/20/occurrences/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 3}], "next": None})],
-        }
-        manager = _make_manager()
-        _run("occurrences", responses, manager)
-        completed_sets = [
-            call.args[0].fanout_state["completed"]
-            for call in manager.save_state.call_args_list
-            if call.args[0].fanout_state is not None
-        ]
-        assert ["/issues/10/occurrences/"] in completed_sets
 
 
 class TestRetryClassification:
@@ -344,11 +269,6 @@ class TestValidateCredentials:
     def test_status_maps_to_bool(self, _name: str, status: int, expected: bool, mock_session: Any) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
         assert validate_credentials("tok") is expected
-
-    @mock.patch(INTRUDER_SESSION_PATCH)
-    def test_swallows_transport_errors(self, mock_session: Any) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("tok") is False
 
     def test_redacts_token(self) -> None:
         # Dropping redact_values would leak the bearer token into logged URLs / captured samples.

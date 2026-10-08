@@ -5,7 +5,7 @@ import pytest
 from asgiref.sync import sync_to_async
 from parameterized import parameterized_class
 
-from posthog.models import PropertyDefinition
+from posthog.models import Project, PropertyDefinition, Team
 from posthog.temporal.cleanup_property_definitions.activities import (
     delete_property_definitions_from_clickhouse,
     delete_property_definitions_from_postgres,
@@ -24,12 +24,14 @@ from posthog.temporal.tests.cleanup_property_definitions.conftest import (
 from products.event_definitions.backend.models.event_property import EventProperty
 
 
-def create_property_definition(team, name: str, property_type: int) -> PropertyDefinition:
+def create_property_definition(
+    team, name: str, property_type: int, project: Project | None = None
+) -> PropertyDefinition:
     """Create a PropertyDefinition with the correct fields for the given type.
 
     GROUP type requires group_type_index to be set due to database constraint.
     """
-    kwargs = {"team": team, "name": name, "type": property_type}
+    kwargs = {"team": team, "name": name, "type": property_type, "project": project}
     if property_type == PropertyDefinition.Type.GROUP:
         kwargs["group_type_index"] = 0
     return PropertyDefinition.objects.create(**kwargs)
@@ -213,6 +215,37 @@ class TestDeletePropertyDefinitionsFromPostgres:
             other_team.delete()
 
         await cleanup()
+
+    @pytest.mark.asyncio
+    async def test_deletes_definition_another_environment_of_the_project_recorded(self, organization):
+        prop_name = f"{self.prefix}_sibling_prop"
+
+        @sync_to_async
+        def create_sibling_definition():
+            sibling_team = Team.objects.create(organization=organization, project=self.team.project, name="Sibling")
+            create_property_definition(sibling_team, prop_name, self.property_type, project=self.team.project)
+            return sibling_team
+
+        sibling_team = await create_sibling_definition()
+
+        result = await self.activity_environment.run(
+            delete_property_definitions_from_postgres,
+            DeletePostgresPropertyDefinitionsInput(
+                team_id=self.team.id,
+                pattern=f"^{self.prefix}_.*",
+                property_type=self.property_type,
+            ),
+        )
+
+        @sync_to_async
+        def sibling_definition_exists_then_cleanup():
+            exists = PropertyDefinition.objects.filter(team=sibling_team, name=prop_name).exists()
+            sibling_team.delete()
+            return exists
+
+        sibling_definition_exists = await sibling_definition_exists_then_cleanup()
+        assert result["property_definitions_deleted"] == 1
+        assert not sibling_definition_exists
 
     @pytest.mark.asyncio
     async def test_deletes_in_batches(self):

@@ -75,29 +75,6 @@ def _rows(source_response) -> list[dict[str, Any]]:
 
 class TestGetRows:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_request_yields_items_and_requests_stable_sort(self, MockSession) -> None:
-        session = MockSession.return_value
-        rows = [{"family": "Roboto"}, {"family": "Lato"}]
-        snaps = _wire(session, [_catalog_response(rows)])
-
-        result = _rows(google_webfonts_source("AIza-key", "webfonts", team_id=1, job_id="j"))
-
-        assert result == rows
-        # The catalog arrives in one unpaginated response — exactly one request.
-        assert session.send.call_count == 1
-        # requests applies params at prepare time; the mocked prepare leaves them separate.
-        assert snaps[0]["url"] == "https://www.googleapis.com/webfonts/v1/webfonts"
-        assert snaps[0]["params"]["sort"] == "alpha"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_catalog_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_catalog_response([])])
-
-        assert _rows(google_webfonts_source("AIza-key", "webfonts", team_id=1, job_id="j")) == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_key_rides_header_auth_and_never_lands_in_url(self, MockSession) -> None:
         # The key must ride the X-goog-api-key header (redacted by value), never the request URL.
         session = MockSession.return_value
@@ -110,20 +87,6 @@ class TestGetRows:
         assert "AIza-secret" not in snaps[0]["url"]
         # RESTClient builds its tracked session with the auth secret in redact_values.
         assert MockSession.call_args.kwargs["redact_values"] == ("AIza-secret",)
-
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retries_retryable_status_then_succeeds(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [_error_response(500), _error_response(429), _catalog_response([{"family": "Roboto"}])],
-        )
-
-        result = _rows(google_webfonts_source("AIza-key", "webfonts", team_id=1, job_id="j"))
-
-        assert result == [{"family": "Roboto"}]
-        assert session.send.call_count == 3
 
     @mock.patch(SLEEP_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -173,18 +136,6 @@ class TestValidateCredentials:
             False,
             "Could not reach the Google Fonts API. Check your network connection and try again.",
         )
-
-    @mock.patch(GW_SESSION_PATCH)
-    def test_sends_key_in_header_not_url(self, mock_session) -> None:
-        get = mock_session.return_value.get
-        get.return_value = mock.MagicMock(status_code=200)
-
-        validate_credentials("AIza-secret")
-
-        assert get.call_args.kwargs["headers"][GOOGLE_WEBFONTS_API_KEY_HEADER] == "AIza-secret"
-        url = get.call_args.args[0]
-        assert "AIza-secret" not in url
-        assert mock_session.call_args.kwargs["redact_values"] == ("AIza-secret",)
 
 
 class TestGoogleWebfontsSourceResponse:

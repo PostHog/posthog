@@ -167,12 +167,17 @@ export const getRandomThinkingMessage = (): string => {
     return THINKING_MESSAGES[randomIndex] + '...'
 }
 
+interface WebSearchResult {
+    title: string
+    url: string
+}
+
 interface ServerToolUseBlock {
     type: 'server_tool_use'
     name: string
     input: Record<string, unknown>
     id: string
-    results?: { title: string; url: string }[]
+    results?: WebSearchResult[]
 }
 
 interface ThinkingBlock {
@@ -180,41 +185,54 @@ interface ThinkingBlock {
     thinking: string
 }
 
-export const getThinkingMessageFromResponse = (message: AssistantMessage): (ServerToolUseBlock | ThinkingBlock)[] => {
+export type WebSearchResultsByToolUseId = Record<string, WebSearchResult[]>
+
+/**
+ * Collects web search results by the ID of their `server_tool_use` block.
+ * The backend starts a new message at each `server_tool_use` block, so with parallel searches
+ * a result can arrive in a later message than its `server_tool_use` block.
+ */
+export const getWebSearchResultsByToolUseId = (messages: AssistantMessage[]): WebSearchResultsByToolUseId => {
+    const resultsByToolUseId: WebSearchResultsByToolUseId = {}
+    for (const message of messages) {
+        for (const block of message.meta?.thinking ?? []) {
+            // While a response streams, a result block can be incomplete.
+            if (
+                block.type === 'web_search_tool_result' &&
+                typeof block.tool_use_id === 'string' &&
+                Array.isArray(block.content)
+            ) {
+                resultsByToolUseId[block.tool_use_id] = block.content.map((content) => ({
+                    title: content.title as string,
+                    url: content.url as string,
+                }))
+            }
+        }
+    }
+    return resultsByToolUseId
+}
+
+export const getThinkingMessageFromResponse = (
+    message: AssistantMessage,
+    threadWebSearchResults?: WebSearchResultsByToolUseId
+): (ServerToolUseBlock | ThinkingBlock)[] => {
     const thinkingMeta = message.meta?.thinking
     if (!thinkingMeta) {
         return []
     }
+    const resultsByToolUseId = { ...threadWebSearchResults, ...getWebSearchResultsByToolUseId([message]) }
     const blocks: (ServerToolUseBlock | ThinkingBlock)[] = []
-    const toolUseIdToBlock: Record<string, ServerToolUseBlock> = {}
     for (const block of thinkingMeta) {
         if (block.type === 'thinking') {
             blocks.push({ type: 'thinking', thinking: block.thinking as string })
         } else if (block.type === 'server_tool_use') {
-            toolUseIdToBlock[block.id as string] = {
+            blocks.push({
                 id: block.id as string,
                 type: 'server_tool_use',
                 name: block.name as string,
                 input: block.input as Record<string, unknown>,
-            }
-            blocks.push(toolUseIdToBlock[block.id as string])
-        } else if (block.type === 'web_search_tool_result') {
-            if (!Array.isArray(block.content)) {
-                console.error('web_search_tool_result is not an array', block)
-                continue // Making TypeScript happy
-            }
-            if (!toolUseIdToBlock[block.tool_use_id as string]) {
-                console.error(
-                    'tool_use_id not found - likely web_search was called in parallel with another tool',
-                    block,
-                    toolUseIdToBlock
-                )
-                continue
-            }
-            toolUseIdToBlock[block.tool_use_id as string].results = block.content.map((content) => ({
-                title: content.title as string,
-                url: content.url as string,
-            }))
+                results: resultsByToolUseId[block.id as string],
+            })
         } else if (block.type === 'reasoning') {
             // OpenAI
             blocks.push({ type: 'thinking', thinking: (block.summary as any[])[0].text as string })

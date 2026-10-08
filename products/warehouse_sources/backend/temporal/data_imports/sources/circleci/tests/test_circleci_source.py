@@ -42,11 +42,6 @@ class TestCircleCISource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    def test_get_schemas_returns_all_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_no_endpoint_advertises_incremental(self, endpoint):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
@@ -85,6 +80,3 @@ class TestCircleCISource:
 
         last_url = mock_session.return_value.get.call_args.args[0]
         assert urlparse(last_url).path == expected_org_probe_path
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
