@@ -430,6 +430,24 @@ class Workflow:
     suggestions_enabled: bool | None = None
 
 
+@frozen
+class WorkflowRef:
+    """A workflow's identity and dispatch settings, for an action that does not return the workflow.
+
+    It carries no step configuration, so it holds no secret input. ``trigger_type`` and
+    ``trigger_filters`` come from the stored trigger.
+    """
+
+    id: UUID
+    team_id: int
+    name: str | None
+    status: str
+    version: int
+    trigger_type: str | None
+    trigger_filters: dict[str, Any]
+    variables: list[dict[str, Any]] | None
+
+
 class WorkflowNotFound(Exception):
     pass
 

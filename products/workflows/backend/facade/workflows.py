@@ -6,6 +6,7 @@ from products.workflows.backend.services.hog_flow_reads import (
     WORKFLOW_FIELD_FILTER_PARAMS,
     WORKFLOW_TYPES,
     get_workflow,
+    get_workflow_ref,
     list_workflows,
 )
 
@@ -14,5 +15,6 @@ __all__ = [
     "WORKFLOW_FIELD_FILTER_PARAMS",
     "WORKFLOW_TYPES",
     "get_workflow",
+    "get_workflow_ref",
     "list_workflows",
 ]
