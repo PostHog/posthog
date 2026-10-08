@@ -12,7 +12,7 @@ from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
 from django.db import IntegrityError, models, transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 
 import structlog
@@ -46,6 +46,9 @@ MAX_SESSION_END_WAIT = timedelta(hours=6)
 
 # Each start launches up to 200 workflows, so a tick only starts a bounded number of waiting requests.
 MAX_STARTS_PER_TICK = 50
+
+# How many waiting requests one tick checks for ended sessions.
+MAX_CHECKS_PER_TICK = 200
 
 # Leaves headroom inside the reconciler activity's own start-to-close timeout.
 _SWEEP_BUDGET_SECONDS = 30
@@ -198,13 +201,20 @@ def _start_scans(
 
 
 def start_waiting_requests(*, now: datetime | None = None) -> int:
-    """Start the scans of waiting requests whose sessions have all gone quiet, or have waited long enough."""
+    """Start the scans of waiting requests whose sessions have all gone quiet, or have waited long enough.
+
+    Each tick checks the waiting requests checked least recently, so one whose sessions never end moves to the
+    back instead of holding up everyone behind it until its wait runs out.
+    """
     now = now or timezone.now()
     waiting = list(
         ReplayObservationRequest.objects.unscoped()
         .filter(wait_for_session_end=True, started_at__isnull=True, completed_at__isnull=True)
         .select_related("team", "scanner", "created_by")
-        .order_by("created_at")[:MAX_STARTS_PER_TICK]
+        .order_by(F("session_end_checked_at").asc(nulls_first=True), "created_at")[:MAX_CHECKS_PER_TICK]
+    )
+    ReplayObservationRequest.objects.unscoped().filter(id__in=[r.id for r in waiting]).update(
+        session_end_checked_at=now
     )
     started = 0
     for team_id in {r.team_id for r in waiting}:
@@ -216,6 +226,8 @@ def start_waiting_requests(*, now: datetime | None = None) -> int:
             logger.exception("replay_vision.observation_request.last_activity_failed", team_id=team_id)
             continue
         for request in team_requests:
+            if started >= MAX_STARTS_PER_TICK:
+                return started
             if not _sessions_ended(request, last_activity, now):
                 continue
             try:

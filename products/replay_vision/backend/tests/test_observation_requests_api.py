@@ -424,3 +424,29 @@ class TestStartWaitingRequests(APIBaseTest):
         request.refresh_from_db()
         self.assertEqual(request.started_at is not None, starts)
         self.assertEqual([o["session_id"] for o in request.start_outcomes], ["s1"] if starts else [])
+
+    @patch("products.replay_vision.backend.observation_requests.MAX_CHECKS_PER_TICK", 1)
+    def test_a_request_whose_sessions_never_end_does_not_block_the_next_one(self) -> None:
+        stuck, ready = (
+            ReplayObservationRequest.objects.for_team(self.team.id).create(
+                team=self.team,
+                scanner=self.scanner,
+                session_ids=[sid],
+                start_outcomes=[],
+                source="project_secret_api_key",
+                wait_for_session_end=True,
+            )
+            for sid in ("never-ends", "ended")
+        )
+        now = timezone.now()
+
+        with patch(
+            "products.replay_vision.backend.observation_requests.fetch_session_last_activity",
+            return_value={"never-ends": now, "ended": now - timedelta(hours=1)},
+        ):
+            start_waiting_requests(now=now)
+            start_waiting_requests(now=now + timedelta(minutes=1))
+
+        stuck.refresh_from_db()
+        ready.refresh_from_db()
+        self.assertEqual((stuck.started_at is None, ready.started_at is not None), (True, True))

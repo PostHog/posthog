@@ -50,6 +50,9 @@ class ReplayObservationRequest(TeamScopedRootMixin, UUIDModel):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True, blank=True)
+    session_end_checked_at = models.DateTimeField(
+        null=True, blank=True, help_text="When a waiting request last had its sessions checked for having ended."
+    )
     completed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
