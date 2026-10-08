@@ -2889,7 +2889,7 @@ class TestPerRequestLoggingContextMiddlewareMcpHeaders(APIBaseTest):
             ("blank", "   ", None),
         ]
     )
-    def test_binds_frontend_session_id(self, _name, header_value, expected):
+    def test_binds_frontend_session_id(self, _name: str, header_value: str, expected: str | None) -> None:
         with patch("posthog.middleware.trace") as mock_trace:
             span = MagicMock()
             mock_trace.get_current_span.return_value = span
@@ -2904,10 +2904,10 @@ class TestPerRequestLoggingContextMiddlewareMcpHeaders(APIBaseTest):
 
 
 class TestUserLoggingContextMiddleware(APIBaseTest):
-    def _run_middleware(self, user) -> tuple[dict[str, Any], MagicMock]:
+    def _run_middleware(self, user: User | AnonymousUser) -> tuple[dict[str, Any], MagicMock]:
         captured: dict[str, Any] = {}
 
-        def get_response(request):
+        def get_response(request: HttpRequest) -> HttpResponse:
             captured["ctx"] = dict(structlog.contextvars.get_contextvars())
             return HttpResponse()
 
@@ -2923,15 +2923,14 @@ class TestUserLoggingContextMiddleware(APIBaseTest):
             structlog.contextvars.clear_contextvars()
         return captured["ctx"], span
 
-    def test_binds_team_and_distinct_id_for_authenticated_user(self):
+    def test_binds_team_and_distinct_id_for_authenticated_user(self) -> None:
         ctx, span = self._run_middleware(self.user)
 
         assert ctx["team_id"] == self.team.pk
         assert ctx["posthogDistinctId"] == self.user.distinct_id
-        span.set_attribute.assert_any_call("team_id", self.team.pk)
-        span.set_attribute.assert_any_call("posthogDistinctId", self.user.distinct_id)
+        span.set_attribute.assert_called_once_with("posthogDistinctId", self.user.distinct_id)
 
-    def test_binds_nothing_for_anonymous_user(self):
+    def test_binds_nothing_for_anonymous_user(self) -> None:
         ctx, span = self._run_middleware(AnonymousUser())
 
         assert "team_id" not in ctx

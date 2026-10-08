@@ -925,27 +925,20 @@ def user_logging_context_middleware(
 ) -> Callable[[HttpRequest], HttpResponse]:
     """
     This middleware adds the team_id and the user's distinct_id to the logging
-    context and the request span if they exist. Note that this should be added
-    after we have performed authentication, as we need the user to be
-    authenticated to get them.
+    context if they exist, and the distinct_id to the request span. Note that
+    this should be added after we have performed authentication, as we need
+    the user to be authenticated to get them.
     """
 
     def middleware(request: HttpRequest) -> HttpResponse:
         if request.user.is_authenticated:
+            structlog.contextvars.bind_contextvars(team_id=request.user.current_team_id)
             # `posthogDistinctId` is the key that the Logs and Tracing person links look for by default.
-            bindings = {
-                k: v
-                for k, v in (
-                    ("team_id", request.user.current_team_id),
-                    ("posthogDistinctId", request.user.distinct_id),
-                )
-                if v
-            }
-            if bindings:
-                structlog.contextvars.bind_contextvars(**bindings)
-                span = trace.get_current_span()
-                for key, value in bindings.items():
-                    span.set_attribute(key, value)
+            # The span gets no team_id here, because current_team_id can differ from the team in the URL.
+            # TeamAndOrgViewSetMixin tags the span with the team that the view resolves.
+            if distinct_id := request.user.distinct_id:
+                structlog.contextvars.bind_contextvars(posthogDistinctId=distinct_id)
+                trace.get_current_span().set_attribute("posthogDistinctId", distinct_id)
 
         return get_response(request)
 
