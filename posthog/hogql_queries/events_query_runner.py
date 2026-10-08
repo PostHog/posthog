@@ -39,6 +39,7 @@ from posthog.hogql.property import (
     steps_to_expr,
 )
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.restricted_properties import PERSON_PROPERTY_CONTAINERS
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.api.element import ElementSerializer
@@ -373,6 +374,14 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 # ``properties.<name>`` on the events table.
                 if len(chain) >= 2 and chain[0] == "properties" and chain[1] in restricted_event_props:
                     raise ResolutionError(f"Access to property '{chain[1]}' is restricted")
+                # ``properties.$set.<name>`` carries the person property on an identify event.
+                if (
+                    len(chain) >= 3
+                    and chain[0] == "properties"
+                    and chain[1] in PERSON_PROPERTY_CONTAINERS
+                    and chain[2] in restricted_person_props
+                ):
+                    raise ResolutionError(f"Access to property '{chain[2]}' is restricted")
                 # ``person.properties.<name>`` (or ``poe.properties.<name>``) on the joined person.
                 if (
                     len(chain) >= 3
