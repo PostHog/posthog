@@ -216,6 +216,45 @@ class TestPlaygroundChatAPI(APIBaseTest):
         assert loaded[1]["run"]["run_id"] == str(successor.id)
         assert loaded[1]["run"]["status"] == "running"
 
+    def test_follow_up_resumes_a_later_turn_on_another_task(self, _ff, _workflow) -> None:
+        chat = self._create_chat()
+        asked = self.client.post(f"{self.url}{chat['id']}/ask/", {"question": "Can I get a refund?"}, format="json")
+        assert asked.status_code == status.HTTP_201_CREATED, asked.content
+        first_task_id = asked.json()["turns"][0]["task_id"]
+        TaskRun.objects.filter(task_id=first_task_id).update(
+            status=TaskRun.Status.COMPLETED, output={"reply": "Yes, within 30 days.", "sources": []}
+        )
+        other = self.client.post(
+            f"/api/projects/{self.team.id}/business_knowledge/sandbox/",
+            {"question": "Where is the policy?"},
+            format="json",
+        )
+        assert other.status_code == status.HTTP_201_CREATED, other.content
+        other_task_id = other.json()["task_id"]
+        other_run_id = other.json()["run_id"]
+        TaskRun.objects.filter(id=other_run_id).update(
+            status=TaskRun.Status.COMPLETED, output={"reply": "In the handbook.", "sources": []}
+        )
+        PlaygroundTurn.objects.unscoped().create(
+            team_id=self.team.id,
+            chat_id=chat["id"],
+            question="Where is the policy?",
+            task_id=other_task_id,
+            run_id=other_run_id,
+            position=1,
+        )
+
+        follow_up = self.client.post(f"{self.url}{chat['id']}/ask/", {"question": "And after 30 days?"}, format="json")
+        assert follow_up.status_code == status.HTTP_201_CREATED, follow_up.content
+        body = follow_up.json()
+        assert body["turns"][0]["task_id"] == first_task_id
+        assert body["turns"][1]["run"]["reply"] == "In the handbook."
+        assert body["turns"][2]["task_id"] == other_task_id
+        successor = TaskRun.objects.get(id=body["turns"][2]["run"]["run_id"])
+        assert str(successor.task_id) == other_task_id
+        assert successor.state["resume_from_run_id"] == other_run_id
+        assert str(PlaygroundChat.objects.unscoped().get(id=chat["id"]).task_id) == other_task_id
+
     def test_follow_up_keeps_an_unpinned_earlier_answer(self, _ff, _workflow) -> None:
         chat = self._create_chat()
         asked = self.client.post(f"{self.url}{chat['id']}/ask/", {"question": "Can I get a refund?"}, format="json")

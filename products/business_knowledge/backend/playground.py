@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from typing import Any
+from uuid import UUID
+
+from django.db import transaction
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -108,7 +111,7 @@ def ask_playground_chat(*, chat: PlaygroundChat, team: Team, user_id: int, quest
             position=0 if last is None else last + 1,
         )
         update_fields = ["updated_at"]
-        if chat.task_id is None:
+        if chat.task_id != created.task_id:
             chat.task_id = created.task_id
             update_fields.append("task_id")
         if not chat.title:
@@ -121,28 +124,39 @@ def ask_playground_chat(*, chat: PlaygroundChat, team: Team, user_id: int, quest
             run_id=previous.id
         )
 
-    chat.refresh_from_db(fields=["task_id", "title"])
-    task_id = chat.task_id
-    if task_id is None:
-        task_id = (
+    def task_for_next_run() -> UUID | None:
+        chat.refresh_from_db(fields=["task_id", "title"])
+        latest_task_id = (
             PlaygroundTurn.objects.filter(chat=chat).order_by("-position").values_list("task_id", flat=True).first()
         )
-    if task_id is None:
-        start_sandbox_run(
-            team=team,
-            user_id=user_id,
-            question=question,
-            admit=admit_one_run_per_chat,
-            on_admitted=record_turn,
-        )
-    else:
-        resume_sandbox_run(
-            team=team,
-            user_id=user_id,
-            task_id=task_id,
-            question=question,
-            admit=admit_one_run_per_chat,
-            on_admitted=record_turn,
-            before_create=remember_current_run,
-        )
+        # An older process can append a turn on a new task and leave chat.task_id behind.
+        if latest_task_id is not None and latest_task_id != chat.task_id:
+            chat.task_id = latest_task_id
+            chat.save(update_fields=["task_id", "updated_at"])
+        return chat.task_id
+
+    def already_admitted() -> None:
+        return
+
+    with transaction.atomic():
+        admit_one_run_per_chat()
+        task_id = task_for_next_run()
+        if task_id is None:
+            start_sandbox_run(
+                team=team,
+                user_id=user_id,
+                question=question,
+                admit=already_admitted,
+                on_admitted=record_turn,
+            )
+        else:
+            resume_sandbox_run(
+                team=team,
+                user_id=user_id,
+                task_id=task_id,
+                question=question,
+                admit=already_admitted,
+                on_admitted=record_turn,
+                before_create=remember_current_run,
+            )
     return serialize_playground_chat(chat=chat, user_id=user_id)
