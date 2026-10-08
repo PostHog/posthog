@@ -186,7 +186,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         read_only=True,
         help_text=(
             "Set on an update response when the change was saved but the connection check from the "
-            "API could not reach the database. Null otherwise."
+            "API failed. Null otherwise."
         ),
     )
 
