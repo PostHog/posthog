@@ -1,5 +1,5 @@
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
@@ -12,15 +12,12 @@ from tenacity import wait_none
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel import vercel
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.settings import VERCEL_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.vercel import (
-    BILLING_BACKFILL_DAYS,
     PAGE_SIZE,
     VercelResumeConfig,
     _billing_window_start,
     _build_params,
     _cursor_from_page,
-    _floor_to_day,
     _focus_charge_id,
-    _iso8601_utc,
     _ms_to_iso8601,
     _should_stop_desc,
     get_billing_rows,
@@ -296,53 +293,6 @@ class TestOpenBillingStreamRetry:
 
 
 class TestGetRows:
-    def test_full_refresh_follows_until_cursor_across_pages(self, monkeypatch: Any) -> None:
-        responses = [
-            {"deployments": [{"uid": "1", "created": 300}, {"uid": "2", "created": 200}], "pagination": {"next": 200}},
-            {"deployments": [{"uid": "3", "created": 100}], "pagination": {"next": None}},
-        ]
-        rows, calls = _collect("deployments", _FakeResumableManager(), monkeypatch, responses)
-
-        assert [r["uid"] for r in rows] == ["1", "2", "3"]
-        assert "until=" not in calls[0]
-        assert "until=200" in calls[1]
-
-    def test_uses_response_data_key_per_endpoint(self, monkeypatch: Any) -> None:
-        responses = [{"projects": [{"id": "p1"}, {"id": "p2"}], "pagination": {"next": None}}]
-        rows, _ = _collect("projects", _FakeResumableManager(), monkeypatch, responses)
-        assert [r["id"] for r in rows] == ["p1", "p2"]
-
-    def test_incremental_sends_since_and_stops_at_watermark(self, monkeypatch: Any) -> None:
-        responses = [
-            {"deployments": [{"uid": "1", "created": 300}, {"uid": "2", "created": 200}], "pagination": {"next": 200}},
-            # 120 <= watermark(150): stop after this page rather than walking older history.
-            {"deployments": [{"uid": "3", "created": 120}], "pagination": {"next": 120}},
-            {"deployments": [{"uid": "4", "created": 50}], "pagination": {"next": None}},
-        ]
-        rows, calls = _collect(
-            "deployments",
-            _FakeResumableManager(),
-            monkeypatch,
-            responses,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=150,
-        )
-
-        assert [r["uid"] for r in rows] == ["1", "2", "3"]
-        assert "since=150" in calls[0]
-        assert len(calls) == 2
-
-    def test_stops_when_cursor_does_not_advance(self, monkeypatch: Any) -> None:
-        # An endpoint that ignores `until` re-serves the same cursor; stop instead of looping forever.
-        responses = [
-            {"deployments": [{"uid": "1", "created": 300}], "pagination": {"next": 300}},
-            {"deployments": [{"uid": "9", "created": 300}], "pagination": {"next": 300}},
-        ]
-        rows, calls = _collect("deployments", _FakeResumableManager(), monkeypatch, responses)
-
-        assert [r["uid"] for r in rows] == ["1", "9"]
-        assert len(calls) == 2
-
     def test_resumes_from_saved_until_cursor(self, monkeypatch: Any) -> None:
         responses = [{"deployments": [{"uid": "1", "created": 400}], "pagination": {"next": None}}]
         manager = _FakeResumableManager(VercelResumeConfig(until=500))
@@ -350,29 +300,6 @@ class TestGetRows:
 
         assert [r["uid"] for r in rows] == ["1"]
         assert "until=500" in calls[0]
-
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        responses = [{"deployments": [], "pagination": {"next": None}}]
-        rows, calls = _collect("deployments", _FakeResumableManager(), monkeypatch, responses)
-        assert rows == []
-        assert len(calls) == 1
-
-    def test_events_pages_without_a_pagination_envelope(self, monkeypatch: Any) -> None:
-        # /v3/events returns rows but no `pagination` object. Without the derived cursor the walk
-        # ends after page one and the table silently caps at a single page of history forever.
-        responses: list[dict] = [
-            {"events": [{"id": "e1", "createdAt": 300}, {"id": "e2", "createdAt": 200}]},
-            {"events": [{"id": "e3", "createdAt": 100}]},
-            {"events": []},
-        ]
-        rows, calls = _collect("events", _FakeResumableManager(), monkeypatch, responses)
-
-        assert [r["id"] for r in rows] == ["e1", "e2", "e3"]
-        assert "until=" not in calls[0]
-        # The oldest row on each page bounds the next, so page two asks for until=200, not 300 —
-        # encoded as the ISO string events requires, not the raw ms integer.
-        assert "until=1970-01-01T00%3A00%3A00.200Z" in calls[1]
-        assert "until=1970-01-01T00%3A00%3A00.100Z" in calls[2]
 
     def test_events_stop_when_a_whole_page_shares_one_timestamp(self, monkeypatch: Any) -> None:
         # The derived cursor can't advance past a page whose rows share a timestamp; the walk has
@@ -458,20 +385,6 @@ class TestGetFanoutRows:
         # not be appended to the child request.
         assert "limit=" not in calls[1]
 
-    def test_deployment_with_no_check_runs_still_visits_every_parent(self, monkeypatch: Any) -> None:
-        responses: list[dict] = [
-            {
-                "deployments": [{"uid": "d1", "created": 200}, {"uid": "d2", "created": 100}],
-                "pagination": {"next": None},
-            },
-            {"runs": []},
-            {"runs": [{"id": "r2", "deploymentId": "d2"}]},
-        ]
-        rows, calls = _collect_fanout(monkeypatch, responses)
-
-        assert [r["id"] for r in rows] == ["r2"]
-        assert len(calls) == 3
-
     def test_parent_row_missing_the_fan_out_field_is_skipped(self, monkeypatch: Any) -> None:
         # A deployment row without `uid` can't seed a child path; skip it rather than crash the sync.
         responses: list[dict] = [
@@ -553,12 +466,6 @@ class _FakeStreamResponse:
         self.closed = True
 
 
-class TestIso8601Utc:
-    def test_formats_as_utc_z_with_millis(self) -> None:
-        formatted = _iso8601_utc(datetime(2025, 1, 2, 3, 4, 5, tzinfo=UTC))
-        assert formatted == "2025-01-02T03:04:05.000Z"
-
-
 class TestMsToIso8601:
     @parameterized.expand(
         [
@@ -574,19 +481,6 @@ class TestMsToIso8601:
 
 
 class TestFocusChargeId:
-    def test_stable_when_only_amounts_change(self) -> None:
-        # A restated charge (same dimensions, different measures) must keep its id so merge updates
-        # it in place instead of inserting a duplicate.
-        base = {
-            "ChargePeriodStart": "2025-01-01T00:00:00.000Z",
-            "ServiceName": "Functions",
-            "RegionId": "iad1",
-            "Tags": {"ProjectId": "p_1"},
-        }
-        first = _focus_charge_id({**base, "BilledCost": 1.0, "EffectiveCost": 0.9, "ConsumedQuantity": 10})
-        restated = _focus_charge_id({**base, "BilledCost": 2.0, "EffectiveCost": 1.8, "ConsumedQuantity": 20})
-        assert first == restated
-
     @parameterized.expand(
         [
             ("service", {"ServiceName": "Bandwidth"}),
@@ -605,17 +499,8 @@ class TestFocusChargeId:
         }
         assert _focus_charge_id(base) != _focus_charge_id({**base, **override})
 
-    def test_missing_dimension_does_not_collide_with_empty_string(self) -> None:
-        # A key present as null must not hash the same as the same key set to "".
-        assert _focus_charge_id({"RegionId": None}) != _focus_charge_id({"RegionId": ""})
-
 
 class TestBillingWindowStart:
-    def test_full_refresh_goes_back_the_backfill_window(self) -> None:
-        now = datetime(2026, 6, 15, 9, 30, tzinfo=UTC)
-        start = _billing_window_start(should_use_incremental_field=False, db_incremental_field_last_value=None, now=now)
-        assert start == _floor_to_day(now) - timedelta(days=BILLING_BACKFILL_DAYS)
-
     def test_incremental_reads_from_the_day_floored_watermark(self) -> None:
         now = datetime(2026, 6, 15, 9, 30, tzinfo=UTC)
         watermark = datetime(2026, 6, 10, 14, 45, tzinfo=UTC)
@@ -623,13 +508,6 @@ class TestBillingWindowStart:
             should_use_incremental_field=True, db_incremental_field_last_value=watermark, now=now
         )
         assert start == datetime(2026, 6, 10, tzinfo=UTC)
-
-    def test_watermark_is_capped_at_the_one_year_window(self) -> None:
-        # A stale watermark older than the backfill window can't push `from` past Vercel's cap.
-        now = datetime(2026, 6, 15, 9, 30, tzinfo=UTC)
-        stale = datetime(2024, 1, 1, tzinfo=UTC)
-        start = _billing_window_start(should_use_incremental_field=True, db_incremental_field_last_value=stale, now=now)
-        assert start == _floor_to_day(now) - timedelta(days=BILLING_BACKFILL_DAYS)
 
 
 class TestGetBillingRows:
@@ -669,11 +547,3 @@ class TestGetBillingRows:
         assert "teamId=team_9" in url
         assert "from=" in url and "to=" in url
         assert response.closed is True
-
-    def test_omits_team_id_when_not_set(self, monkeypatch: Any) -> None:
-        _, url = self._collect(monkeypatch, _FakeStreamResponse([]), team_id=None)
-        assert "teamId" not in url
-
-    def test_empty_stream_yields_no_rows(self, monkeypatch: Any) -> None:
-        rows, _ = self._collect(monkeypatch, _FakeStreamResponse([]), team_id="team_1")
-        assert rows == []

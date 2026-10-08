@@ -1586,6 +1586,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
             integration,
             "slack app home opened",
             slack_user_id=slack_user_id,
+            posthog_user=_analytics_home_user(integration, slack_user_id),
             account_linked=bool(render.account_state.linked_email),
             has_project_access=render.has_project_access,
         )
@@ -1607,6 +1608,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         integration,
         "slack app home action clicked",
         slack_user_id=slack_user_id,
+        posthog_user=_analytics_home_user(integration, slack_user_id),
         action=action_id,
         # Which option the control carried: the follow-up mode, the picked project id,
         # the stats window, the tasks page, or the GitHub button's connect/manage state.
@@ -1740,6 +1742,7 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
         integration,
         "slack app ai preferences saved",
         slack_user_id=slack_user_id,
+        posthog_user=_analytics_home_user(integration, slack_user_id),
         runtime_adapter=runtime_adapter,
         model=model,
         reasoning_effort=reasoning_effort,
@@ -2411,6 +2414,15 @@ def _resolve_home_user(integration: Integration, slack_user_id: str) -> User | N
         .first()
     )
     return membership.user if membership else None
+
+
+def _analytics_home_user(integration: Integration, slack_user_id: str) -> User | None:
+    # Attribution is best-effort, so a failed lookup must not cost the reader the publish or the click.
+    try:
+        return _resolve_home_user(integration, slack_user_id)
+    except Exception:
+        logger.warning("slack_app_home_analytics_user_unresolved", exc_info=True)
+        return None
 
 
 def _resolve_github_state(integration: Integration, slack_user_id: str) -> GitHubState:

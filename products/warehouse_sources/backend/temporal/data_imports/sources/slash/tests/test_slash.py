@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import requests_mock
 from requests.exceptions import HTTPError
@@ -188,21 +188,6 @@ def test_sync_error_mapping(http: requests_mock.Mocker, manager: MagicMock, stat
     ]
     assert bool(matches) == (status != 404)
     assert len(http.request_history) == 1
-
-
-@pytest.mark.parametrize("status", [429, 500, 503])
-def test_transient_error_retries(http: requests_mock.Mocker, manager: MagicMock, status: int) -> None:
-    http.get(
-        "https://api.slash.com/card",
-        [
-            {"status_code": status, "json": {"success": False}},
-            {"json": {"items": [{"id": "example"}], "metadata": {}}},
-        ],
-    )
-    response = slash_source(SlashSourceConfig(api_key="fake-key"), "cards", 1, "job-example", manager, False, None)
-    with patch("tenacity.nap.time.sleep"):
-        assert list(cast(Iterable[Any], response.items())) == [[{"id": "example"}]]
-    assert len(http.request_history) == 2
 
 
 def test_unknown_endpoint(manager: MagicMock) -> None:

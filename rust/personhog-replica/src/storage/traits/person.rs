@@ -3,8 +3,8 @@ use uuid::Uuid;
 
 use crate::storage::error::StorageResult;
 use crate::storage::types::{
-    DeletePersonsMode, DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, SplitResult,
-    TombstonedDeleteOutcome, TombstonedPerson,
+    DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, PersonVersionFloorResult, SplitResult,
+    TombstoneTarget, TombstonedDeleteOutcome, TombstonedPerson,
 };
 
 /// Person lookup operations by ID, UUID, and distinct ID
@@ -54,23 +54,24 @@ pub trait PersonLookup: Send + Sync {
 
     // Deletes
 
-    /// `Hard` removes the rows, tombstoned ones included. `Tombstone` keeps
-    /// them and reports the versions written for the ClickHouse tombstones.
+    /// Tombstones the persons and reports the versions written for the ClickHouse tombstones.
     async fn delete_persons(
         &self,
         team_id: i64,
         uuids: &[Uuid],
-        mode: DeletePersonsMode,
     ) -> StorageResult<DeletePersonsOutcome>;
 
     /// Delete persons that are still tombstoned, at most `max_rows` dependent rows per call:
     /// persons that fit the budget go whole, the first that does not is trimmed with the leftover
     /// and returned pending, the rest are returned pending untouched. A revival either wins the
     /// row lock first and is skipped, or lands afterwards on a fresh row. Idempotent.
+    ///
+    /// A person is deleted only while its version is at or below its target's `max_version`,
+    /// checked under the same row lock. A uuid listed twice keeps its lowest bound.
     async fn delete_tombstoned_persons(
         &self,
         team_id: i64,
-        uuids: &[Uuid],
+        targets: &[TombstoneTarget],
         max_rows: i64,
     ) -> StorageResult<TombstonedDeleteOutcome>;
 
@@ -146,4 +147,12 @@ pub trait PersonLookup: Send + Sync {
         person_id: i64,
         min_version: i64,
     ) -> StorageResult<bool>;
+
+    /// Raise each person tombstone to at least its min version in one primary transaction, inserting a
+    /// tombstone for a missing person and leaving a live row unchanged; `floors` must not repeat a uuid.
+    async fn ensure_person_version_floors(
+        &self,
+        team_id: i64,
+        floors: &[(Uuid, i64)],
+    ) -> StorageResult<Vec<PersonVersionFloorResult>>;
 }

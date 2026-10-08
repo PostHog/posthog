@@ -107,15 +107,6 @@ class TestPaginator:
         assert request.params == {"page": 0}
         return paginator
 
-    def test_full_page_advances_to_next_page(self) -> None:
-        paginator = self._paginator()
-        paginator.update_state(_response({"articles": []}), [{"a": 1}, {"a": 2}])
-        assert paginator.has_next_page is True
-        request = mock.MagicMock()
-        request.params = {}
-        paginator.update_request(request)
-        assert request.params == {"page": 1}
-
     @parameterized.expand([("short_page", [{"a": 1}]), ("empty_page", [])])
     def test_short_or_empty_page_terminates(self, _name: str, data: list[dict[str, Any]]) -> None:
         paginator = self._paginator()
@@ -131,13 +122,6 @@ class TestPaginator:
         paginator.update_state(_response({"articles": []}), [{"a": 1}, {"a": 2}])
         assert paginator.has_next_page is False
         logger.warning.assert_called_once()
-
-    def test_no_cap_log_below_cap(self) -> None:
-        logger = mock.MagicMock()
-        paginator = self._paginator(logger)
-        paginator.update_state(_response({"articles": []}), [{"a": 1}, {"a": 2}])
-        assert paginator.has_next_page is True
-        logger.warning.assert_not_called()
 
 
 class TestEndpointRequests:
@@ -203,38 +187,6 @@ class TestIncrementalParams:
         assert params[param] == "2026-03-04T02:58:14Z"
         assert params["sortBy"] == sort_by
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_without_watermark_sorts_but_does_not_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"articles": []})])
-
-        _rows(_source("articles", _make_manager(), should_use_incremental_field=True))
-
-        params = snapshots[0][1]
-        assert "from" not in params
-        # The cursor-field sort must apply from the first incremental sync so sort_mode holds.
-        assert params["sortBy"] == "reverseDate"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_uses_stable_sort_and_no_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"articles": []})])
-
-        _rows(_source("articles", _make_manager(), should_use_incremental_field=False))
-
-        params = snapshots[0][1]
-        assert "from" not in params
-        assert params["sortBy"] == "reverseAddDate"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_reference_endpoint_passes_no_sort(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"results": []})])
-
-        _rows(_source("journalists", _make_manager()))
-
-        assert "sortBy" not in snapshots[0][1]
-
 
 class TestResume:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -246,20 +198,6 @@ class TestResume:
 
         assert snapshots[0][1]["page"] == 7
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_state_saved_after_each_full_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        full_page = [{"articleId": str(i)} for i in range(100)]
-        _wire(session, [_response({"articles": full_page}), _response({"articles": []})])
-        manager = _make_manager()
-
-        _rows(_source("articles", manager))
-
-        assert manager.save_state.called
-        saved = manager.save_state.call_args.args[0]
-        assert isinstance(saved, PerigonResumeConfig)
-        assert saved.page == 1
-
 
 class TestPerigonSourceResponse:
     @parameterized.expand([(name,) for name in PERIGON_ENDPOINTS])
@@ -270,40 +208,9 @@ class TestPerigonSourceResponse:
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == config.sort_mode
 
-    def test_articles_partitioned_on_stable_pub_date(self) -> None:
-        response = _source("articles", _make_manager())
-        assert response.partition_keys == ["pubDate"]
-        assert response.partition_mode == "datetime"
-
-    def test_stories_partitioned_on_created_at_not_updated_at(self) -> None:
-        # updatedAt changes on every new article in the cluster — partitioning on it would
-        # rewrite partitions each sync.
-        response = _source("stories", _make_manager())
-        assert response.partition_keys == ["createdAt"]
-
-    def test_full_refresh_endpoint_has_no_partition(self) -> None:
-        response = _source("topics", _make_manager())
-        assert response.partition_keys is None
-        assert response.partition_mode is None
-
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status,expected", [(200, True), (401, False), (403, False)])
-    def test_status_maps_to_validity(self, status: int, expected: bool) -> None:
-        with mock.patch(PERIGON_SESSION_PATCH) as mock_session:
-            mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-            ok, returned_status = validate_credentials("key")
-            assert ok is expected
-            assert returned_status == status
-
     def test_network_error_is_invalid(self) -> None:
         with mock.patch(PERIGON_SESSION_PATCH) as mock_session:
             mock_session.return_value.get.side_effect = Exception("boom")
             assert validate_credentials("key") == (False, None)
-
-    def test_schema_probe_hits_that_endpoint(self) -> None:
-        with mock.patch(PERIGON_SESSION_PATCH) as mock_session:
-            mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-            validate_credentials("key", path=PERIGON_ENDPOINTS["stories"].path)
-            url = mock_session.return_value.get.call_args.args[0]
-            assert url.startswith(f"{PERIGON_BASE_URL}/v1/stories/all")

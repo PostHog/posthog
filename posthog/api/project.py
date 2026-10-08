@@ -22,6 +22,7 @@ from posthog.schema import ProductKey
 
 from posthog.api import project_tags
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 
@@ -126,8 +127,9 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
+from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_usage_tab_flag_evaluations_mode
+from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,
@@ -645,9 +647,25 @@ class ProjectBackwardCompatSerializer(
         allow_null=True,
         help_text="Settings for Conversations. Must be a JSON object or null.",
     )
+    # Lives on the passthrough Team's extension too, not a real Team column, so it can't be merged
+    # in by ProjectBackwardCompatBasicSerializer.get_fields() like a normal model field.
+    home_tab_dashboard = TeamScopedPrimaryKeyRelatedField(
+        queryset=Dashboard.objects.all(),
+        required=False,
+        allow_null=True,
+        error_messages={"does_not_exist": "Dashboard does not belong to this team."},
+        help_text=(
+            "ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view."
+        ),
+    )  # Compat with TeamSerializer
     # No `default` on purpose: a default value would be auto-injected into every create payload, which trips the
     # admin-only-fields-on-creation gate in validate_team_attrs and blocks members allowed to create projects.
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, required=False)  # Compat with TeamSerializer
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        if isinstance(self.instance, Project):
+            self.context["team_id"] = self.instance.team_id
+        return super().get_fields()
 
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
@@ -683,7 +701,7 @@ class ProjectBackwardCompatSerializer(
 
     class Meta:
         model = Project
-        fields = (
+        fields: tuple[str, ...] = (
             "id",
             "organization",
             "name",
@@ -733,6 +751,7 @@ class ProjectBackwardCompatSerializer(
             "access_control",  # Compat with TeamSerializer
             "week_start_day",  # Compat with TeamSerializer
             "primary_dashboard",  # Compat with TeamSerializer
+            "home_tab_dashboard",  # Compat with TeamSerializer
             "live_events_columns",  # Compat with TeamSerializer
             "recording_domains",  # Compat with TeamSerializer
             "person_on_events_querying_enabled",  # Compat with TeamSerializer
@@ -845,6 +864,7 @@ class ProjectBackwardCompatSerializer(
             "access_control",
             "week_start_day",
             "primary_dashboard",
+            "home_tab_dashboard",
             "live_events_columns",
             "recording_domains",
             "person_on_events_querying_enabled",
@@ -983,7 +1003,7 @@ class ProjectBackwardCompatSerializer(
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Project) -> int:
-        return get_usage_tab_flag_evaluations_mode(obj.organization_id)
+        return get_flag_evaluations_read_mode(obj.organization_id)
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -1229,6 +1249,9 @@ class ProjectBackwardCompatSerializer(
 
         team = instance.passthrough_team
         team_before_update = team.__dict__.copy()
+        if "home_tab_dashboard" in validated_data:
+            dashboard = team.home_tab_dashboard
+            team_before_update["home_tab_dashboard"] = dashboard.id if dashboard else None
         project_before_update = instance.__dict__.copy()
 
         # Analytics configs live on related models, not Team columns — handle them via the shared helpers
@@ -1245,6 +1268,13 @@ class ProjectBackwardCompatSerializer(
 
         if config_data := validated_data.pop("feature_flag_policy_config", None):
             update_team_feature_flag_policy_config(team, config_data, context=config_context)
+
+        # Lives on a Team extension, not a Project or Team column, so it can't flow through the
+        # generic passthrough loop below.
+        if "home_tab_dashboard" in validated_data:
+            dashboard = validated_data.pop("home_tab_dashboard")
+            team.home_tab_dashboard = dashboard
+            home_tab_dashboard_id = dashboard.id if dashboard else None
 
         if "session_recording_retention_period" in validated_data:
             verify_team_session_recording_retention_period(team, validated_data["session_recording_retention_period"])
@@ -1355,6 +1385,8 @@ class ProjectBackwardCompatSerializer(
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         team_after_update = team.__dict__.copy()
+        if "home_tab_dashboard" in team_before_update:
+            team_after_update["home_tab_dashboard"] = home_tab_dashboard_id
         if updated_team_fields or conversations_lock_applied:
             # The in-memory team may hold stale values for fields a concurrent request
             # changed, and the post-save receiver has already cached that snapshot. Reload
@@ -1411,8 +1443,17 @@ class ProjectBackwardCompatSerializer(
         return instance
 
 
+class ProjectCreateRequestSerializer(ProjectBackwardCompatSerializer):
+    def get_fields(self) -> dict[str, serializers.Field]:
+        return {name: field for name, field in super().get_fields().items() if not field.read_only}
+
+    class Meta(ProjectBackwardCompatSerializer.Meta):
+        fields = tuple(field for field in ProjectBackwardCompatSerializer.Meta.fields if field != "home_tab_dashboard")
+
+
 @extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
+    create=extend_schema(request=ProjectCreateRequestSerializer, responses=ProjectBackwardCompatSerializer),
     list=extend_schema(
         parameters=project_tags.LIST_FILTER_PARAMETERS,
     ),

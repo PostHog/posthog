@@ -25,6 +25,7 @@ from posthog.security.url_validation import strip_userinfo
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 from ..llm.client import Client
+from ..llm.decisions import DecisionClient, decision_evaluations_enabled
 from ..llm.providers.azure_openai import (
     DEFAULT_API_VERSION,
     DISALLOWED_ENDPOINT_MESSAGE,
@@ -36,7 +37,6 @@ from ..llm.providers.openai_compatible import (
     error_field_for_validation_message as openai_compatible_error_field,
     is_allowed_custom_base_url,
 )
-from ..llm.system_one import SystemOneClient, system_one_evaluations_enabled
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
@@ -77,7 +77,7 @@ def _reload_model_config_dependents_on_commit(team_id: int, model_config_ids: li
 
 def validate_provider_key(provider: str, api_key: str, *, team_id: int, **kwargs: str) -> tuple[str, str | None]:
     """Validate an API key for any supported provider using the unified client."""
-    if provider == LLMProvider.SYSTEM_ONE and not system_one_evaluations_enabled(
+    if provider == LLMProvider.SYSTEM_ONE and not decision_evaluations_enabled(
         team_id, base_url=kwargs.get("base_url", "")
     ):
         raise exceptions.PermissionDenied("System One evaluations are not available for this project.")
@@ -192,7 +192,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         provider = self.initial_data.get("provider", self.instance.provider if self.instance else None)
         if provider == LLMProvider.SYSTEM_ONE:
             try:
-                return SystemOneClient.normalize_base_url(value)
+                return DecisionClient.normalize_base_url(value)
             except ValueError as error:
                 raise serializers.ValidationError(str(error)) from error
         # `base_url_display` is readable by any project member while the API key is masked, and the

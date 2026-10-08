@@ -19,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SevenShiftsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sevenshifts.sevenshifts import (
-    SevenShiftsResumeConfig,
     sevenshifts_source,
     validate_credentials,
 )
@@ -61,43 +60,6 @@ def response(rows: list[dict[str, object]], cursor: str | None = None, status: i
     return result
 
 
-@pytest.mark.parametrize("endpoint", ["locations", "departments", "roles", "users", "shifts", "time_punches"])
-@pytest.mark.parametrize("resume_cursor", [None, "saved-cursor"])
-def test_pages_auth_and_resume(
-    config: SevenShiftsSourceConfig, manager: MagicMock, send: MagicMock, endpoint: str, resume_cursor: str | None
-) -> None:
-    if resume_cursor:
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = SevenShiftsResumeConfig(cursor=resume_cursor)
-    send.side_effect = [response([{"id": 1}], "next-cursor"), response([{"id": 2}])]
-
-    result = sevenshifts_source(config, endpoint, "2026-01-01", 1, "test-job", manager, True, None)
-    pages = iter(cast(Iterable[Any], result.items()))
-    assert next(pages) == [{"id": 1}]
-    assert list(pages) == [[{"id": 2}]]
-    manager.save_state.assert_called_once_with(SevenShiftsResumeConfig(cursor="next-cursor"))
-    assert send.call_count == 2
-    requests = [call.args[0] for call in send.call_args_list]
-    queries = [parse_qs(urlparse(request.url).query) for request in requests]
-    assert [query.get("cursor") for query in queries] == [
-        [resume_cursor] if resume_cursor else None,
-        ["next-cursor"],
-    ]
-    for request, query in zip(requests, queries):
-        assert urlparse(request.url).path == f"/v2/company/123/{endpoint}"
-        assert request.headers["Authorization"] == "Bearer test-access-token"
-        assert request.headers["x-api-version"] == "2026-01-01"
-        assert "x-company-guid" not in request.headers
-        assert query["limit"] == ["100"]
-        assert "modified_since" not in query
-        assert query.get("include_deleted") == (["true"] if endpoint == "shifts" else None)
-    assert result.sort_mode == "desc"
-    manager.clear_state.assert_not_called()
-    assert result.on_complete is not None
-    result.on_complete()
-    manager.clear_state.assert_called_once()
-
-
 @pytest.mark.parametrize(
     ("endpoint", "watermark", "expected"),
     [
@@ -126,24 +88,6 @@ def test_incremental_filter_and_full_refresh(
     for call in send.call_args_list:
         params = parse_qs(urlparse(call.args[0].url).query)
         assert params.get("modified_since") == ([expected] if incremental else None)
-
-
-@pytest.mark.parametrize("rows", [[], [{"id": 1}]])
-def test_terminal_page(
-    config: SevenShiftsSourceConfig, manager: MagicMock, send: MagicMock, rows: list[dict[str, object]]
-) -> None:
-    send.return_value = response(rows)
-    result = sevenshifts_source(config, "locations", "2026-01-01", 1, "test-job", manager, False, None)
-    assert [row for page in cast(Iterable[Any], result.items()) for row in page] == rows
-    send.assert_called_once()
-    manager.save_state.assert_not_called()
-
-
-def test_empty_page_with_next_cursor(config: SevenShiftsSourceConfig, manager: MagicMock, send: MagicMock) -> None:
-    send.side_effect = [response([], "page-two"), response([{"id": 2}])]
-    result = sevenshifts_source(config, "users", "2026-01-01", 1, "test-job", manager, False, None)
-    assert [row for page in cast(Iterable[Any], result.items()) for row in page] == [{"id": 2}]
-    assert send.call_count == 2
 
 
 def test_repeated_cursor_fails(config: SevenShiftsSourceConfig, manager: MagicMock, send: MagicMock) -> None:

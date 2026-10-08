@@ -21,6 +21,7 @@ import { LONG, LONG_INACTIVE, summary as timelineSummary } from '../__mocks__/re
 import type {
     BackfillEstimateResponseApi,
     DraftScannerResponseApi,
+    ExperimentVariantsReadoutApi,
     ObservationStatsApi,
     ReplayObservationApi,
     ReplayScannerApi,
@@ -414,6 +415,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
             signals_count: 0,
         },
         prompt_question: null,
+        prompt_valence: null,
         triggered_by: 'schedule',
         triggered_by_user: null,
         distinct_id: 'user_8f3k2j',
@@ -557,6 +559,7 @@ const observationDetail = observation({
 // keep the one-paragraph reasoning most scans produce.
 const monitorObservationDetail = observation({
     prompt_question: 'Did the user struggle to complete checkout?',
+    prompt_valence: 'bad',
     id: '00000000-0000-0000-0000-0000000000d2',
     session_id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1d11',
     recording_subject_email: 'bob@example.com',
@@ -696,6 +699,184 @@ const paginated = (names: string[]): Record<string, any> => ({
     previous: null,
     results: names.map((name) => ({ id: name, name, property_type: 'String' })),
 })
+
+// The Variants tab of an experiment scanner. The data is invented: a checkout experiment with
+// balanced sampling, so the smaller variant shows a higher sampling rate.
+const experimentScanner: ReplayScannerApi = scanner({
+    id: '00000000-0000-0000-0000-0000000000e1',
+    name: 'Post-exposure friction: New checkout flow',
+    scanner_type: 'experiment',
+    scanner_config: {
+        prompt: 'Summarize what this participant did after they reached the checkout.',
+        length: 'medium',
+        experiment_id: 11,
+        variants: null,
+        balance_variants: true,
+    },
+    observations_this_month: 71,
+})
+
+const experimentObservation = (
+    id: string,
+    variant: string,
+    title: string,
+    email: string,
+    createdAt: string
+): ReplayObservationApi =>
+    observation({
+        id,
+        scanner_id: experimentScanner.id,
+        recording_subject_email: email,
+        created_at: createdAt,
+        scanner_snapshot: {
+            ...observation().scanner_snapshot!,
+            name: experimentScanner.name,
+            scanner_type: 'experiment',
+        },
+        scanner_result: {
+            model_output: {
+                scanner_type: 'experiment',
+                confidence: 0.9,
+                title,
+                summary: `${title} The session ends on the order confirmation page.`,
+            },
+            signals_count: 0,
+            experiment_variant: variant,
+        } as ReplayObservationApi['scanner_result'],
+    })
+
+const readyAnalysis = {
+    scout_config_id: '00000000-0000-0000-0000-0000000000s1',
+    scout_enabled: true,
+    recorded_at: '2026-05-11T09:00:00Z',
+    scanner_version: 1,
+    current: true,
+}
+
+const variantsReadout = (overrides: Partial<ExperimentVariantsReadoutApi> = {}): ExperimentVariantsReadoutApi => ({
+    experiment: {
+        id: 11,
+        name: 'New checkout flow',
+        status: 'running',
+        start_date: '2026-05-03T00:00:00Z',
+        end_date: null,
+        planned_duration_days: 21,
+        current_day: 9,
+    },
+    window: {
+        total_observations: 71,
+        first_observation_at: '2026-05-03T10:00:00Z',
+        last_observation_at: '2026-05-11T20:48:00Z',
+    },
+    variants: [
+        {
+            key: 'control',
+            observations: 34,
+            distinct_people: 31,
+            median_session_duration_s: 250,
+            sampling_rate: 0.12,
+            analysis_observations: 34,
+            digest: [
+                {
+                    theme: 'first-try-payment',
+                    statement: 'Most people complete payment on the first try.',
+                    count: 21,
+                    example_observation_ids: ['00000000-0000-0000-0000-0000000000c1'],
+                },
+                {
+                    theme: 'summary-rereads',
+                    statement: 'Some people scroll the order summary twice before they pay.',
+                    count: 8,
+                    example_observation_ids: [],
+                },
+            ],
+            latest_observations: [
+                experimentObservation(
+                    '00000000-0000-0000-0000-0000000000c1',
+                    'control',
+                    'Adds two items, opens the cart, and completes payment in one pass.',
+                    'mia@example.com',
+                    '2026-05-11T20:34:00Z'
+                ),
+                experimentObservation(
+                    '00000000-0000-0000-0000-0000000000c2',
+                    'control',
+                    'Reviews the order summary twice, edits the quantity, then pays.',
+                    'noah@example.com',
+                    '2026-05-11T19:50:00Z'
+                ),
+            ],
+        },
+        {
+            key: 'test',
+            observations: 31,
+            distinct_people: 29,
+            median_session_duration_s: 340,
+            sampling_rate: 0.4,
+            analysis_observations: 31,
+            digest: [
+                {
+                    theme: 'payment-method-pause',
+                    statement: 'Many people pause at the payment method step before they select an option.',
+                    count: 11,
+                    example_observation_ids: ['00000000-0000-0000-0000-0000000000t1'],
+                },
+                {
+                    theme: 'promo-field',
+                    statement: 'Several people open and close the promo code field without entering a code.',
+                    count: 7,
+                    example_observation_ids: [],
+                },
+            ],
+            latest_observations: [
+                experimentObservation(
+                    '00000000-0000-0000-0000-0000000000t1',
+                    'test',
+                    'Reaches the payment method step and moves between two options for about 40 seconds before selecting a card.',
+                    'ava@example.com',
+                    '2026-05-11T20:48:00Z'
+                ),
+            ],
+        },
+    ],
+    differences: [
+        {
+            theme: 'payment-method-pause',
+            statement: 'Pauses at the payment method step appear far more often in test.',
+            counts: { test: 11, control: 2 },
+        },
+        {
+            theme: 'promo-field',
+            statement: 'Promo code interactions appear only in test.',
+            counts: { test: 7, control: 0 },
+        },
+    ],
+    unattributed_count: 6,
+    analysis: readyAnalysis,
+    ...overrides,
+})
+
+const withoutAnalysis = (readout: ExperimentVariantsReadoutApi): ExperimentVariantsReadoutApi => ({
+    ...readout,
+    variants: readout.variants.map((variant) => ({ ...variant, digest: null, analysis_observations: null })),
+    differences: null,
+})
+
+const variantsDecorator = (readout: ExperimentVariantsReadoutApi): ReturnType<typeof mswDecorator> =>
+    mswDecorator({
+        get: {
+            '/api/projects/:team_id/vision/scanners/:id/': experimentScanner,
+            '/api/projects/:team_id/vision/scanners/:id/variants/': readout,
+            '/api/projects/:team_id/vision/scanners/:id/observations/stats/': summarizerStats,
+            '/api/projects/:team_id/vision/scanners/:id/self_driving_stats/': noSelfDrivingStats,
+            '/api/projects/:team_id/experiments/:id/': {
+                id: 11,
+                name: 'New checkout flow',
+                feature_flag_key: 'new-checkout-flow',
+                start_date: '2026-05-03T00:00:00Z',
+            },
+        },
+    })
 
 const meta: Meta = {
     component: App,
@@ -1299,21 +1480,24 @@ const classifierObservationDetail = observationDetailFor(
     'Which friction patterns appear in this session?'
 )
 
-const scorerObservationDetail = observationDetailFor(
-    {
-        ...scorerOverviewScanner,
-        scanner_config: { prompt: SCORER_DETAIL_PROMPT, scale: { min: 0, max: 10, label: 'buying intent' } },
-    },
-    '00000000-0000-0000-0000-0000000000d5',
-    {
-        score: 8.5,
-        label: 'buying intent',
-        confidence: 0.41,
-        reasoning:
-            'The user spent about two minutes on the pricing page comparing the Growth and Enterprise plans, then opened the Billing tab and started to add a card before closing the form. Right after that they invited two teammates from the Members page. Looking at billing and then inviting a team puts this in the high band of the prompt, but not at the top, because the payment details were never saved and the rest of the session was spent back in the product.',
-    },
-    'How strong is the buying intent in this session?'
-)
+const scorerObservationDetail: ReplayObservationApi = {
+    ...observationDetailFor(
+        {
+            ...scorerOverviewScanner,
+            scanner_config: { prompt: SCORER_DETAIL_PROMPT, scale: { min: 0, max: 10, label: 'buying intent' } },
+        },
+        '00000000-0000-0000-0000-0000000000d5',
+        {
+            score: 8.5,
+            label: 'buying intent',
+            confidence: 0.41,
+            reasoning:
+                'The user spent about two minutes on the pricing page comparing the Growth and Enterprise plans, then opened the Billing tab and started to add a card before closing the form. Right after that they invited two teammates from the Members page. Looking at billing and then inviting a team puts this in the high band of the prompt, but not at the top, because the payment details were never saved and the rest of the session was spent back in the product.',
+        },
+        'How strong is the buying intent in this session?'
+    ),
+    prompt_valence: 'good',
+}
 
 const observationDetailStory = (detail: ReplayObservationApi): StoryObj => ({
     parameters: { pageUrl: urls.replayVisionObservation(detail.id) },
@@ -1333,6 +1517,8 @@ export const ObservationDetailFailed: StoryObj = {
     ...observationDetailStory(failedObservationDetail),
     play: async ({ canvasElement }) => {
         await waitFor(() => expect(canvasElement.querySelector('[data-attr="recording-play"]')).toBeVisible())
+        // The floating player controls hide on a timer after mount, so wait for that to happen before the snapshot.
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="recording-play"]')).not.toBeVisible())
     },
 }
 
@@ -1624,6 +1810,16 @@ export const ScannerEditorConfigure: StoryObj = {
 
 export const ScannerEditorTriggers: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerTriggers(summarizerScanner.id) },
+}
+
+// The experiment shows as the first condition of the filters, so a scanner with no filters of its own
+// does not read as scanning every recording.
+export const ScannerEditorTriggersExperiment: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerTriggers(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [variantsDecorator(variantsReadout())],
 }
 
 export const ScannerEditorBudget: StoryObj = {
@@ -1931,4 +2127,95 @@ export const ObservationDetailTimeline: StoryObj = {
         await userEvent.click(await within(canvasElement).findByText('Timeline'))
         await within(canvasElement).findByText('Session start')
     },
+}
+
+export const ExperimentVariants: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [variantsDecorator(variantsReadout())],
+}
+
+// No variant analysis scout yet: the counts show, and the comparison offers to set one up.
+export const ExperimentVariantsNoScout: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [variantsDecorator(withoutAnalysis(variantsReadout({ analysis: null })))],
+}
+
+export const ExperimentVariantsFirstRunPending: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [
+        variantsDecorator(withoutAnalysis(variantsReadout({ analysis: { ...readyAnalysis, recorded_at: null } }))),
+    ],
+}
+
+// Before the first observation: each variant shows where its themes and observations will go.
+export const ExperimentVariantsWaitingForObservations: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [
+        variantsDecorator(
+            withoutAnalysis(
+                variantsReadout({
+                    analysis: { ...readyAnalysis, recorded_at: null },
+                    window: { total_observations: 0, first_observation_at: null, last_observation_at: null },
+                    unattributed_count: 0,
+                    variants: variantsReadout().variants.map((variant) => ({
+                        ...variant,
+                        observations: 0,
+                        distinct_people: 0,
+                        median_session_duration_s: null,
+                        sampling_rate: null,
+                        latest_observations: [],
+                    })),
+                })
+            )
+        ),
+    ],
+}
+
+export const ExperimentVariantsThreeVariants: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [
+        variantsDecorator(
+            variantsReadout({
+                window: { ...variantsReadout().window, total_observations: 99 },
+                variants: [
+                    ...variantsReadout().variants,
+                    {
+                        ...variantsReadout().variants[1],
+                        key: 'test-compact',
+                        observations: 28,
+                        distinct_people: 27,
+                        sampling_rate: 0.45,
+                        digest: null,
+                        latest_observations: [],
+                    },
+                ],
+            })
+        ),
+    ],
+}
+
+// About 520px of scene, the width a laptop leaves with the side panel open. The nav collapses at
+// this viewport, so the scene takes the whole window less its padding.
+export const ExperimentVariantsNarrow: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+        testOptions: { viewport: { width: 560, height: 1800 } },
+    },
+    decorators: [variantsDecorator(variantsReadout())],
 }

@@ -5,6 +5,8 @@ from typing import Any, Optional
 from django.db import transaction
 from django.utils import timezone
 
+from prometheus_client import Counter
+
 from posthog.api.utils import ServiceRequest
 from posthog.event_usage import report_user_action
 from posthog.models import User
@@ -22,8 +24,19 @@ from products.approvals.backend.notifications import (
     send_approval_applied_notification,
     send_approval_decision_notification,
 )
+from products.approvals.backend.ownership import owner_kind_changed
 
 logger = logging.getLogger(__name__)
+
+# Approved changes refused at apply because a different product owns the resource now. This is
+# the blast radius of binding an approval to the ownership it was reviewed under: every increment
+# is a change an approver said yes to that did not land. recorded/current carry owner kinds, which
+# are a closed set, so the label stays bounded.
+OWNERSHIP_MISMATCH_COUNTER = Counter(
+    "posthog_approvals_apply_ownership_mismatch_total",
+    "Approved change requests refused at apply because the resource owner changed",
+    labelnames=["action", "recorded", "current"],
+)
 
 
 class RequestContext(ServiceRequest):
@@ -79,6 +92,28 @@ def apply_change_request(change_request: ChangeRequest, request=None) -> Any:
 
     # Let the action prepare its own context (e.g., fetch instance)
     validation_context = action_class.prepare_context(change_request, base_context)
+
+    current_owner_kind = action_class.derive_owner_kind(
+        change_request.team, change_request.resource_id, change_request.intent
+    )
+    if owner_kind_changed(change_request.owner_kind, current_owner_kind):
+        # The approvers reviewed this change against one owner, and a different product owns the
+        # resource now. Which policy applies is keyed on that owner, so applying would land a
+        # change nobody with the current owner's policy ever saw.
+        OWNERSHIP_MISMATCH_COUNTER.labels(
+            action=change_request.action_key,
+            recorded=change_request.owner_kind,
+            current=current_owner_kind,
+        ).inc()
+        change_request.state = ChangeRequestState.FAILED
+        change_request.apply_error = (
+            f"Ownership changed since this request was created: {change_request.owner_kind} -> {current_owner_kind}"
+        )
+        change_request.save()
+        raise PreconditionFailed(
+            "This resource now belongs to a different product than when the change was requested. "
+            "Request the change again so the right approvers review it."
+        )
 
     is_valid, errors = action_class.validate_intent(
         change_request.intent,

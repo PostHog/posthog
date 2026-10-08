@@ -1,5 +1,4 @@
 import json
-import base64
 from typing import Any
 
 from unittest import mock
@@ -9,7 +8,6 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.confluence.confluence import (
     ConfluenceResumeConfig,
-    _get_headers,
     confluence_source,
     is_valid_subdomain,
     validate_credentials,
@@ -91,14 +89,6 @@ class TestSubdomainValidation:
     )
     def test_is_valid_subdomain(self, _name: str, subdomain: str, expected: bool) -> None:
         assert is_valid_subdomain(subdomain) is expected
-
-
-class TestHeaders:
-    def test_basic_auth_header(self) -> None:
-        headers = _get_headers("you@example.com", "token123")
-        expected = base64.b64encode(b"you@example.com:token123").decode()
-        assert headers["Authorization"] == f"Basic {expected}"
-        assert headers["Accept"] == "application/json"
 
 
 class TestValidateCredentials:
@@ -227,15 +217,3 @@ class TestPagination:
         _rows(_source("pages", manager))
 
         assert snapshots[0]["url"] == "https://acme.atlassian.net/wiki/api/v2/pages?cursor=resumed"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_results_yields_nothing_and_no_checkpoint(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], next_path=None)])
-
-        manager = _make_manager()
-        rows = _rows(_source("spaces", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()

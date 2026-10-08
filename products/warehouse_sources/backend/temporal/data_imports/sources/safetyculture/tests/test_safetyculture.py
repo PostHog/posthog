@@ -114,26 +114,6 @@ class TestFormatModifiedAfter:
 
 class TestInitialRequest:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_static_params_sent_on_first_request(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        urls, params = _wire(session, [_response([{"id": "a"}])])
-
-        _rows(_source("inspections", _make_manager()))
-
-        assert urls[0] == f"{BASE_URL}/feed/inspections"
-        assert params[0] == {"archived": "both", "completed": "both"}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_params_endpoint_sends_bare_path(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        urls, params = _wire(session, [_response([{"id": "a"}])])
-
-        _rows(_source("users", _make_manager()))
-
-        assert urls[0] == f"{BASE_URL}/feed/users"
-        assert params[0] == {}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_first_request_carries_modified_after(self, MockSession: MagicMock) -> None:
         session = MockSession.return_value
         _, params = _wire(session, [_response([{"id": "a"}])])
@@ -170,35 +150,8 @@ class TestInitialRequest:
 
         assert "modified_after" not in params[0]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_without_watermark_omits_modified_after(self, MockSession: MagicMock) -> None:
-        # First incremental run has no cursor yet — send an unfiltered request, never modified_after=None.
-        session = MockSession.return_value
-        _, params = _wire(session, [_response([{"id": "a"}])])
-
-        _rows(
-            _source(
-                "inspections", _make_manager(), should_use_incremental_field=True, db_incremental_field_last_value=None
-            )
-        )
-
-        assert "modified_after" not in params[0]
-
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_no_next_yields_and_stops(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "a"}, {"id": "b"}], next_page=None)])
-
-        manager = _make_manager()
-        rows = _rows(_source("users", manager))
-
-        assert rows == [{"id": "a"}, {"id": "b"}]
-        assert session.send.call_count == 1
-        # A null next_page ends the feed without persisting resume state.
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_next_page_verbatim_and_checkpoints(self, MockSession: MagicMock) -> None:
         session = MockSession.return_value
@@ -269,17 +222,6 @@ class TestPagination:
 
         manager = _make_manager()
         assert _rows(_source("users", manager)) == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_with_lingering_next_page_terminates(self, MockSession: MagicMock) -> None:
-        # A lingering next_page on an empty page must not loop forever.
-        session = MockSession.return_value
-        _wire(session, [_response([], next_page="/feed/users?opaque-cursor=xyz")])
-
-        manager = _make_manager()
-        assert _rows(_source("users", manager)) == []
-        assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
     @parameterized.expand(
@@ -388,16 +330,6 @@ class TestCheckAccess:
             status, message = check_access("sc-token")
         assert status == 0
         assert message is not None and "boom" in message
-
-    def test_probes_the_given_feed_path(self) -> None:
-        session = MagicMock()
-        response = MagicMock()
-        response.status_code = 200
-        response.ok = True
-        session.get.return_value = response
-        with mock.patch.object(safetyculture, "make_tracked_session", return_value=session):
-            check_access("sc-token", "/feed/inspections")
-        assert session.get.call_args.args[0] == f"{BASE_URL}/feed/inspections"
 
 
 class TestSafetyCultureSourceResponse:

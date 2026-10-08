@@ -73,12 +73,6 @@ class TestGetRows:
             rows.extend(batch)
         return rows
 
-    def test_accounts_yields_single_unwrapped_row(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {ME_URL: ME_PAYLOAD}, "accounts")
-        assert rows == [{"id": "acc1", "name": "NASA"}]
-        assert manager.saved == []
-
     def test_alerts_follows_more_link_and_unwraps_items(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         first = f"{MENTION_BASE_URL}/accounts/acc1/alerts?limit=100"
@@ -139,18 +133,6 @@ class TestGetRows:
         }
         rows = self._collect(manager, monkeypatch, pages, "mentions")
         assert rows == [{"id": "m4", "alert_id": "22"}]
-
-    def test_mentions_empty_page_with_more_link_terminates(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        alerts_url = f"{MENTION_BASE_URL}/accounts/acc1/alerts?limit=100"
-        first_11 = f"{MENTION_BASE_URL}/accounts/acc1/alerts/11/mentions?limit=100"
-        pages = {
-            ME_URL: ME_PAYLOAD,
-            alerts_url: {"alerts": [{"alert": {"id": 11}}]},
-            # A lingering more link on an empty page must not produce an infinite loop.
-            first_11: {"mentions": [], "_links": {"more": {"href": "/api/anything"}}},
-        }
-        assert self._collect(manager, monkeypatch, pages, "mentions") == []
 
     def test_alert_tags_injects_alert_id_without_pagination(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()

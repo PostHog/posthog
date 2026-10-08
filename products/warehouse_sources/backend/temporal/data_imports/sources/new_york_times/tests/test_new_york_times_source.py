@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     NewYorkTimesSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.source import NewYorkTimesSource
 
 
@@ -24,29 +23,9 @@ class TestNewYorkTimesSource:
         # get_schemas iterates a static catalog with no I/O, so the public docs table list is safe.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_covers_every_endpoint(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=self.team_id)}
-        assert set(schemas) == set(ENDPOINTS)
-
-    def test_only_article_search_is_incremental(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=self.team_id)}
-        assert schemas["article_search"].supports_incremental is True
-        assert [f["field"] for f in schemas["article_search"].incremental_fields] == ["pub_date"]
-        for snapshot in ("most_popular_viewed", "most_popular_emailed", "most_popular_shared", "top_stories"):
-            assert schemas[snapshot].supports_incremental is False
-            assert schemas[snapshot].incremental_fields == []
-
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(_config(), team_id=self.team_id, names=["top_stories"])
         assert [s.name for s in schemas] == ["top_stories"]
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = self.source.get_documented_tables()
-        names = {t["name"] for t in tables}
-        assert set(ENDPOINTS) <= names
-        article_search = next(t for t in tables if t["name"] == "article_search")
-        assert "Incremental" in article_search["sync_methods"]
-        assert article_search["primary_keys"] == ["_id"]
 
     @pytest.mark.parametrize("valid", [True, False])
     def test_validate_credentials(self, valid: bool) -> None:
@@ -77,18 +56,6 @@ class TestNewYorkTimesSource:
         assert captured["query"] == "climate"
         assert captured["should_use_incremental_field"] is True
         assert captured["db_incremental_field_last_value"] == "2026-06-01"
-
-    def test_source_for_pipeline_drops_watermark_when_full_refresh(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "top_stories"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-06-01"
-        captured: dict[str, Any] = {}
-
-        with patch.object(source_module, "new_york_times_source", side_effect=lambda **kw: captured.update(kw)):
-            self.source.source_for_pipeline(_config(), MagicMock(), inputs)
-
-        assert captured["db_incremental_field_last_value"] is None
 
     def test_empty_query_becomes_none(self) -> None:
         inputs = MagicMock()

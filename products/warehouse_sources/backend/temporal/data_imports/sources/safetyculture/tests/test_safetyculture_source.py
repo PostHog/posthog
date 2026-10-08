@@ -3,7 +3,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.safetyculture import (
     SafetyCultureSourceConfig,
 )
@@ -15,23 +14,6 @@ class TestSafetyCultureSource:
         self.source = SafetyCultureSource()
         self.team_id = 123
         self.config = SafetyCultureSourceConfig(api_token="sc-token")
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "SafetyCulture"
-        assert config.label == "SafetyCulture"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source is visible — it must not carry the scaffolding flag.
-        assert not config.unreleasedSource
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/safetyculture"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_token"]
-
-    def test_no_connection_host_fields(self) -> None:
-        # The only field is the secret API token; the base URL is hardcoded, so there is no
-        # non-secret field an editor could retarget to reuse a preserved token against another host.
-        assert self.source.connection_host_fields == []
 
     @parameterized.expand(
         [

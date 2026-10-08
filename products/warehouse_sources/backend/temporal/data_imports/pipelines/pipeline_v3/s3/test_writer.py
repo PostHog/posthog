@@ -7,12 +7,14 @@ from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 import botocore.exceptions
+from fsspec.implementations.memory import MemoryFileSystem
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
     ObjectStorePermissionDeniedError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import (
+    ParquetCompression,
     S3BatchWriter,
     _write_parquet_to_s3,
     build_schema_dict,
@@ -119,12 +121,47 @@ class TestBuildSchemaDict:
 class TestBatchByteSize:
     @parameterized.expand(
         [
-            # s3fs spells the key in lowercase; reading S3's `Size` here recorded 0 bytes on every queue row.
-            ("s3fs_lowercase_size", {"size": 2048}, 2048),
-            ("raw_s3_head_shape", {"Size": 512}, 512),
-            ("numeric_string", {"size": "64"}, 64),
-            ("no_size_key", {"type": "file"}, 0),
-            ("not_a_dict", None, 0),
+            ("one_row", 1, "zstd"),
+            ("empty_table", 0, "zstd"),
+            # Several megabytes that do not compress, so the parquet writer makes many writes.
+            ("many_writes", 400_000, "none"),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.ensure_bucket")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.get_s3_client")
+    def test_byte_size_counted_while_writing_is_the_size_of_the_stored_object(
+        self,
+        _name: str,
+        rows: int,
+        compression: ParquetCompression,
+        mock_get_s3_client,
+        _mock_ensure_bucket,
+    ) -> None:
+        # The size is on each queue row and sets how many batches the loader joins into one write.
+        # A count that differs from the object, or a zero, changes that plan without an error.
+        store = MemoryFileSystem()
+        mock_get_s3_client.return_value = store
+        job = MagicMock()
+        job.team_id = 1
+        job.created_at = datetime(2026, 8, 5, tzinfo=UTC)
+        writer = S3BatchWriter(MagicMock(), job, schema_id="schema-1", run_uuid=f"run-{_name}", compression=compression)
+        table = pa.table({"id": pa.array(range(rows), pa.int64()), "v": [f"{i:x}" * 3 for i in range(rows)]})
+
+        result = writer.write_batch(table, 0)
+
+        stored_size = store.info(result.s3_path.split("://", 1)[-1])["size"]
+        assert result.byte_size == stored_size
+        assert result.byte_size > 0
+
+
+class TestWriteBatchPermissionDenied:
+    @parameterized.expand(
+        [
+            ("access_denied", "Access Denied"),
+            # InvalidAccessKeyId: the worker's own access key no longer exists (rotated/revoked).
+            # s3fs collapses this to the same PermissionError type as AccessDenied but with AWS's
+            # own fixed message.
+            ("invalid_access_key_id", "The AWS Access Key Id you provided does not exist in our records."),
         ]
     )
     @patch(
@@ -132,44 +169,18 @@ class TestBatchByteSize:
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.ensure_bucket")
     @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.get_s3_client")
-    def test_byte_size_comes_from_the_written_object(
-        self,
-        _name: str,
-        file_info: dict | None,
-        expected: int,
-        mock_get_s3_client,
-        _mock_ensure_bucket,
-        _mock_write,
-    ) -> None:
-        mock_get_s3_client.return_value.info.return_value = file_info
-
-        job = MagicMock()
-        job.team_id = 1
-        job.created_at = datetime(2026, 8, 5, tzinfo=UTC)
-        writer = S3BatchWriter(MagicMock(), job, schema_id="schema-1", run_uuid="run-1")
-
-        result = writer.write_batch(pa.table({"id": [1]}), 0)
-
-        assert result.byte_size == expected
-
-
-class TestWriteBatchPermissionDenied:
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer._write_parquet_to_s3"
-    )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.ensure_bucket")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.get_s3_client")
     def test_write_batch_wraps_access_denied_instead_of_raising_raw_error(
         self,
+        _name: str,
+        error_message: str,
         _mock_get_s3_client,
         _mock_ensure_bucket,
         mock_write,
     ) -> None:
-        # The data warehouse bucket is PostHog's own, so an AccessDenied writing to it used to
-        # escape write_batch as a raw PermissionError: it read to the customer as if their source
-        # credentials were bad, and error tracking grouped a fresh issue per retry instead of one
-        # stable title.
-        mock_write.side_effect = PermissionError("Access Denied")
+        # The data warehouse bucket is PostHog-owned, so a permission refusal writing to it must not
+        # read to the customer as if their source credentials were bad, and error tracking must group
+        # every occurrence under one stable title rather than the raw per-key s3fs message.
+        mock_write.side_effect = PermissionError(error_message)
 
         job = MagicMock()
         job.team_id = 1

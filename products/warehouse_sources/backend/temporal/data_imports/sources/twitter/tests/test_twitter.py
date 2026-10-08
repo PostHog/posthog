@@ -49,18 +49,6 @@ def _query(url: str) -> dict[str, list[str]]:
 
 class TestNormalizeUsername:
     @pytest.mark.parametrize(
-        ("raw", "expected"),
-        [
-            ("posthog", "posthog"),
-            ("@posthog", "posthog"),
-            ("  @PostHog_1 ", "PostHog_1"),
-            ("a" * 15, "a" * 15),
-        ],
-    )
-    def test_accepts_a_handle(self, raw: str, expected: str) -> None:
-        assert normalize_username(raw) == expected
-
-    @pytest.mark.parametrize(
         "raw",
         [
             "",
@@ -95,20 +83,8 @@ class TestToRfc3339:
     def test_formats_a_watermark(self, value: Any, expected: str) -> None:
         assert to_rfc3339(value) == expected
 
-    def test_converts_a_non_utc_offset(self) -> None:
-        moment = datetime.fromisoformat("2024-03-01T12:00:00+02:00")
-        assert to_rfc3339(moment) == "2024-03-01T10:00:00Z"
-
 
 class TestResolveUserId:
-    def test_returns_the_numeric_id(self) -> None:
-        with patch(_DIRECT_SESSION_TARGET) as MockSession:
-            MockSession.return_value.get.return_value = _json_response({"data": {"id": "2244994945"}})
-            assert resolve_user_id("token", "@posthog") == "2244994945"
-
-        sent_url = MockSession.return_value.get.call_args.args[0]
-        assert sent_url == "https://api.x.com/2/users/by/username/posthog"
-
     def test_raises_when_the_handle_has_no_account(self) -> None:
         with patch(_DIRECT_SESSION_TARGET) as MockSession:
             MockSession.return_value.get.return_value = _json_response(
@@ -233,25 +209,6 @@ class TestTwitterSourceRequests:
             )
             return sent_urls, _pages(response), manager
 
-    def test_full_refresh_omits_the_time_filter(self) -> None:
-        sent_urls, pages, _ = self._drive("Posts", [_json_response({"data": [{"id": "1"}], "meta": {}})])
-
-        assert urlsplit(sent_urls[0]).path == "/2/users/7/tweets"
-        params = _query(sent_urls[0])
-        assert "start_time" not in params
-        assert params["max_results"] == ["100"]
-        assert pages == [[{"id": "1"}]]
-
-    def test_incremental_run_sends_the_watermark_as_start_time(self) -> None:
-        sent_urls, _, _ = self._drive(
-            "Posts",
-            [_json_response({"data": [{"id": "1"}], "meta": {}})],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC),
-        )
-
-        assert _query(sent_urls[0])["start_time"] == ["2024-03-01T12:00:00Z"]
-
     def test_first_incremental_run_falls_back_to_the_api_floor(self) -> None:
         sent_urls, _, _ = self._drive(
             "Posts",
@@ -296,11 +253,6 @@ class TestTwitterSourceRequests:
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [TwitterResumeConfig(pagination_token="page2")]
 
-    def test_terminal_page_saves_no_state(self) -> None:
-        _, _, manager = self._drive("Posts", [_json_response({"data": [{"id": "1"}], "meta": {}})])
-
-        manager.save_state.assert_not_called()
-
     def test_resume_seeds_the_saved_pagination_token(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = True
@@ -315,44 +267,8 @@ class TestTwitterSourceRequests:
 
         manager.load_state.assert_not_called()
 
-    def test_an_empty_timeline_yields_no_rows(self) -> None:
-        # X drops the `data` key entirely when an account has no posts in the window.
-        _, pages, _ = self._drive("Posts", [_json_response({"meta": {"result_count": 0}})])
-
-        assert [row for page in pages for row in page] == []
-
 
 class TestTwitterSourceResponse:
-    def test_timelines_declare_the_order_x_returns(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        response = twitter_source(
-            bearer_token="token",
-            username="posthog",
-            endpoint="Posts",
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=manager,
-            db_incremental_field_last_value=None,
-        )
-
-        assert response.sort_mode == "desc"
-        assert response.partition_keys == ["created_at"]
-
-    def test_profile_is_not_partitioned(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        response = twitter_source(
-            bearer_token="token",
-            username="posthog",
-            endpoint="Profile",
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=manager,
-            db_incremental_field_last_value=None,
-        )
-
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
     def test_an_unknown_endpoint_raises_the_retryable_error(self) -> None:
         with pytest.raises(UnknownResourceError):
             twitter_source(

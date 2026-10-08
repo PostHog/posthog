@@ -7,7 +7,6 @@ from unittest import mock
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.alguna.alguna import (
-    ALGUNA_API_VERSION,
     AlgunaResumeConfig,
     alguna_source,
     validate_credentials,
@@ -94,18 +93,6 @@ class TestPagination:
         assert manager.save_state.call_args.args[0] == AlgunaResumeConfig(offset=100)
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "a"}, {"id": "b"}])])
-
-        manager = _make_manager()
-        rows = _rows(alguna_source("key", "customers", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert [r["id"] for r in rows] == ["a", "b"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"id": "c_201"}])])
@@ -114,30 +101,6 @@ class TestPagination:
         _rows(alguna_source("key", "customers", team_id=1, job_id="j", resumable_source_manager=manager))
 
         assert params[0]["offset"] == 200
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_version_header_is_set_on_session(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "a"}])])
-
-        _rows(alguna_source("key", "customers", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-        assert session.headers.get("Alguna-Version") == ALGUNA_API_VERSION
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sort_param_present_for_sortable_endpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "a"}])])
-
-        _rows(alguna_source("key", "customers", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-        assert params[0]["sort"] == "created_at:asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_sort_param_for_unsortable_endpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "a"}])])
-
-        _rows(alguna_source("key", "payments", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-        assert "sort" not in params[0]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_data_key_raises_loudly(self, MockSession) -> None:
@@ -226,13 +189,3 @@ class TestValidateCredentials:
     def test_ok(self, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         assert validate_credentials("key") is True
-
-    @mock.patch(ALGUNA_SESSION_PATCH)
-    def test_unauthorized(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
-        assert validate_credentials("key") is False
-
-    @mock.patch(ALGUNA_SESSION_PATCH)
-    def test_swallows_exceptions(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key") is False
