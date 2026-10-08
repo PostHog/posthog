@@ -8,9 +8,11 @@ from django.db import close_old_connections
 import structlog
 import posthoganalytics
 from temporalio import activity
+from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.organization import Organization, OrganizationMembership
@@ -272,7 +274,9 @@ def _expose_and_notify_user(
     return _send_digest_notification(user=user, org=org, team_digest_data=accessible, variant=variant)
 
 
-def _build_and_send_for_org(org_id: str, flag_key: str, dry_run: bool = False) -> OrgDigestNotificationCounts:
+def _build_and_send_for_org(
+    org_id: str, flag_key: str, dry_run: bool = False, *, build_retry: Retrying | None = None
+) -> OrgDigestNotificationCounts:
     close_old_connections()
 
     counts = OrgDigestNotificationCounts()
@@ -293,7 +297,9 @@ def _build_and_send_for_org(org_id: str, flag_key: str, dry_run: bool = False) -
         return counts
 
     build_start = time.monotonic()
-    build = weekly_digest.build_team_digests(Team.objects.filter(organization_id=org.id))
+    build = weekly_digest.build_team_digests(
+        Team.objects.filter(organization_id=org.id), build_retry=build_retry, include_goals=False
+    )
     team_digest_data = {
         team_id: digest for team_id, digest in build.digests.items() if (digest["visitors"]["current"] or 0) > 0
     }
@@ -363,9 +369,19 @@ def _run_wa_digest_notification_batch(input: DigestBatchInput) -> DigestBatchRes
 
     totals = DigestBatchResult(batch_size=len(input.org_ids))
 
+    retry_deadline = time.monotonic() + 5 * 60
+    build_retry = Retrying(
+        retry=retry_if_exception_type(CH_TRANSIENT_ERRORS),
+        wait=wait_exponential(multiplier=30, max=60),
+        stop=lambda state: stop_after_attempt(3)(state) or time.monotonic() + state.upcoming_sleep >= retry_deadline,
+        reraise=True,
+    )
+
     for org_id in input.org_ids:
         try:
-            org_counts = _build_and_send_for_org(org_id, flag_key=input.flag_key, dry_run=input.dry_run)
+            org_counts = _build_and_send_for_org(
+                org_id, flag_key=input.flag_key, dry_run=input.dry_run, build_retry=build_retry
+            )
         except Exception as e:
             logger.exception("WA digest notification failed for org", org_id=org_id, error=str(e))
             capture_exception(e, {"org_id": org_id})
