@@ -398,11 +398,13 @@ describe('sceneLogic', () => {
                 router.actions.push(`/project/${refusedProject}/settings/user`)
                 await expectLogic(logic).delay(1)
                 expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+                expect(testLogic.isMounted()).toBe(false)
 
                 // Later navigations run against the project we do serve.
                 router.actions.push(urls.settings('user'))
                 await expectLogic(logic).delay(1)
                 expect(logic.values.activeSceneId).toEqual(Scene.Settings)
+                expect(testLogic.isMounted()).toBe(true)
             } finally {
                 window.POSTHOG_APP_CONTEXT = priorAppContext
             }

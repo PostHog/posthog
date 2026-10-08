@@ -112,6 +112,18 @@ function leaveBlockedOrganizationPath(): boolean {
     return true
 }
 
+// The server refused the project this address names and served the user's own one, so the page
+// cannot load. Once the address bar names a project we do serve, the scene loads as usual.
+function isSceneInRefusedProject(sceneId: string | null, pathname: string): boolean {
+    const refusedProject = getAppContext()?.project_access_denied
+    return (
+        !!refusedProject &&
+        !!sceneId &&
+        !!sceneConfigurations[sceneId]?.projectBased &&
+        getProjectIdentifierInPath(pathname) === refusedProject
+    )
+}
+
 // `/` and `/home` both resolve the configured homepage through this, so anything asking whether a
 // location is the homepage has to derive it the same way.
 const homepageTargetPathname = (homepage: SceneTab): string => {
@@ -569,15 +581,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 const appContext = getAppContext()
                 const effectiveResourceAccessControl = appContext?.effective_resource_access_control
 
-                // The server refused the project this address names and served the user's own one,
-                // so the page cannot load. Once the address bar names a project we do serve, the
-                // scene loads as usual.
-                if (
-                    appContext?.project_access_denied &&
-                    sceneId &&
-                    sceneConfigurations[sceneId]?.projectBased &&
-                    getProjectIdentifierInPath(location.pathname) === appContext.project_access_denied
-                ) {
+                if (isSceneInRefusedProject(sceneId, location.pathname)) {
                     return Scene.ErrorProjectAccessDenied
                 }
 
@@ -820,7 +824,9 @@ export const sceneLogic = kea<sceneLogicType>([
             }
 
             let newLogicErrored = false
-            if (exportedScene?.logic) {
+            // The access denied screen shows instead of this scene. Its logic would load data from the
+            // served project, which is not the project in the address.
+            if (exportedScene?.logic && !isSceneInRefusedProject(sceneId, router.values.location.pathname)) {
                 try {
                     const builtLogicProps = { ...exportedScene?.paramsToProps?.(params) }
                     const mountedLogic = cache.mountedSceneLogic
