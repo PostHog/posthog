@@ -32,8 +32,9 @@ tools:
             an investigation with a narrative, intermediate steps, and a conclusion belongs in a notebook (`search
             notebooks-`), which interleaves prose with executable SQL and Python cells. When a deep dive turns up a few
             metrics worth tracking, save those as insights rather than reshaping the analysis into a dashboard.
-        agent_note: If you have not loaded the building-a-dashboard skill in this conversation, load it now, before you
-            add tiles. Consider offering the user a recurring delivery of this dashboard as a next step, but only when the
+        agent_note:
+            If you have not loaded the building-a-dashboard skill in this conversation, load it now, before you add
+            tiles. Consider offering the user a recurring delivery of this dashboard as a next step, but only when the
             dashboard in this response has tiles on it. Creating from a template (`use_template`) or duplicating another
             dashboard (`use_dashboard`) usually starts with tiles, though duplicating an empty dashboard does not. A
             dashboard with no tiles has nothing to deliver, and subscriptions-create needs at least one chart, so say
