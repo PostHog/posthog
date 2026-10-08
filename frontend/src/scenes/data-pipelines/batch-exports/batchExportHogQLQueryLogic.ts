@@ -131,9 +131,13 @@ export interface batchExportHogQLQueryLogicMeta {
     }
     __keaTypeGenInternalSelectorTypes: {
         hogqlModifiers: (configuration: Record<string, any>) => HogQLQueryModifiers | null
-        timestampTimezoneChoice: (hogqlModifiers: any) => TimestampTimezoneChoice
-        projectConvertsToProjectTimezone: (currentTeam: any) => boolean
-        queryTimezone: (hogqlModifiers: any, projectConvertsToProjectTimezone: any, projectTimezone: string) => string
+        timestampTimezoneChoice: (hogqlModifiers: HogQLQueryModifiers | null) => TimestampTimezoneChoice
+        projectConvertsToProjectTimezone: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        queryTimezone: (
+            hogqlModifiers: HogQLQueryModifiers | null,
+            projectConvertsToProjectTimezone: boolean,
+            projectTimezone: string
+        ) => string
         scheduleInterval: (configuration: Record<string, any>) => BatchExportInterval
         scheduleTimezone: (configuration: Record<string, any>) => string | null
         scheduleOffsetDay: (configuration: Record<string, any>) => number | null
@@ -145,8 +149,8 @@ export interface batchExportHogQLQueryLogicMeta {
             scheduleOffsetHour: number | null,
             projectTimezone: string
         ) => BatchExportDataInterval
-        previewStart: (previewInterval: BatchExportDataInterval, queryTimezone: any) => string
-        previewEnd: (previewInterval: BatchExportDataInterval, queryTimezone: any) => string
+        previewStart: (previewInterval: BatchExportDataInterval, queryTimezone: string) => string
+        previewEnd: (previewInterval: BatchExportDataInterval, queryTimezone: string) => string
         placeholders: (previewStart: string, previewEnd: string) => SQLEditorPlaceholder[]
         usesIntervalPlaceholders: (queryInput: string | null) => boolean
     }
