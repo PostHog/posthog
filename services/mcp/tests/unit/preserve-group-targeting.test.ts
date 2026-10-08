@@ -998,14 +998,22 @@ describe('preserveGroupTargetingFilters', () => {
             incoming: { key: '42', operator: 'flag_evaluates_to', value: false },
             expected: { type: 'flag' },
         },
-    ])('restores the stored type of $name in a group set', ({ stored, incoming, expected }) => {
+        // A new key leaves the set with no source, so the type comes from the stored sets.
+        {
+            name: 'a flag dependency next to a new key',
+            stored: [{ key: '42', type: 'flag', operator: 'flag_evaluates_to', value: true }],
+            incoming: { key: '42', operator: 'flag_evaluates_to', value: true },
+            added: [{ key: 'seats', operator: 'gt', value: 10 }],
+            expected: { type: 'flag' },
+        },
+    ])('restores the stored type of $name in a group set', ({ stored, incoming, added = [], expected }) => {
         const existing = {
             aggregation_group_type_index: 0,
             groups: [{ aggregation_group_type_index: 0, properties: stored, rollout_percentage: 100 }],
         }
 
         const merged = preserveGroupTargetingFilters(existing, {
-            groups: [{ properties: [incoming], rollout_percentage: 100 }],
+            groups: [{ properties: [incoming, ...added], rollout_percentage: 100 }],
         })
 
         expect(merged?.groups?.[0]?.properties?.[0]).toEqual({ ...incoming, ...expected })
