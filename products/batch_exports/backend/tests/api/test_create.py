@@ -465,8 +465,18 @@ FROM events
 """
 
 
+@pytest.mark.parametrize(
+    "grandfathered_batch_export", [True, False], indirect=True, ids=["grandfathered", "other-team"]
+)
 def test_create_batch_export_with_custom_schema(
-    client: HttpClient, temporal, encryption_codec, organization, team, user, s3_batch_export_data
+    client: HttpClient,
+    temporal,
+    encryption_codec,
+    organization,
+    team,
+    user,
+    s3_batch_export_data,
+    grandfathered_batch_export,
 ):
     """Test creating a BatchExport with a custom schema expressed as a HogQL Query.
 
@@ -485,6 +495,12 @@ def test_create_batch_export_with_custom_schema(
         team.pk,
         batch_export_data,
     )
+
+    if grandfathered_batch_export.team_id != team.pk:
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "hogql_query"
+        assert not BatchExport.objects.filter(team=team).exists()
+        return
 
     assert response.status_code == status.HTTP_201_CREATED, response.json()
 
@@ -572,6 +588,7 @@ def test_create_batch_export_with_custom_schema(
         ),
     ],
 )
+@pytest.mark.usefixtures("grandfathered_batch_export")
 def test_create_batch_export_fails_with_invalid_query(
     client: HttpClient,
     invalid_query,
@@ -715,7 +732,7 @@ def test_create_batch_export_with_hogql_model_allows_query_without_placeholders(
         (
             {"filters": [{"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}]},
             "filters",
-            "'filters' are not supported when 'model' is 'hogql'",
+            "'filters' is only supported for 'events' not 'hogql' model",
         ),
         (
             {"hogql_modifiers": {"notAModifier": True}},
@@ -725,7 +742,7 @@ def test_create_batch_export_with_hogql_model_allows_query_without_placeholders(
         (
             {"model": "events", "hogql_modifiers": {"convertToProjectTimezone": False}},
             "hogql_modifiers",
-            "'hogql_modifiers' are only supported when 'model' is 'hogql'",
+            "'hogql_modifiers' is only supported for 'hogql' not 'events' model",
         ),
     ],
     ids=[

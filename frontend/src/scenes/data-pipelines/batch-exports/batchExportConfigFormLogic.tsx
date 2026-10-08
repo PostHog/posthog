@@ -107,8 +107,8 @@ function buildBatchExportPayload(formValues: Record<string, any>): Partial<Batch
         model: formValues.model,
         // Only the 'hogql' model edits the query. The events model would save a query as its export schema.
         hogql_query: formValues.model === BatchExportModelEnumApi.Hogql ? formValues.hogql_query : undefined,
-        // Filters only apply to the events model: the API rejects them for 'hogql' and runs ignore them otherwise
-        filters: formValues.model === BatchExportModelEnumApi.Events ? formValues.filters : undefined,
+        // The API rejects non-null filters for models other than events.
+        filters: formValues.model === BatchExportModelEnumApi.Events ? formValues.filters : null,
         destination: buildDestinationPayload(formValues) as any,
     }
 }

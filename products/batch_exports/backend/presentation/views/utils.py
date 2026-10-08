@@ -39,6 +39,8 @@ def check_hogql_batch_exports_enabled(team: Team) -> None:
 class HogQLModifiersField(serializers.JSONField):
     """HogQL modifiers, validated against `HogQLQueryModifiers` and stored as a plain dict."""
 
+    loaded: HogQLQueryModifiers | None = None
+
     def to_internal_value(self, data: typing.Any) -> dict[str, typing.Any]:
         value = super().to_internal_value(data)
         try:
@@ -49,4 +51,6 @@ class HogQLModifiersField(serializers.JSONField):
                 location = ".".join(str(part) for part in error["loc"])
                 messages.append(f"{location}: {error['msg']}" if location else error["msg"])
             raise serializers.ValidationError(messages) from e
+        else:
+            self.loaded = modifiers
         return modifiers.model_dump(mode="json", exclude_none=True)

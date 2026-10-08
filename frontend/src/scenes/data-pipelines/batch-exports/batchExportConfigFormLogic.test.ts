@@ -891,6 +891,42 @@ describe('batchExportConfigFormLogic', () => {
         })
     })
 
+    it.each(['events', 'persons', 'sessions'])(
+        'only sends event filters when testing and creating %s exports',
+        async (model) => {
+            let testStepBody: Record<string, unknown> | null = null
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/batch_exports/run_test_step_new/': async ({ request }) => {
+                        testStepBody = (await request.json()) as Record<string, unknown>
+                        return [200, { name: 'Connection', result: { status: 'Passed' } }]
+                    },
+                },
+            })
+            await initLogic({ service: 'AwsS3', id: null })
+            logic.actions.setConfigurationValues({
+                ...logic.values.configuration,
+                model,
+                interval: 'hour',
+                filters: [],
+                integration_id: 31,
+                bucket_name: 'test-bucket',
+                region: 'us-east-1',
+                prefix: 'test/',
+            })
+
+            await expectLogic(logic, () => logic.actions.runBatchExportConfigTestStep(0)).toDispatchActions([
+                'runBatchExportConfigTestStepSuccess',
+            ])
+            expect(testStepBody).toMatchObject({ model, filters: model === 'events' ? [] : null })
+
+            await expectLogic(logic, () => logic.actions.submitConfiguration()).toDispatchActions([
+                'updateBatchExportConfigSuccess',
+            ])
+            expect(lastPostBody).toMatchObject({ model, filters: model === 'events' ? [] : null })
+        }
+    )
+
     describe('failed update', () => {
         // A rejected save produced no toast and no inline error, so the button appeared to do
         // nothing. The edits stay on the form for a retry, which makes the toast the only signal
@@ -1400,7 +1436,7 @@ describe('batchExportConfigFormLogic', () => {
             if (sendsFilters) {
                 expect(patchBodiesById[fixture.id].filters).toEqual(filters)
             } else {
-                expect(patchBodiesById[fixture.id]).not.toHaveProperty('filters')
+                expect(patchBodiesById[fixture.id].filters).toBeNull()
             }
         })
     })
