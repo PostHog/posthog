@@ -199,8 +199,9 @@ impl KeyQueues {
         self.ready.iter().find_map(|key| {
             self.keys
                 .get(key)
-                .and_then(KeyState::ready_run)
-                .map(|(class, _)| class)
+                .filter(|state| state.is_ready())
+                .and_then(|state| state.queue.front())
+                .map(|segment| segment.class)
         })
     }
 
@@ -227,12 +228,18 @@ impl KeyQueues {
         };
         let was_ready = state.is_ready();
         let before = state.ready_run();
-        state.queue.push_back(Segment {
-            class,
-            queued_at: now,
-            bytes,
-            messages,
-        });
+        match state.queue.back_mut() {
+            Some(back) if back.class == class => {
+                back.bytes += bytes;
+                back.messages.extend(messages);
+            }
+            _ => state.queue.push_back(Segment {
+                class,
+                queued_at: now,
+                bytes,
+                messages,
+            }),
+        }
         update_ready_sizes(&mut self.ready_sizes, before, state.ready_run());
         if !was_ready && state.is_ready() {
             self.ready.push_back(routing_key);
@@ -670,11 +677,12 @@ mod tests {
     }
 
     #[test]
-    fn pushes_of_one_class_before_a_claim_leave_as_one_run() {
+    fn pushes_of_one_class_before_a_claim_share_one_segment_and_leave_as_one_run() {
         let now = Instant::now();
         let mut queues = KeyQueues::new();
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
         queues.push(key("a"), 0, vec![message("a", 0, 2)], now);
+        assert_eq!(queues.keys[&key("a")].queue.len(), 1);
         assert_eq!(
             claimed(&take_all(&mut queues, now)),
             vec![("a", vec![1, 2], false)]
