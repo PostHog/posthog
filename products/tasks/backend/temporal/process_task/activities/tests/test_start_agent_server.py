@@ -739,6 +739,20 @@ def _mock_prepare_launch_dependencies(mocker) -> None:
     mocker.patch(f"{prefix}.get_imported_mcp_server_configs", return_value=[])
     mocker.patch(f"{prefix}.get_relayed_mcp_server_names", return_value=[])
     mocker.patch(f"{prefix}.emit_agent_log")
+    mocker.patch(f"{prefix}.release_task_run_milestone_claims")
+
+
+def test_prepare_launch_releases_boot_milestone_claims(mocker) -> None:
+    prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
+    _mock_prepare_launch_dependencies(mocker)
+    mocker.patch(f"{prefix}.TaskRun.objects.filter").return_value.first.return_value = mocker.Mock(
+        state={"use_dedicated_stream": True}
+    )
+    release = mocker.patch(f"{prefix}.release_task_run_milestone_claims")
+
+    _prepare_launch(_context(), "read_only", "sandbox-id")
+
+    release.assert_called_once_with("run-id", True)
 
 
 def test_prepare_judge_has_no_live_or_inherited_mcp_connections(mocker) -> None:

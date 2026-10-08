@@ -82,7 +82,16 @@ The Search performance section sits below the campaign table in Ad performance, 
 It shares the integration, date and comparison filters with the campaign table.
 The integration filter and Add source menu list Google Search Console separately under Organic search.
 Empty filtered results offer Clear filters; unfiltered views suggest connecting missing Google Ads or Google Search Console sources.
-Connected sources with missing tables show a sync setup action instead of a reconnect prompt.
+Connected sources show separate setup messages for disabled tables, tables awaiting a first successful sync, failed or paused syncs, and stale data.
+Search performance excludes a table when its last successful sync is older than twice its configured sync interval.
+The source list includes each table's sync frequency so this check uses the table's schedule.
+An unrecognized sync interval is returned as null, which keeps the source list available and skips the cadence check for that table.
+GSC prefers the dedicated query or page table, then falls back to a ready query-and-page table with a notice that totals can differ.
+If neither table is ready, the source is excluded instead of displaying zero traffic and misleading period comparisons.
+Query and page details use the same readiness checks.
+New Google Ads connections preselect `keyword`, `keyword_stats`, and `landing_page_stats`; Bing Ads preselects `keyword_performance_report`.
+New GSC connections preselect the web query, page, and query-and-page tables; non-web search types remain opt-in.
+These defaults do not change the saved table selection of an existing source.
 Source discovery loads every page of connected integrations before applying the filter.
 The date and comparison controls select the current and comparison periods.
 Organic query and page details retain the selected integration sources.
@@ -279,3 +288,8 @@ Join the attributed `source_id` to source sync usage and the project's billing c
 Use billable usage and actual invoice amounts, including free allowances and adjustments; a created source or a click is not revenue.
 Deduplicate source IDs before allocating revenue and keep acquisition (`has_connected_sources = false`) separate from expansion.
 This is click attribution, not proof of incremental revenue. Measure incrementality with a randomized holdout at the billing-customer level so projects from one customer do not appear in both groups.
+
+## Campaign breakdown display
+
+Campaign breakdown results have a maximum height of 36rem and scroll within the table area.
+The search, grouping, and column controls remain above the scroll area.

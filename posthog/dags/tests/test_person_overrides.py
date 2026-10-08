@@ -27,8 +27,8 @@ from posthog.dags.person_overrides import (
 )
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.deletion_targets import EVENTS, FLAG_EVALUATIONS, TargetPlacement
-from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.deletion_targets import EVENTS, EVENTS_JSON, FLAG_EVALUATIONS, TargetPlacement
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE
 
 
@@ -279,11 +279,13 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
     sibling = cluster.sibling(django_settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)
     placements = [
         TargetPlacement(target=EVENTS, cluster=cluster),
+        TargetPlacement(target=EVENTS_JSON, cluster=sibling),
         TargetPlacement(target=FLAG_EVALUATIONS, cluster=sibling),
     ]
     calls = Mock()
     enqueued = {
         EVENTS_DATA_TABLE(): {0: Mock()},
+        EVENTS_JSON_DATA_TABLE: {0: Mock()},
         FLAG_EVALUATIONS_DATA_TABLE: {0: Mock()},
     }
 
@@ -302,23 +304,29 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
         run_person_id_update_mutations(cluster, dictionary)
 
     # This assertion names the targets literally instead of reusing SQUASH_TARGETS. That constant
-    # would still match after someone adds sharded_events_json back to it, which would send the
-    # squash to the events cluster.
-    resolve_placements.assert_called_once_with(cluster, (EVENTS, FLAG_EVALUATIONS))
+    # would still match after someone drops a target from it.
+    resolve_placements.assert_called_once_with(cluster, (EVENTS, EVENTS_JSON, FLAG_EVALUATIONS))
     assert {enqueue.args[0].table: enqueue.args[1] for enqueue in enqueue_on_shards.call_args_list} == {
         EVENTS_DATA_TABLE(): cluster,
+        EVENTS_JSON_DATA_TABLE: sibling,
         FLAG_EVALUATIONS_DATA_TABLE: sibling,
+    }
+    assert {enqueue.args[0].table: enqueue.args[0].patch_parts for enqueue in enqueue_on_shards.call_args_list} == {
+        EVENTS_DATA_TABLE(): False,
+        EVENTS_JSON_DATA_TABLE: True,
+        FLAG_EVALUATIONS_DATA_TABLE: False,
     }
     # Each wait has to receive the mutations its own enqueue returned. A wait handed an empty set
     # returns at once, and the next op deletes the overrides that record the mapping.
     wait_for_mutations.assert_has_calls(
         [
             call(cluster, enqueued[EVENTS_DATA_TABLE()]),
+            call(sibling, enqueued[EVENTS_JSON_DATA_TABLE]),
             call(sibling, enqueued[FLAG_EVALUATIONS_DATA_TABLE]),
         ],
         any_order=True,
     )
     # Waiting on each mutation as it is enqueued would cost the sum of their completion times
     # rather than the longest, which is the whole reason the op enqueues in one pass.
-    assert [name for name, *_ in calls.mock_calls] == ["enqueue"] * 2 + ["wait"] * 2
+    assert [name for name, *_ in calls.mock_calls] == ["enqueue"] * 3 + ["wait"] * 3
     cluster.any_host(dictionary.source.drop).result()

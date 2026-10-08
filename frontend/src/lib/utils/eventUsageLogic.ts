@@ -32,6 +32,7 @@ import {
     Node,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { isBIVisualizationNode } from '~/queries/utils'
 import {
     getBreakdown,
     getCompareFilter,
@@ -73,6 +74,7 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { captureBIWorksheetAction } from 'products/business_intelligence/frontend/biEditorAnalytics'
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
@@ -99,7 +101,14 @@ export enum DashboardEventSource {
     DashboardVariableOverride = 'dashboard_variable_override',
 }
 
-export type DashboardFilterChangeType = 'date' | 'properties' | 'breakdown' | 'variable' | 'interval' | 'test_accounts'
+export type DashboardFilterChangeType =
+    | 'date'
+    | 'properties'
+    | 'breakdown'
+    | 'variable'
+    | 'interval'
+    | 'test_accounts'
+    | 'metric_labels'
 
 export enum InsightEventSource {
     LongPress = 'long_press',
@@ -782,7 +791,6 @@ export function sanitizeQuery(query: Node | null): SanitizedQuery {
             metrics_clause_count: query.clauses.length,
             metrics_has_formula: !!query.formula,
             metrics_interval: query.interval ?? 'auto',
-            metrics_min_interval: query.minInterval,
             metrics_display_type: query.display?.type ?? 'line',
         })
     }
@@ -2536,6 +2544,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('dashboard add menu opened', { source, dashboard_id: dashboardId })
         },
         reportSavedInsightToDashboard: async ({ insight, dashboardId }) => {
+            if (isBIVisualizationNode(insight?.query)) {
+                captureBIWorksheetAction('added_to_dashboard', insight.query.config, { insight_id: insight.id })
+            }
             posthog.capture('saved insight to dashboard', {
                 insight: sanitizeInsight(insight),
                 dashboard_id: dashboardId,

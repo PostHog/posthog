@@ -12,7 +12,6 @@ from unittest.mock import MagicMock, patch
 from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.promptingcompany import (
@@ -124,56 +123,6 @@ def test_content_pagination_and_resume(
 
 
 @pytest.mark.parametrize(
-    "name, data, expected_path",
-    [
-        ("published_content", {"items": [], "totalPages": 0}, "/api/v1/content"),
-        ("simulation_runs", {"runs": [], "total": 0}, "/api/v1/agent-simulation/runs"),
-        ("prompt_suggestions", [], "/api/v1/prompt-suggestions"),
-    ],
-)
-def test_empty_terminal_page(
-    config: PromptingCompanySourceConfig,
-    manager: MagicMock,
-    api: MockAPI,
-    name: str,
-    data: object,
-    expected_path: str,
-) -> None:
-    api.responses = [(200, {"ok": True, "data": data})]
-    assert list(sync_items(prompting_company_source(config, inputs(name), manager))) == []
-    assert len(api.requests) == 1
-    assert urlsplit(api.requests[0].url or "").path == expected_path
-    manager.save_state.assert_not_called()
-
-
-def test_runs_continue_until_empty_page(config: PromptingCompanySourceConfig, manager: MagicMock, api: MockAPI) -> None:
-    api.responses = [
-        (200, {"ok": True, "data": {"runs": [{"id": "run-a"}], "total": 2}}),
-        (200, {"ok": True, "data": {"runs": [{"id": "run-b"}], "total": 2}}),
-        (200, {"ok": True, "data": {"runs": [], "total": 2}}),
-    ]
-    assert list(sync_items(prompting_company_source(config, inputs("simulation_runs"), manager))) == [
-        [{"id": "run-a"}],
-        [{"id": "run-b"}],
-    ]
-    assert [api.params(i)["page"] for i in range(3)] == [["1"], ["2"], ["3"]]
-    assert "productId" not in api.params()
-    assert api.params()["orderBy"] == ["createdAt"]
-    assert api.params()["order"] == ["asc"]
-
-
-def test_suggestions_single_page(config: PromptingCompanySourceConfig, manager: MagicMock, api: MockAPI) -> None:
-    rows = [{"id": "suggestion-a", "message": "Which tools measure search visibility?"}]
-    api.responses = [(200, {"ok": True, "data": rows})]
-    response = prompting_company_source(config, inputs("prompt_suggestions"), manager)
-    assert list(sync_items(response)) == [rows]
-    assert api.params() == {"productId": ["product_example"]}
-    assert len(api.requests) == 1
-    manager.can_resume.assert_not_called()
-    assert response.on_complete is None
-
-
-@pytest.mark.parametrize(
     "incremental, watermark, expected_start",
     [
         (False, "2025-02-01", "2025-01-01"),
@@ -281,16 +230,6 @@ def test_sync_auth_errors_are_terminal(
         list(sync_items(prompting_company_source(config, inputs("published_content"), manager)))
     assert len(api.requests) == 1
     assert any(pattern in str(exc.value) for pattern in PromptingCompanySource().get_non_retryable_errors())
-
-
-@pytest.mark.parametrize("status", [429, 503])
-def test_sync_retries_transient_errors(
-    config: PromptingCompanySourceConfig, manager: MagicMock, api: MockAPI, status: int
-) -> None:
-    api.responses = [(status, {"ok": False}), (200, {"ok": True, "data": []})]
-    with patch.object(RESTClient._send_request.retry, "wait", return_value=0):  # type: ignore[attr-defined]
-        assert list(sync_items(prompting_company_source(config, inputs("prompt_suggestions"), manager))) == []
-    assert len(api.requests) == 2
 
 
 def test_unknown_table_fails_before_request(

@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from posthog.api.capture import CaptureInternalResult
+from posthog.dataclasses import frozen
 from posthog.exceptions import (
     ClickHouseClusterMemoryLimitExceeded,
     ClickHouseQueryMemoryLimitExceeded,
@@ -24,7 +25,15 @@ from products.autoresearch.backend.inference import (
     sandbox as sandbox_inference,
     scoring,
 )
-from products.autoresearch.backend.inference.sandbox import _MATERIALIZE_ROW_LIMIT, InferenceRows, SandboxScoreResult
+from products.autoresearch.backend.inference.failures import find_unscorable_champion
+from products.autoresearch.backend.inference.sandbox import (
+    _MATERIALIZE_ROW_LIMIT,
+    InferenceRows,
+    MaterializedFeatures,
+    ModelLoadError,
+    SandboxScoreResult,
+    features_sql_digest,
+)
 from products.autoresearch.backend.inference.scoring import (
     InferenceRunError,
     ScoredPopulation,
@@ -42,6 +51,7 @@ from products.autoresearch.backend.inference.scoring import (
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
 from products.autoresearch.backend.query import BATCH_QUERY, HogQLResult
 from products.autoresearch.backend.testing import TeamScopedTestMixin
+from products.autoresearch.backend.training.artifacts import ArtifactBundle
 
 _STUB_RECIPE = {
     "feature_sql": "SELECT person_id AS distinct_id, count() AS events_total_30d FROM events GROUP BY person_id",
@@ -985,3 +995,164 @@ class TestRecipeFit(SimpleTestCase):
                 _fit_on_training_predict_on_inference(
                     training_rows=rows, inference_rows=rows[:2], recipe=_ANCHORS_RECIPE, pipeline_id="p"
                 )
+
+
+_SHADOW_ROWS = [
+    {"distinct_id": "user-1", "events_total": 3},
+    {"distinct_id": "user-2", "events_total": 1},
+]
+_OTHER_FEATURE_SQL = "SELECT a.person_id AS distinct_id, count() AS n FROM {anchors} a GROUP BY a.person_id"
+
+
+@frozen
+class _Cadence:
+    run: AutoresearchRun
+    capture: MagicMock
+    materialize: MagicMock
+
+
+@time_machine.travel("2026-09-11T12:00:00Z", tick=False)
+class TestShadowScoring(TeamScopedTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.pipeline = AutoresearchPipeline.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test",
+            target_event="$pageview",
+            horizon_days=7,
+            output_person_property="predicted_p_pageview",
+        )
+        self.sql_by_prefix: dict[str, str] = {}
+        self.champion = self._model("champion", _ANCHORS_FEATURE_SQL, role=AutoresearchModel.Role.CHAMPION)
+
+    def _model(self, name: str, features_sql: str, role: str = AutoresearchModel.Role.CHALLENGER) -> AutoresearchModel:
+        prefix = f"tasks/autoresearch/{name}"
+        self.sql_by_prefix[prefix] = features_sql
+        return AutoresearchModel.objects.create(
+            pipeline=self.pipeline,
+            role=role,
+            artifact_prefix=prefix,
+            model_recipe={"feature_sql": features_sql},
+            recipe_hash=name,
+            holdout_score=0.7,
+            metrics={"model_fitted": True},
+        )
+
+    def _run(self, *, failing: dict[str, Exception] | None = None, shadow_rows=_SHADOW_ROWS) -> _Cadence:
+        failing = failing or {}
+        materialize = MagicMock(return_value=InferenceRows(rows=shadow_rows, eligible=len(shadow_rows)))
+
+        def fake_sandbox(**kwargs):
+            model = kwargs["model"]
+            if str(model.pk) in failing:
+                raise failing[str(model.pk)]
+            data = kwargs.get("score_data") or InferenceRows(rows=_SHADOW_ROWS, eligible=len(_SHADOW_ROWS))
+            features_sql = self.sql_by_prefix[model.artifact_prefix]
+            return SandboxScoreResult(
+                scored_rows=[{**row, "p_y": 0.4} for row in data.rows],
+                holdout_auc=0.7,
+                n_train=10,
+                n_features=1,
+                rows_eligible=data.eligible,
+                features=MaterializedFeatures(sql_digest=features_sql_digest(features_sql), data=data),
+            )
+
+        capture = _capture_accepting_everything()
+        with (
+            patch.object(
+                scoring,
+                "read_bundle",
+                side_effect=lambda prefix: ArtifactBundle(
+                    train_py="# train", predict_py="# predict", features_sql=self.sql_by_prefix[prefix]
+                ),
+            ),
+            patch.object(scoring, "score_via_sandbox", side_effect=fake_sandbox),
+            patch.object(scoring, "_materialize_score_data", materialize),
+            patch.object(scoring, "_resolve_distinct_ids", return_value={"user-1": "real-1", "user-2": "real-2"}),
+            patch.object(scoring, "capture_batch_internal", capture),
+        ):
+            run = run_inference_for_pipeline(pipeline=self.pipeline, model=self.champion)
+        return _Cadence(run=run, capture=capture, materialize=materialize)
+
+    def _shadow_runs(self, model: AutoresearchModel) -> list[AutoresearchRun]:
+        return list(AutoresearchRun.objects.filter(model=model, run_type=AutoresearchRun.RunType.INFERENCE))
+
+    def test_each_shadow_model_scores_the_champions_people_person_less(self):
+        other_a = self._model("other_a", _OTHER_FEATURE_SQL)
+        same_sql = self._model("same_sql", _ANCHORS_FEATURE_SQL)
+        other_b = self._model("other_b", _OTHER_FEATURE_SQL)
+
+        cadence = self._run()
+        run, capture, materialize = cadence.run, cadence.capture, cadence.materialize
+
+        assert run.status == AutoresearchRun.Status.COMPLETED
+        # The champion's rows serve the model with its SQL; the two models with the other SQL share one
+        # query, although the shadow set scores same_sql between them.
+        assert materialize.call_count == 1
+        assert materialize.call_args.kwargs["feature_sql"] == _OTHER_FEATURE_SQL
+        assert sorted(run.metrics["shadow_models"]["completed"]) == sorted(
+            str(m.pk) for m in (same_sql, other_a, other_b)
+        )
+        for model in (same_sql, other_a, other_b):
+            [shadow_run] = self._shadow_runs(model)
+            assert shadow_run.status == AutoresearchRun.Status.COMPLETED
+            assert shadow_run.rows_scored == run.rows_scored
+            assert shadow_run.scheduled is False
+            assert shadow_run.metrics["prediction_date"] == run.metrics["prediction_date"]
+            assert shadow_run.metrics["horizon_days"] == run.metrics["horizon_days"]
+
+        champion_call, *shadow_calls = capture.call_args_list
+        for event in champion_call.kwargs["events"]:
+            assert event["properties"]["$autoresearch_model_role"] == AutoresearchModel.Role.CHAMPION
+            assert "$set" in event["properties"]
+        assert len(shadow_calls) == 3
+        for call in shadow_calls:
+            assert call.kwargs["process_person_profile"] is False
+            for event in call.kwargs["events"]:
+                assert event["properties"]["$autoresearch_model_role"] == "shadow"
+                assert "$set" not in event["properties"]
+                assert event["options"] == {"process_person_profile": False}
+        # Ingestion deduplicates on (timestamp, distinct_id, event), so no two predictions may share that key.
+        all_events = [event for call in capture.call_args_list for event in call.kwargs["events"]]
+        dedup_keys = {(e["timestamp"], e["distinct_id"], e["event"]) for e in all_events}
+        assert len(dedup_keys) == len(all_events)
+
+    @parameterized.expand(
+        [
+            ("model_load_failure", ModelLoadError("predict.py failed"), _SHADOW_ROWS, "model_load_failed"),
+            ("unpaired_rows", None, _SHADOW_ROWS[:1], "other"),
+        ]
+    )
+    def test_a_failing_shadow_model_never_touches_the_champion(self, _name, error, shadow_rows, failure_kind):
+        challenger = self._model("challenger", _OTHER_FEATURE_SQL)
+        failing = {str(challenger.pk): error} if error else {}
+
+        for day in ("2026-09-11T12:00:00Z", "2026-09-12T12:00:00Z"):
+            with time_machine.travel(day, tick=False):
+                run = self._run(failing=failing, shadow_rows=shadow_rows).run
+            assert run.status == AutoresearchRun.Status.COMPLETED
+            assert run.metrics["shadow_models"]["failed"] == [str(challenger.pk)]
+
+        shadow_runs = self._shadow_runs(challenger)
+        assert [r.status for r in shadow_runs] == [AutoresearchRun.Status.FAILED] * 2
+        assert {r.metrics["failure_kind"] for r in shadow_runs} == {failure_kind}
+        self.pipeline.refresh_from_db()
+        assert self.pipeline.last_scored_at is not None
+        # Two failed days of shadow runs must not make the model read as unscorable once it is promoted.
+        AutoresearchModel.objects.filter(pk=self.champion.pk).update(role=AutoresearchModel.Role.ARCHIVED)
+        AutoresearchModel.objects.filter(pk=challenger.pk).update(role=AutoresearchModel.Role.CHAMPION)
+        challenger.refresh_from_db()
+        assert find_unscorable_champion(challenger) is None
+
+    def test_shadow_models_past_the_time_budget_are_skipped_and_recorded(self):
+        challenger = self._model("challenger", _OTHER_FEATURE_SQL)
+
+        with patch.object(scoring, "SHADOW_TIME_BUDGET_S", 0):
+            cadence = self._run()
+        run, capture = cadence.run, cadence.capture
+
+        assert run.status == AutoresearchRun.Status.COMPLETED
+        assert run.metrics["shadow_models"] == {"completed": [], "failed": [], "skipped": [str(challenger.pk)]}
+        assert self._shadow_runs(challenger) == []
+        assert capture.call_count == 1

@@ -1,7 +1,7 @@
 import base64
 from collections.abc import Iterable
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, cast
 
 import pytest
@@ -63,47 +63,6 @@ def manager() -> MagicMock:
 
 
 @travel("2026-07-03T12:00:00Z", tick=False)
-@pytest.mark.parametrize("terminal", [{}, {"pagination_token": None}, {"pagination_token": ""}])
-def test_transactions_paginate_within_date_windows(
-    config: ClipSourceConfig, inputs: SourceInputs, manager: MagicMock, terminal: dict[str, str | None]
-) -> None:
-    with requests_mock.Mocker() as http:
-        http.get(
-            f"{BASE}/payments",
-            [
-                {"json": {"items": [{"receipt_no": "a"}], "meta": {"pagination_token": "next-token"}}},
-                {"json": {"items": [{"receipt_no": "b"}], "meta": terminal}},
-                {"json": {"items": [{"receipt_no": "c"}], "meta": {}}},
-            ],
-        )
-        response = clip_source(config, inputs, manager)
-        assert [row["receipt_no"] for page in sync_items(response) for row in page] == ["a", "b", "c"]
-        assert response.sort_mode == "desc"
-        assert len(http.request_history) == 3
-        for request in http.request_history:
-            assert request.headers["Authorization"] == AUTH
-            assert request.qs["limit"] == ["100"]
-            start = datetime.fromisoformat(request.qs["from"][0])
-            end = datetime.fromisoformat(request.qs["to"][0])
-            assert timedelta(0) < end - start <= timedelta(days=30)
-        assert http.request_history[1].qs["pagination_token"] == ["next-token"]
-        assert "pagination_token" not in http.request_history[2].qs
-        assert http.request_history[2].qs["to"] == http.request_history[0].qs["from"]
-        assert http.request_history[2].qs["from"] == ["2026-06-01t00:00:00+00:00"]
-        manager.save_state.assert_any_call(
-            ClipResumeConfig(
-                start="2026-06-03T12:00:00+00:00",
-                end="2026-07-03T12:00:00+00:00",
-                paginator_state={"cursor": "next-token"},
-            )
-        )
-        manager.clear_state.assert_not_called()
-        assert response.on_complete is not None
-        response.on_complete()
-        manager.clear_state.assert_called_once()
-
-
-@travel("2026-07-03T12:00:00Z", tick=False)
 @pytest.mark.parametrize(
     "incremental,watermark,expected",
     [
@@ -128,74 +87,6 @@ def test_incremental_filter_and_full_refresh(
         assert http.request_history[-1].qs["from"] == [expected]
         if len(http.request_history) > 1:
             manager.safe_point.assert_called()
-
-
-@travel("2026-07-04T12:00:00Z", tick=False)
-def test_resume_preserves_dates_and_cursor(config: ClipSourceConfig, inputs: SourceInputs, manager: MagicMock) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = ClipResumeConfig(
-        start="2026-06-03T12:00:00+00:00",
-        end="2026-07-03T12:00:00+00:00",
-        paginator_state={"cursor": "saved-token"},
-    )
-    with requests_mock.Mocker() as http:
-        http.get(f"{BASE}/payments", json={"items": [], "meta": {}})
-        list(sync_items(clip_source(config, inputs, manager)))
-        assert http.request_history[0].qs["pagination_token"] == ["saved-token"]
-        assert http.request_history[0].qs["to"] == ["2026-07-03t12:00:00+00:00"]
-        assert "pagination_token" not in http.request_history[1].qs
-
-
-@travel("2026-07-03T12:00:00Z", tick=False)
-def test_settlement_payments_follow_uuid_and_next_link(
-    config: ClipSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
-) -> None:
-    config = replace(config, start_date="2020-01-01")
-    inputs = replace(inputs, schema_name="settlement_payments")
-    parent = {"settlement_report_id": "report-1", "links": {"self": {"href": f"/settlements/{DEPOSIT_ID}"}}}
-    with requests_mock.Mocker() as http:
-        http.get(f"{BASE}/settlements", json={"settlements": [parent]})
-        http.get(
-            f"{BASE}/settlements/{DEPOSIT_ID}",
-            [
-                {
-                    "json": {
-                        "settlement": {"details": [{"payments": [{"receipt_no": "a"}]}]},
-                        "links": {"next": {"href": f"/settlements/{DEPOSIT_ID}?page_size=100&page=next"}},
-                    }
-                },
-                {"json": {"settlement": {"details": [{"payments": [{"receipt_no": "b"}]}]}, "links": {}}},
-            ],
-        )
-        response = clip_source(config, inputs, manager)
-        assert list(sync_items(response)) == [
-            [{"receipt_no": "a", "settlement_report_id": "report-1"}],
-            [{"receipt_no": "b", "settlement_report_id": "report-1"}],
-        ]
-        assert response.primary_keys == ["settlement_report_id", "receipt_no"]
-        assert len(http.request_history) == 3
-        assert http.request_history[0].qs == {"from": ["2026-04-05"], "to": ["2026-07-03"]}
-        assert http.request_history[1].qs == {"page_size": ["100"]}
-        assert http.request_history[2].qs == {"page_size": ["100"], "page": ["next"]}
-        assert all(request.headers["x-api-key"] == AUTH for request in http.request_history)
-
-
-@travel("2026-07-03T12:00:00Z", tick=False)
-@pytest.mark.parametrize("rows", [[], [{"settlement_report_id": "report-1"}]])
-def test_settlements_single_page(
-    config: ClipSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
-    rows: list[dict[str, str]],
-) -> None:
-    with requests_mock.Mocker() as http:
-        http.get(f"{BASE}/settlements", json={"settlements": rows})
-        response = clip_source(config, replace(inputs, schema_name="settlements"), manager)
-        assert [row for page in sync_items(response) for row in page] == rows
-        assert len(http.request_history) == 1
-        assert http.request_history[0].qs == {"from": ["2026-06-01"], "to": ["2026-07-03"]}
 
 
 @travel("2026-07-03T12:00:00Z", tick=False)

@@ -114,6 +114,7 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
 - Everything posted to GitHub goes through `scrub_credentials` AND `neutralize_active_markdown` (`logic/scrubbing.py`)
   (GitHub's camo proxy auto-fetches images — a markdown image URL is an exfiltration channel).
 - The sandbox checkout is the PR head, so the engine's Agent SDK session runs with `setting_sources=[]` + `strict_mcp_config` (reviewer.py): a PR-shipped `.claude/settings.json` hook, `CLAUDE.md`, or `.mcp.json` is readable as untrusted content, never loaded as configuration.
+  The default OpenAI reviewer (openai_reviewer.py) discovers no SDK settings, hooks or MCP servers from the tree; only the trusted `.stamphog/` guidance files shape its prompt. Its read_file/grep/glob tools refuse any path that resolves outside the checkout.
   Don't reintroduce filesystem settings discovery there.
 
 ## The self-driving inbox carve-out (the one exception to the bot-author refusal)
@@ -251,6 +252,8 @@ Inputs `review_pr.py` fetches over the network reach the sandbox through the con
 dropping one is a silent behavior change rather than a missing section. `author_team_slugs` feeds
 `author_on_owning_team`, which the reviewer prompt reads with a default of `True`, so an unset key
 tells the reviewer that every author owns the code they touched.
+The same set decides a deny category's `exempt_author_teams`, and there an unset key fails closed: every author is denied, the owning team included.
+Never fill the set from anything the PR controls: it is the only thing that lets stamphog approve an owner-only path.
 
 The sandbox checkout is shallow and holds no PR history, so a hosted context always carries `merge_base_sha` (the engine diffs `merge_base..head`) and `commit_messages` (the provenance trailers).
 Without those keys (a manual `review_pr.py` run) the engine reads git history instead.

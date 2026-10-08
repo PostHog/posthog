@@ -10,6 +10,7 @@ from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed, Throttled
@@ -76,9 +77,13 @@ class SetupWizardCloudRunTests(APIBaseTest):
         assert kwargs["branch"] is None
         assert kwargs["team"].id == self.team.id
 
-    @patch("posthog.api.wizard.http.security_shadow_check")
+    @parameterized.expand([("allowed", False, status.HTTP_200_OK), ("refused", True, status.HTTP_403_FORBIDDEN)])
+    @patch("posthog.api.wizard.http.security_access_refused")
     @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
-    def test_cloud_run_records_a_shadow_access_check(self, mock_create, shadow: MagicMock) -> None:
+    def test_cloud_run_asks_the_access_rules(
+        self, _name: str, refused: bool, expected_status: int, mock_create, check: MagicMock
+    ) -> None:
+        check.return_value = refused
         mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
 
         response = self.client.post(
@@ -87,12 +92,15 @@ class SetupWizardCloudRunTests(APIBaseTest):
             format="json",
         )
 
-        assert response.status_code == status.HTTP_200_OK, response.content
-        shadow.assert_called_once()
-        subject, surface = shadow.call_args.args
+        assert response.status_code == expected_status, response.content
+        check.assert_called_once()
+        subject, surface = check.call_args.args
         assert surface == SecuritySurface.AI_GATEWAY
         assert subject.organization_ids == (str(self.team.organization_id),)
-        assert shadow.call_args.kwargs == {"call_site": "wizard_cloud_run"}
+        assert check.call_args.kwargs == {"call_site": "wizard_cloud_run"}
+        assert mock_create.called is not refused
+        if refused:
+            assert response.json()["detail"] == WIZARD_BLOCKED_DETAIL
 
     @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
     def test_rejects_invalid_repository_format(self, mock_create):
@@ -308,26 +316,39 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
             "posture": "new",
         }
 
-    @patch("posthog.api.wizard.http.security_shadow_check")
+    @parameterized.expand([("allowed", False, status.HTTP_201_CREATED), ("refused", True, status.HTTP_403_FORBIDDEN)])
+    @patch("posthog.api.wizard.http.security_access_refused")
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_gateway_token_records_a_shadow_access_check(
-        self, mock_authentication, mock_flag, mock_mint, mock_authorized, shadow: MagicMock
+    def test_gateway_token_asks_the_access_rules(
+        self,
+        _name: str,
+        refused: bool,
+        expected_status: int,
+        mock_authentication,
+        mock_flag,
+        mock_mint,
+        mock_authorized,
+        check: MagicMock,
     ) -> None:
+        check.return_value = refused
         self._mock_oauth(mock_authentication)
 
         response = self.client.post(
             self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
         )
 
-        assert response.status_code == status.HTTP_201_CREATED, response.content
-        shadow.assert_called_once()
-        subject, surface = shadow.call_args.args
+        assert response.status_code == expected_status, response.content
+        check.assert_called_once()
+        subject, surface = check.call_args.args
         assert surface == SecuritySurface.AI_GATEWAY
         assert subject.organization_ids == (str(self.team.organization_id),)
-        assert shadow.call_args.kwargs == {"call_site": "wizard_gateway_token"}
+        assert check.call_args.kwargs == {"call_site": "wizard_gateway_token"}
+        assert mock_mint.called is not refused
+        if refused:
+            assert response.json()["detail"] == WIZARD_BLOCKED_DETAIL
 
     @override_settings(DEBUG=False, WIZARD_GATEWAY_TIERS={"new": {"mints_per_week": 2}})
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)

@@ -1,6 +1,7 @@
 """PR 2 rules, each asserted against a real Temporal test server:
 
 - the real dispatcher takes everything, starts one abandoned evaluation, and reports nothing remaining
+- a bound source's evaluation starts on its binding's queue, under its binding's timeout
 - discovery runs once per tick chain, never in a continued run
 - the tick awaits dispatcher reports and never an evaluation child
 - the tick exits cleanly with remaining work once its dispatch budget is spent
@@ -46,7 +47,7 @@ from products.alerts_platform.backend.facade.temporal import (
     SHARED_ORCHESTRATION_WORKFLOWS,
 )
 from products.alerts_platform.backend.temporal import postgres, workflows
-from products.alerts_platform.backend.temporal.sources import SOURCE_EVALUATION_WORKFLOWS
+from products.alerts_platform.backend.temporal.sources import SOURCE_BINDINGS, SourceBinding
 from products.alerts_platform.backend.temporal.workflows import (
     AlertsPlatformEvaluateWorkflow,
     AlertsPlatformInputs,
@@ -149,7 +150,7 @@ async def local_environment() -> AsyncIterator[WorkflowEnvironment]:
 def no_source_bindings() -> Iterator[None]:
     """These tests cover paging and the dispatch budget, not which source evaluates for real.
     Clearing the registry keeps every source on the noop path; the binding has its own test."""
-    with patch.dict(SOURCE_EVALUATION_WORKFLOWS, clear=True):
+    with patch.dict(SOURCE_BINDINGS, clear=True):
         yield
 
 
@@ -261,7 +262,7 @@ async def test_real_dispatcher_takes_everything_and_abandons_one_evaluation(envi
         child = initiated[0].start_child_workflow_execution_initiated_event_attributes
         assert child.workflow_type.name == "alerts-platform-evaluate"
         assert child.parent_close_policy == ParentClosePolicy.PARENT_CLOSE_POLICY_ABANDON
-        assert child.workflow_execution_timeout.ToTimedelta() == workflows.SOURCE_EVALUATION_TIMEOUT
+        assert child.workflow_execution_timeout.ToTimedelta() == workflows.NOOP_EVALUATION_TIMEOUT
         # One task per child start, plus the one that completed the run. A dispatcher that awaited an
         # evaluation would need a further task to resume on its result. Counting tasks rather than
         # forbidding a child-completion event keeps this off the race with an abandoned evaluation.
@@ -269,6 +270,44 @@ async def test_real_dispatcher_takes_everything_and_abandons_one_evaluation(envi
         evaluation = client.get_workflow_handle(f"alerts-eval-logs-{key('a').team_id}-{key('a').slot}")
         assert await evaluation.result() is None
         assert (await evaluation.describe()).status == WorkflowExecutionStatus.COMPLETED
+
+
+async def test_a_bound_source_evaluates_on_its_own_queue_under_its_own_timeout(
+    environment: WorkflowEnvironment,
+) -> None:
+    client = environment.client
+    dispatcher_id = f"dispatch-{uuid.uuid4()}"
+    binding = SourceBinding(
+        workflow="test-bound-evaluation",
+        task_queue="test-bound-evaluation-queue",
+        evaluation_timeout=dt.timedelta(minutes=12),
+        discovery_limit=1,
+    )
+    orchestration_worker, evaluation_worker = workers(client)
+    with patch.dict(SOURCE_BINDINGS, {SourceKind.INSIGHT: binding}):
+        async with orchestration_worker, evaluation_worker:
+            await client.execute_workflow(
+                AlertsPlatformSourceDispatchWorkflow.run,
+                SourceDispatchInputs(
+                    tick_id="tick",
+                    source=SourceKind.INSIGHT,
+                    page=0,
+                    batch_keys=[key("bound")],
+                    cutoff="2026-09-16T10:00:00+00:00",
+                ),
+                id=dispatcher_id,
+                task_queue=ORCHESTRATION_QUEUE,
+                execution_timeout=dt.timedelta(seconds=30),
+            )
+
+    history = await client.get_workflow_handle(dispatcher_id).fetch_history()
+    (initiated,) = events_of(history, EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED)
+    child = initiated.start_child_workflow_execution_initiated_event_attributes
+    assert (child.workflow_type.name, child.task_queue.name, child.workflow_execution_timeout.ToTimedelta()) == (
+        binding.workflow,
+        binding.task_queue,
+        binding.evaluation_timeout,
+    )
 
 
 async def test_a_key_whose_evaluation_still_runs_is_skipped_without_losing_the_page(

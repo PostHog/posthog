@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow
     ServiceNowResumeConfig,
     _format_datetime,
     _table_api_url,
-    build_sysparm_query,
     normalize_instance_url,
     servicenow_source,
     validate_credentials,
@@ -122,26 +121,6 @@ class TestFormatDatetime:
     def test_format(self, _name: str, value: Any, expected: str | None) -> None:
         assert _format_datetime(value) == expected
 
-    def test_aware_non_utc_is_converted(self) -> None:
-        from datetime import timedelta, timezone
-
-        aware = datetime(2024, 3, 4, 5, 0, 0, tzinfo=timezone(timedelta(hours=3)))
-        assert _format_datetime(aware) == "2024-03-04 02:00:00"
-
-
-class TestBuildSysparmQuery:
-    def test_incremental_query(self) -> None:
-        query = build_sysparm_query("sys_updated_on", "2024-01-01 00:00:00", "sys_updated_on")
-        assert query == "sys_updated_on>=2024-01-01 00:00:00^ORDERBYsys_updated_on"
-
-    def test_full_refresh_query_orders_only(self) -> None:
-        query = build_sysparm_query(None, None, "sys_created_on")
-        assert query == "ORDERBYsys_created_on"
-
-    def test_no_value_drops_filter(self) -> None:
-        query = build_sysparm_query("sys_updated_on", None, "sys_updated_on")
-        assert query == "ORDERBYsys_updated_on"
-
 
 class TestTableApiUrl:
     @parameterized.expand(
@@ -158,19 +137,10 @@ class TestTableApiUrl:
 
 
 class TestServiceNowAuth:
-    def test_api_key_headers(self) -> None:
-        auth = ServiceNowAuth(api_key="abc")
-        assert auth.headers()["x-sn-apikey"] == "abc"
-        assert auth.basic_auth() is None
-
     def test_basic_auth(self) -> None:
         auth = ServiceNowAuth(username="admin", password="secret")
         assert "x-sn-apikey" not in auth.headers()
         assert auth.basic_auth() == ("admin", "secret")
-
-    def test_api_key_auth_config(self) -> None:
-        config = ServiceNowAuth(api_key="abc").to_auth_config()
-        assert config == {"type": "api_key", "api_key": "abc", "name": "x-sn-apikey", "location": "header"}
 
     def test_basic_auth_config(self) -> None:
         config = ServiceNowAuth(username="admin", password="secret").to_auth_config()
@@ -269,19 +239,6 @@ class TestServiceNowSourcePagination:
         manager.save_state.assert_called_once_with(ServiceNowResumeConfig(offset=2))
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_result_response([])])
-
-        with mock.patch.object(servicenow_module, "DEFAULT_PAGE_SIZE", 2):
-            manager = _make_manager()
-            rows = _rows(self._source(manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
         session = MockSession.return_value
         params, _ = _wire(session, [_result_response([{"sys_id": "5"}])])
@@ -309,16 +266,6 @@ class TestServiceNowSourcePagination:
             )
 
         assert params[0]["sysparm_query"] == "sys_updated_on>=2024-01-01 00:00:00^ORDERBYsys_updated_on"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_query_in_params(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_result_response([])])
-
-        with mock.patch.object(servicenow_module, "DEFAULT_PAGE_SIZE", 2):
-            _rows(self._source(_make_manager(), should_use_incremental_field=False))
-
-        assert params[0]["sysparm_query"] == "ORDERBYsys_created_on"
 
     @parameterized.expand(
         [

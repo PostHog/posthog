@@ -11,7 +11,7 @@ import { ChartDisplayType } from '~/types'
 
 import { biConnectionsLogic } from './biConnectionsLogic'
 import { biEditorLogic } from './biEditorLogic'
-import { BIEditorView, getBIFieldPillLabel } from './biEditorTypes'
+import { BIEditorView, buildBIQuery, getBIFieldPillLabel, parseBIEditorState } from './biEditorTypes'
 
 describe('biEditorLogic', () => {
     const TAB_ID = 'bi-test'
@@ -51,6 +51,84 @@ describe('biEditorLogic', () => {
         limit: 1000,
         sort: null,
     }
+    it.each([0, 1, 2])('keeps Top N and result filters attached to their measures when removing value %s', (index) => {
+        const logic = biEditorLogic({ tabId: TAB_ID })
+        logic.mount()
+        logic.actions.setAutoUpdate(false)
+        logic.actions.restoreState({
+            editorView: BIEditorView.BI,
+            config: {
+                ...config,
+                values: [0, 1, 2].map((value) => ({
+                    field: { ...eventField, id: `measure-${value}`, expression: `properties.value_${value}` },
+                    aggregation: 'sum',
+                })),
+                topN: { fieldId: eventField.id, count: 5, measureIndex: 1, includeOther: false },
+                resultFilters: [0, 1, 2].map((measureIndex) => ({
+                    id: `filter-${measureIndex}`,
+                    measureIndex,
+                    operator: 'greater_than',
+                    value: '5',
+                })),
+            },
+        })
+        logic.actions.removeFieldFromShelf('values', index)
+        expect(logic.values.config.resultFilters).toHaveLength(2)
+        for (const filter of logic.values.config.resultFilters!) {
+            expect(logic.values.config.values[filter.measureIndex].field.id).toBe(
+                filter.id.replace('filter-', 'measure-')
+            )
+        }
+        if (index === 1) {
+            expect(logic.values.config.topN).toBeUndefined()
+        } else {
+            const measureIndex = logic.values.config.topN!.measureIndex
+            expect(logic.values.config.values[measureIndex].field.id).toBe('measure-1')
+        }
+        logic.unmount()
+    })
+
+    it.each(['field', 'blank', 'calculation', 'move'] as const)(
+        'preserves a Count result filter when adding the first measure via %s',
+        (method) => {
+            const logic = biEditorLogic({ tabId: TAB_ID })
+            logic.mount()
+            logic.actions.restoreState({
+                editorView: BIEditorView.BI,
+                config: {
+                    ...config,
+                    chartType: ChartDisplayType.ActionsTable,
+                    resultFilters: [{ id: 'count-filter', measureIndex: 0, operator: 'greater_than', value: '5' }],
+                },
+            })
+            if (method === 'field') {
+                logic.actions.addFieldToShelf(eventField, 'values')
+            } else if (method === 'blank') {
+                logic.actions.addBlankFieldToShelf('values')
+                logic.actions.setFieldExpression('values', 1, 'event')
+            } else if (method === 'calculation') {
+                logic.actions.upsertCalculatedMeasure({
+                    index: null,
+                    name: 'Revenue',
+                    expression: 'sum(properties.amount)',
+                })
+            } else {
+                logic.actions.moveFieldToShelf('rows', 0, 'values')
+            }
+            const updated = logic.values.config
+            expect(updated.values).toHaveLength(2)
+            expect(updated.values[updated.resultFilters![0].measureIndex]).toMatchObject({
+                label: 'Count',
+                customExpression: 'count(*)',
+            })
+            const query = buildBIQuery(updated)!.query
+            expect(query).toContain('count(*) AS Count')
+            expect(query).toContain('Count > 5')
+            expect(parseBIEditorState(BIEditorView.BI, updated)!.config).toEqual(updated)
+            logic.unmount()
+        }
+    )
+
     it('offers every sidebar table while excluding hidden PostHog tables', () => {
         const biLogic = biEditorLogic({ tabId: TAB_ID })
         biLogic.mount()

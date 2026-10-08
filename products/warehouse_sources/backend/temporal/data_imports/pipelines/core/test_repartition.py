@@ -2,12 +2,14 @@ import os
 import glob
 import json
 import math
+import shutil
 import asyncio
 import decimal
 import datetime
 import itertools
+from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
@@ -32,11 +34,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.par
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionBudgetExceededError,
+    RepartitionStoppedError,
     RepartitionSupersededError,
     RepartitionTarget,
     RepartitionTooLargeForBudgetError,
     _rewrite_into_temp,
+    is_temp_uri_of,
     measure_partition_bytes,
+    purge_abandoned_rewrite_temp,
     repartition_table_in_place,
     select_coarsen_target,
     select_repartition_target,
@@ -55,6 +60,9 @@ from products.warehouse_sources.backend.temporal.data_imports.workload_report im
     run_key,
     workload_reporting,
 )
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 
 logger = structlog.get_logger(__name__)
 
@@ -878,15 +886,17 @@ class TestRewriteIntoTemp:
         assert 0 < written < len(rows)
 
     @pytest.mark.parametrize(
-        "files_per_commit,rows_per_month",
+        "files_per_commit,rows_per_month,interruption",
         [
-            pytest.param(1, 1, id="one_file_per_commit"),
-            pytest.param(2, 1, id="two_files_per_commit"),
-            pytest.param(1, 3, id="rows_spread_over_several_target_days"),
+            pytest.param(1, 1, "deadline", id="one_file_per_commit"),
+            pytest.param(2, 1, "deadline", id="two_files_per_commit"),
+            pytest.param(1, 3, "deadline", id="rows_spread_over_several_target_days"),
+            pytest.param(2, 1, "stop", id="stop_request_before_the_commit_budget"),
+            pytest.param(1, 3, "stop", id="stop_request_with_several_batches_per_file"),
         ],
     )
     def test_resume_after_an_interruption_completes_the_table_exactly_once(
-        self, files_per_commit, rows_per_month, tmp_path
+        self, files_per_commit, rows_per_month, interruption, tmp_path
     ):
         # A rewrite stopped mid-way leaves temp holding whole source files, which its commits record.
         # Resuming from that record must append exactly the other files: every source row present
@@ -902,9 +912,24 @@ class TestRewriteIntoTemp:
             partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
         )
 
-        clock = Mock(side_effect=itertools.chain([0.0] * (4 + 3 * rows_per_month), itertools.repeat(100.0)))
-        with patch.object(repartition_module, "time", Mock(monotonic=clock)):
-            with pytest.raises(RepartitionBudgetExceededError):
+        save_checkpoint = AsyncMock()
+        if interruption == "deadline":
+            clock = Mock(side_effect=itertools.chain([0.0] * (4 + 3 * rows_per_month), itertools.repeat(100.0)))
+            with patch.object(repartition_module, "time", Mock(monotonic=clock)):
+                with pytest.raises(RepartitionBudgetExceededError):
+                    asyncio.run(
+                        _rewrite_into_temp(
+                            old_delta=live,
+                            temp_uri=temp_uri,
+                            storage_options={},
+                            target=target,
+                            budget=_budget(max_source_files_per_commit=files_per_commit),
+                            logger=logger,
+                            deadline=50.0,
+                        )
+                    )
+        else:
+            with pytest.raises(RepartitionStoppedError) as stopped:
                 asyncio.run(
                     _rewrite_into_temp(
                         old_delta=live,
@@ -913,7 +938,9 @@ class TestRewriteIntoTemp:
                         target=target,
                         budget=_budget(max_source_files_per_commit=files_per_commit),
                         logger=logger,
-                        deadline=50.0,
+                        save_checkpoint=save_checkpoint,
+                        # The request arrives after the first commit, inside the checkpoint throttle.
+                        should_stop=lambda: save_checkpoint.await_count >= 1,
                     )
                 )
         partial = deltalake.DeltaTable(temp_uri).to_pyarrow_table().num_rows
@@ -921,6 +948,12 @@ class TestRewriteIntoTemp:
         copied = copied_source_files(temp_uri, {})
         assert copied is not None
         assert len(copied) * rows_per_month == partial
+        if interruption == "stop":
+            # The stop commits one more file, ahead of the commit budget, and the checkpoint the next
+            # attempt resumes from records that commit although the throttle would skip it.
+            assert len(copied) == files_per_commit + 1
+            assert stopped.value.rows_written == partial
+            assert save_checkpoint.await_args_list[-1].args[0] == partial
 
         opened: list[str] = []
         iter_sources = SourceReader.iter_sources
@@ -951,6 +984,71 @@ class TestRewriteIntoTemp:
         assert copied_source_files(temp_uri, {}) == frozenset(
             f.path for f in repartition_module.plan_source_files(live)
         )
+
+    def test_a_stop_request_abandons_a_source_file_that_outlasts_the_grace(self, tmp_path):
+        # One row per batch, so the first source file is still open when the grace of zero ends.
+        rows = [(i, datetime.datetime(2024, 1, 1 + i)) for i in range(3)] + [(3, datetime.datetime(2024, 2, 1))]
+        live = _write_month_partitioned(str(tmp_path / "live"), rows)
+        temp_uri = str(tmp_path / "tmp")
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        save_checkpoint = AsyncMock()
+
+        with pytest.raises(RepartitionStoppedError) as stopped:
+            asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=live,
+                    temp_uri=temp_uri,
+                    storage_options={},
+                    target=target,
+                    budget=_budget(),
+                    logger=logger,
+                    save_checkpoint=save_checkpoint,
+                    should_stop=lambda: True,
+                    stop_grace_seconds=0.0,
+                )
+            )
+
+        # Nothing was committed, so there is no checkpoint to point a later attempt at a temp table
+        # that holds none of the file's rows.
+        assert stopped.value.rows_written == 0
+        save_checkpoint.assert_not_awaited()
+        assert not deltalake.DeltaTable.is_deltatable(temp_uri)
+
+        rows_written, _ = asyncio.run(
+            _rewrite_into_temp(
+                old_delta=live, temp_uri=temp_uri, storage_options={}, target=target, budget=_budget(), logger=logger
+            )
+        )
+        assert rows_written == len(rows)
+        final = deltalake.DeltaTable(temp_uri).to_pyarrow_table()
+        assert sorted(cast(list[int], final.column("id").to_pylist())) == [row[0] for row in rows]
+
+    def test_a_stop_request_on_the_last_source_file_lets_the_rewrite_finish(self, tmp_path):
+        rows = [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 1, 20))]
+        live = _write_month_partitioned(str(tmp_path / "live"), rows)
+        temp_uri = str(tmp_path / "tmp")
+
+        rows_written, _ = asyncio.run(
+            _rewrite_into_temp(
+                old_delta=live,
+                temp_uri=temp_uri,
+                storage_options={},
+                target=RepartitionTarget(
+                    partition_keys=["created_at"],
+                    trigger_reason="t",
+                    partition_mode="datetime",
+                    partition_format="day",
+                ),
+                budget=_budget(),
+                logger=logger,
+                should_stop=lambda: True,
+            )
+        )
+
+        assert rows_written == len(rows)
+        assert deltalake.DeltaTable(temp_uri).to_pyarrow_table().num_rows == len(rows)
 
     def test_a_temp_without_source_file_records_cannot_be_resumed(self, tmp_path):
         # An older rewrite appended rows with plain writes. Its temp says how many rows it holds but
@@ -1903,6 +2001,136 @@ class TestPurgeStaleTempTables:
         )
 
 
+class _LocalS3:
+    """The object-store calls the purge uses, served from a local directory that stands in for all buckets."""
+
+    def __init__(self, root: Path) -> None:
+        self._root = root
+
+    def _local(self, uri: str) -> Path:
+        return self._root / uri.split("://", 1)[-1].strip("/")
+
+    def invalidate_cache(self) -> None:
+        pass
+
+    async def _exists(self, uri: str) -> bool:
+        return self._local(uri).exists()
+
+    async def _find(self, uri: str) -> list[str]:
+        base = self._local(uri)
+        return sorted(str(f.relative_to(self._root)) for f in base.rglob("*") if f.is_file())
+
+    async def _rm(self, target: str | list[str], recursive: bool = False) -> None:
+        for uri in [target] if isinstance(target, str) else target:
+            local = self._local(uri)
+            if local.is_dir():
+                shutil.rmtree(local)
+            elif local.exists():
+                local.unlink()
+
+
+LIVE_URI = "s3://bucket/team/source/contacts"
+OWN_TEMP_URI = f"{LIVE_URI}__repartitioned_1a2b3c4d"
+
+
+class TestPurgeAbandonedRewriteTemp:
+    @pytest.mark.parametrize(
+        "temp_uri, expected",
+        [
+            (OWN_TEMP_URI, True),
+            (f"{LIVE_URI}__repartitioned", True),
+            (LIVE_URI, False),
+            (f"{LIVE_URI}/", False),
+            (f"{LIVE_URI}/_delta_log", False),
+            (f"{LIVE_URI}__repartitioned_1a2b3c4d/../contacts", False),
+            (f"{LIVE_URI}__repartitioned_1a2b3c4d/part-0.parquet", False),
+            (f"{LIVE_URI}__repartitioned_1a2b3c4d5", False),
+            (f"{LIVE_URI}__repartitioned_other", False),
+            (f"{LIVE_URI}_v2__repartitioned_1a2b3c4d", False),
+            ("s3://bucket/team/source/accounts__repartitioned_1a2b3c4d", False),
+            ("s3://bucket/team/source", False),
+            ("s3://bucket/team", False),
+            ("s3://other/team/source/contacts__repartitioned_1a2b3c4d", False),
+            ("", False),
+        ],
+    )
+    def test_only_a_temp_table_of_the_same_table_qualifies(self, temp_uri: str, expected: bool) -> None:
+        assert is_temp_uri_of(LIVE_URI, temp_uri) is expected
+
+    @pytest.mark.parametrize("live_uri", ["s3://bucket", "s3://bucket/", "s3://", ""])
+    def test_a_live_uri_that_is_not_a_table_directory_has_no_temp_tables(self, live_uri: str) -> None:
+        assert is_temp_uri_of(live_uri, f"{live_uri}__repartitioned_1a2b3c4d") is False
+
+    def _write_tree(self, root: Path) -> dict[str, Path]:
+        files = {
+            "live": root / "bucket/team/source/contacts/part-0.parquet",
+            "live_log": root / "bucket/team/source/contacts/_delta_log/0.json",
+            "own_temp": root / "bucket/team/source/contacts__repartitioned_1a2b3c4d/k=1/part-0.parquet",
+            "own_temp_log": root / "bucket/team/source/contacts__repartitioned_1a2b3c4d/_delta_log/0.json",
+            "newer_temp": root / "bucket/team/source/contacts__repartitioned_5e6f7a8b/part-0.parquet",
+            "sibling_table": root / "bucket/team/source/contacts_v2/part-0.parquet",
+            "sibling_temp": root / "bucket/team/source/accounts__repartitioned_1a2b3c4d/part-0.parquet",
+        }
+        for path in files.values():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"x")
+        return files
+
+    def _purge(self, root: Path, temp_uri: str, *, swap: dict | None = None) -> bool:
+        table_ref = _make_table_ref(get_table_uri=AsyncMock(return_value=LIVE_URI))
+        schema = _schema(id="schema-1", repartition_swap=swap)
+        with patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_LocalS3(root))):
+            return asyncio.run(
+                purge_abandoned_rewrite_temp(
+                    cast("DeltaTableRef", table_ref), schema, temp_uri, logger, claim_token=None
+                )
+            )
+
+    def test_deletes_the_named_temp_table_and_nothing_else(self, tmp_path: Path) -> None:
+        files = self._write_tree(tmp_path)
+
+        assert self._purge(tmp_path, OWN_TEMP_URI) is True
+
+        remaining = {name for name, path in files.items() if path.exists()}
+        assert remaining == {"live", "live_log", "newer_temp", "sibling_table", "sibling_temp"}
+
+    @pytest.mark.parametrize(
+        "temp_uri, swap",
+        [
+            (LIVE_URI, None),
+            ("s3://bucket/team/source", None),
+            ("s3://bucket/team/source/accounts__repartitioned_1a2b3c4d", None),
+            (f"{LIVE_URI}__repartitioned_1a2b3c4d/../contacts", None),
+            (OWN_TEMP_URI, {"state": "ready", "temp_uri": OWN_TEMP_URI}),
+        ],
+        ids=["live_table", "parent_directory", "temp_of_another_table", "path_traversal", "temp_of_a_staged_swap"],
+    )
+    def test_refuses_a_path_it_must_not_delete(self, tmp_path: Path, temp_uri: str, swap: dict | None) -> None:
+        files = self._write_tree(tmp_path)
+
+        assert self._purge(tmp_path, temp_uri, swap=swap) is False
+
+        assert all(path.exists() for path in files.values())
+
+    def test_a_lost_claim_deletes_nothing(self, tmp_path: Path) -> None:
+        files = self._write_tree(tmp_path)
+        table_ref = _make_table_ref(get_table_uri=AsyncMock(return_value=LIVE_URI))
+        schema = _schema(id="schema-1", repartition_swap=None)
+
+        with (
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_LocalS3(tmp_path))),
+            patch.object(repartition_module, "_current_claim_token", return_value="newer-token"),
+            pytest.raises(RepartitionSupersededError),
+        ):
+            asyncio.run(
+                purge_abandoned_rewrite_temp(
+                    cast("DeltaTableRef", table_ref), schema, OWN_TEMP_URI, logger, claim_token="older-token"
+                )
+            )
+
+        assert all(path.exists() for path in files.values())
+
+
 class TestSwapTempIntoLiveGuard:
     def test_refuses_incomplete_temp_without_deleting_live(self):
         # The core safety invariant: a temp that doesn't hold every expected row must never trigger the
@@ -2710,6 +2938,74 @@ class TestRewriteCheckpointResume:
         assert sorted(cast(list[int], rebuilt.column("id").to_pylist())) == sorted(
             cast(list[int], live_now.column("id").to_pylist())
         )
+
+    def test_a_rewrite_stopped_for_shutdown_is_completed_by_the_next_attempt(self, tmp_path):
+        live_uri = str(tmp_path / "live")
+        rows = [(i, datetime.datetime(2024, 1 + i, 5)) for i in range(6)]
+        live = _write_month_partitioned(live_uri, rows)
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        schema = self._base_schema()
+        table_ref = _make_table_ref(
+            get_table_uri=AsyncMock(return_value=live_uri), get_delta_table=AsyncMock(return_value=live)
+        )
+
+        def save_checkpoint(saved_schema, *, claim_token, checkpoint):
+            saved_schema.repartition_rewrite = checkpoint
+            return True
+
+        with (
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
+            patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()) as purge,
+            patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", side_effect=save_checkpoint),
+            _patch_finalize(),
+            patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()) as swap,
+        ):
+            with (
+                patch.object(repartition_module, "_current_claim_token", return_value="first"),
+                pytest.raises(RepartitionStoppedError),
+            ):
+                asyncio.run(
+                    repartition_table_in_place(
+                        table_ref=table_ref,
+                        schema=schema,
+                        target=target,
+                        logger=logger,
+                        claim_token="first",
+                        budget=_budget(),
+                        should_stop=lambda: True,
+                    )
+                )
+
+            swap.assert_not_awaited()
+            schema.clear_repartition_rewrite.assert_not_called()
+            checkpoint = schema.repartition_rewrite
+            stopped_temp = checkpoint["temp_uri"]
+            stopped_rows = deltalake.DeltaTable(stopped_temp).to_pyarrow_table().num_rows
+            assert 0 < stopped_rows < len(rows)
+            assert checkpoint["rows_written"] == stopped_rows
+            purge.reset_mock()
+
+            with patch.object(repartition_module, "_current_claim_token", return_value="second"):
+                result = asyncio.run(
+                    repartition_table_in_place(
+                        table_ref=table_ref,
+                        schema=schema,
+                        target=target,
+                        logger=logger,
+                        claim_token="second",
+                        budget=_budget(),
+                    )
+                )
+
+        assert result["outcome"] == "completed"
+        # A fresh build sweeps every temp table, which would delete the stopped attempt's rows.
+        purge.assert_not_awaited()
+        assert swap.await_args is not None
+        assert swap.await_args.kwargs["temp_uri"] == stopped_temp
+        rebuilt = deltalake.DeltaTable(stopped_temp).to_pyarrow_table()
+        assert sorted(cast(list[int], rebuilt.column("id").to_pylist())) == [row[0] for row in rows]
 
     def test_refuses_to_restart_a_table_one_budget_already_failed_to_cover(self, tmp_path):
         # The discarded checkpoint above is only harmless while a restart can finish. Once a full

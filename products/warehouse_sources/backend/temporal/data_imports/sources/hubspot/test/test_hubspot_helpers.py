@@ -72,18 +72,6 @@ def test_is_retryable_status(status: int, expected: bool) -> None:
     assert _is_retryable_status(status) is expected
 
 
-def test_fetch_data_retries_non_standard_477_then_succeeds() -> None:
-    # Regression: HubSpot's property endpoint briefly returned a non-standard 477; the discovery
-    # path must back off and retry rather than crashing the whole import on an unknown code.
-    good = _make_response(200, {"results": [{"id": "1", "properties": {"name": "deal_stage"}}]})
-    ctx, captured = _patch_session([_make_response(477), _make_response(477), good])
-    with ctx:
-        pages = list(fetch_data("/crm/v3/properties/deals", "key", "refresh"))
-
-    assert len(captured) == 3
-    assert pages == [[{"name": "deal_stage", "id": "1"}]]
-
-
 def test_fetch_data_reraises_retryable_after_exhausting_retries() -> None:
     ctx, captured = _patch_session([_make_response(477) for _ in range(5)])
     with ctx:

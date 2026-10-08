@@ -399,5 +399,3 @@ When `backup_enabled: true`, the job stores before/after state in `posthog_perso
 - `properties` / `properties_after`: Before/after JSON
 - `version` / `version_after`: Before/after version numbers
 - `pending_operations`: Array of operations that were applied
-
-To restore a person to their pre-reconciliation state, use the companion job `person_property_reconciliation_restore.py`.

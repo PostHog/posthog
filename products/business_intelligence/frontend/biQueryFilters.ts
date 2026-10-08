@@ -45,6 +45,11 @@ export function normalizeBIDates(config: BIConfig): BIConfig {
 }
 
 export function getBIFiltersPlaceholder(config: BIConfig): string {
+    const placeholder = buildBIFiltersPlaceholder(config)
+    return config.comparisonPeriod === 'previous' ? placeholder.replace('{filters', '{filters.previous') : placeholder
+}
+
+function buildBIFiltersPlaceholder(config: BIConfig): string {
     const dateField = getBIDateField(config)
     if (usesNativeBIFilters(config.source)) {
         return dateField?.expression === NATIVE_DATE_FIELDS[config.source!.table]
@@ -76,7 +81,7 @@ export function getBIFiltersPlaceholder(config: BIConfig): string {
 }
 
 export function getBIQueryFilters(config: BIConfig, filters?: HogQLFilters): HogQLFilters {
-    return { ...filters, dateRange: config.dateRange ?? { date_from: 'all' } }
+    return { ...filters, dateRange: config.dateRange ?? { date_from: 'all' }, compareFilter: config.compareFilter }
 }
 
 export function mergeBIQuerySource(current: HogQLQuery, generated: HogQLQuery): HogQLQuery {

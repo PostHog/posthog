@@ -131,6 +131,9 @@ Escalating to the next rung is the last resort, not the default.
   Two more caveats. First, `.errors` carries DRF's _raw_ code (`invalid`, `max_digits`); the `{"attr", "code", "detail", "type"}` HTTP envelope is rendered later by `exceptions-hog` (which maps `invalid` → `invalid_input`) — that rendering is framework behavior, so don't re-assert it per case (the wiring-guard test covers the envelope once). Second, validation that genuinely needs the DB stays at the endpoint — uniqueness checks, `PrimaryKeyRelatedField` queryset lookups, related-object existence, permission/team scoping, password-hash checks. Don't force those into a `SimpleTestCase`.
 
 - **Parameterize** repeated assertions with the `parameterized` library — don't copy-paste test bodies.
+- **Use a `parameterized` case when the cases are known before the test runs, and `self.subTest` only when they are not**, such as one check per row a query returns.
+  Our pytest configuration makes `self.subTest` fail fast so CI can retry the test.
+  Do not use the pytest `subtests` fixture: it leaves a failure in the junit file after a rerun passes.
 - **No doc comments** in Python tests (house rule).
 - Mock only **true boundaries** — network, external APIs, the clock, queues.
   Don't mock your own internal helpers (that's how change-detector tests are born).
@@ -199,6 +202,11 @@ Escalating to the next rung is the last resort, not the default.
 - **No real network / live external services.** Mock the boundary.
 - **No cross-test ordering.**
   Tests must pass in any order and in isolation; don't rely on state a previous test left behind.
+- **A test must not inherit the CI matrix mode.**
+  Backend CI runs one test under several modes, such as persons-on-events on and off, and a local run uses one of them.
+  If the code under test branches on a mode, set the mode in the test, with one `@parameterized` case for each mode that matters.
+- **A test you added that fails in CI blocks the merge, even when the job is green.**
+  Trunk can quarantine a repeated failure, and a quarantined failure does not fail the job.
 - **No `@skip` / `xfail` / `.skip`** without a one-line reason and a linked issue.
   A permanently-skipped test is dead weight — delete it or fix it.
 - **Never commit `.only`** (`it.only` / `describe.only`).
