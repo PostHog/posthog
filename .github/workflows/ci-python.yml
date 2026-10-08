@@ -307,13 +307,11 @@ jobs:
               with:
                   path: .mypy_cache
                   key: ${{ steps.mypy-cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
-                  # The second key takes the newest cache from any dependency set. mypy checks
-                  # every cache entry against the module it describes, so a cache from other
-                  # dependencies is safe, and mypy rechecks only the modules that differ.
-                  # Without it, each change to a hashed file makes every run start with no cache.
+                  # A pull request may start from a cache of another dependency set, because mypy
+                  # validates each entry. The master run may not, so each saved cache starts clean.
                   restore-keys: |
                       ${{ steps.mypy-cache-key.outputs.prefix }}-
-                      ${{ steps.mypy-cache-key.outputs.toolchain_prefix }}-
+                      ${{ github.event_name == 'pull_request' && format('{0}-', steps.mypy-cache-key.outputs.toolchain_prefix) || '' }}
 
             - name: Check static typing
               shell: bash -e {0}

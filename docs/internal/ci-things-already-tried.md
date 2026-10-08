@@ -345,30 +345,29 @@ _Also asked as:_ Depot CI is slower, Depot CI hyperthreading, thread to core rat
 A mypy run with no cache needs more memory than the 8 GB runner has.
 The kernel killed mypy and the runner died with "lost communication with the server" and no logs.
 
-The fix removes most runs with no cache.
-The cache key hashes `uv.lock` and every `pyproject.toml`, and the restore had no fallback past that hash.
-The hash changed 67 times on master in 18 days. 34 of those changes touched neither the dependencies nor the mypy config.
-After each change, every pull request ran with no cache until the hourly master run saved a new one.
-The restore now falls back to the newest cache from any dependency set, which is the model in the [mypy remote cache guide](https://mypy.readthedocs.io/en/stable/additional_features.html#using-a-remote-cache-to-speed-up-mypy-runs).
+The fix removes most runs with no cache: a pull request now falls back to the newest master cache from any dependency set, which is the model in the [mypy remote cache guide](https://mypy.readthedocs.io/en/stable/additional_features.html#using-a-remote-cache-to-speed-up-mypy-runs).
+The hash in the cache key changed 67 times on master in 18 days, and 34 of those changes touched neither the dependencies nor the mypy config.
+The master run does not fall back, so a bad cache does not carry forward.
 
-None of the tested settings leaves enough room.
-Peak memory with no cache: 10.3 GB with 2 workers, 8.3 GB with 1 worker, 14.0 GB with 4 workers.
-Without `--cache-fine-grained` the 2-worker run needs 9.35 GB, and the 1-worker run needs 7.1 GB and takes 354 s instead of 217 s.
+The tested settings do not leave enough room.
+Peak memory with no cache and `--cache-fine-grained`: 10.3 GB with 2 workers in 217 s, 8.3 GB with 1 worker in 376 s, 14.0 GB with 4 workers.
+Without `--cache-fine-grained`: 9.35 GB with 2 workers in 217 s, 7.1 GB with 1 worker in 354 s.
+Only the last one is under 8 GB, with 0.9 GB to spare.
 
 The fallback does not cover every run.
 A new mypy or Python version changes the key prefix, so runs have no cache until master saves one.
 A cache from before a Django upgrade still needs 8.0 GB on the tree after it.
 If those runs kill runners, a 16 GB runner is the next step: the 2-worker run passes under an 11 GB limit.
 
-The memory follows the size of the program, not one module.
-mypy parses every module before it checks one, and that costs 6.0 GB of an 8.4 GB single-process run.
+mypy parses every module before it checks one, so memory follows the size of the program.
+In a run with no workers and no `--cache-fine-grained`, that costs 6.0 GB of an 8.4 GB peak.
 Third-party packages are 13,000 of the 39,000 modules.
 A `follow_imports = "skip"` override for the 15 largest packages saves 2.3 GB, but those packages become `Any` and 63 new errors appear.
 
 mypy cannot go yet.
 ty has no Django support, so `pyproject.toml` turns off its argument and attribute rules, and mypy is the checker that reports those errors.
 
-The PR holds the method. Every number is from one dev box with 2 CPUs and a memory cgroup.
+Every memory number is from one dev box with a memory cgroup and 2 CPUs, or 4 CPUs for the 4-worker run.
 
 _Also asked as:_ mypy OOM, mypy out of memory, runner lost communication, MYPY_NUM_WORKERS, fewer mypy workers, drop cache-fine-grained, mypy cache key, restore-keys fallback, replace mypy with ty, bigger code quality runner
 
