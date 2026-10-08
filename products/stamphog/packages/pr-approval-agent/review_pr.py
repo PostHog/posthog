@@ -447,11 +447,13 @@ class Pipeline:
         )
         if risky_manifests and "deps_toolchain" not in deny:
             deny = sorted([*deny, "deps_toolchain"])
+        denied_before_exemptions = len(deny)
         deny = [
             category
             for category in deny
             if not any(self._author_on_team(team) for team in DENY_EXEMPT_AUTHOR_TEAMS.get(category, ()))
         ]
+        owner_exempted = len(deny) < denied_before_exemptions
         title_flags = [
             c
             for c in detect_title_scrutiny_flags(pr.title)
@@ -463,8 +465,15 @@ class Pipeline:
         # Both checks matter: has_dependency_changes catches lockfile-paired
         # manifests, dependency_manifests_without_lockfile catches the rest
         # (tsconfig, setup.py/.cfg) that the reviewer's scripts guard covers.
-        allow_only = is_allow_listed_only(file_paths) and not has_dependency_changes(file_paths) and not dep_manifests
-        is_test = test_only(categories)
+        # An owner-only exemption lifts the deny, not the review: a workflow is .yml,
+        # so without this it rides the allow-list to a T0 approval with no reviewer.
+        allow_only = (
+            is_allow_listed_only(file_paths)
+            and not has_dependency_changes(file_paths)
+            and not dep_manifests
+            and not owner_exempted
+        )
+        is_test = test_only(categories) and not owner_exempted
         ownership_resolvers = build_ownership(REPO_ROOT, POLICY.ownership)
         ownership = detect_ownership(file_paths, ownership_resolvers)
 

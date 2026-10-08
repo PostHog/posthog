@@ -1,4 +1,5 @@
 import { IconBuilding } from '@posthog/icons'
+import type { LemonTagType } from '@posthog/lemon-ui'
 
 import { getEntryAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { GroupQueryResult } from 'lib/utils/groups'
@@ -12,6 +13,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, GroupTypeIndex, SearchResponse } from '~/types'
 
 import type { TicketApi } from 'products/conversations/frontend/generated/api.schemas'
+import { getAccountStatusTags } from 'products/customer_analytics/frontend/components/Accounts/accountStatusTags'
 import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { filterSearchItems } from './utils'
@@ -43,6 +45,8 @@ export interface SearchItem {
     /** When set, the item is shown greyed out and non-clickable, with this reason as tooltip
      * (e.g. the user has no access to the product or resource). */
     disabledReason?: string
+    /** Status tags rendered after the name, e.g. "Churned" on an account. */
+    badges?: { label: string; type: LemonTagType; tooltip?: string }[]
 }
 
 let cachedProductIconColorByType: Map<string, FileSystemIconColor> | null = null
@@ -193,6 +197,11 @@ export const accountToSearchItem = (account: AccountApi): SearchItem => {
         icon: <IconBuilding />,
         itemType: 'account',
         record: { type: 'account', id: account.id },
+        badges: getAccountStatusTags(account).map(({ label, type, dateLabel }) => ({
+            label,
+            type,
+            tooltip: dateLabel,
+        })),
     }
 }
 

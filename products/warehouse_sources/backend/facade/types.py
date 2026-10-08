@@ -567,6 +567,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     SQUARESPACE = "Squarespace", "Squarespace"
     STATSIG = "Statsig", "Statsig"
     STATUSPAGE = "Statuspage", "Statuspage"
+    STEAM = "Steam", "Steam"
     STIGG = "Stigg", "Stigg"
     STRAVA = "Strava", "Strava"
     SURVEYSPARROW = "SurveySparrow", "SurveySparrow"
