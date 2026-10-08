@@ -25,6 +25,16 @@ const POOL_NAME: &str = "posthog_cohort";
 /// loses its replay dedup, so a non-zero TTL below this floor warns at startup.
 const MIN_SAFE_PERSON_RECORD_TTL_DAYS: u32 = 30;
 
+/// Upper bound on the whole graceful shutdown. The pod's termination grace period must cover it.
+pub const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// Graceful window of the consumer and the followers. The final checkpoint starts only after they
+/// drain.
+pub const CONSUMER_GRACEFUL_SHUTDOWN: Duration = Duration::from_secs(30);
+
+/// Time on top of the final upload timeout to take the local checkpoint and abort a cancelled upload.
+const FINAL_CHECKPOINT_SLACK: Duration = Duration::from_secs(5);
+
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     /// Host for the observability HTTP server (`/_health`, `/_ready`, `/metrics`).
@@ -611,6 +621,11 @@ pub struct Config {
     /// split are never restored. Remove the setting once the split is complete.
     #[envconfig(from = "CHECKPOINT_RESTORE_SOURCE_ORDINAL")]
     pub checkpoint_restore_source_ordinal: Option<u32>,
+
+    /// Max time for the final checkpoint upload on shutdown (secs). The upload starts after the
+    /// consumers drain, so it must fit in what the shutdown timeout leaves after the consumer drain.
+    #[envconfig(default = "45")]
+    pub checkpoint_final_upload_timeout_secs: u64,
 }
 
 /// librdkafka consumer fetch-queue bounds: an aggregate byte cap across all partitions and a
@@ -797,6 +812,16 @@ impl Config {
         Duration::from_secs(self.checkpoint_local_max_staleness_secs)
     }
 
+    pub fn checkpoint_final_upload_timeout(&self) -> Duration {
+        Duration::from_secs(self.checkpoint_final_upload_timeout_secs)
+    }
+
+    /// The graceful window of the final checkpoint: the upload timeout plus time to take the local
+    /// checkpoint and abort a cancelled upload.
+    pub fn checkpoint_final_window(&self) -> Duration {
+        self.checkpoint_final_upload_timeout() + FINAL_CHECKPOINT_SLACK
+    }
+
     pub fn durability_config(&self) -> DurabilityConfig {
         DurabilityConfig {
             local_checkpoint_dir: self.checkpoint_local_dir.clone(),
@@ -939,6 +964,15 @@ impl Config {
             "CHECKPOINT_RESTORE_SOURCE_ORDINAL must name another pod, not this pod's own ordinal.",
         );
 
+        ensure!(
+            !self.checkpoint_enabled
+                || CONSUMER_GRACEFUL_SHUTDOWN + self.checkpoint_final_window() <= SHUTDOWN_TIMEOUT,
+            "CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS ({}) does not fit in the {}s shutdown timeout after \
+             the {}s consumer drain.",
+            self.checkpoint_final_upload_timeout_secs,
+            SHUTDOWN_TIMEOUT.as_secs(),
+            CONSUMER_GRACEFUL_SHUTDOWN.as_secs(),
+        );
         ensure!(
             !self.checkpoint_enabled || self.durable_restore_enabled,
             "CHECKPOINT_ENABLED requires DURABLE_RESTORE_ENABLED: restoring a checkpoint without \
@@ -1282,6 +1316,7 @@ mod tests {
             checkpoint_import_attempt_depth: 10,
             checkpoint_import_timeout_secs: 240,
             checkpoint_restore_source_ordinal: None,
+            checkpoint_final_upload_timeout_secs: 45,
             cohort_seed_consumer_enabled: false,
             cohort_stream_seed_events_topic: "cohort_stream_seed_events".to_string(),
             kafka_seed_consumer_group: "cohort-stream-seeds".to_string(),
@@ -1458,6 +1493,21 @@ mod tests {
         assert_eq!(
             durability.restore_source_identity().map(|id| id.ordinal()),
             Some(0)
+        );
+    }
+
+    #[test]
+    fn startup_refuses_a_final_upload_timeout_beyond_the_shutdown_budget() {
+        let mut config = test_config();
+        config.checkpoint_enabled = true;
+        config.durable_restore_enabled = true;
+        assert!(config.validate_startup().is_ok(), "the default must fit");
+
+        config.checkpoint_final_upload_timeout_secs = 56;
+        let err = config.validate_startup().unwrap_err().to_string();
+        assert!(
+            err.contains("CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS"),
+            "{err}"
         );
     }
 

@@ -63,7 +63,8 @@ impl StoreIdentity {
 }
 
 pub use checkpoint::{
-    should_upload, upload_cadence, CheckpointSweeper, TrackedTopic, CHECKPOINT_LOOP_NAME,
+    run_checkpoint_loop, should_upload, upload_cadence, CheckpointSweeper, TrackedTopic,
+    CHECKPOINT_LOOP_NAME,
 };
 pub use config::DurabilityConfig;
 pub use downloader::CheckpointDownloader;

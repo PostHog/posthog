@@ -3,6 +3,7 @@
 //! The eviction queue is per-worker (one [`EvictionQueue`](super::EvictionQueue) per partition
 //! worker), so the timer itself owns no state. Each tick it asks a [`Sweeper`] to run one pass.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -21,6 +22,14 @@ use crate::observability::metrics::{SWEEP_CYCLES_TOTAL, SWEEP_CYCLE_DURATION_SEC
 pub trait Sweeper: Send + Sync {
     /// Perform one sweep cycle: evict every key whose deadline has passed (minus the safety margin).
     async fn run_once(&self);
+}
+
+/// Lets a caller keep a handle to a sweeper that a sweep loop also drives.
+#[async_trait]
+impl<S: Sweeper + ?Sized> Sweeper for Arc<S> {
+    async fn run_once(&self) {
+        (**self).run_once().await;
+    }
 }
 
 /// The cutoff a worker passes to [`EvictionQueue::due_keys`](super::EvictionQueue::due_keys): a key

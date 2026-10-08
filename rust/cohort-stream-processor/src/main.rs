@@ -15,7 +15,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter, Layer};
 
-use cohort_stream_processor::config::Config;
+use cohort_stream_processor::config::{Config, CONSUMER_GRACEFUL_SHUTDOWN, SHUTDOWN_TIMEOUT};
 use cohort_stream_processor::consumers::{
     CascadeRoute, CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer, FollowerRoute,
     MergeRoute, SeedFollowerConsumer, TransferRoute,
@@ -38,8 +38,8 @@ use cohort_stream_processor::producer::{
     TransferSink,
 };
 use cohort_stream_processor::store::durability::{
-    run_boot_restore, upload_cadence, CheckpointExporter, CheckpointSweeper, OffsetManifest,
-    S3Uploader, TrackedTopic, CHECKPOINT_LOOP_NAME,
+    run_boot_restore, run_checkpoint_loop, upload_cadence, CheckpointExporter, CheckpointSweeper,
+    OffsetManifest, S3Uploader, TrackedTopic,
 };
 use cohort_stream_processor::store::{CohortStore, StoreHandle};
 use cohort_stream_processor::sweep::{
@@ -76,7 +76,7 @@ async fn async_main(config: Config) -> Result<()> {
     config.validate_startup()?;
 
     let mut manager = Manager::builder(SERVICE_NAME)
-        .with_global_shutdown_timeout(Duration::from_secs(90))
+        .with_global_shutdown_timeout(SHUTDOWN_TIMEOUT)
         .build();
 
     let metrics_handle =
@@ -88,30 +88,40 @@ async fn async_main(config: Config) -> Result<()> {
     let consumer_handle = manager.register(
         "consumer",
         ComponentOptions::new()
-            .with_graceful_shutdown(Duration::from_secs(30))
+            .with_graceful_shutdown(CONSUMER_GRACEFUL_SHUTDOWN)
             .with_liveness_deadline(Duration::from_secs(60))
             .with_stall_threshold(3),
     );
     let merge_follower_handle = manager.register(
         "merge-follower",
-        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
+        ComponentOptions::new().with_graceful_shutdown(CONSUMER_GRACEFUL_SHUTDOWN),
     );
     let transfer_follower_handle = manager.register(
         "transfer-follower",
-        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
+        ComponentOptions::new().with_graceful_shutdown(CONSUMER_GRACEFUL_SHUTDOWN),
     );
     // Registered only when the gate is on — a dormant deploy must not wait on a component that never
     // starts.
     let cascade_follower_handle = config.cohort_cascade_enabled.then(|| {
         manager.register(
             "cascade-follower",
-            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
+            ComponentOptions::new().with_graceful_shutdown(CONSUMER_GRACEFUL_SHUTDOWN),
         )
     });
     let seed_follower_handle = config.cohort_seed_consumer_enabled.then(|| {
         manager.register(
             "seed-follower",
-            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
+            ComponentOptions::new().with_graceful_shutdown(CONSUMER_GRACEFUL_SHUTDOWN),
+        )
+    });
+    // Phase 1: signalled only after every consumer has drained and made its last commit, so the
+    // final checkpoint captures that commit.
+    let checkpoint_handle = config.checkpoint_enabled.then(|| {
+        manager.register(
+            "checkpoint",
+            ComponentOptions::new()
+                .with_graceful_shutdown(config.checkpoint_final_window())
+                .with_shutdown_phase(1),
         )
     });
     // Short graceful window: it holds no state and its next tick is disposable.
@@ -565,7 +575,7 @@ async fn async_main(config: Config) -> Result<()> {
     // Whole-DB checkpoint → PVC + incremental S3 sweep loop. Spawned only when the master gate is on,
     // so a default deploy starts no checkpoint task. The cascade tracker is included only when cascade
     // is on; otherwise it is idle and would contribute an empty manifest entry.
-    if config.checkpoint_enabled {
+    if let Some(checkpoint_handle) = checkpoint_handle {
         let uploader = S3Uploader::new(config.durability_config())
             .await
             .context("building checkpoint S3 uploader")?;
@@ -600,8 +610,8 @@ async fn async_main(config: Config) -> Result<()> {
                 seed_tracker_for_checkpoint,
             ));
         }
-        tokio::spawn(run_sweep_loop(
-            CheckpointSweeper::new(
+        tokio::spawn(run_checkpoint_loop(
+            Arc::new(CheckpointSweeper::new(
                 store_for_checkpoint,
                 dispatcher.clone(),
                 trackers,
@@ -609,10 +619,11 @@ async fn async_main(config: Config) -> Result<()> {
                 config.durability_config(),
                 PathBuf::from(&config.checkpoint_local_dir),
                 upload_every_n,
-            ),
+            )),
             config.checkpoint_interval(),
-            CHECKPOINT_LOOP_NAME,
             consumer_handle.shutdown_token(),
+            checkpoint_handle,
+            config.checkpoint_final_upload_timeout(),
         ));
     }
 
