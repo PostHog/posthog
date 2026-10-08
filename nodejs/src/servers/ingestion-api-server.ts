@@ -39,7 +39,7 @@ import {
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
 import { PersonhogPersonsStore } from '~/ingestion/common/persons/personhog-persons-store'
-import { PersonsStore } from '~/ingestion/common/persons/persons-store'
+import { FlushResult, PersonFlushAbortedError, PersonsStore } from '~/ingestion/common/persons/persons-store'
 import {
     RoutingPersonsStore,
     assertPersonsStoreModeConfig,
@@ -554,7 +554,16 @@ export class IngestionApiServer implements NodeServer {
         if (!personsStore) {
             return
         }
-        const flushResults = await personsStore.flush()
+        let flushResults: FlushResult[]
+        try {
+            flushResults = await personsStore.flush()
+        } catch (error) {
+            // What the drain landed before it failed still goes out, as the batch step produces it.
+            if (error instanceof PersonFlushAbortedError && this.ingestionOutputs) {
+                await Promise.allSettled(createPersonProducePromises(error.results, this.ingestionOutputs))
+            }
+            throw error
+        }
         if (this.ingestionOutputs) {
             await Promise.all(createPersonProducePromises(flushResults, this.ingestionOutputs))
         }

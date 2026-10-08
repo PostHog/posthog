@@ -17,6 +17,17 @@ export type FlushResult = {
     uuid?: string
 }
 
+/** A flush that failed part way; `results` are the writes that landed before the failure, whose messages are owed. */
+export class PersonFlushAbortedError extends Error {
+    constructor(
+        override readonly cause: unknown,
+        readonly results: FlushResult[]
+    ) {
+        super(cause instanceof Error ? cause.message : String(cause))
+        this.name = 'PersonFlushAbortedError'
+    }
+}
+
 /** One source distinct id to merge into the target, with the event that asked for it. */
 export interface MergePersonsSource {
     distinctId: string

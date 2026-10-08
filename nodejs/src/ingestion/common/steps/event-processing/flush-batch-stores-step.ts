@@ -6,7 +6,7 @@ import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-
 import { GroupFlushResult } from '~/ingestion/common/groups/group-store.interface'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
-import { FlushResult, PersonsStore } from '~/ingestion/common/persons/persons-store'
+import { FlushResult, PersonFlushAbortedError, PersonsStore } from '~/ingestion/common/persons/persons-store'
 import { BatchWritingStore } from '~/ingestion/common/stores/batch-writing-store'
 import {
     batchStoreFlushCacheEntriesHistogram,
@@ -89,6 +89,11 @@ export function createFlushBatchStoresStep<TOutput, COutput, CBatch, R extends s
 
             return ok(input, producePromises)
         } catch (error) {
+            // A write that landed before a later round failed is still owed its message; it goes out before the
+            // failure fails the batch, so a landed row never goes without its ClickHouse update.
+            if (error instanceof PersonFlushAbortedError && error.results.length > 0) {
+                await Promise.allSettled(createPersonProducePromises(error.results, outputs))
+            }
             // If flush fails, the error will bubble up and fail the entire batch
             // This maintains the existing behavior where flush errors are fatal
             logger.error('❌', 'flushBatchStoresStep: Failed to flush stores', {

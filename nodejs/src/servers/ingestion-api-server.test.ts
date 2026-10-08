@@ -1,5 +1,6 @@
 import { GROUPS_OUTPUT, PERSONS_OUTPUT } from '~/common/outputs'
 import { GroupFlushResult } from '~/ingestion/common/groups/group-store.interface'
+import { PersonFlushAbortedError } from '~/ingestion/common/persons/persons-store'
 
 import { IngestionApiServer } from './ingestion-api-server'
 
@@ -47,18 +48,34 @@ describe('IngestionApiServer', () => {
         })
 
         it('still drains the group store when the persons drain fails, and rethrows the failure', async () => {
+            // The persons drain landed one write before it failed, and that write's message is still owed.
+            const message = { output: PERSONS_OUTPUT, value: Buffer.from('landed') }
             const personsStore = {
-                flush: jest.fn().mockRejectedValue(new Error('persons flush failed')),
+                flush: jest
+                    .fn()
+                    .mockRejectedValue(
+                        new PersonFlushAbortedError(new Error('persons flush failed'), [
+                            { messages: [message], teamId: 1, distinctId: 'd1', uuid: 'u1' },
+                        ])
+                    ),
                 shutdown: jest.fn().mockResolvedValue(undefined),
             }
             const groupStore = {
                 flush: jest.fn().mockResolvedValue([]),
                 shutdown: jest.fn().mockResolvedValue(undefined),
             }
+            const ingestionOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
             ;(server as any).pipelinePersonsStore = personsStore
             ;(server as any).groupStore = groupStore
+            ;(server as any).ingestionOutputs = ingestionOutputs
 
             await expect((server as any).drainStores()).rejects.toThrow('persons flush failed')
+
+            expect(ingestionOutputs.produce).toHaveBeenCalledWith(PERSONS_OUTPUT, {
+                key: null,
+                value: message.value,
+                teamId: 1,
+            })
 
             expect(groupStore.flush).toHaveBeenCalledTimes(1)
             expect(groupStore.shutdown).toHaveBeenCalledTimes(1)

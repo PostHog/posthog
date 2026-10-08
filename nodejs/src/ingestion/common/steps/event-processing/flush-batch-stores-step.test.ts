@@ -4,7 +4,7 @@ import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { GroupFlushResult } from '~/ingestion/common/groups/group-store.interface'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
-import { FlushResult, PersonsStore } from '~/ingestion/common/persons/persons-store'
+import { FlushResult, PersonFlushAbortedError, PersonsStore } from '~/ingestion/common/persons/persons-store'
 import {
     batchStoreFlushCacheEntriesHistogram,
     batchStoreFlushDirtyEntriesHistogram,
@@ -390,6 +390,28 @@ describe('flush-batch-stores-step', () => {
                 expect(result.sideEffects).toHaveLength(1)
                 await expect(result.sideEffects[0]).rejects.toThrow('Kafka connection failed')
             }
+        })
+
+        it('produces what a failed person flush landed before it failed, then throws', async () => {
+            const landed: FlushResult[] = [
+                {
+                    messages: [{ output: PERSONS_OUTPUT, value: Buffer.from('landed') }],
+                    teamId: 1,
+                    distinctId: 'u',
+                    uuid: 'p',
+                },
+            ]
+            mockPersonsStore.flush.mockRejectedValue(new PersonFlushAbortedError(new Error('round two failed'), landed))
+            mockGroupStore.flush.mockResolvedValue([])
+            const produceSpy = jest.spyOn(mockOutputs, 'produce')
+
+            await expect(step(makeInput())).rejects.toThrow('round two failed')
+
+            expect(produceSpy).toHaveBeenCalledWith(PERSONS_OUTPUT, {
+                key: null,
+                value: Buffer.from('landed'),
+                teamId: 1,
+            })
         })
 
         it('should throw if person store flush fails', async () => {
