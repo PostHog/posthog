@@ -5887,14 +5887,14 @@
                             "breakdownAttributionType": {
                                 "anyOf": [
                                     {
-                                        "enum": ["first_touch", "last_touch", "all_events", "step"],
+                                        "enum": ["first_touch", "last_touch", "step"],
                                         "type": "string"
                                     },
                                     {
                                         "type": "null"
                                     }
                                 ],
-                                "description": "For funnel metrics with breakdowns: which step the breakdown value is read from ('first_touch', 'last_touch', 'all_events' or 'step')."
+                                "description": "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
                             },
                             "breakdownAttributionValue": {
                                 "anyOf": [
@@ -5935,60 +5935,29 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
-                                                                },
-                                                                "histogram_bin_count": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "type": "number"
-                                                                        },
-                                                                        {
-                                                                            "type": "null"
-                                                                        }
-                                                                    ]
-                                                                },
-                                                                "normalize_url": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "type": "boolean"
-                                                                        },
-                                                                        {
-                                                                            "type": "null"
-                                                                        }
-                                                                    ]
+                                                                    ],
+                                                                    "description": "Group type index. Required when type is 'group'."
                                                                 },
                                                                 "property": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "type": "string"
-                                                                        },
-                                                                        {
-                                                                            "type": "number"
-                                                                        }
-                                                                    ]
+                                                                    "description": "Property name to break down by.",
+                                                                    "type": "string"
                                                                 },
                                                                 "type": {
                                                                     "anyOf": [
                                                                         {
                                                                             "enum": [
-                                                                                "person",
                                                                                 "event",
-                                                                                "event_metadata",
-                                                                                "element",
-                                                                                "group",
+                                                                                "person",
                                                                                 "session",
-                                                                                "hogql",
-                                                                                "cohort",
-                                                                                "revenue_analytics",
-                                                                                "data_warehouse",
-                                                                                "data_warehouse_person_property"
+                                                                                "group"
                                                                             ],
                                                                             "type": "string"
                                                                         },
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "description": "Where the property lives. Defaults to 'event'."
                                                                 }
                                                             },
                                                             "required": ["property"],
@@ -6000,7 +5969,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "description": "Properties to break the metric results down by, at most 3. Each entry needs 'property' (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not supported for experiment metrics)."
+                                                "description": "Properties to break the metric results down by, at most 3."
                                             }
                                         },
                                         "type": "object"
@@ -7712,14 +7681,14 @@
                             "breakdownAttributionType": {
                                 "anyOf": [
                                     {
-                                        "enum": ["first_touch", "last_touch", "all_events", "step"],
+                                        "enum": ["first_touch", "last_touch", "step"],
                                         "type": "string"
                                     },
                                     {
                                         "type": "null"
                                     }
                                 ],
-                                "description": "For funnel metrics with breakdowns: which step the breakdown value is read from ('first_touch', 'last_touch', 'all_events' or 'step')."
+                                "description": "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
                             },
                             "breakdownAttributionValue": {
                                 "anyOf": [
@@ -7760,60 +7729,29 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
-                                                                },
-                                                                "histogram_bin_count": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "type": "number"
-                                                                        },
-                                                                        {
-                                                                            "type": "null"
-                                                                        }
-                                                                    ]
-                                                                },
-                                                                "normalize_url": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "type": "boolean"
-                                                                        },
-                                                                        {
-                                                                            "type": "null"
-                                                                        }
-                                                                    ]
+                                                                    ],
+                                                                    "description": "Group type index. Required when type is 'group'."
                                                                 },
                                                                 "property": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "type": "string"
-                                                                        },
-                                                                        {
-                                                                            "type": "number"
-                                                                        }
-                                                                    ]
+                                                                    "description": "Property name to break down by.",
+                                                                    "type": "string"
                                                                 },
                                                                 "type": {
                                                                     "anyOf": [
                                                                         {
                                                                             "enum": [
-                                                                                "person",
                                                                                 "event",
-                                                                                "event_metadata",
-                                                                                "element",
-                                                                                "group",
+                                                                                "person",
                                                                                 "session",
-                                                                                "hogql",
-                                                                                "cohort",
-                                                                                "revenue_analytics",
-                                                                                "data_warehouse",
-                                                                                "data_warehouse_person_property"
+                                                                                "group"
                                                                             ],
                                                                             "type": "string"
                                                                         },
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "description": "Where the property lives. Defaults to 'event'."
                                                                 }
                                                             },
                                                             "required": ["property"],
@@ -7825,7 +7763,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "description": "Properties to break the metric results down by, at most 3. Each entry needs 'property' (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not supported for experiment metrics)."
+                                                "description": "Properties to break the metric results down by, at most 3."
                                             }
                                         },
                                         "type": "object"

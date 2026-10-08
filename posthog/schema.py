@@ -118,6 +118,8 @@ from posthog.schema_enums import (
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
     EvaluationRuntime as EvaluationRuntime,
     EventMatchScope as EventMatchScope,
+    ExperimentApiBreakdownAttributionType as ExperimentApiBreakdownAttributionType,
+    ExperimentApiBreakdownType as ExperimentApiBreakdownType,
     ExperimentMetricGoal as ExperimentMetricGoal,
     ExperimentMetricMathType as ExperimentMetricMathType,
     ExperimentMetricType as ExperimentMetricType,
@@ -5527,6 +5529,17 @@ class EventsHeatMapStructuredResult(BaseModel):
     rowAggregations: list[EventsHeatMapRowAggregationResult]
 
 
+class ExperimentApiBreakdown(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: int | None = Field(default=None, description="Group type index. Required when type is 'group'.")
+    property: str = Field(..., description="Property name to break down by.")
+    type: ExperimentApiBreakdownType | None = Field(
+        default=None, description="Where the property lives. Defaults to 'event'."
+    )
+
+
 class ExperimentApiBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5535,13 +5548,9 @@ class ExperimentApiBreakdownFilter(BaseModel):
         default=None,
         description="Maximum number of breakdown values to compute results for.",
     )
-    breakdowns: list[Breakdown] | None = Field(
+    breakdowns: list[ExperimentApiBreakdown] | None = Field(
         default=None,
-        description=(
-            "Properties to break the metric results down by, at most 3. Each entry"
-            " needs 'property' (property name) and 'type' ('event', 'person', 'session'"
-            " or 'group'; 'element' is not supported for experiment metrics)."
-        ),
+        description="Properties to break the metric results down by, at most 3.",
     )
 
 
@@ -18323,11 +18332,11 @@ class ExperimentApiMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    breakdownAttributionType: BreakdownAttributionType | None = Field(
+    breakdownAttributionType: ExperimentApiBreakdownAttributionType | None = Field(
         default=None,
         description=(
             "For funnel metrics with breakdowns: which step the breakdown value is read"
-            " from ('first_touch', 'last_touch', 'all_events' or 'step')."
+            " from. 'all_events' is not supported for experiment funnels."
         ),
     )
     breakdownAttributionValue: int | None = Field(

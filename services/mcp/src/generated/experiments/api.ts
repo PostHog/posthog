@@ -4604,10 +4604,10 @@ export const ExperimentsCreateBody = () => zod
                     .array(
                         zod.object({
                             breakdownAttributionType: zod
-                                .union([zod.enum(['first_touch', 'last_touch', 'all_events', 'step']), zod.null()])
+                                .union([zod.enum(['first_touch', 'last_touch', 'step']), zod.null()])
                                 .optional()
                                 .describe(
-                                    "For funnel metrics with breakdowns: which step the breakdown value is read from ('first_touch', 'last_touch', 'all_events' or 'step')."
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
                                 ),
                             breakdownAttributionValue: zod
                                 .union([zod.number(), zod.null()])
@@ -4628,40 +4628,26 @@ export const ExperimentsCreateBody = () => zod
                                                     zod.object({
                                                         group_type_index: zod
                                                             .union([zod.number(), zod.null()])
-                                                            .optional(),
-                                                        histogram_bin_count: zod
-                                                            .union([zod.number(), zod.null()])
-                                                            .optional(),
-                                                        normalize_url: zod
-                                                            .union([zod.boolean(), zod.null()])
-                                                            .optional(),
-                                                        property: zod.union([zod.string(), zod.number()]),
+                                                            .optional()
+                                                            .describe(
+                                                                "Group type index. Required when type is 'group'."
+                                                            ),
+                                                        property: zod
+                                                            .string()
+                                                            .describe('Property name to break down by.'),
                                                         type: zod
                                                             .union([
-                                                                zod.enum([
-                                                                    'person',
-                                                                    'event',
-                                                                    'event_metadata',
-                                                                    'element',
-                                                                    'group',
-                                                                    'session',
-                                                                    'hogql',
-                                                                    'cohort',
-                                                                    'revenue_analytics',
-                                                                    'data_warehouse',
-                                                                    'data_warehouse_person_property',
-                                                                ]),
+                                                                zod.enum(['event', 'person', 'session', 'group']),
                                                                 zod.null(),
                                                             ])
-                                                            .optional(),
+                                                            .optional()
+                                                            .describe("Where the property lives. Defaults to 'event'."),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe(
-                                                "Properties to break the metric results down by, at most 3. Each entry needs 'property' (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not supported for experiment metrics)."
-                                            ),
+                                            .describe('Properties to break the metric results down by, at most 3.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -5710,10 +5696,10 @@ export const ExperimentsCreateBody = () => zod
                     .array(
                         zod.object({
                             breakdownAttributionType: zod
-                                .union([zod.enum(['first_touch', 'last_touch', 'all_events', 'step']), zod.null()])
+                                .union([zod.enum(['first_touch', 'last_touch', 'step']), zod.null()])
                                 .optional()
                                 .describe(
-                                    "For funnel metrics with breakdowns: which step the breakdown value is read from ('first_touch', 'last_touch', 'all_events' or 'step')."
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
                                 ),
                             breakdownAttributionValue: zod
                                 .union([zod.number(), zod.null()])
@@ -5734,40 +5720,26 @@ export const ExperimentsCreateBody = () => zod
                                                     zod.object({
                                                         group_type_index: zod
                                                             .union([zod.number(), zod.null()])
-                                                            .optional(),
-                                                        histogram_bin_count: zod
-                                                            .union([zod.number(), zod.null()])
-                                                            .optional(),
-                                                        normalize_url: zod
-                                                            .union([zod.boolean(), zod.null()])
-                                                            .optional(),
-                                                        property: zod.union([zod.string(), zod.number()]),
+                                                            .optional()
+                                                            .describe(
+                                                                "Group type index. Required when type is 'group'."
+                                                            ),
+                                                        property: zod
+                                                            .string()
+                                                            .describe('Property name to break down by.'),
                                                         type: zod
                                                             .union([
-                                                                zod.enum([
-                                                                    'person',
-                                                                    'event',
-                                                                    'event_metadata',
-                                                                    'element',
-                                                                    'group',
-                                                                    'session',
-                                                                    'hogql',
-                                                                    'cohort',
-                                                                    'revenue_analytics',
-                                                                    'data_warehouse',
-                                                                    'data_warehouse_person_property',
-                                                                ]),
+                                                                zod.enum(['event', 'person', 'session', 'group']),
                                                                 zod.null(),
                                                             ])
-                                                            .optional(),
+                                                            .optional()
+                                                            .describe("Where the property lives. Defaults to 'event'."),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe(
-                                                "Properties to break the metric results down by, at most 3. Each entry needs 'property' (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not supported for experiment metrics)."
-                                            ),
+                                            .describe('Properties to break the metric results down by, at most 3.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -10705,10 +10677,10 @@ export const ExperimentsPartialUpdateBody = () => zod
                     .array(
                         zod.object({
                             breakdownAttributionType: zod
-                                .union([zod.enum(['first_touch', 'last_touch', 'all_events', 'step']), zod.null()])
+                                .union([zod.enum(['first_touch', 'last_touch', 'step']), zod.null()])
                                 .optional()
                                 .describe(
-                                    "For funnel metrics with breakdowns: which step the breakdown value is read from ('first_touch', 'last_touch', 'all_events' or 'step')."
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
                                 ),
                             breakdownAttributionValue: zod
                                 .union([zod.number(), zod.null()])
@@ -10729,40 +10701,26 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     zod.object({
                                                         group_type_index: zod
                                                             .union([zod.number(), zod.null()])
-                                                            .optional(),
-                                                        histogram_bin_count: zod
-                                                            .union([zod.number(), zod.null()])
-                                                            .optional(),
-                                                        normalize_url: zod
-                                                            .union([zod.boolean(), zod.null()])
-                                                            .optional(),
-                                                        property: zod.union([zod.string(), zod.number()]),
+                                                            .optional()
+                                                            .describe(
+                                                                "Group type index. Required when type is 'group'."
+                                                            ),
+                                                        property: zod
+                                                            .string()
+                                                            .describe('Property name to break down by.'),
                                                         type: zod
                                                             .union([
-                                                                zod.enum([
-                                                                    'person',
-                                                                    'event',
-                                                                    'event_metadata',
-                                                                    'element',
-                                                                    'group',
-                                                                    'session',
-                                                                    'hogql',
-                                                                    'cohort',
-                                                                    'revenue_analytics',
-                                                                    'data_warehouse',
-                                                                    'data_warehouse_person_property',
-                                                                ]),
+                                                                zod.enum(['event', 'person', 'session', 'group']),
                                                                 zod.null(),
                                                             ])
-                                                            .optional(),
+                                                            .optional()
+                                                            .describe("Where the property lives. Defaults to 'event'."),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe(
-                                                "Properties to break the metric results down by, at most 3. Each entry needs 'property' (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not supported for experiment metrics)."
-                                            ),
+                                            .describe('Properties to break the metric results down by, at most 3.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -11811,10 +11769,10 @@ export const ExperimentsPartialUpdateBody = () => zod
                     .array(
                         zod.object({
                             breakdownAttributionType: zod
-                                .union([zod.enum(['first_touch', 'last_touch', 'all_events', 'step']), zod.null()])
+                                .union([zod.enum(['first_touch', 'last_touch', 'step']), zod.null()])
                                 .optional()
                                 .describe(
-                                    "For funnel metrics with breakdowns: which step the breakdown value is read from ('first_touch', 'last_touch', 'all_events' or 'step')."
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
                                 ),
                             breakdownAttributionValue: zod
                                 .union([zod.number(), zod.null()])
@@ -11835,40 +11793,26 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     zod.object({
                                                         group_type_index: zod
                                                             .union([zod.number(), zod.null()])
-                                                            .optional(),
-                                                        histogram_bin_count: zod
-                                                            .union([zod.number(), zod.null()])
-                                                            .optional(),
-                                                        normalize_url: zod
-                                                            .union([zod.boolean(), zod.null()])
-                                                            .optional(),
-                                                        property: zod.union([zod.string(), zod.number()]),
+                                                            .optional()
+                                                            .describe(
+                                                                "Group type index. Required when type is 'group'."
+                                                            ),
+                                                        property: zod
+                                                            .string()
+                                                            .describe('Property name to break down by.'),
                                                         type: zod
                                                             .union([
-                                                                zod.enum([
-                                                                    'person',
-                                                                    'event',
-                                                                    'event_metadata',
-                                                                    'element',
-                                                                    'group',
-                                                                    'session',
-                                                                    'hogql',
-                                                                    'cohort',
-                                                                    'revenue_analytics',
-                                                                    'data_warehouse',
-                                                                    'data_warehouse_person_property',
-                                                                ]),
+                                                                zod.enum(['event', 'person', 'session', 'group']),
                                                                 zod.null(),
                                                             ])
-                                                            .optional(),
+                                                            .optional()
+                                                            .describe("Where the property lives. Defaults to 'event'."),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe(
-                                                "Properties to break the metric results down by, at most 3. Each entry needs 'property' (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not supported for experiment metrics)."
-                                            ),
+                                            .describe('Properties to break the metric results down by, at most 3.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -16785,10 +16729,10 @@ export const ExperimentsDuplicateCreateBody = () => zod
                     .array(
                         zod.object({
                             breakdownAttributionType: zod
-                                .union([zod.enum(['first_touch', 'last_touch', 'all_events', 'step']), zod.null()])
+                                .union([zod.enum(['first_touch', 'last_touch', 'step']), zod.null()])
                                 .optional()
                                 .describe(
-                                    "For funnel metrics with breakdowns: which step the breakdown value is read from ('first_touch', 'last_touch', 'all_events' or 'step')."
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
                                 ),
                             breakdownAttributionValue: zod
                                 .union([zod.number(), zod.null()])
@@ -16809,40 +16753,26 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     zod.object({
                                                         group_type_index: zod
                                                             .union([zod.number(), zod.null()])
-                                                            .optional(),
-                                                        histogram_bin_count: zod
-                                                            .union([zod.number(), zod.null()])
-                                                            .optional(),
-                                                        normalize_url: zod
-                                                            .union([zod.boolean(), zod.null()])
-                                                            .optional(),
-                                                        property: zod.union([zod.string(), zod.number()]),
+                                                            .optional()
+                                                            .describe(
+                                                                "Group type index. Required when type is 'group'."
+                                                            ),
+                                                        property: zod
+                                                            .string()
+                                                            .describe('Property name to break down by.'),
                                                         type: zod
                                                             .union([
-                                                                zod.enum([
-                                                                    'person',
-                                                                    'event',
-                                                                    'event_metadata',
-                                                                    'element',
-                                                                    'group',
-                                                                    'session',
-                                                                    'hogql',
-                                                                    'cohort',
-                                                                    'revenue_analytics',
-                                                                    'data_warehouse',
-                                                                    'data_warehouse_person_property',
-                                                                ]),
+                                                                zod.enum(['event', 'person', 'session', 'group']),
                                                                 zod.null(),
                                                             ])
-                                                            .optional(),
+                                                            .optional()
+                                                            .describe("Where the property lives. Defaults to 'event'."),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe(
-                                                "Properties to break the metric results down by, at most 3. Each entry needs 'property' (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not supported for experiment metrics)."
-                                            ),
+                                            .describe('Properties to break the metric results down by, at most 3.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -17891,10 +17821,10 @@ export const ExperimentsDuplicateCreateBody = () => zod
                     .array(
                         zod.object({
                             breakdownAttributionType: zod
-                                .union([zod.enum(['first_touch', 'last_touch', 'all_events', 'step']), zod.null()])
+                                .union([zod.enum(['first_touch', 'last_touch', 'step']), zod.null()])
                                 .optional()
                                 .describe(
-                                    "For funnel metrics with breakdowns: which step the breakdown value is read from ('first_touch', 'last_touch', 'all_events' or 'step')."
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
                                 ),
                             breakdownAttributionValue: zod
                                 .union([zod.number(), zod.null()])
@@ -17915,40 +17845,26 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     zod.object({
                                                         group_type_index: zod
                                                             .union([zod.number(), zod.null()])
-                                                            .optional(),
-                                                        histogram_bin_count: zod
-                                                            .union([zod.number(), zod.null()])
-                                                            .optional(),
-                                                        normalize_url: zod
-                                                            .union([zod.boolean(), zod.null()])
-                                                            .optional(),
-                                                        property: zod.union([zod.string(), zod.number()]),
+                                                            .optional()
+                                                            .describe(
+                                                                "Group type index. Required when type is 'group'."
+                                                            ),
+                                                        property: zod
+                                                            .string()
+                                                            .describe('Property name to break down by.'),
                                                         type: zod
                                                             .union([
-                                                                zod.enum([
-                                                                    'person',
-                                                                    'event',
-                                                                    'event_metadata',
-                                                                    'element',
-                                                                    'group',
-                                                                    'session',
-                                                                    'hogql',
-                                                                    'cohort',
-                                                                    'revenue_analytics',
-                                                                    'data_warehouse',
-                                                                    'data_warehouse_person_property',
-                                                                ]),
+                                                                zod.enum(['event', 'person', 'session', 'group']),
                                                                 zod.null(),
                                                             ])
-                                                            .optional(),
+                                                            .optional()
+                                                            .describe("Where the property lives. Defaults to 'event'."),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe(
-                                                "Properties to break the metric results down by, at most 3. Each entry needs 'property' (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not supported for experiment metrics)."
-                                            ),
+                                            .describe('Properties to break the metric results down by, at most 3.'),
                                     }),
                                     zod.null(),
                                 ])

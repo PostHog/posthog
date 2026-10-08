@@ -1340,6 +1340,19 @@ class MultipleVariantHandling(StrEnum):
     FIRST_SEEN = "first_seen"
 
 
+class ExperimentApiBreakdownAttributionType(StrEnum):
+    FIRST_TOUCH = "first_touch"
+    LAST_TOUCH = "last_touch"
+    STEP = "step"
+
+
+class ExperimentApiBreakdownType(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+    SESSION = "session"
+    GROUP = "group"
+
+
 class Kind1(StrEnum):
     EVENTS_NODE = "EventsNode"
     ACTIONS_NODE = "ActionsNode"
