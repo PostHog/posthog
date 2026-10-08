@@ -4,7 +4,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import * as readingIsMagicPng from '@posthog/brand/hoggies/png/reading-is-magic'
-import { IconTrash } from '@posthog/icons'
+import { IconPlus, IconTrash } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -69,6 +69,19 @@ export function MessageTemplatesTable(): JSX.Element {
                 <Spinner className="text-6xl" />
             ) : (
                 <div className="MessageTemplatesGrid">
+                    {!showProductIntroduction && (
+                        <button
+                            type="button"
+                            className="MessageTemplateItem cursor-pointer"
+                            onClick={startNewTemplate}
+                            data-attr="message-templates-new-card"
+                        >
+                            <div className="MessageTemplateItemInner flex flex-col items-center justify-center gap-2 rounded border border-dashed bg-surface-primary text-secondary hover:text-primary">
+                                <IconPlus className="text-3xl" />
+                                <span className="font-semibold">New template</span>
+                            </div>
+                        </button>
+                    )}
                     {filteredTemplates.map((template, index) => (
                         <MessageTemplateCard
                             key={template.id}
