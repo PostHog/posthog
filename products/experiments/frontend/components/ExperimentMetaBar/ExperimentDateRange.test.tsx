@@ -63,7 +63,6 @@ describe('ExperimentDateRange', () => {
         logic.unmount()
     })
 
-    /** Renders the date range, picks the 12th in the picker of `boundary`, and returns the picker's trigger. */
     function pickDay(boundary: 'start' | 'end'): HTMLElement {
         initKeaTests()
         logic = experimentLogic({ experimentId: EXPERIMENT_ID })

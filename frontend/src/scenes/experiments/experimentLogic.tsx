@@ -1534,7 +1534,6 @@ export const experimentLogic = kea<experimentLogicType>([
         }),
         updateExperimentMetrics: true,
         updateExposureCriteria: true,
-        /** `fromModal` names the modal that holds the edit. It closes when the save succeeds. */
         updateExperimentSettings: (update: Partial<Experiment>, fromModal?: 'cuped' | 'statsMethod') => ({
             update,
             fromModal,

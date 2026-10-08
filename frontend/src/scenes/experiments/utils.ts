@@ -1089,7 +1089,6 @@ export type ExperimentUpdatePayload = Omit<Partial<Experiment>, 'feature_flag'> 
     original_experiment?: Record<string, any>
 }
 
-/** Input of the experiment update loader: the update it sends, plus how a 409 conflict treats it. */
 export type ExperimentUpdateRequest = ExperimentUpdatePayload & {
     /**
      * After a 409 conflict, show the server's copy of the sent fields instead of keeping the rejected values for
