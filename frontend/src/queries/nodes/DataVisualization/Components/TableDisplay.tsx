@@ -23,6 +23,7 @@ const DISPLAY_TYPE_LABELS: Record<ChartDisplayType, string> = {
     [ChartDisplayType.Metric]: 'Metric',
     [ChartDisplayType.ActionsPie]: 'Pie chart',
     [ChartDisplayType.ActionsDonut]: 'Donut chart',
+    [ChartDisplayType.ActionsProportionBar]: 'Proportion bar',
     [ChartDisplayType.ActionsBarValue]: 'Horizontal bar chart',
     [ChartDisplayType.ActionsTable]: 'Table',
     [ChartDisplayType.WorldMap]: 'World map',

@@ -515,6 +515,7 @@ const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
     ChartDisplayType.ActionsBarValue,
     ChartDisplayType.ActionsPie,
     ChartDisplayType.ActionsDonut,
+    ChartDisplayType.ActionsProportionBar,
     ChartDisplayType.Metric,
     ChartDisplayType.BoxPlot,
     ChartDisplayType.SlopeGraph,
