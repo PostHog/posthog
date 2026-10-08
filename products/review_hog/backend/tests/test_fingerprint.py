@@ -1,3 +1,4 @@
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ from posthog.models import Team
 from products.review_hog.backend.models import ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import TurnMarkerArtefact, parse_artefact_content
 from products.review_hog.backend.reviewer.constants import (
+    FLASH_LENSES,
     REVIEW_DESIGN_PIPELINE,
     REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
@@ -22,7 +24,7 @@ from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, re
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
 from products.review_hog.backend.reviewer.skill_loader import REVIEW_HOG_VALIDATION_SKILL_NAME
-from products.review_hog.backend.reviewer.tools.single_agent_review import SINGLE_AGENT_CORE_FILE
+from products.review_hog.backend.reviewer.tools.single_agent_review import SINGLE_AGENT_PROMPT_PATH
 from products.review_hog.backend.temporal.activities import _sync_review_skills
 from products.skills.backend.api.skill_services import publish_skill_version
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
@@ -76,18 +78,27 @@ class TestRecordTurnMarker(BaseTest):
     def _record_single_agent(self, run_index: int) -> ReviewHogMarker:
         return self._record(run_index, review_mode=REVIEW_MODE_FLASH, review_design=REVIEW_DESIGN_SINGLE_AGENT)
 
-    def _edit_core_prompt(self) -> None:
+    def _edit_single_agent_prompt(self, prompt_file: str) -> None:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        edited = Path(directory.name) / "core.md"
-        edited.write_text(SINGLE_AGENT_CORE_FILE.read_text() + "\nFlag missing tests.\n")
-        patcher = patch("products.review_hog.backend.reviewer.fingerprint.SINGLE_AGENT_CORE_FILE", edited)
+        edited_dir = Path(directory.name) / "single_agent_review"
+        shutil.copytree(SINGLE_AGENT_PROMPT_PATH, edited_dir)
+        edited = edited_dir / prompt_file
+        edited.write_text(edited.read_text() + "\nFlag missing tests.\n")
+        patcher = patch("products.review_hog.backend.reviewer.fingerprint.SINGLE_AGENT_PROMPT_PATH", edited_dir)
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_a_core_prompt_edit_changes_the_single_agent_fingerprint(self) -> None:
+    @parameterized.expand(
+        [
+            ("core",),
+            ("lens_priority",),
+            *[(Path(lens.prompt_file).stem,) for lens in FLASH_LENSES.values()],
+        ]
+    )
+    def test_a_prompt_file_edit_changes_the_single_agent_fingerprint(self, prompt_name: str) -> None:
         original = self._record_single_agent(run_index=1)
-        self._edit_core_prompt()
+        self._edit_single_agent_prompt(f"{prompt_name}.md")
         changed = self._record_single_agent(run_index=2)
 
         assert original.version == "reviewhog-flash-2-0"

@@ -198,6 +198,45 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-10-08 — Flash v2: lens sessions, one prioritized list of at most four, any PR size
+
+- **What.** A single-agent turn runs the main session and two lens sessions (performance and reliability, contracts
+  and security) in parallel, all on `SINGLE_AGENT_FLASH_ARM` (`gpt-6.1-sol` at medium effort). Parallel lens sessions
+  add breadth that one session misses; one prioritized list keeps comments few. Higher effort found the same
+  important issues as medium in more time, so every session runs at medium. Ships together with the 2026-10-06 entry
+  below as `reviewhog-flash-2-0` and replaces its arm, its P3 handling, and its fixed size fallback.
+- **Lens prompts.** `lens_performance_reliability.md` and `lens_contracts_security.md` are DevEx-owned copies of the two
+  pipeline perspective skills with the pipeline's review framing in front, and `lens_priority.md` follows the finding
+  format: it maps the severity guide onto P0-P3 and limits findings to issues the change causes. The text matches the
+  version the design was measured with. Skill edits do not reach the copies.
+- **Lens parts.** `plan_lens_chunks` counts reviewable lines only (no tests, generated code, lockfiles, snapshots, docs,
+  JSON, CI config, or root `tools/`). Up to 600 lines: one part with every file. Above: parts over the reviewable files,
+  directories kept together, at most 4, growing to about equal size past that. The plan is deterministic, recomputed
+  from the PR snapshot, and never persisted as a chunk set (`split_chunks_activity` reuses any chunk set for a head).
+  Fetch records the part count on `ReviewMeta`, and the fan-out sits behind the `flash-lens-sessions-2026-10` patch.
+- **Failures.** A failed or timed-out lens session costs only its findings; a failed main session fails the turn.
+- **Dedup and merge.** Two dedup calls run in parallel, both one-shot OpenAI calls on `FLASH_DEDUP_MODEL` (`gpt-6-luna`
+  at medium, `run_oneshot_openai_review`; the pipeline's dedup pins are unchanged). The main findings dedup as before.
+  The lens findings also dedup against the main findings as anchors: an anchor makes a colliding lens finding a
+  candidate, and only candidates can drop, so a main finding never loses to a lens finding. `compose_flash_findings`
+  then keeps P0-P2 (`FLASH_POSTED_PRIORITIES`), highest first, main first on ties, at most `FLASH_MAX_FINDINGS` (4).
+  It runs before anything persists, because a persisted finding that never posts counts as already raised and would
+  stay off the PR on every later turn.
+- **Publishing.** Every kept finding posts inline. With P3 gone, `review_priorities_for` and the status comment's
+  low-priority list are removed.
+- **Large PRs.** A diff over about 200K tokens (`FLASH_PROMPT_DIFF_MAX_CHARS`) shrinks to the reviewable files, then
+  to the file list with a git command to read the changes. A PR past the lens part cap gets one line in the review body,
+  and that body posts even when every finding is inline. The pipeline fallback above 2,500 lines or 40 files stays on
+  behind `FLASH_LARGE_PR_FALLBACK_TO_PIPELINE`.
+- **Telemetry.** Lens cost lands under `ai_stage=flash-lens-<lens>-c<part>`, dedup under `dedup`. The fingerprint hashes
+  the lens prompt files, `lens_priority.md`, the Flash dedup pins, and the Flash limits.
+- **Known gaps.** Storage folds P0 and P1 into `must_fix`, so across sessions a lens P0 ties a main P1 and the main
+  finding wins; within one session P0 still ranks first. "At most four" holds per turn, so a later push can post more.
+  A slow lens session holds the turn until it finishes or hits the sandbox timeout. The contracts skill has no severity
+  guide, so `lens_priority.md`'s mapping only shapes the performance lens, as measured. A clean large PR posts no
+  review, so its parts note stays in the stored body. The Python LLM gateway's `review_hog` product does not list
+  `gpt-6-luna`, so check that the gateway serving ReviewHog allows it before rollout.
+
 ### ✅ BUILT 2026-10-06 — Flash v2: one Codex session per PR replaces the Flash pipeline
 
 - **What.** Every Flash turn runs the single-agent design (`REVIEW_DESIGN_SINGLE_AGENT`, version `reviewhog-flash-2-0`):
@@ -230,6 +269,7 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
 - **Version and telemetry.** `REVIEWHOG_VERSIONS` is keyed by mode and design. The single-agent fingerprint hashes its
   prompt files, the dedup prompt, the stage pins, and its arm. Events carry `review_design`
   and report no validator pins for a single-agent turn; cost lands on `$ai_generation` under `ai_stage=single-agent-review`.
+- **Superseded.** The arm, the P3 status-comment list, and the fixed size fallback changed in the 2026-10-08 entry above.
 - **Known gaps.** The reviews API progress for a single-agent turn reads "Splitting into chunks" until dedup lands (the
   stage derivation knows only pipeline artefacts). The Code review drawer shows an empty "Suggested fix" panel and the
   accept-as-found note as the validator note. The standalone `publish_review` command reads the turn's design from its

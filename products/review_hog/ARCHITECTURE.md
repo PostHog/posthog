@@ -258,24 +258,47 @@ flowchart TD
 ### Single-agent Flash (the Flash default)
 
 A Flash turn runs one of two designs, picked by the fetch activity (`select_review_design`, `reviewer/constants.py`).
-The **single-agent design** (`reviewhog-flash-2-0`) replaces steps 4, 5, and 8 below with one activity,
-`single_agent_review_activity`: one Codex sandbox session (`SINGLE_AGENT_FLASH_ARM`, `gpt-6-luna` @ xhigh) reviews
-the whole PR from one prompt and returns `SingleAgentReview`. The prompt is three files in
-`prompts/single_agent_review/`: `core.md` (the DevEx-owned rubric, adapted from OpenAI's Codex review rubric, sent as
-the system prompt), `prompt.jinja` (title, description, numbered diff, earlier turns' findings, the
-finding format), and the generated `schema.json`. There is no team slot: every team runs the same core rubric. Findings persist as one
-`perspective_result` under `SINGLE_AGENT_PASS_NUMBER`, so step 7 (dedup against earlier turns and PR comments) runs
-unchanged; no validator runs, so dedup writes an accept-as-found verdict per survivor. P0/P1 store as `must_fix`, P2 as
-`should_fix`, P3 as `consider`. P0-P2 publish inline; P3 findings stay out of the review (`review_priorities_for`) and
-the status comment lists them. An optional `suggestion_code` posts as a GitHub suggestion block only when the inline
-comment covers exactly the finding's range.
+The **single-agent design** (`reviewhog-flash-2-0`) replaces steps 4, 5, and 8 below with parallel Codex sandbox
+sessions, all on `SINGLE_AGENT_FLASH_ARM` (`gpt-6.1-sol` @ medium) and all returning `SingleAgentReview`:
 
-A Flash PR over 2,500 changed lines or 40 files (reviewable files only) falls back to the **pipeline design**
-(`reviewhog-flash-1-1`), the steps below. The `reviewhog-flash-pipeline-kill-switch` feature flag (organization-keyed,
-read in the fetch activity by `reviewer/feature_flags.py`) moves Flash turns back to the pipeline without a deploy; a
-flag evaluation error reads as off. `FLASH_DESIGN_DEFAULT` is the code default. Full turns always run the pipeline.
-`reviewhog_review_started` reports the choice as `review_design` and its cause as `review_design_reason`
-(`full_mode`, `default`, `kill_switch`, `size_fallback`).
+- **The main session** (`single_agent_review_activity`) reviews the whole PR. Its system prompt is `core.md` (the
+  DevEx-owned rubric, adapted from OpenAI's Codex review rubric). A failed main session fails the turn.
+- **Two lens sessions** (`lens_review_activity`, `FLASH_LENSES`): performance and reliability, and contracts and
+  security. Their system prompts (`lens_performance_reliability.md`, `lens_contracts_security.md`) are DevEx-owned copies
+  of the two pipeline perspective skills, and `lens_priority.md` follows their finding format. A PR with at most
+  `FLASH_LENS_CHUNK_MAX_LINES` (600) reviewable changed lines is one lens part with every file. A larger PR splits
+  into parts over its reviewable files (`plan_lens_chunks`, `tools/split_pr_into_chunks.py`: no LLM call, directories
+  kept together, files never split), at most `FLASH_LENS_MAX_CHUNKS` (4); above that the parts grow to about equal
+  size. Reviewable lines leave out tests, generated code, lockfiles, snapshots, docs, JSON, CI config, and root
+  `tools/`. One session runs per lens and part, so a turn opens at most 9 sessions, under one
+  `MAX_CONCURRENT_SANDBOXES` semaphore. A failed lens session costs only its own findings.
+
+The fetch activity records the number of lens parts on `ReviewMeta.lens_chunk_count`; each lens activity rebuilds its
+part from the PR snapshot. The task prompt (`prompt.jinja`) carries the title, description, numbered diff, earlier
+turns' findings, and the finding format, plus a scope section for a lens part. A diff over `FLASH_PROMPT_DIFF_MAX_CHARS`
+(about 200K tokens) shrinks to the reviewable files, and then to the file list alone; the file list marks every file
+whose diff is left out, and the prompt says how to read it with git. There is no team slot: every team runs the same
+DevEx-owned prompts.
+
+Each session persists as one `perspective_result` under a reserved pass (`SINGLE_AGENT_PASS_NUMBER` 2000, lenses 2001
+and 2002) and its part. Step 7 then runs as two dedup calls in parallel (`dedupe_flash_findings`,
+`tools/single_agent_review.py`), both one-shot OpenAI calls on `FLASH_DEDUP_MODEL` (`gpt-6-luna` @ medium,
+`run_oneshot_openai_review`): the main findings against PR comments and earlier turns, and the lens findings against
+the same plus the main findings as anchors, so a lens finding can lose to a main finding but never the reverse.
+`compose_flash_findings` keeps `FLASH_POSTED_PRIORITIES` (P0-P2) only, highest priority first, the main session first
+on ties, at most `FLASH_MAX_FINDINGS` (4), before anything persists. No validator runs, so dedup writes an
+accept-as-found verdict per survivor. P0/P1 store as `must_fix`, P2 as `should_fix`. Findings publish inline; an
+optional `suggestion_code` posts as a GitHub suggestion block only when the inline comment covers exactly the finding's
+range. A PR past the lens part cap gets one line in the review body that says the review ran in parts, and that body
+posts even when every finding is inline.
+
+While `FLASH_LARGE_PR_FALLBACK_TO_PIPELINE` is on, a Flash PR over 2,500 changed lines or 40 files (reviewable files
+only) falls back to the **pipeline design** (`reviewhog-flash-1-1`), the steps below. The
+`reviewhog-flash-pipeline-kill-switch` feature flag (organization-keyed, read in the fetch activity by
+`reviewer/feature_flags.py`) moves Flash turns back to the pipeline without a deploy; a flag evaluation error reads as
+off. `FLASH_DESIGN_DEFAULT` is the code default. Full turns always run the pipeline. `reviewhog_review_started` reports
+the choice as `review_design` and its cause as `review_design_reason` (`full_mode`, `default`, `kill_switch`,
+`size_fallback`).
 
 ### Step-by-step (as orchestrated by `ReviewPRWorkflow`)
 
@@ -401,7 +424,8 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     Full, Flash pipeline, and Flash single agent evolve separately, so each bumps its own version.
     The fingerprint hashes the review mode, the review and validator arms, the chunking / dedup / one-shot pins,
     the review-turn prompts and schemas, and the content of the skills the acting user runs, team edits included.
-    A single-agent turn hashes its own prompt files, the dedup prompt, and its arm instead.
+    A single-agent turn hashes its own prompt files (main and lens), the dedup prompt, its arm, the Flash dedup pins,
+    and the Flash limits (finding cap, posted priorities, lens part size and count, prompt diff budget) instead.
     A prompt or skill edit changes it without a version bump.
     The marker persists as a `turn_marker` artefact (with the hashed inputs, for comparing two fingerprints),
     goes on `reviewhog_review_completed` as `reviewhog_version` / `reviewhog_fingerprint`, and ends the final

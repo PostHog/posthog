@@ -28,6 +28,14 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_MODEL,
     DEDUP_REASONING_EFFORT,
     DEDUP_RUNTIME_ADAPTER,
+    FLASH_DEDUP_MODEL,
+    FLASH_DEDUP_REASONING_EFFORT,
+    FLASH_LENS_CHUNK_MAX_LINES,
+    FLASH_LENS_MAX_CHUNKS,
+    FLASH_LENSES,
+    FLASH_MAX_FINDINGS,
+    FLASH_POSTED_PRIORITIES,
+    FLASH_PROMPT_DIFF_MAX_CHARS,
     ONESHOT_MODEL,
     ONESHOT_REASONING_EFFORT,
     REVIEW_DESIGN_PIPELINE,
@@ -52,7 +60,7 @@ from products.review_hog.backend.reviewer.tools.issue_validation import (
 )
 from products.review_hog.backend.reviewer.tools.issues_review import REVIEW_SYSTEM_PROMPT
 from products.review_hog.backend.reviewer.tools.select_perspectives import SELECTION_SYSTEM_PROMPT
-from products.review_hog.backend.reviewer.tools.single_agent_review import SINGLE_AGENT_CORE_FILE
+from products.review_hog.backend.reviewer.tools.single_agent_review import SINGLE_AGENT_PROMPT_PATH
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import CHUNKING_SYSTEM_PROMPT
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
@@ -158,8 +166,12 @@ class TurnFingerprint:
     @classmethod
     def _single_agent_prompt_hashes(cls) -> dict[str, str]:
         hashes = cls._prompt_dir_hashes(_SINGLE_AGENT_TURN_PROMPT_DIRS)
-        # The whole file, attribution comment included, so any edit to it changes the fingerprint.
-        hashes["single_agent_review/core.md"] = _text_hash(SINGLE_AGENT_CORE_FILE.read_text())
+        # Whole files, attribution comments included, so any edit to one changes the fingerprint.
+        prompt_files = ["core.md", "lens_priority.md", *(lens.prompt_file for lens in FLASH_LENSES.values())]
+        for prompt_file in prompt_files:
+            hashes[f"single_agent_review/{prompt_file}"] = _text_hash(
+                (SINGLE_AGENT_PROMPT_PATH / prompt_file).read_text()
+            )
         hashes["issue_deduplicator/system"] = _text_hash(DEDUP_SYSTEM_PROMPT)
         hashes["sandbox/json_retry"] = _text_hash(JSON_RETRY_PROMPT)
         return hashes
@@ -233,6 +245,14 @@ class TurnFingerprint:
                     "review_design": review_design,
                     "review_arm": _arm_payload(review_arm),
                     "stage_pins": cls._stage_pins(),
+                    "flash_dedup": {"model": FLASH_DEDUP_MODEL, "reasoning_effort": FLASH_DEDUP_REASONING_EFFORT},
+                    "flash_limits": {
+                        "max_findings": FLASH_MAX_FINDINGS,
+                        "posted_priorities": sorted(priority.value for priority in FLASH_POSTED_PRIORITIES),
+                        "lens_chunk_max_lines": FLASH_LENS_CHUNK_MAX_LINES,
+                        "lens_max_chunks": FLASH_LENS_MAX_CHUNKS,
+                        "prompt_diff_max_chars": FLASH_PROMPT_DIFF_MAX_CHARS,
+                    },
                     "prompts": cls._single_agent_prompt_hashes(),
                 }
             )
