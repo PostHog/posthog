@@ -1,20 +1,17 @@
-import type { IconProps } from '@phosphor-icons/react'
-import type { ComponentType } from 'react'
-
 import { cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 export interface TodayRailTileProps {
     label: string
-    Icon: ComponentType<IconProps>
+    icon: JSX.Element
     active: boolean
     to: string | undefined
     onClick: () => void
     dataAttr: string
 }
 
-export function TodayRailTile({ label, Icon, active, to, onClick, dataAttr }: TodayRailTileProps): JSX.Element {
+export function TodayRailTile({ label, icon, active, to, onClick, dataAttr }: TodayRailTileProps): JSX.Element {
     return (
         <LinkPrimitive
             to={to}
@@ -33,12 +30,12 @@ export function TodayRailTile({ label, Icon, active, to, onClick, dataAttr }: To
         >
             <span
                 className={cn(
-                    'flex size-10 items-center justify-center rounded-md',
+                    'flex size-10 items-center justify-center rounded-md [&_svg]:size-5',
                     'group-focus-visible:ring-2 group-focus-visible:ring-[var(--ring)]',
                     active ? 'bg-[var(--fill-selected)]' : 'group-hover:bg-[var(--fill-hover)]'
                 )}
             >
-                <Icon size={20} weight={active ? 'fill' : 'regular'} />
+                {icon}
             </span>
             <span className="max-w-full truncate px-0.5 text-[10px] leading-3 font-medium">{label}</span>
         </LinkPrimitive>

@@ -1,7 +1,7 @@
-import { MagnifyingGlassIcon, SidebarSimpleIcon } from '@phosphor-icons/react'
 import { useActions, useValues } from 'kea'
 import { ComponentPropsWithoutRef, forwardRef } from 'react'
 
+import { IconSearch, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 import { Button, Kbd, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
@@ -59,11 +59,11 @@ export function TodayRail(): JSX.Element {
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: TODAY_RAIL_WIDTH }}
         >
-            {TODAY_RAIL_ITEMS.map(({ pane, label, Icon }) => (
+            {TODAY_RAIL_ITEMS.map(({ pane, label, icon }) => (
                 <TodayRailTile
                     key={pane}
                     label={label}
-                    Icon={Icon}
+                    icon={icon}
                     active={activePane === pane}
                     to={railPaneHref(pane)}
                     onClick={() => pickPane(pane)}
@@ -97,7 +97,7 @@ export function TodayRail(): JSX.Element {
                     data-attr="today-rail-search"
                     onClick={() => toggleCommand('nav-search-button')}
                 >
-                    <MagnifyingGlassIcon />
+                    <IconSearch />
                 </RailUtility>
                 <RailUtility
                     label={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}
@@ -105,7 +105,7 @@ export function TodayRail(): JSX.Element {
                     data-attr="today-rail-toggle-sidebar"
                     onClick={toggleSidebar}
                 >
-                    <SidebarSimpleIcon weight={sidebarVisible ? 'fill' : 'regular'} />
+                    {sidebarVisible ? <IconSidebarClose /> : <IconSidebarOpen />}
                 </RailUtility>
             </div>
         </nav>

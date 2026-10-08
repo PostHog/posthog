@@ -1,6 +1,6 @@
-import { MagnifyingGlassIcon } from '@phosphor-icons/react'
 import { useActions, useValues } from 'kea'
 
+import { IconSearch } from '@posthog/icons'
 import { cn } from '@posthog/quill'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -19,7 +19,7 @@ export function TodayTabBar(): JSX.Element {
     return (
         <div className="TodayTabBar" data-quill>
             <nav aria-label="Main" className="flex h-14 min-w-0 flex-1 gap-1">
-                {TODAY_RAIL_ITEMS.map(({ pane, label, Icon }) => {
+                {TODAY_RAIL_ITEMS.map(({ pane, label, icon }) => {
                     const active = activePane === pane
                     return (
                         <button
@@ -33,7 +33,7 @@ export function TodayTabBar(): JSX.Element {
                                 active ? 'bg-fill-selected text-foreground' : 'text-muted-foreground'
                             )}
                         >
-                            <Icon weight={active ? 'fill' : 'regular'} />
+                            {icon}
                             <span className="max-w-full truncate">{label}</span>
                         </button>
                     )
@@ -44,7 +44,7 @@ export function TodayTabBar(): JSX.Element {
                     onClick={() => toggleCommand('nav-search-button')}
                     className={cn(TAB_CLASS, 'text-muted-foreground')}
                 >
-                    <MagnifyingGlassIcon />
+                    <IconSearch />
                     <span className="max-w-full truncate">Search</span>
                 </button>
             </nav>

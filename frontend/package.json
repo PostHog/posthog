@@ -73,7 +73,6 @@
         "@microlink/react-json-view": "^1.31.18",
         "@microsoft/fetch-event-source": "^2.0.1",
         "@monaco-editor/react": "4.7.0",
-        "@phosphor-icons/react": "^2.1.10",
         "@pierre/diffs": "1.2.11",
         "@posthog/brand": "catalog:",
         "@posthog/docs-onboarding": "workspace:*",
