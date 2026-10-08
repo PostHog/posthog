@@ -880,6 +880,10 @@ snapshots:
         hash: v1.k794b7964.991e5f44ceae5eced661d06ca75fdd314fea213b73791c697078d601655b3876.pDXTpK6DyIMq248_s0s0QZJxOnwPiQKzjoJanIrQL-8
     components-feature-previews--empty--light:
         hash: v1.k794b7964.6fa703c825304215f198e3c1c37821a15fdec4772505a4b5db2e4e0ce491ff8d.Xp_4MqTRyevKnhM7Q2mIK9B_PhsbXY-R_lTqCpViZVY
+    components-flag-called-move-notice--under-an-event-description--dark:
+        hash: v1.k794b7964.79dffd277b259e7550cc45da0aee9fd908f07f37cc5e5e270fd8510f5849a9f2.8Lj_rPLTbRjssG5IldG5oFNe7qOmVMsFINqZ-r1y7zM
+    components-flag-called-move-notice--under-an-event-description--light:
+        hash: v1.k794b7964.22cb35f375fe9ac0e0b2e63c575298f37de632aa5914084eb6161db5e116f371.X5Gb34qDPIt9ksr4SFamxZvAqy3_EoMYzs1nvaDS0D8
     components-hedgehogmode--profile-picture-hog--dark:
         hash: v1.k794b7964.969bdab0c4f15b4457bc162b9ad87ec0341d5e98ed3a9279494cc2f019c12250.5eEGiofVhJFttdE4ETVy01n1PTA-WrkIsgHZEB9rG5I
     components-hedgehogmode--profile-picture-hog--light:

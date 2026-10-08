@@ -7,6 +7,7 @@ import React, { useState } from 'react'
 import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand'
+import { FlagCalledMoveNotice } from 'lib/components/FlagCalledMoveNotice/FlagCalledMoveNotice'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { pluralize } from 'lib/utils/strings'
 import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
@@ -91,6 +92,7 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
                             <LemonDivider className="my-3" />
                             <div>
                                 {coreDefinition.description ? <p>{coreDefinition.description}</p> : null}
+                                <FlagCalledMoveNotice name={value} groupType={type} className="mb-2" />
                                 {coreDefinition.examples ? (
                                     <p>
                                         <i>
