@@ -1,5 +1,6 @@
 import re
 import copy
+import time
 import logging
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
@@ -7,7 +8,7 @@ from email.utils import parsedate_to_datetime
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
-from requests import Request, Response, Session
+from requests import PreparedRequest, Request, Response, Session
 from requests.auth import AuthBase
 from requests.exceptions import (
     ChunkedEncodingError,
@@ -24,6 +25,14 @@ from posthog.temporal.common.errors import NonReportableError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     RequestTimeout,
     make_tracked_session,
+    suspend_adapter_retries,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.retry_limits import (
+    max_retry_after_seconds,
+    retry_budget_seconds,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import (
     reach_framework_safe_point,
@@ -166,9 +175,7 @@ def _safe_url(url: str) -> str:
     return f"{parts.scheme}://{host}{parts.path}"
 
 
-# Upper bound on how long we'll honor a server-provided retry delay, so a
-# misreported header can't stall a worker for an unbounded amount of time.
-MAX_RETRY_AFTER_SECONDS = 300.0
+_monotonic = time.monotonic
 
 # Attempts for the default sync path. The inline preview overrides this to 1 so a
 # rate-limited endpoint surfaces an error instead of sleeping on `Retry-After`.
@@ -238,18 +245,19 @@ def _parse_retry_after(response: Response) -> Optional[float]:
     Honors the standard ``Retry-After`` header (delta-seconds or HTTP-date) first, then the
     vendor rate-limit reset headers in ``_RATE_LIMIT_RESET_HEADERS``. Without a server-provided
     delay a 429 backs off on the short exponential fallback and the attempt budget is spent long
-    before the limit window clears. Capped at ``MAX_RETRY_AFTER_SECONDS``.
+    before the limit window clears. The value is not capped here: the retry loop fails the request
+    when the server asks for more than the client's limit.
     """
     retry_after_header = response.headers.get("Retry-After")
     if retry_after_header:
         try:
-            return min(float(retry_after_header), MAX_RETRY_AFTER_SECONDS)
+            return max(0.0, float(retry_after_header))
         except ValueError:
             try:
                 dt = parsedate_to_datetime(retry_after_header)
             except (TypeError, ValueError):
                 return None
-            return min(max(0.0, (dt - datetime.now(UTC)).total_seconds()), MAX_RETRY_AFTER_SECONDS)
+            return max(0.0, (dt - datetime.now(UTC)).total_seconds())
 
     for header, parse in _RATE_LIMIT_RESET_HEADERS:
         value = response.headers.get(header)
@@ -260,9 +268,21 @@ def _parse_retry_after(response: Response) -> Optional[float]:
         # through to the caller's exponential backoff rather than retrying with no delay at all.
         if wait_seconds is None or wait_seconds <= 0:
             return None
-        return min(wait_seconds, MAX_RETRY_AFTER_SECONDS)
+        return wait_seconds
 
     return None
+
+
+def _retry_after_exceeds_limit(client: Any, exc: Optional[BaseException]) -> bool:
+    if not isinstance(exc, RESTClientRetryableError) or exc.retry_after is None:
+        return False
+    limit = getattr(client, "_retry_after_max", None)
+    return exc.retry_after > (max_retry_after_seconds() if limit is None else limit)
+
+
+def _start_retry_budget(state: RetryCallState) -> None:
+    if state.attempt_number == 1:
+        state.retry_object.statistics["budget_started_at"] = _monotonic()
 
 
 def _stop_after_client_attempts(state: RetryCallState) -> bool:
@@ -274,9 +294,24 @@ def _stop_after_client_attempts(state: RetryCallState) -> bool:
     return state.attempt_number >= max_attempts
 
 
+def _stop_retrying(state: RetryCallState) -> bool:
+    if _stop_after_client_attempts(state):
+        return True
+    client = state.args[0] if state.args else None
+    # A server that asks for a longer wait than the limit is not going to answer soon. The error
+    # goes to the activity, whose own retry comes back later, and the worker stays free.
+    exc = state.outcome.exception() if state.outcome is not None and state.outcome.failed else None
+    if _retry_after_exceeds_limit(client, exc):
+        return True
+    # No try starts after the budget, and no wait starts that would end after it.
+    budget = getattr(client, "_retry_budget", None)
+    elapsed = _monotonic() - state.retry_object.statistics.get("budget_started_at", _monotonic())
+    return elapsed + state.upcoming_sleep > (retry_budget_seconds() if budget is None else budget)
+
+
 def _retry_wait_seconds(state: RetryCallState) -> float:
-    # Read the backoff ceiling off the bound instance the same way `_stop_after_client_attempts`
-    # reads the attempt cap, so a client with a longer rate-limit window can widen its own backoff.
+    # Read the backoff ceiling off the bound instance the same way `_stop_retrying` reads its
+    # limits, so a client with a longer rate-limit window can widen its own backoff.
     client = state.args[0] if state.args else None
     ceiling = getattr(client, "_retry_backoff_max", DEFAULT_RETRY_BACKOFF_MAX_SECONDS)
     fallback = min(2 ** (state.attempt_number - 1), ceiling)
@@ -284,7 +319,7 @@ def _retry_wait_seconds(state: RetryCallState) -> float:
         return float(fallback)
     exc = state.outcome.exception()
     if isinstance(exc, RESTClientRetryableError) and exc.retry_after is not None:
-        return min(exc.retry_after, MAX_RETRY_AFTER_SECONDS)
+        return exc.retry_after
     return float(fallback)
 
 
@@ -292,6 +327,12 @@ def _reach_safe_point_before_retry_wait(_state: RetryCallState) -> None:
     # A rate-limited endpoint can wait minutes per attempt, and the source yields nothing in that
     # time. Every page before the failed request has been handed on, so the run can stop here.
     reach_framework_safe_point()
+
+
+def _wait_before_retry(seconds: float) -> None:
+    # The same position as `_reach_safe_point_before_retry_wait`, so a shutdown that starts during
+    # the wait ends the run at the safe point and does not wait for the rest of the delay.
+    interruptible_wait(seconds, safe_point=reach_framework_safe_point)
 
 
 Hooks = dict[str, list[Any]]
@@ -328,6 +369,8 @@ class RESTClient:
         allow_redirects: bool = True,
         request_timeout: Optional[RequestTimeout] = None,
         capture: bool = True,
+        retry_budget_seconds: Optional[float] = None,
+        retry_after_max_seconds: Optional[float] = None,
     ) -> None:
         self.base_url = base_url or ""
         self.headers = headers or {}
@@ -335,6 +378,11 @@ class RESTClient:
         self.paginator = paginator
         self._max_retry_attempts = max_retry_attempts
         self._retry_backoff_max = retry_backoff_max_seconds
+        # Longest time one request may spend on retries, and longest server-provided delay the
+        # client waits for. Left None, the settings apply. A source whose vendor has a longer rate
+        # limit window raises both, so the client waits the window out and does not fail the run.
+        self._retry_budget = retry_budget_seconds
+        self._retry_after_max = retry_after_max_seconds
         # Per-request (connect, read) timeout in seconds handed to ``session.send``. Left None,
         # the session's own default applies, and after that the tracked adapter's
         # ``default_request_timeout()``. Sources talking to a customer-controlled host should set
@@ -518,11 +566,22 @@ class RESTClient:
             if paginator is None or not paginator.has_next_page:
                 break
 
+    def _send(self, prepared: PreparedRequest) -> Response:
+        if self._max_retry_attempts <= 1:
+            # This client does not retry, so the adapter keeps its own retries.
+            return self.session.send(prepared, allow_redirects=self._allow_redirects, timeout=self._request_timeout)
+        # This client owns the retries. With the adapter's retries on too, the tries and the waits
+        # of the two layers multiply, and the adapter's waits have no safe point.
+        with suspend_adapter_retries():
+            return self.session.send(prepared, allow_redirects=self._allow_redirects, timeout=self._request_timeout)
+
     @retry(
         retry=retry_if_exception_type(RESTClientRetryableError),
-        stop=_stop_after_client_attempts,
+        stop=_stop_retrying,
         wait=_retry_wait_seconds,
+        before=_start_retry_budget,
         before_sleep=_reach_safe_point_before_retry_wait,
+        sleep=_wait_before_retry,
         reraise=True,
     )
     def _send_request(
@@ -536,12 +595,11 @@ class RESTClient:
         # `send` reads the body eagerly (stream=False), so a connection dropped mid-stream
         # surfaces here as ChunkedEncodingError. A connection that never got established at all —
         # egress proxy refusing/resetting the connection, a connect timeout — surfaces as
-        # ConnectionError (already retried a few times inside urllib3's own adapter-level policy,
-        # but that budget is short). Both are transient network failures, so reissue them like a
+        # ConnectionError. Both are transient network failures, so reissue them like a
         # truncated/partial body below rather than letting them skip this retry loop and fail the
         # whole sync on one bad connection attempt.
         try:
-            response = self.session.send(prepared, allow_redirects=self._allow_redirects, timeout=self._request_timeout)
+            response = self._send(prepared)
         except ChunkedEncodingError as e:
             raise RESTClientRetryableError(self._redact(f"Connection broken while reading response: {e}")) from e
         except RequestsConnectionError as e:
@@ -588,10 +646,15 @@ class RESTClient:
             # `_safe_url` drops the query string entirely: `_redact` only masks the raw secret, not
             # the percent-encoded form an `api_key` query credential takes in the URL, so scheme/
             # host/path-only is what keeps an encoded credential out of the persisted `latest_error`.
-            raise RESTClientRetryableError(
-                self._redact(f"HTTP {response.status_code} for {_safe_url(response.url)}"),
-                retry_after=_parse_retry_after(response),
-            )
+            retry_after = _parse_retry_after(response)
+            message = f"HTTP {response.status_code} for {_safe_url(response.url)}"
+            error = RESTClientRetryableError(self._redact(message), retry_after=retry_after)
+            if _retry_after_exceeds_limit(self, error):
+                error = RESTClientRetryableError(
+                    self._redact(f"{message} (the server asked for a wait of {retry_after:.0f} seconds)"),
+                    retry_after=retry_after,
+                )
+            raise error
 
         response_hooks = hooks.get("response", [])
         if response_hooks:

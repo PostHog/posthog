@@ -471,7 +471,11 @@ class PipelineV3(Generic[ResumableData]):
                 ),
             )
             scope.enter_context(
-                activate_safe_point(handler, covers_framework_checkpoints=source_items_are_framework_output(items))
+                activate_safe_point(
+                    handler,
+                    covers_framework_checkpoints=source_items_are_framework_output(items),
+                    is_shutting_down=self._shutdown_monitor.is_worker_shutdown,
+                )
             )
         return scope
 
