@@ -52,11 +52,13 @@ from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_wa
 from posthog.utils import get_context_for_template, get_instance_realm
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.cohorts.backend.models import Cohort
 from products.conversations.backend.playbook import compose_support_playbook
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.team_home_tab_dashboard_config import TeamHomeTabDashboardConfig
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+from products.web_analytics.backend.models import WebAnalyticsAchievementProgress
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 
@@ -3659,6 +3661,52 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.team.refresh_from_db()
         self.assertEqual(self.team.test_account_filters, original_test_account_filters)
+
+    @parameterized.expand(["deleted", "missing", "other_project", "same_project", "string_id", "sibling"])
+    def test_test_account_cohort_must_exist_in_project(self, case: str) -> None:
+        cohort_team = self.team
+        if case in ("other_project", "sibling"):
+            cohort_team = Team.objects.create(
+                organization=self.organization,
+                **({"project": self.team.project} if case == "sibling" else {}),
+            )
+        cohort = Cohort.objects.create(team=cohort_team, name="Internal users", deleted=case == "deleted")
+        cohort_id = cohort.id + 1000000 if case == "missing" else cohort.id
+        filters = [
+            {
+                "key": "id",
+                "type": "cohort",
+                "operator": "not_in",
+                "value": str(cohort_id) if case == "string_id" else cohort_id,
+            }
+        ]
+        original_filters = self.team.test_account_filters
+        response = self.client.patch(f"/api/projects/{self.team.id}/", {"test_account_filters": filters})
+        valid = case in ("same_project", "string_id", "sibling")
+        self.assertEqual(response.status_code, status.HTTP_200_OK if valid else status.HTTP_400_BAD_REQUEST)
+        self.team.refresh_from_db()
+        if valid:
+            self.assertEqual(self.team.test_account_filters[0]["value"], cohort.id)
+        else:
+            self.assertEqual(response.json()["attr"], "test_account_filters")
+            self.assertEqual(self.team.test_account_filters, original_filters)
+
+    def test_repairing_filters_unblocks_achievements_without_advancing_cursor(self) -> None:
+        checkpoint = {"counted_through": (timezone.now() - timedelta(days=2)).isoformat()}
+        computed_at = timezone.now() - timedelta(days=2)
+        progress = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).create(
+            team=self.team,
+            track_key="traffic",
+            progress_value=42,
+            last_computed_at=computed_at,
+            state={"checkpoint": checkpoint, "retry_after": (timezone.now() + timedelta(hours=20)).isoformat()},
+        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/", {"test_account_filters": []})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        progress.refresh_from_db()
+        self.assertEqual(progress.state, {"checkpoint": checkpoint})
+        self.assertEqual(progress.last_computed_at, computed_at)
+        self.assertEqual(progress.progress_value, 42)
 
     def test_validate_test_account_filters_allows_is_set_filters_without_value(self):
         response = self.client.patch(

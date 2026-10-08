@@ -17,6 +17,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models import Cohort
 from products.web_analytics.backend.achievements.definitions import STREAK_ARM_WEEKLY
 from products.web_analytics.backend.achievements.query_concurrency import achievement_query_scope
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import test_account_filter_expr
@@ -114,8 +115,22 @@ def _project_environment_teams(team: Team) -> list[Team]:
     return list(Team.objects.filter(project_id=team.project_id))
 
 
+class InvalidTestAccountFiltersError(Exception):
+    def __init__(self, team_id: int, filters: list[dict[str, object]]) -> None:
+        super().__init__("Internal and test user filters reference a missing cohort.")
+        self.team_id = team_id
+        self.filters = filters
+
+
 def _test_account_filter_expr(team: Team) -> ast.Expr:
     filters = team.test_account_filters if isinstance(team.test_account_filters, list) else []
+    cohort_ids = {int(prop["value"]) for prop in filters if prop.get("type") == "cohort"}
+    if cohort_ids and cohort_ids != set(
+        Cohort.objects.filter(id__in=cohort_ids, team__project_id=team.project_id, deleted=False).values_list(
+            "id", flat=True
+        )
+    ):
+        raise InvalidTestAccountFiltersError(team.id, filters)
     return test_account_filter_expr(test_account_filters=filters, team=team)
 
 

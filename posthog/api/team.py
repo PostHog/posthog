@@ -125,6 +125,7 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
+from products.cohorts.backend.models import Cohort
 from products.customer_analytics.backend.facade.account_property_pins import (
     InvalidPinnedAccountProperties,
     validate_pinned_account_properties,
@@ -153,6 +154,7 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     validate_rule as validate_custom_bot_rule,
     validate_rule_set as validate_custom_bot_rule_set,
 )
+from products.web_analytics.backend.models import WebAnalyticsAchievementProgress
 from products.workflows.backend.facade.enums import EMAIL_TRACKING_CONSENT_MODE_CHOICES
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
@@ -1189,7 +1191,11 @@ def validate_test_account_filters(value: object) -> list[dict[str, object]]:
     except PydanticValidationError as error:
         raise exceptions.ValidationError(f"Must provide an array of valid property filters. {error}") from error
 
-    return cast(list[dict[str, object]], value)
+    filters = cast(list[dict[str, object]], value)
+    for property_filter in filters:
+        if property_filter.get("type") == "cohort":
+            property_filter["value"] = CohortPropertyFilter.model_validate(property_filter).value
+    return filters
 
 
 def _alias_backreferences(alias: str) -> list[int]:
@@ -2380,6 +2386,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         elif other_team_fields:
             # auto_now fields only refresh when included in update_fields
             instance.save(update_fields=[*other_team_fields, "updated_at"])
+        if "test_account_filters" in other_team_fields:
+            WebAnalyticsAchievementProgress.clear_filter_retry(instance.parent_team_id or instance.id)
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         after_update = instance.__dict__.copy()
@@ -3381,6 +3389,20 @@ def validate_team_attrs(
                 raise exceptions.PermissionDenied(
                     "Only organization admins can set these settings on project creation: "
                     + ", ".join(sorted(admin_fields_touched))
+                )
+
+    if "test_account_filters" in attrs:
+        cohort_ids = {prop["value"] for prop in attrs["test_account_filters"] if prop.get("type") == "cohort"}
+        if cohort_ids:
+            project_id = instance.project_id if isinstance(instance, Team) else instance.pk if instance else None
+            valid_ids = set(
+                Cohort.objects.filter(id__in=cohort_ids, team__project_id=project_id, deleted=False).values_list(
+                    "id", flat=True
+                )
+            )
+            if cohort_ids - valid_ids:
+                raise exceptions.ValidationError(
+                    {"test_account_filters": "Cohort filters must reference an existing cohort in this project."}
                 )
 
     # A new team has no warehouse tables yet, so only an update can reach a denied one.

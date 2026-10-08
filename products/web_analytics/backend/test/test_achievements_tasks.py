@@ -1,8 +1,9 @@
 from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import datetime, timedelta
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -12,7 +13,9 @@ from parameterized import parameterized
 from posthog.clickhouse.client.execute import KillSwitchLevel
 from posthog.models.team.team import Team
 
-from products.web_analytics.backend.achievements import tasks
+from products.actions.backend.models.action import Action
+from products.cohorts.backend.models import Cohort
+from products.web_analytics.backend.achievements import evaluators, tasks
 from products.web_analytics.backend.achievements.evaluators import EvalContext, PriorProgress, TrackEvaluation
 from products.web_analytics.backend.models import (
     WebAnalyticsAchievementProgress,
@@ -88,6 +91,86 @@ class TestRecomputeTask(BaseTest):
 
         self._run_team({**make_incremental_evaluators(), "cumulative_pageviews": pageviews})
         self.assertEqual(calls["count"], 0)
+
+    @parameterized.expand([False, True])
+    def test_stale_cohort_backs_off_without_losing_progress(self, child_environment: bool) -> None:
+        environment = self.team
+        if child_environment:
+            environment = Team.objects.create(organization=self.organization, project=self.team.project)
+        cohort = Cohort.objects.create(team=environment, name="Internal users", deleted=True)
+        environment.test_account_filters = [{"key": "id", "type": "cohort", "operator": "not_in", "value": cohort.id}]
+        environment.save(update_fields=["test_account_filters"])
+        computed_at = timezone.now() - timedelta(days=2)
+        checkpoint = {"counted_through": computed_at.isoformat()}
+        progress = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).create(
+            team=self.team,
+            track_key="traffic",
+            progress_value=42,
+            last_computed_at=computed_at,
+            state={"checkpoint": checkpoint},
+        )
+        WebAnalyticsVisit.objects.for_team(self.team.id).create(
+            team=self.team, user=self.user, visit_date=timezone.now().date()
+        )
+        with (
+            patch.object(evaluators, "achievement_query_scope", return_value=nullcontext()),
+            patch.object(evaluators, "execute_hogql_query", return_value=MagicMock(results=[[10]])),
+        ):
+            run_evaluators = {
+                **make_incremental_evaluators(),
+                "cumulative_pageviews": evaluators.evaluate_cumulative_pageviews,
+                "conversions": evaluators.evaluate_conversions,
+            }
+            self._run_team(run_evaluators)
+            progress.refresh_from_db()
+            self.assertEqual(progress.progress_value, 42)
+            self.assertEqual(progress.last_computed_at, computed_at)
+            self.assertEqual(progress.state["checkpoint"], checkpoint)
+            self.assertIn("retry_after", progress.state)
+            self.assertFalse(tasks.is_due(progress))
+            self.assertNotIn(self.team.id, tasks.due_team_ids(100))
+            self.assertIsNotNone(self._team_progress("conversions").last_computed_at)
+            self._run_team(run_evaluators)
+            progress.refresh_from_db()
+            self.assertEqual(progress.last_computed_at, computed_at)
+
+            environment.test_account_filters = []
+            environment.save(update_fields=["test_account_filters"])
+            WebAnalyticsAchievementProgress.clear_filter_retry(self.team.id)
+            self.assertIn(self.team.id, tasks.due_team_ids(100))
+            self._run_team(run_evaluators)
+            progress.refresh_from_db()
+            self.assertEqual(progress.progress_value, 42 + (20 if child_environment else 10))
+            self.assertGreater(progress.last_computed_at, computed_at)
+            self.assertNotIn("retry_after", progress.state)
+
+    def test_filter_repair_racing_failed_evaluation_is_not_blocked_again(self) -> None:
+        stale_filters: list[dict[str, object]] = [{"key": "id", "type": "cohort", "operator": "not_in", "value": 12345}]
+        self.team.test_account_filters = stale_filters
+        self.team.save(update_fields=["test_account_filters"])
+
+        def evaluation_racing_repair(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluation:
+            Team.objects.filter(id=self.team.id).update(test_account_filters=[])
+            WebAnalyticsAchievementProgress.clear_filter_retry(self.team.id)
+            raise evaluators.InvalidTestAccountFiltersError(self.team.id, stale_filters)
+
+        self._run_team({**make_incremental_evaluators(), "cumulative_pageviews": evaluation_racing_repair})
+        progress = self._team_progress("traffic")
+        self.assertIsNone(progress.last_computed_at)
+        self.assertNotIn("retry_after", progress.state)
+        self.assertTrue(tasks.is_due(progress))
+
+    def test_stale_cohort_also_backs_off_conversions(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="Internal users", deleted=True)
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "operator": "not_in", "value": cohort.id}]
+        self.team.save(update_fields=["test_account_filters"])
+        Action.objects.create(team=self.team, name="Signup", steps_json=[{"event": "signup"}])
+        with patch.object(evaluators, "achievement_query_scope", return_value=nullcontext()):
+            self._run_team({**make_incremental_evaluators(), "conversions": evaluators.evaluate_conversions})
+        progress = self._team_progress("conversions")
+        self.assertIsNone(progress.last_computed_at)
+        self.assertEqual(progress.progress_value, 0)
+        self.assertFalse(tasks.is_due(progress))
 
     def test_team_track_stores_the_evaluator_checkpoint(self) -> None:
         checkpoint: dict[str, object] = {"counted_through": "2026-01-02T00:00:00+00:00"}
@@ -253,7 +336,7 @@ class TestSweep(BaseTest):
 
     @parameterized.expand(
         [
-            ("all_due", 10, KillSwitchLevel.OFF, ["never", "two_days", "twenty_one_hours"]),
+            ("all_due", 10, KillSwitchLevel.OFF, ["never", "two_days", "retry_expired", "twenty_one_hours"]),
             ("batch_limit_keeps_oldest", 2, KillSwitchLevel.OFF, ["never", "two_days"]),
             ("disabled_by_zero_batch", 0, KillSwitchLevel.OFF, []),
             ("clickhouse_kill_switch", 10, KillSwitchLevel.LIGHT, []),
@@ -271,4 +354,13 @@ class TestSweep(BaseTest):
             "maxed": self._team_with_traffic_progress("maxed", now - timedelta(days=2), current_stage=5),
             "inactive": self._team_with_traffic_progress("inactive", now - timedelta(days=2), visit_days_ago=30),
         }
+        team_ids["retry_expired"] = self._team_with_traffic_progress("expired", now - timedelta(hours=30))
+        blocked_id = self._team_with_traffic_progress("blocked", now - timedelta(days=3))
+        for team_id, retry_after in [
+            (team_ids["retry_expired"], now - timedelta(minutes=1)),
+            (blocked_id, now + timedelta(hours=1)),
+        ]:
+            WebAnalyticsAchievementProgress.objects.for_team(team_id).update(
+                state={"retry_after": retry_after.isoformat()}
+            )
         self.assertEqual(self._sweep(batch_size, kill_switch), [team_ids[name] for name in expected])

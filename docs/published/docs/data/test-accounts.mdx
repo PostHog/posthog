@@ -94,6 +94,8 @@ To see the effect right away, use the **Refresh** button on the insight, or the 
 Inline person property filters work on every surface, including real-time CDP destinations.
 
 Cohorts work for analytics queries such as insights and dashboards.
+A cohort filter must reference an existing cohort in the same project. Remove a cohort from these filters before deleting it.
+If an older filter references a deleted cohort, replace it in project settings. Web analytics achievements pause counting until the filter is repaired, preserving their previous progress.
 In CDP destinations they only work if the cohort is built exclusively from person property filters.
 A cohort that uses behavioral filters, or has no properties defined, causes CDP destinations to error.
 

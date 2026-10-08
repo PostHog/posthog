@@ -12,6 +12,8 @@ from celery import shared_task
 from prometheus_client import Counter
 from redis.exceptions import RedisError
 
+from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
+
 from posthog.celery_queues import CeleryQueue
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -39,6 +41,7 @@ from products.web_analytics.backend.achievements.evaluators import (
     EVALUATORS,
     INCREMENTAL_EVALUATORS,
     EvalContext,
+    InvalidTestAccountFiltersError,
     PriorProgress,
     TrackEvaluation,
 )
@@ -170,6 +173,9 @@ def get_or_create_progress(ctx: EvalContext, track: TrackDefinition) -> WebAnaly
 
 
 def is_due(progress: WebAnalyticsAchievementProgress) -> bool:
+    retry_after = parse_zoned_datetime_string((progress.state or {}).get("retry_after"))
+    if retry_after is not None and retry_after > timezone.now():
+        return False
     return progress.last_computed_at is None or progress.last_computed_at <= timezone.now() - RECOMPUTE_INTERVAL
 
 
@@ -224,6 +230,23 @@ def _recompute_track(ctx: EvalContext, track: TrackDefinition) -> None:
         return
     try:
         evaluation = evaluate_track(ctx, track, progress)
+    except InvalidTestAccountFiltersError as error:
+        with transaction.atomic():
+            current = (
+                WebAnalyticsAchievementProgress.objects.for_team(ctx.team.id).select_for_update().get(pk=progress.pk)
+            )
+            if (
+                current.last_computed_at == progress.last_computed_at
+                and current.state == progress.state
+                and Team.objects.filter(id=error.team_id, test_account_filters=error.filters).exists()
+            ):
+                current.state = {
+                    **(current.state or {}),
+                    "retry_after": (timezone.now() + RECOMPUTE_INTERVAL).isoformat(),
+                }
+                current.save(update_fields=["state"])
+        logger.warning("wa_achievements_invalid_test_account_filters", track=str(track.key), team_id=ctx.team.id)
+        return
     except TRANSIENT_ACHIEVEMENT_ERRORS:
         raise
     except Exception as e:
@@ -258,6 +281,7 @@ def _apply_progress(
         new_stage = max(progress.current_stage, track.stage_for_value(value, arm))
 
         state = dict(progress.state or {})
+        state.pop("retry_after", None)
         unlocked_stages = dict(state.get("unlocked_stages", {}))
         pending_celebrations = list(state.get("pending_celebrations", []))
         newly_unlocked: list[int] = []
@@ -334,6 +358,7 @@ def due_team_ids(limit: int) -> list[int]:
             team_id__in=active_team_ids,
         )
         .filter(Q(last_computed_at__isnull=True) | Q(last_computed_at__lte=timezone.now() - RECOMPUTE_INTERVAL))
+        .filter(Q(state__retry_after__isnull=True) | Q(state__retry_after__lte=timezone.now().isoformat()))
         .values("team_id")
         .annotate(oldest_computed_at=Min("last_computed_at"))
         .order_by(F("oldest_computed_at").asc(nulls_first=True), "team_id")

@@ -1501,7 +1501,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 teams_using_cohort = []
                 for team in teams_with_cohort:
                     for filter_item in team.test_account_filters:
-                        if filter_item.get("type") == "cohort" and filter_item.get("value") == cohort.id:
+                        if filter_item.get("type") == "cohort" and str(filter_item.get("value")) == str(cohort.id):
                             teams_using_cohort.append(team)
                             break
 
