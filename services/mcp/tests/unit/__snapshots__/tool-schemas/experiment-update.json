@@ -5884,6 +5884,133 @@
                     "description": "List wrapper for OpenAPI schema generation — the field stores an array of metrics.",
                     "items": {
                         "properties": {
+                            "breakdownAttributionType": {
+                                "anyOf": [
+                                    {
+                                        "enum": ["first_touch", "last_touch", "all_events", "step"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "For funnel metrics with breakdowns: which step the breakdown value is read from ('first_touch', 'last_touch', 'all_events' or 'step')."
+                            },
+                            "breakdownAttributionValue": {
+                                "anyOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                            },
+                            "breakdownFilter": {
+                                "anyOf": [
+                                    {
+                                        "properties": {
+                                            "breakdown_limit": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Maximum number of breakdown values to compute results for."
+                                            },
+                                            "breakdowns": {
+                                                "anyOf": [
+                                                    {
+                                                        "items": {
+                                                            "properties": {
+                                                                "group_type_index": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                "histogram_bin_count": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                "normalize_url": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                "property": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "number"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                "type": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "enum": [
+                                                                                "person",
+                                                                                "event",
+                                                                                "event_metadata",
+                                                                                "element",
+                                                                                "group",
+                                                                                "session",
+                                                                                "hogql",
+                                                                                "cohort",
+                                                                                "revenue_analytics",
+                                                                                "data_warehouse",
+                                                                                "data_warehouse_person_property"
+                                                                            ],
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ]
+                                                                }
+                                                            },
+                                                            "required": ["property"],
+                                                            "type": "object"
+                                                        },
+                                                        "type": "array"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Properties to break the metric results down by, at most 3. Each entry needs 'property' (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not supported for experiment metrics)."
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Break the metric results down by up to 3 event or person properties."
+                            },
                             "completion_event": {
                                 "anyOf": [
                                     {
@@ -7582,6 +7709,133 @@
                     "description": "List wrapper for OpenAPI schema generation — the field stores an array of metrics.",
                     "items": {
                         "properties": {
+                            "breakdownAttributionType": {
+                                "anyOf": [
+                                    {
+                                        "enum": ["first_touch", "last_touch", "all_events", "step"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "For funnel metrics with breakdowns: which step the breakdown value is read from ('first_touch', 'last_touch', 'all_events' or 'step')."
+                            },
+                            "breakdownAttributionValue": {
+                                "anyOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                            },
+                            "breakdownFilter": {
+                                "anyOf": [
+                                    {
+                                        "properties": {
+                                            "breakdown_limit": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Maximum number of breakdown values to compute results for."
+                                            },
+                                            "breakdowns": {
+                                                "anyOf": [
+                                                    {
+                                                        "items": {
+                                                            "properties": {
+                                                                "group_type_index": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                "histogram_bin_count": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                "normalize_url": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                "property": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "number"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                "type": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "enum": [
+                                                                                "person",
+                                                                                "event",
+                                                                                "event_metadata",
+                                                                                "element",
+                                                                                "group",
+                                                                                "session",
+                                                                                "hogql",
+                                                                                "cohort",
+                                                                                "revenue_analytics",
+                                                                                "data_warehouse",
+                                                                                "data_warehouse_person_property"
+                                                                            ],
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ]
+                                                                }
+                                                            },
+                                                            "required": ["property"],
+                                                            "type": "object"
+                                                        },
+                                                        "type": "array"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Properties to break the metric results down by, at most 3. Each entry needs 'property' (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not supported for experiment metrics)."
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Break the metric results down by up to 3 event or person properties."
+                            },
                             "completion_event": {
                                 "anyOf": [
                                     {
