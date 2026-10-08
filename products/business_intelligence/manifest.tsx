@@ -87,6 +87,7 @@ export const manifest: ProductManifest = {
                 'var(--color-product-business-intelligence-dark)',
             ],
             href: urls.businessIntelligence(),
+            searchKeywords: ['bi', 'pivot table', 'chart builder'],
             flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
             sceneKey: 'BusinessIntelligence',
         },

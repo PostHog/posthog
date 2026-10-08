@@ -37,7 +37,7 @@ import {
     unifiedSearchResultToSearchItem,
 } from './searchItems'
 import { searchListsLogic } from './searchListsLogic'
-import { filterSearchItems, shouldSearchTickets } from './utils'
+import { SEARCH_TAB_CATEGORY, filterSearchItems, shouldSearchTickets } from './utils'
 
 export interface SearchCategory {
     key: string
@@ -898,10 +898,11 @@ export const searchLogic = kea<searchLogicType>([
                 })
 
                 // Filter products and data management by search
-                const filterCatalogBySearch = (items: SearchItem[]): SearchItem[] =>
-                    hasSearch ? filterSearchItems(items, search) : items.filter((item) => !item.parentName)
-                const filteredProducts = filterCatalogBySearch(productsItems)
-                const filteredDataManagement = filterCatalogBySearch(dataManagementItems)
+                const isSearchTab = (item: SearchItem): boolean => item.category === SEARCH_TAB_CATEGORY
+                const withoutSearchTabs = (items: SearchItem[]): SearchItem[] =>
+                    items.filter((item) => !isSearchTab(item))
+                const filteredProducts = filterBySearch(withoutSearchTabs(productsItems))
+                const filteredDataManagement = filterBySearch(withoutSearchTabs(dataManagementItems))
 
                 // Show products if not searching or has matching results
                 if (!hasSearch || filteredProducts.length > 0) {
@@ -928,6 +929,17 @@ export const searchLogic = kea<searchLogicType>([
                         key: 'people',
                         items: filteredPeople,
                         isLoading: false,
+                    })
+                }
+
+                const filteredSearchTabs = filterBySearch(
+                    [...productsItems, ...dataManagementItems].filter(isSearchTab)
+                )
+                if (hasSearch && filteredSearchTabs.length > 0) {
+                    categories.push({
+                        key: SEARCH_TAB_CATEGORY,
+                        items: isProductsLoading ? [] : filteredSearchTabs,
+                        isLoading: isProductsLoading,
                     })
                 }
 

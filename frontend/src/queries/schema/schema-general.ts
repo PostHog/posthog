@@ -5547,9 +5547,9 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     intents?: ProductKey[]
     /** Display label override — when set, shown in the nav instead of the last segment of `path` */
     displayLabel?: string
-    /** Other terms that find this item in search, for example the names of its tabs or common synonyms */
+    /** Synonyms that find this item in search; a word that names a tab belongs on that tab's row instead */
     searchKeywords?: string[]
-    /** Tabs of this item that search lists as their own results */
+    /** Tabs with their own URL that search lists as separate rows, below products and people */
     searchTabs?: FileSystemSearchTab[]
 }
 
