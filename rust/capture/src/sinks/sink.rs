@@ -31,10 +31,7 @@ pub(crate) struct PreparedPayload {
     /// The output this record is addressed to. Each sink resolves it to its
     /// own target, as v1's sinks resolve their `Destination`.
     pub destination: Destination,
-    /// Raw key; whether the sink uses it is decided by `ordering`.
     pub partition_key: String,
-    /// The guarantee `partition_key` exists to preserve.
-    /// [`OrderingGuarantee::None`] means publish without a key.
     pub ordering: OrderingGuarantee,
     pub payload: Vec<u8>,
     pub headers: CapturedEventHeaders,

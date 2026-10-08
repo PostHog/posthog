@@ -41,11 +41,8 @@ pub trait PublishEvents: Send + Sync {
 pub struct PreparedEvent {
     pub uuid: Uuid,
     pub address: Address,
-    /// Raw key; whether the sink uses it is decided by `ordering`.
     pub partition_key: String,
-    /// [`OrderingGuarantee::None`] means publish without a key.
     pub ordering: OrderingGuarantee,
-    /// Built once; every target of the output publishes these same bytes.
     pub payload: bytes::Bytes,
     pub headers: CapturedEventHeaders,
 }
