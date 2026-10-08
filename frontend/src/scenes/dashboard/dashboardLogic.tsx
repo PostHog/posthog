@@ -1030,8 +1030,12 @@ export interface dashboardLogicActions {
     tileStreamingComplete: () => {
         value: true
     }
-    tileStreamingFailure: (error: any) => {
+    tileStreamingFailure: (
+        error: any,
+        willRetry?: boolean
+    ) => {
         error: any
+        willRetry: boolean
     }
     toggleAddWidgetCollapsedGroup: (groupId: string) => {
         groupId: string
@@ -1435,7 +1439,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /** Tile streaming completed. */
         tileStreamingComplete: true,
         /** Tile streaming failed. */
-        tileStreamingFailure: (error: any) => ({ error }),
+        tileStreamingFailure: (error: any, willRetry = false) => ({ error, willRetry }),
         /** A non-404 stream failure left no dashboard to render — show a load error, not "not found". */
         setDashboardStreamFailed: true,
         /** Retry a failed load through the same load path as the initial load. */
@@ -1735,7 +1739,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         (error, willRetry = false) => {
                             cache.dashboardStreamActive = willRetry
                             console.error('❌ Tile streaming error:', error)
-                            actions.tileStreamingFailure(error)
+                            actions.tileStreamingFailure(error, willRetry)
                         }
                     )
                     cache.disposables.add(
@@ -3800,7 +3804,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.retryDashboardLoad()
             }
         },
-        tileStreamingFailure: ({ error }) => {
+        tileStreamingFailure: ({ error, willRetry }) => {
             // Only a genuine 404 response means the dashboard is missing. Stream errors can contain
             // "404" in their message even when the dashboard still exists.
             if (error?.status === 404) {
@@ -3811,10 +3815,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Show error toast for other errors (500s, network issues, etc.)
                 const errorMessage = error?.message || 'Dashboard streaming failed'
                 lemonToast.error(`Failed to load dashboard: ${errorMessage}`)
-                // If the stream died before any metadata arrived there is no dashboard to render.
-                // The empty-state gate would otherwise fall through to the "Dashboard not found" screen,
-                // so mark the load as failed to show a load-error state instead.
-                if (!values.dashboard) {
+                // A stopped stream can leave missing tiles even after metadata arrived. Keep recovery
+                // available for terminal errors, and show a load error when there is nothing to render.
+                if (!willRetry || !values.dashboard) {
                     actions.setDashboardStreamFailed()
                 }
             }

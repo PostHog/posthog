@@ -2462,7 +2462,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.tileStreamingFailure({ message: 'Query failed with code 404 upstream' })
+                logic.actions.tileStreamingFailure({ message: 'Query failed with code 404 upstream' }, true)
             }).toFinishAllListeners()
             expect(logic.values.error404).toBe(false)
             expect(logic.values.dashboardFailedToLoad).toBe(false)
@@ -2607,9 +2607,9 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboard).not.toBeNull()
         })
 
-        it.each(['request', 'online'])(
-            'keeps an auto-retrying stream on %s recovery but replaces an ended one',
-            async (trigger) => {
+        it.each(['request', 'online'].flatMap((trigger) => [false, true].map((metadata) => ({ trigger, metadata }))))(
+            'keeps an auto-retrying stream on $trigger recovery but replaces an ended one (metadata=$metadata)',
+            async ({ trigger, metadata }) => {
                 const globals = globalThis as { EventSource?: unknown }
                 const originalEventSource = globals.EventSource
                 globals.EventSource = class {}
@@ -2631,26 +2631,36 @@ describe('dashboardLogic', () => {
                             apiStatusLogic.actions.setInternetConnectionIssue(false)
                         }
                     }
+                    if (metadata) {
+                        streamTilesSpy.mock.calls[0][2]({ type: 'metadata', dashboard: dashboardResult(5, []) })
+                        streamTilesSpy.mock.calls[0][2]({ type: 'tile', tile: TEXT_TILE })
+                    }
                     const onError = streamTilesSpy.mock.calls[0][4]
                     await expectLogic(logic, () =>
                         onError(new TypeError('Failed to fetch'), true)
                     ).toFinishAllListeners()
-                    expect(logic.values.dashboardFailedToLoad).toBe(true)
+                    expect(logic.values.dashboardFailedToLoad).toBe(!metadata)
 
                     await expectLogic(logic, recover).toFinishAllListeners()
                     expect(streamTilesSpy).toHaveBeenCalledTimes(1)
                     expect(disposeStream).not.toHaveBeenCalled()
 
-                    await expectLogic(logic, () => onError(new Error('Stream ended'))).toFinishAllListeners()
+                    await expectLogic(logic, () =>
+                        onError(new SyntaxError('Unreadable dashboard message'))
+                    ).toFinishAllListeners()
+                    expect(logic.values.dashboardFailedToLoad).toBe(true)
                     await expectLogic(logic, recover).toFinishAllListeners()
                     expect(streamTilesSpy).toHaveBeenCalledTimes(2)
                     expect(disposeStream).toHaveBeenCalledTimes(1)
 
                     await expectLogic(logic, () => {
                         streamTilesSpy.mock.calls[1][2]({ type: 'metadata', dashboard: dashboardResult(5, []) })
+                        streamTilesSpy.mock.calls[1][2]({ type: 'tile', tile: TEXT_TILE })
+                        streamTilesSpy.mock.calls[1][2]({ type: 'tile', tile: { ...TEXT_TILE, id: 6 } })
                         streamTilesSpy.mock.calls[1][3]()
                     }).toFinishAllListeners()
                     expect(logic.values.dashboard?.id).toBe(5)
+                    expect(logic.values.tiles?.map((tile) => tile.id)).toEqual([TEXT_TILE.id, 6])
                     expect(logic.values.dashboardFailedToLoad).toBe(false)
                 } finally {
                     globals.EventSource = originalEventSource
