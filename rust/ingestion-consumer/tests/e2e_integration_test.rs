@@ -3,6 +3,8 @@
 //! Requires Kafka on localhost:9092 (available via docker-compose).
 //! Each test creates a uniquely-named topic to avoid cross-test interference.
 
+mod common;
+
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -26,6 +28,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use common_kafka_consumer::{TopicOffsetLedger, TopicPartition};
+use ingestion_consumer::batcher::BatcherObserver;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::dispatcher::Dispatcher;
@@ -487,7 +490,7 @@ struct Harness {
     scheduler: SchedulerKind,
     pub workers: Vec<FakeWorker>,
     pub registry: Arc<WorkerRegistry>,
-    pub dispatcher: Arc<Dispatcher>,
+    pub observer: BatcherObserver,
     /// Cross-worker, receipt-ordered log of every accepted message.
     pub delivery_log: DeliveryLog,
     pub shutdown: CancellationToken,
@@ -556,7 +559,7 @@ fn test_transport() -> GrpcTransport {
 fn spawn_reaper(
     registry: Arc<WorkerRegistry>,
     transport: Arc<GrpcTransport>,
-    dispatcher: Arc<Dispatcher>,
+    observer: BatcherObserver,
     token: CancellationToken,
 ) {
     tokio::spawn(async move {
@@ -566,7 +569,7 @@ fn spawn_reaper(
                 _ = tokio::time::sleep(Duration::from_millis(100)) => {}
             }
             for worker in registry.draining_workers() {
-                if !dispatcher.has_in_flight(&worker) {
+                if !observer.has_in_flight(&worker) {
                     registry.complete_drain(&worker);
                 }
             }
@@ -669,20 +672,12 @@ impl Harness {
         let probe_token = CancellationToken::new();
         Arc::clone(&registry).start_probing(probe_token.clone());
 
-        let dispatcher = Arc::new(Dispatcher::with_scheduler(
+        let dispatcher = Arc::new(Dispatcher::with_strategy(
             Arc::clone(&registry),
             RoutingStrategy::default(),
-            kind,
         ));
         let registry_for_test = Arc::clone(&registry);
-        let dispatcher_for_test = Arc::clone(&dispatcher);
         let transport = Arc::new(test_transport());
-        spawn_reaper(
-            Arc::clone(&registry),
-            Arc::clone(&transport),
-            Arc::clone(&dispatcher),
-            probe_token.clone(),
-        );
 
         let mut manager = Manager::builder("e2e-test")
             .with_trap_signals(false)
@@ -697,10 +692,19 @@ impl Harness {
         let ledger = context.topic_offset_ledger();
         let kafka_consumer = make_kafka_consumer_with_context(topic, &group_id, None, context);
 
+        let (batcher, outputs) = common::batcher(
+            kind,
+            &dispatcher,
+            Arc::clone(&transport),
+            handle.clone(),
+            deferred_flush_timeout,
+            Duration::from_millis(200),
+        );
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
-            dispatcher,
-            transport,
+            batcher,
+            outputs,
+            Arc::clone(&transport),
             worker_urls,
             IngestionConsumerOptions {
                 batch_size: 50,
@@ -708,11 +712,16 @@ impl Harness {
                 batch_timeout: Duration::from_millis(100),
                 max_in_flight_batches: max_in_flight,
                 group_id: "e2e-test".to_string(),
-                deferred_flush_timeout,
-                parked_retry_interval: Duration::from_millis(200),
                 debug_recorder: None,
             },
             handle,
+        );
+        let observer = consumer.batcher_observer();
+        spawn_reaper(
+            Arc::clone(&registry),
+            transport,
+            observer.clone(),
+            probe_token.clone(),
         );
 
         let task = tokio::spawn(async move { consumer.process().await });
@@ -724,7 +733,7 @@ impl Harness {
             scheduler: kind,
             workers,
             registry: registry_for_test,
-            dispatcher: dispatcher_for_test,
+            observer,
             delivery_log,
             shutdown,
             task: Some(task),
@@ -754,18 +763,11 @@ impl Harness {
 
         let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config));
         Arc::clone(&registry).start_probing(self._probe_token.clone());
-        let dispatcher = Arc::new(Dispatcher::with_scheduler(
+        let dispatcher = Arc::new(Dispatcher::with_strategy(
             Arc::clone(&registry),
             RoutingStrategy::default(),
-            self.scheduler,
         ));
         let transport = Arc::new(test_transport());
-        spawn_reaper(
-            Arc::clone(&registry),
-            Arc::clone(&transport),
-            Arc::clone(&dispatcher),
-            self._probe_token.clone(),
-        );
 
         let mut manager = Manager::builder("e2e-test-restarted")
             .with_trap_signals(false)
@@ -777,10 +779,19 @@ impl Harness {
         self.ledger = context.topic_offset_ledger();
         let kafka_consumer =
             make_kafka_consumer_with_context(&self.topic, &self.group_id, None, context);
+        let (batcher, outputs) = common::batcher(
+            self.scheduler,
+            &dispatcher,
+            Arc::clone(&transport),
+            handle.clone(),
+            self.deferred_flush_timeout,
+            Duration::from_millis(200),
+        );
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
-            Arc::clone(&dispatcher),
-            transport,
+            batcher,
+            outputs,
+            Arc::clone(&transport),
             worker_urls,
             IngestionConsumerOptions {
                 batch_size: 50,
@@ -788,15 +799,19 @@ impl Harness {
                 batch_timeout: Duration::from_millis(100),
                 max_in_flight_batches: self.max_in_flight,
                 group_id: "e2e-test".to_string(),
-                deferred_flush_timeout: self.deferred_flush_timeout,
-                parked_retry_interval: Duration::from_millis(200),
                 debug_recorder: None,
             },
             handle,
         );
+        self.observer = consumer.batcher_observer();
+        spawn_reaper(
+            Arc::clone(&registry),
+            transport,
+            self.observer.clone(),
+            self._probe_token.clone(),
+        );
 
         self.registry = registry;
-        self.dispatcher = dispatcher;
         self.task = Some(tokio::spawn(async move { consumer.process().await }));
 
         // Give the restarted consumer time to rejoin the group and start polling.
@@ -1460,16 +1475,16 @@ async fn deferred_flush_retries_until_a_worker_recovers(#[case] kind: SchedulerK
     wait_until(
         Duration::from_secs(10),
         "the failed send to be deferred",
-        || harness.dispatcher.held_messages() > 0,
+        || harness.observer.held_messages() > 0,
     )
     .await;
 
     // The deferred work is held steady — the flush loop is backing off, not
     // dropping anything — for as long as no worker is available.
-    let held = harness.dispatcher.held_messages();
+    let held = harness.observer.held_messages();
     tokio::time::sleep(liveness_deadline * 4).await;
     assert_eq!(
-        harness.dispatcher.held_messages(),
+        harness.observer.held_messages(),
         held,
         "deferred work must be held steady while no worker is available"
     );
@@ -1550,7 +1565,7 @@ async fn no_worker_exit_comes_from_the_flush_timeout_not_a_liveness_stall(
     wait_until(
         Duration::from_secs(10),
         "the failed send to be deferred",
-        || harness.dispatcher.held_messages() > 0,
+        || harness.observer.held_messages() > 0,
     )
     .await;
     let deferred_at = tokio::time::Instant::now();
@@ -1640,7 +1655,7 @@ async fn slow_deferred_drain_with_progress_outlasts_the_flush_timeout(#[case] ki
     harness.workers[2].ingest_ok.store(false, Ordering::SeqCst);
     drop(guard2);
     wait_until(Duration::from_secs(10), "worker 2 to answer", || {
-        harness.workers[2].arrived_count() == 1 && harness.dispatcher.held_messages() > 0
+        harness.workers[2].arrived_count() == 1 && harness.observer.held_messages() > 0
     })
     .await;
     let guard2 = harness.workers[2].block().await;
@@ -1836,7 +1851,7 @@ async fn flush_target_failure_re_defers_then_replays_in_order(#[case] kind: Sche
     wait_until(
         Duration::from_secs(10),
         "re-deferred work to be held after the replay target also fails",
-        || harness.dispatcher.held_messages() > 0,
+        || harness.observer.held_messages() > 0,
     )
     .await;
 
@@ -2046,7 +2061,7 @@ async fn forced_reap_at_drain_timeout_reroutes_deferred_work(#[case] kind: Sched
         produce(&producer, &topic, 0, "tok", "user-1", seq).await;
     }
     wait_until(Duration::from_secs(10), "batch 2 to defer", || {
-        harness.dispatcher.held_messages() > 0
+        harness.observer.held_messages() > 0
     })
     .await;
 
@@ -2394,7 +2409,7 @@ async fn drainer_crash_mid_drain_replays_to_survivor_in_order(#[case] kind: Sche
         produce(&producer, &topic, 0, "tok", "user-1", seq).await;
     }
     wait_until(Duration::from_secs(10), "batch 2 to defer", || {
-        harness.dispatcher.held_messages() > 0
+        harness.observer.held_messages() > 0
     })
     .await;
 
@@ -2466,7 +2481,7 @@ async fn full_pool_send_failure_with_multiple_keys_recovers_in_order(#[case] kin
     wait_until(
         Duration::from_secs(10),
         "all failed work to be stashed",
-        || harness.dispatcher.held_messages() == 8,
+        || harness.observer.held_messages() == 8,
     )
     .await;
 
@@ -2740,18 +2755,26 @@ async fn second_consumer_joining_the_group_preserves_all_messages(#[case] kind: 
     let registry2 = Arc::new(WorkerRegistry::new(&worker_urls, fast_registry_config()));
     let probe2 = CancellationToken::new();
     Arc::clone(&registry2).start_probing(probe2.clone());
-    let dispatcher2 = Arc::new(Dispatcher::with_scheduler(
+    let dispatcher2 = Arc::new(Dispatcher::with_strategy(
         Arc::clone(&registry2),
         RoutingStrategy::default(),
-        kind,
     ));
     let transport2 = Arc::new(test_transport());
     let mut manager2 = Manager::builder("e2e-c2").with_trap_signals(false).build();
     let handle2 = manager2.register("consumer", ComponentOptions::new());
     let shutdown2 = handle2.shutdown_token();
+    let (batcher, outputs) = common::batcher(
+        kind,
+        &dispatcher2,
+        Arc::clone(&transport2),
+        handle2.clone(),
+        Duration::from_secs(60),
+        Duration::from_millis(200),
+    );
     let consumer2 = IngestionConsumer::from_parts(
         make_kafka_consumer(&topic, &harness.group_id, None),
-        dispatcher2,
+        batcher,
+        outputs,
         transport2,
         worker_urls,
         IngestionConsumerOptions {
@@ -2760,8 +2783,6 @@ async fn second_consumer_joining_the_group_preserves_all_messages(#[case] kind: 
             batch_timeout: Duration::from_millis(100),
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
-            deferred_flush_timeout: Duration::from_secs(60),
-            parked_retry_interval: Duration::from_millis(200),
             debug_recorder: None,
         },
         handle2,
@@ -2854,10 +2875,9 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive(#[case] kind: Sche
     let registry2 = Arc::new(WorkerRegistry::new(&worker_urls, fast_registry_config()));
     let probe2 = CancellationToken::new();
     Arc::clone(&registry2).start_probing(probe2.clone());
-    let dispatcher2 = Arc::new(Dispatcher::with_scheduler(
+    let dispatcher2 = Arc::new(Dispatcher::with_strategy(
         Arc::clone(&registry2),
         RoutingStrategy::default(),
-        kind,
     ));
     let transport2 = Arc::new(test_transport());
     let mut manager2 = Manager::builder("e2e-regain-c2")
@@ -2865,9 +2885,18 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive(#[case] kind: Sche
         .build();
     let handle2 = manager2.register("consumer", ComponentOptions::new());
     let shutdown2 = handle2.shutdown_token();
+    let (batcher, outputs) = common::batcher(
+        kind,
+        &dispatcher2,
+        Arc::clone(&transport2),
+        handle2.clone(),
+        Duration::from_secs(60),
+        Duration::from_millis(200),
+    );
     let consumer2 = IngestionConsumer::from_parts(
         make_kafka_consumer(&topic, &harness.group_id, None),
-        dispatcher2,
+        batcher,
+        outputs,
         transport2,
         worker_urls,
         IngestionConsumerOptions {
@@ -2876,8 +2905,6 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive(#[case] kind: Sche
             batch_timeout: Duration::from_millis(100),
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
-            deferred_flush_timeout: Duration::from_secs(60),
-            parked_retry_interval: Duration::from_millis(200),
             debug_recorder: None,
         },
         handle2,
@@ -2975,10 +3002,9 @@ async fn fenced_static_member_exits_on_fatal_error(#[case] kind: SchedulerKind) 
     let registry = Arc::new(WorkerRegistry::new(&urls, fast_registry_config()));
     let probe = CancellationToken::new();
     Arc::clone(&registry).start_probing(probe.clone());
-    let dispatcher = Arc::new(Dispatcher::with_scheduler(
+    let dispatcher = Arc::new(Dispatcher::with_strategy(
         Arc::clone(&registry),
         RoutingStrategy::default(),
-        kind,
     ));
     let transport = Arc::new(test_transport());
     let mut manager = Manager::builder("e2e-fenced")
@@ -2986,9 +3012,18 @@ async fn fenced_static_member_exits_on_fatal_error(#[case] kind: SchedulerKind) 
         .build();
     let handle = manager.register("consumer", ComponentOptions::new());
     let group = format!("e2e-{}", Uuid::new_v4());
+    let (batcher, outputs) = common::batcher(
+        kind,
+        &dispatcher,
+        Arc::clone(&transport),
+        handle.clone(),
+        Duration::from_secs(60),
+        Duration::from_millis(200),
+    );
     let consumer = IngestionConsumer::from_parts(
         make_kafka_consumer(&topic, &group, Some("pod-1")),
-        dispatcher,
+        batcher,
+        outputs,
         transport,
         urls,
         IngestionConsumerOptions {
@@ -2997,8 +3032,6 @@ async fn fenced_static_member_exits_on_fatal_error(#[case] kind: SchedulerKind) 
             batch_timeout: Duration::from_millis(100),
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
-            deferred_flush_timeout: Duration::from_secs(60),
-            parked_retry_interval: Duration::from_millis(200),
             debug_recorder: None,
         },
         handle,
@@ -3198,9 +3231,9 @@ async fn run_churn_suite(
         Duration::from_secs(10),
         "dispatcher pins/in-flight/stash to drain to zero after churn",
         || {
-            harness.dispatcher.held_messages() == 0
-                && harness.dispatcher.pin_count() == 0
-                && harness.dispatcher.total_in_flight() == 0
+            harness.observer.held_messages() == 0
+                && harness.observer.pin_count() == 0
+                && harness.observer.total_in_flight() == 0
         },
     )
     .await;

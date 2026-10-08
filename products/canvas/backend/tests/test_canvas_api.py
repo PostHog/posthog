@@ -2404,6 +2404,44 @@ class TestCanvasActions(CanvasAPIBaseTest):
 
     @parameterized.expand(
         [
+            ("archived_editor", "archived", "editor", status.HTTP_409_CONFLICT),
+            # Archived wins over a missing editor grant, so the caller learns why nothing changed.
+            ("archived_viewer", "archived", "viewer", status.HTTP_409_CONFLICT),
+            ("active_viewer", "active", "viewer", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_workflow_verbs_refuse_archived_then_check_object_access(
+        self, _name, workflow_status, access_level, expected_status
+    ):
+        canvas_id = self._actions_canvas(verbs=("workflows.pause",))
+        loop = create_workflow_for_test(
+            team_id=self.team.id,
+            name="Plan",
+            status=workflow_status,
+            trigger={"type": "schedule"},
+            actions=[{"id": "trigger", "type": "trigger", "name": "Scheduled", "config": {"type": "schedule"}}],
+            edges=[],
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="hog_flow",
+            resource_id=str(loop.id),
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=self.user),
+            access_level=access_level,
+        )
+        cache.clear()
+
+        response = self._invoke(canvas_id, "workflows.pause", {"workflow_ids": [str(loop.id)]})
+
+        assert response.status_code == expected_status, response.json()
+        assert get_workflow_summary(team_id=self.team.id, workflow_id=loop.id).status == workflow_status
+
+    @parameterized.expand(
+        [
             ([],),
             (
                 [

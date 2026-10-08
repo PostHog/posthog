@@ -166,20 +166,15 @@ def select_changed(
 ) -> tuple[list[tuple[str, dict]], dict[str, str]]:
     """Keep only bundles whose hash differs from the snapshot. Returns (changed, hashes-for-changed).
     Last write wins when a distinct_id appears twice in one run."""
-    changed: list[tuple[str, dict]] = []
+    changed: dict[str, dict] = {}
     new_hashes: dict[str, str] = {}
-    seen: set[str] = set()
     for distinct_id, bundle in bundles:
         current = bundle_hash(bundle)
         if prior_hashes.get(distinct_id) == current and distinct_id not in new_hashes:
             continue
-        if distinct_id in seen:
-            # replace the earlier bundle for this run with the later one
-            changed = [(d, b) for d, b in changed if d != distinct_id]
-        changed.append((distinct_id, bundle))
+        changed[distinct_id] = bundle
         new_hashes[distinct_id] = current
-        seen.add(distinct_id)
-    return changed, new_hashes
+    return list(changed.items()), new_hashes
 
 
 # --- S3 / Kafka / personhog boundaries (mocked in tests) ---------------------------------
@@ -459,7 +454,9 @@ async def _process_source_bundles(
     await database_sync_to_async(_reconcile_property_definitions, thread_sensitive=False)(
         team_id, project_id, binding, source, list((source.column_property_map or {}).values())
     )
-    changed, new_hashes = select_changed(bundles, prior)
+    # Hashing every bundle is CPU work. Run it in a thread so that the event loop, and the
+    # heartbeater on it, keep running for a large table.
+    changed, new_hashes = await asyncio.to_thread(select_changed, bundles, prior)
     ps.changed = len(changed)
     if not changed:
         return ps
@@ -554,7 +551,7 @@ async def run_person_property_sync(*, team_id: int, binding: WarehouseBinding, j
     )
 
     for source in sources:
-        bundles = build_bundles(rows, source.key_column, source.column_property_map or {})
+        bundles = await asyncio.to_thread(build_bundles, rows, source.key_column, source.column_property_map or {})
         ps = await _process_source_bundles(
             team_id=team_id,
             project_id=team.project_id,

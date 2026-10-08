@@ -1,6 +1,7 @@
 from typing import cast
 from uuid import UUID
 
+from django.db import models
 from django.http import JsonResponse
 
 import structlog
@@ -98,10 +99,16 @@ class ErrorTrackingIssueAssigneeIdField(serializers.Field):
         return value if isinstance(value, int | str) else str(value)
 
 
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class AssigneeType(models.TextChoices):
+    USER = "user", "user"
+    ROLE = "role", "role"
+
+
 class ErrorTrackingIssueAssigneeWriteSerializer(serializers.Serializer):
     id = ErrorTrackingIssueAssigneeIdField(help_text="User ID or role UUID to assign the issue to.")
     type = serializers.ChoiceField(
-        choices=["user", "role"],
+        choices=AssigneeType.choices,
         help_text="Assignment target type: user or role.",
     )
 
