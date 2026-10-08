@@ -257,20 +257,15 @@ def _denied(detail: str, status_code: int, **extra: Any) -> CanvasActionDenied:
 
 
 def _set_flag_active(team_id: int, user_id: int, payload: dict[str, Any], *, active: bool) -> dict[str, Any]:
-    from posthog.models.team.team import Team  # noqa: PLC0415
-    from posthog.models.user import User  # noqa: PLC0415
-
     from products.feature_flags.backend.facade import api as flags_facade  # noqa: PLC0415 — load on execute
 
-    flag = flags_facade.find_flag_by_key(team_id=team_id, key=payload["flag_key"])
-    if flag is None:
-        raise _denied(f'No feature flag "{payload["flag_key"]}" in this project.', http_status.HTTP_404_NOT_FOUND)
-    team = Team.objects.get(id=team_id)
-    user = User.objects.get(id=user_id)
-    if not flags_facade.user_can_edit_flag(flag, team=team, user=user):
-        raise _denied(f"You cannot edit feature flag {flag.key}.", http_status.HTTP_403_FORBIDDEN)
+    key = payload["flag_key"]
     try:
-        saved = flags_facade.set_flag_active(flag, active, team=team, user=user)
+        flag_id = flags_facade.set_flag_active_by_key(team_id=team_id, user_id=user_id, key=key, active=active)
+    except flags_facade.FlagNotFound:
+        raise _denied(f'No feature flag "{key}" in this project.', http_status.HTTP_404_NOT_FOUND)
+    except flags_facade.FlagEditDenied:
+        raise _denied(f"You cannot edit feature flag {key}.", http_status.HTTP_403_FORBIDDEN)
     except flags_facade.ApprovalRequired as approval:
         raise _denied(
             approval.message, http_status.HTTP_409_CONFLICT, change_request_id=str(approval.change_request.id)
@@ -286,7 +281,7 @@ def _set_flag_active(team_id: int, user_id: int, payload: dict[str, Any], *, act
         )
     except ValidationError as error:
         raise _denied(str(error.detail), http_status.HTTP_400_BAD_REQUEST)
-    return {"flag_id": saved.id, "flag_key": saved.key, "active": saved.active}
+    return {"flag_id": flag_id, "flag_key": key, "active": active}
 
 
 def _enable_flag(team_id: int, user_id: int, canvas: "Canvas", payload: dict[str, Any]) -> dict[str, Any]:
