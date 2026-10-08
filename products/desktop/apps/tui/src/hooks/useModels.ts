@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import type { Composer } from "../composer";
 import { messageOf } from "../errors";
 import { findPane, type LayoutState } from "../layout";
-import type { LocalSession } from "../local";
+import type { LocalAgent } from "../local";
 import {
   type Effort,
   effortSheet,
@@ -55,7 +55,7 @@ export function useModels({
 }: {
   layout: LayoutState;
   isLocal: (taskId: string | null) => taskId is string;
-  localSessions: Map<string, LocalSession>;
+  localSessions: Map<string, LocalAgent>;
   control: ((taskId: string, runId: string) => PiControl) | undefined;
   composerFor: (paneId: string) => Composer;
   openModal: (

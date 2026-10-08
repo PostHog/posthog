@@ -1,4 +1,9 @@
-import { appendFileSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { machineClaudeAuth } from "@posthog/agent/adapters/claude/machine-auth";
+import { hasClaudeLogin } from "@posthog/agent/adapters/claude/subscription-login";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import type { AuthService } from "@posthog/core/auth/auth";
 import { createCloudTaskEngine } from "@posthog/core/cloud-task/cloud-task-engine";
@@ -6,7 +11,10 @@ import { GatewayTokenService } from "@posthog/core/llm-gateway/gateway-token";
 import { CloudArtifactService } from "@posthog/core/sessions/cloudArtifactService";
 import type { RootLogger, ScopedLogger } from "@posthog/di/logger";
 import type { IAnalytics } from "@posthog/platform/analytics";
+import type { IWorkspaceSettings } from "@posthog/platform/workspace-settings";
 import { TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
+import type { IWorkspaceRepository } from "@posthog/workspace-server/db/repositories/workspace-repository";
+import { AgentService } from "@posthog/workspace-server/services/agent/agent";
 import { AgentAuthAdapter } from "@posthog/workspace-server/services/agent/auth-adapter";
 import type {
   AgentAuth,
@@ -15,13 +23,16 @@ import type {
 import { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/auth-proxy";
 import { McpProxyService } from "@posthog/workspace-server/services/mcp-proxy/mcp-proxy";
 import { LocalPiRpcClientFactory } from "@posthog/workspace-server/services/pi-session/pi-rpc-client-factory";
+import type { PosthogPluginService } from "@posthog/workspace-server/services/posthog-plugin/posthog-plugin";
+import { ProcessTrackingService } from "@posthog/workspace-server/services/process-tracking/process-tracking";
 import type { TuiAuth } from "./auth";
 import { localStartFor } from "./billing";
 import { chatgptAccount } from "./chatgpt";
 import { currentRepository, PiChats } from "./chats";
+import { ClaudeLocalSession } from "./claudeLocal";
 import { claudeTokenStore } from "./claudeToken";
 import { LOG_PATH } from "./errors";
-import { LocalSession } from "./local";
+import { type LocalAgent, LocalSession } from "./local";
 import { LocalChats } from "./localChats";
 import { type PiCommand, type PiControl, piControl } from "./models";
 import { loadPrefs } from "./prefs";
@@ -91,6 +102,66 @@ const noAnalytics: IAnalytics = {
 };
 
 // MCP apps render inside the desktop app; the terminal has nowhere to show them.
+// The user's own Claude Code, the one `claude auth login` signed in.
+function claudeBinary(): string {
+  try {
+    return execFileSync("which", ["claude"], { encoding: "utf8" }).trim();
+  } catch {
+    return join(homedir(), ".local", "bin", "claude");
+  }
+}
+
+// The desktop app's agent service, with its Electron-only needs stubbed: it only runs Claude Code here.
+function createClaudeAgent(
+  mcp: AgentAuthAdapter,
+  logger: RootLogger,
+): AgentService {
+  const dataDir = join(homedir(), ".config", "posthog-tui", "agent");
+  mkdirSync(join(dataDir, "plugin", "skills"), { recursive: true });
+  const claude = claudeBinary();
+  return new AgentService(
+    new ProcessTrackingService(),
+    { acquire: () => {}, release: () => {} },
+    { readRepoFile: async () => null, writeRepoFile: async () => {} },
+    {
+      getPluginPath: () => join(dataDir, "plugin"),
+    } as unknown as PosthogPluginService,
+    mcp,
+    noMcpApps,
+    {
+      onResume: () => () => {},
+      preventSleep: () => () => {},
+      hasBuiltInBattery: async () => false,
+    },
+    {
+      resolve: (path) =>
+        path.endsWith("/claude") ? claude : join(dataDir, path),
+    },
+    {
+      version: "0.0.0-dev",
+      isProduction: false,
+      platform: process.platform,
+      arch: process.arch,
+    },
+    { appDataPath: dataDir, logsPath: dataDir, logFolderPath: dataDir },
+    {
+      getAdditionalDirectories: async () => [],
+    } as unknown as IWorkspaceRepository,
+    {
+      getWorktreeLocation: () => join(dataDir, "worktrees"),
+    } as unknown as IWorkspaceSettings,
+    logger,
+  );
+}
+
+const claudeLoggedIn = async (): Promise<boolean> =>
+  (
+    await hasClaudeLogin({
+      claudeCliPath: claudeBinary(),
+      machineAuth: machineClaudeAuth(),
+    })
+  ).state === "logged-in";
+
 const noMcpApps: AgentMcpApps = {
   handleDiscovery: async () => {},
   setServerConfigs: () => {},
@@ -109,7 +180,7 @@ export function createCloud(
   runs: CloudRuns;
   chats: PiChats;
   control: (taskId: string, runId: string) => PiControl;
-  startLocal: (id: string) => Promise<LocalSession>;
+  startLocal: (id: string) => Promise<LocalAgent>;
   today: TodayClient;
 } {
   let teamId: Promise<number> | null = null;
@@ -248,6 +319,7 @@ export function createCloud(
     gateway,
   );
   const localChats = new LocalChats();
+  let claudeAgent: AgentService | undefined;
   const sendPi: PiCommand = async (input) =>
     engine.sendCommand({ ...input, ...(await context()) });
   return {
@@ -275,13 +347,30 @@ export function createCloud(
     // A local chat runs the harness in the folder the TUI started in, on the same PostHog login.
     startLocal: async (id) => {
       projectId = (await context()).teamId;
+      const start = localStartFor(loadPrefs().billing, {
+        chatgptAccount: chatgptAccount(),
+      });
+      if (start.harness === "claude") {
+        claudeAgent ??= createClaudeAgent(mcp, logger);
+        const session = new ClaudeLocalSession(
+          claudeAgent,
+          {
+            taskId: id,
+            taskRunId: id,
+            cwd: process.cwd(),
+            apiHost: auth.apiHost,
+            projectId,
+          },
+          claudeLoggedIn,
+        );
+        await session.start();
+        return session;
+      }
       const session = new LocalSession(
         await piClients.create({
           sessionFile: localChats.sessionFile(id),
           taskContext: { taskId: id, cwd: process.cwd() },
-          ...localStartFor(loadPrefs().billing, {
-            chatgptAccount: chatgptAccount(),
-          }),
+          model: start.model,
         }),
         mcp,
       );

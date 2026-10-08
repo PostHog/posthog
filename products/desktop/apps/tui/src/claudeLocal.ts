@@ -1,0 +1,186 @@
+import type { RequestPermissionRequest } from "@agentclientprotocol/sdk";
+import type { AcpMessage, StoredLogEntry } from "@posthog/shared";
+import type { AgentService } from "@posthog/workspace-server/services/agent/agent";
+import { AgentServiceEvent } from "@posthog/workspace-server/services/agent/schemas";
+import type { LocalAgent } from "./local";
+import type { PiControl } from "./models";
+import { type AgentPrompt, type PromptReply, promptId } from "./prompts";
+import { emptyRunView, type RunView } from "./runs";
+
+export interface ClaudeLocalInput {
+  taskId: string;
+  taskRunId: string;
+  cwd: string;
+  apiHost: string;
+  projectId: number;
+}
+
+const NOT_ON_CLAUDE = "Not available on a Claude Code chat";
+const unavailable = (): Promise<never> =>
+  Promise.reject(new Error(NOT_ON_CLAUDE));
+
+// Claude Code running on this machine on the user's own Claude plan, through the desktop app's agent service.
+export class ClaudeLocalSession implements LocalAgent {
+  readonly runtime = "acp";
+  readonly control: PiControl;
+  private sessionId: string | null = null;
+  private turn: Promise<unknown> | null = null;
+  private readonly listeners = new Set<(view: RunView) => void>();
+  private view: RunView = emptyRunView;
+  private prompts: AgentPrompt[] = [];
+  private readonly promptListeners = new Set<
+    (prompts: AgentPrompt[]) => void
+  >();
+  private readonly unsubscribe: (() => void)[] = [];
+
+  constructor(
+    private readonly agent: AgentService,
+    private readonly input: ClaudeLocalInput,
+    private readonly loggedIn: () => Promise<boolean>,
+  ) {
+    this.control = {
+      models: unavailable,
+      setModel: unavailable,
+      efforts: unavailable,
+      setEffort: unavailable,
+      commands: async () => [],
+      abort: async () => {
+        if (this.sessionId) await this.agent.cancelPrompt(this.sessionId);
+      },
+      compact: unavailable,
+      bash: unavailable,
+    };
+  }
+
+  // The agent service falls back to the gateway when Claude Code is logged out, which would bill PostHog.
+  async start(): Promise<void> {
+    if (!(await this.loggedIn()))
+      throw new Error(
+        "Log in to Claude Code first: run `claude auth login` in a terminal",
+      );
+    const onEvent = ({
+      taskRunId,
+      payload,
+    }: {
+      taskRunId: string;
+      payload: unknown;
+    }): void => {
+      if (taskRunId !== this.input.taskRunId) return;
+      const message = payload as AcpMessage;
+      this.publish({
+        ...this.view,
+        entries: [
+          ...this.view.entries,
+          {
+            type: "acp_message",
+            timestamp: new Date(message.ts).toISOString(),
+            notification: message.message,
+          } as StoredLogEntry,
+        ],
+      });
+    };
+    const onPermission = (
+      request: Omit<RequestPermissionRequest, "sessionId"> & {
+        taskRunId: string;
+      },
+    ): void => {
+      if (request.taskRunId !== this.input.taskRunId) return;
+      this.setPrompts([
+        ...this.prompts,
+        {
+          kind: "acp",
+          request: {
+            taskRunId: request.taskRunId,
+            toolCallId: request.toolCall.toolCallId,
+            title: request.toolCall.title ?? "Allow this tool call?",
+            options: request.options,
+          },
+        },
+      ]);
+    };
+    this.agent.on(AgentServiceEvent.SessionEvent, onEvent);
+    this.agent.on(AgentServiceEvent.PermissionRequest, onPermission);
+    this.unsubscribe.push(
+      () => this.agent.off(AgentServiceEvent.SessionEvent, onEvent),
+      () => this.agent.off(AgentServiceEvent.PermissionRequest, onPermission),
+    );
+    const { sessionId } = await this.agent.startSession({
+      taskId: this.input.taskId,
+      taskRunId: this.input.taskRunId,
+      repoPath: this.input.cwd,
+      apiHost: this.input.apiHost,
+      projectId: this.input.projectId,
+      adapter: "claude",
+      claudeModelAccess: "own-subscription",
+      runMode: "local",
+    });
+    this.sessionId = sessionId;
+    this.publish({
+      ...this.view,
+      loaded: true,
+      local: true,
+      status: "in_progress",
+    });
+  }
+
+  watch(onView: (view: RunView) => void): () => void {
+    this.listeners.add(onView);
+    if (this.view.loaded) onView(this.view);
+    return () => this.listeners.delete(onView);
+  }
+
+  // A message sent mid-turn steers it; the first message of a turn waits for the turn to end.
+  async prompt(message: string): Promise<void> {
+    if (!this.sessionId) throw new Error("The agent has not started");
+    const steer = this.turn !== null;
+    const sent = this.agent.prompt(
+      this.sessionId,
+      [{ type: "text", text: message }],
+      { steer },
+    );
+    if (steer) {
+      await sent;
+      return;
+    }
+    this.turn = sent;
+    try {
+      await sent;
+    } finally {
+      if (this.turn === sent) this.turn = null;
+    }
+  }
+
+  watchPrompts(onPrompts: (prompts: AgentPrompt[]) => void): () => void {
+    this.promptListeners.add(onPrompts);
+    onPrompts(this.prompts);
+    return () => this.promptListeners.delete(onPrompts);
+  }
+
+  async answer(prompt: AgentPrompt, reply: PromptReply): Promise<void> {
+    this.setPrompts(
+      this.prompts.filter((open) => promptId(open) !== promptId(prompt)),
+    );
+    if (reply.kind !== "acp") return;
+    this.agent.respondToPermission(
+      reply.taskRunId,
+      reply.toolCallId,
+      reply.optionId,
+    );
+  }
+
+  async stop(): Promise<void> {
+    for (const off of this.unsubscribe.splice(0)) off();
+    if (this.sessionId) await this.agent.cancelSession(this.sessionId);
+    this.publish({ ...this.view, status: "completed" });
+  }
+
+  private setPrompts(prompts: AgentPrompt[]): void {
+    this.prompts = prompts;
+    for (const listener of this.promptListeners) listener(prompts);
+  }
+
+  private publish(view: RunView): void {
+    this.view = view;
+    for (const listener of this.listeners) listener(view);
+  }
+}

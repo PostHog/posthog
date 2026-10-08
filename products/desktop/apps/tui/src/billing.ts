@@ -23,7 +23,7 @@ const LABELS: Record<Billing, { label: string; detail: string }> = {
   },
   anthropic: {
     label: "Anthropic",
-    detail: "Your Claude plan: Claude Code in the cloud",
+    detail: "Your Claude plan: Claude Code here and in the cloud",
   },
 };
 
@@ -31,21 +31,27 @@ export function cloudHarnessFor(billing: Billing): CloudHarness {
   return CLOUD_HARNESS[billing];
 }
 
-// What a local pi chat starts with, or why it cannot start.
+export const localHarnessFor = (billing: Billing): "pi" | "claude" =>
+  billing === "anthropic" ? "claude" : "pi";
+
+export type LocalStart =
+  | { harness: "pi"; model?: string }
+  | { harness: "claude" };
+
+// What a local chat starts with, or why it cannot start.
 export function localStartFor(
   billing: Billing,
   state: { chatgptAccount: string | null },
-): { model?: string } {
-  if (billing === "anthropic")
-    throw new Error("Claude plan chats run in the cloud for now: type /cloud");
+): LocalStart {
+  if (localHarnessFor(billing) === "claude") return { harness: "claude" };
   if (billing === "chatgpt") {
     if (!state.chatgptAccount)
       throw new Error(
         "Log in to ChatGPT in settings (Ctrl+;), or pick another /billing",
       );
-    return { model: CHATGPT_MODEL };
+    return { harness: "pi", model: CHATGPT_MODEL };
   }
-  return {};
+  return { harness: "pi" };
 }
 
 export function billingSheet(current: Billing): Sheet {

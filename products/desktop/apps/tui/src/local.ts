@@ -2,7 +2,11 @@ import type { ImageContent } from "@earendil-works/pi-ai";
 import { getRemotePiConversation } from "@posthog/agent/pi/remote-rpc-client";
 import type { PiRpcClient } from "@posthog/agent/pi/rpc-client";
 import { PiRuntime } from "@posthog/agent/pi/runtime";
-import type { AgentConversationEvent, StoredLogEntry } from "@posthog/shared";
+import type {
+  AgentConversationEvent,
+  AgentRuntime,
+  StoredLogEntry,
+} from "@posthog/shared";
 import type { McpToolPolicyUpdater } from "@posthog/workspace-server/services/agent/ports";
 import { controlOf, type PiControl } from "./models";
 import { type AgentPrompt, type PromptReply, promptId } from "./prompts";
@@ -15,10 +19,23 @@ const asEntry = (event: AgentConversationEvent): StoredLogEntry => ({
   event,
 });
 
-// A pi agent running on this machine through the PostHog harness, shown like a cloud run.
-export class LocalSession {
+// An agent running on this machine, shown like a cloud run. Its runtime says how its log reads.
+export interface LocalAgent {
+  readonly runtime: AgentRuntime;
   readonly control: PiControl;
-  private readonly runtime: PiRuntime;
+  start(): Promise<void>;
+  watch(onView: (view: RunView) => void): () => void;
+  prompt(message: string, images?: ImageContent[]): Promise<void>;
+  watchPrompts(onPrompts: (prompts: AgentPrompt[]) => void): () => void;
+  answer(prompt: AgentPrompt, reply: PromptReply): Promise<void>;
+  stop(): Promise<void>;
+}
+
+// A pi agent running on this machine through the PostHog harness.
+export class LocalSession implements LocalAgent {
+  readonly runtime = "pi";
+  readonly control: PiControl;
+  private readonly pi: PiRuntime;
   private readonly listeners = new Set<(view: RunView) => void>();
   private view: RunView = emptyRunView;
   private prompts: AgentPrompt[] = [];
@@ -32,8 +49,8 @@ export class LocalSession {
     private readonly client: PiRpcClient,
     private readonly policies: McpToolPolicyUpdater,
   ) {
-    this.runtime = new PiRuntime(client, () => this.contextWindow);
-    this.runtime.onExtensionEvent((event) => {
+    this.pi = new PiRuntime(client, () => this.contextWindow);
+    this.pi.onExtensionEvent((event) => {
       if (event.type !== "extension_ui_request") return;
       // Kept in the view as the cloud sandbox logs it, so one reader finds a status in either.
       if (event.method === "setStatus") {
@@ -67,7 +84,7 @@ export class LocalSession {
     client.onMcpToolPermissionRequest((request) =>
       this.setPrompts([...this.prompts, { kind: "permission", request }]),
     );
-    this.runtime.onConversationEvent((event) =>
+    this.pi.onConversationEvent((event) =>
       this.publish({
         ...this.view,
         entries: [...this.view.entries, asEntry(event)],
@@ -93,7 +110,7 @@ export class LocalSession {
 
   // The runtime emits the command's conversation events itself, so the chat shows it like any other entry.
   private async bash(command: string): Promise<ShellResult> {
-    const response = await this.runtime.sendCommand({
+    const response = await this.pi.sendCommand({
       type: "bash",
       id: globalThis.crypto.randomUUID(),
       command,
@@ -130,7 +147,7 @@ export class LocalSession {
 
   // A message sent mid-turn steers it: the agent reads it after its current tool calls, before its next step.
   async prompt(message: string, images: ImageContent[] = []): Promise<void> {
-    const response = await this.runtime.sendCommand({
+    const response = await this.pi.sendCommand({
       type: "prompt",
       id: globalThis.crypto.randomUUID(),
       message,
@@ -153,6 +170,7 @@ export class LocalSession {
       await this.client.respondToExtensionUI(reply.response);
       return;
     }
+    if (reply.kind === "acp") return;
     if (reply.decision === "allow_always" && prompt.kind === "permission")
       await this.policies.approveMcpTool(
         prompt.request.installationId,
@@ -184,7 +202,7 @@ export class LocalSession {
 // Started local agents by task id. Kept on globalThis because a hot swap of src/ re-runs this module,
 // and an agent that edits the TUI's own code must not stop itself.
 const hotSwapSafe = globalThis as {
-  __posthogTuiLocals?: Map<string, Promise<LocalSession>>;
+  __posthogTuiLocals?: Map<string, Promise<LocalAgent>>;
 };
 hotSwapSafe.__posthogTuiLocals ??= new Map();
 export const runningLocals = hotSwapSafe.__posthogTuiLocals;

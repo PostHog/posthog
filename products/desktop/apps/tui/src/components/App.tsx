@@ -35,7 +35,7 @@ import {
   panes,
   saveLayout,
 } from "../layout";
-import type { LocalSession } from "../local";
+import type { LocalAgent } from "../local";
 import type { PiControl } from "../models";
 import type { MouseEvents } from "../mouse";
 import { openUrl } from "../openUrl";
@@ -64,7 +64,7 @@ export interface Session {
   runs: CloudRuns;
   chats: PiChats;
   control: (taskId: string, runId: string) => PiControl;
-  startLocal: (id: string) => Promise<LocalSession>;
+  startLocal: (id: string) => Promise<LocalAgent>;
   // Today's briefing; absent in tests that do not need it.
   today?: TodayClient;
 }

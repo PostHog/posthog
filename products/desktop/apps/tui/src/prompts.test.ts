@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type AgentPrompt, promptReply } from "./prompts";
+import { type AgentPrompt, promptReply, promptSheet } from "./prompts";
 
 const dialog = (request: Record<string, unknown>): AgentPrompt =>
   ({
@@ -22,7 +22,40 @@ const permission: AgentPrompt = {
   },
 };
 
+const acp: AgentPrompt = {
+  kind: "acp",
+  request: {
+    taskRunId: "local-1",
+    toolCallId: "tc1",
+    title: "Run pnpm test",
+    options: [
+      { optionId: "allow", name: "Allow", kind: "allow_once" },
+      { optionId: "reject", name: "Reject", kind: "reject_once" },
+    ],
+  },
+};
+
+describe("promptSheet", () => {
+  it("offers a Claude Code permission's own options", () => {
+    const sheet = promptSheet(acp);
+    expect(sheet.title).toBe("Run pnpm test");
+    expect(sheet.items.map((item) => item.label)).toEqual(["Allow", "Reject"]);
+  });
+});
+
 describe("promptReply", () => {
+  it.each([
+    ["the chosen option", 0, "allow"],
+    ["the first rejecting option when dismissed", null, "reject"],
+  ])("answers a Claude Code permission with %s", (_, answer, optionId) => {
+    expect(promptReply(acp, answer)).toEqual({
+      kind: "acp",
+      taskRunId: "local-1",
+      toolCallId: "tc1",
+      optionId,
+    });
+  });
+
   it.each([
     [
       "a picked option",

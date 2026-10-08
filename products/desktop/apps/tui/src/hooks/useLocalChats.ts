@@ -6,11 +6,13 @@ import {
   useRef,
   useState,
 } from "react";
+import { localHarnessFor } from "../billing";
 import { currentRepository, type PiChats } from "../chats";
 import { messageOf } from "../errors";
 import { allPanes, type LayoutState, renameTask } from "../layout";
-import { type LocalSession, runningLocals, stopLocals } from "../local";
+import { type LocalAgent, runningLocals, stopLocals } from "../local";
 import { LEGACY_PREFIX, LocalChats, linkLocalChats } from "../localChats";
+import { loadPrefs } from "../prefs";
 import type { AgentPrompt } from "../prompts";
 import type { FlashNotice } from "./useNotice";
 
@@ -18,9 +20,9 @@ export interface LocalChatsState {
   // True for a chat that runs on this machine, also before its agent has started.
   isLocal: (taskId: string | null) => taskId is string;
   // The chat's agent, started on first use.
-  localFor: (id: string) => Promise<LocalSession>;
+  localFor: (id: string) => Promise<LocalAgent>;
   // Agents that have started, by task id.
-  localSessions: Map<string, LocalSession>;
+  localSessions: Map<string, LocalAgent>;
   // Restarts the chat's agent on an empty conversation, under the same task and on the same model.
   clear: (id: string) => Promise<void>;
   // This machine's local chats and when each last changed.
@@ -44,7 +46,7 @@ export function useLocalChats({
   setFresh,
   flashNotice,
 }: {
-  startLocal: ((id: string) => Promise<LocalSession>) | undefined;
+  startLocal: ((id: string) => Promise<LocalAgent>) | undefined;
   chats: PiChats | undefined;
   layout: LayoutState;
   setLayout: Dispatch<SetStateAction<LayoutState>>;
@@ -61,7 +63,7 @@ export function useLocalChats({
   const isLocal = (taskId: string | null): taskId is string =>
     taskId !== null &&
     (localActive.has(taskId) || taskId.startsWith(LEGACY_PREFIX));
-  const [localSessions, setLocalSessions] = useState<Map<string, LocalSession>>(
+  const [localSessions, setLocalAgents] = useState<Map<string, LocalAgent>>(
     new Map(),
   );
   const [prompts, setPrompts] = useState<Map<string, AgentPrompt[]>>(new Map());
@@ -70,7 +72,7 @@ export function useLocalChats({
   );
   // Agents this copy of the hook shows. After a hot swap the agents still run, so the new copy watches them again.
   const watched = useRef(new Set<string>()).current;
-  const localFor = (id: string): Promise<LocalSession> => {
+  const localFor = (id: string): Promise<LocalAgent> => {
     let started = runningLocals.get(id);
     if (!started) {
       if (!startLocal)
@@ -87,7 +89,7 @@ export function useLocalChats({
       watched.add(id);
       started.then(
         (local) => {
-          setLocalSessions((current) => new Map(current).set(id, local));
+          setLocalAgents((current) => new Map(current).set(id, local));
           local.watchPrompts((list) =>
             setPrompts((current) => new Map(current).set(id, list)),
           );
@@ -130,6 +132,7 @@ export function useLocalChats({
       chats.createLocal(
         chat.firstMessage || "Local chat",
         chat.cwd ? currentRepository(chat.cwd) : undefined,
+        localHarnessFor(loadPrefs().billing),
       ),
     ).then((linked) => {
       setLayout((state) =>
@@ -157,7 +160,7 @@ export function useLocalChats({
     void stopLocals();
     runningLocals.clear();
     watched.clear();
-    setLocalSessions(new Map());
+    setLocalAgents(new Map());
     setPrompts(new Map());
   }, [startLocal, watched]);
 

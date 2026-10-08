@@ -1,7 +1,7 @@
 import type { AgentRuntime, Task } from "@posthog/shared";
 import { useEffect, useRef, useState } from "react";
 import { activeWorkspace, findPane, type LayoutState, panes } from "../layout";
-import type { LocalSession } from "../local";
+import type { LocalAgent } from "../local";
 import type { CloudRuns, RunView } from "../runs";
 import { midTurn, noTurns, settle, visit } from "../turns";
 
@@ -26,7 +26,7 @@ export function useTurns({
   layout: LayoutState;
   runs: CloudRuns | null;
   taskOf: (taskId: string | null) => Task | undefined;
-  localSessions: Map<string, LocalSession>;
+  localSessions: Map<string, LocalAgent>;
 }): Turns {
   const [turns, setTurns] = useState(noTurns);
   const workspace = activeWorkspace(layout);
@@ -51,11 +51,11 @@ export function useTurns({
     const wanted = new Map<string, () => () => void>();
     for (const taskId of new Set([...onScreen, ...turns.working])) {
       const task = taskOf(taskId);
-      const runtime = task?.runtime ?? "pi";
+      const local = localSessions.get(taskId);
+      const runtime = local?.runtime ?? task?.runtime ?? "pi";
       const onView = (view: RunView): void => {
         unread.current.set(taskId, { view, runtime });
       };
-      const local = localSessions.get(taskId);
       const run = task?.latest_run;
       if (local) wanted.set(`${taskId}:local`, () => local.watch(onView));
       else if (runs && run && run.environment !== "local")

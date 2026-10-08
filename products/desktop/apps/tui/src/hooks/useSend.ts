@@ -17,7 +17,7 @@ import {
   renameWorkspace,
   workspaceOf,
 } from "../layout";
-import type { LocalSession } from "../local";
+import type { LocalAgent } from "../local";
 import { parseSlash } from "../models";
 import { type ChatPlace, loadPrefs, savePrefs } from "../prefs";
 import type { Sheet } from "../sheet";
@@ -74,7 +74,7 @@ export function useSend({
   resetWork: () => void;
   local: {
     isLocal: (taskId: string | null) => taskId is string;
-    localFor: (id: string) => Promise<LocalSession>;
+    localFor: (id: string) => Promise<LocalAgent>;
     clear: (id: string) => Promise<void>;
     markActive: (taskId: string) => void;
   };
