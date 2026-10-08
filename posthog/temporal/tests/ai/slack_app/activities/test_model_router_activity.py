@@ -1,6 +1,8 @@
+import json
 from collections.abc import Mapping
 from contextlib import nullcontext
 from dataclasses import dataclass
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -10,7 +12,10 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.ai.slack_app.activities.model_router import classify_slack_app_model_router_activity
+from posthog.temporal.ai.slack_app.activities.model_router import (
+    DECISION_SPAN_NAME,
+    classify_slack_app_model_router_activity,
+)
 from posthog.temporal.ai.slack_app.types import SlackAppModelOverride, SlackAppModelRouterInput
 
 from products.slack_app.backend.models import SlackSettings
@@ -101,6 +106,10 @@ def _client_picking(model: str | None = None) -> MagicMock:
     return client
 
 
+def _decision_records(capture: MagicMock) -> list[Mapping[str, Any]]:
+    return [call.kwargs for call in capture.call_args_list if call.args[1] == "$ai_generation"]
+
+
 class TestRouteSlackAppModelActivity:
     @pytest.mark.parametrize(
         "opted_in,flag_enabled,override",
@@ -166,12 +175,30 @@ class TestRouteSlackAppModelActivity:
         with (
             patch(FLAG, return_value=True),
             patch(f"{MODULE}.build_system_one_client", return_value=client),
-            patch(f"{MODULE}.capture_slack_event"),
+            patch(f"{MODULE}.capture_slack_event") as capture,
             broken_options,
         ):
             result = classify_slack_app_model_router_activity(_input(integration, user))
 
         assert result is None
+        assert _decision_records(capture) == []
+
+    def test_routed_mention_records_what_the_decision_model_read_and_picked(self, integration, user):
+        _opt_in(integration)
+        with (
+            patch(FLAG, return_value=True),
+            patch(f"{MODULE}.build_system_one_client", return_value=_client_picking("claude-opus-5-5")),
+            patch(f"{MODULE}.capture_slack_event") as capture,
+        ):
+            classify_slack_app_model_router_activity(_input(integration, user))
+
+        [record] = _decision_records(capture)
+        request = json.loads(record["$ai_input"][0]["content"])
+        answer = json.loads(record["$ai_output_choices"][0]["content"])
+        assert record["$ai_span_name"] == DECISION_SPAN_NAME
+        assert request["state"]["request"] == "fix the flaky checkout test"
+        assert "claude-opus-5-5" in request["question"]["criteria"]
+        assert answer["choice"] == "claude-opus-5-5"
 
     def test_request_to_the_decision_model_matches_snapshot(self, integration, user, snapshot):
         _opt_in(integration)
