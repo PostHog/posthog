@@ -20,9 +20,12 @@ import { EventType } from '~/types'
 export function EventRowActions({
     event,
     hideRecordingButton,
+    checkRecordingExists,
 }: {
     event: EventType
     hideRecordingButton?: boolean
+    /** Check for a recording when the query did not annotate `$has_recording` (only `*` selects do). */
+    checkRecordingExists?: boolean
 }): JSX.Element {
     return (
         <div className="flex items-center justify-end gap-1">
@@ -33,6 +36,7 @@ export function EventRowActions({
                     recordingStatus={event.properties.$recording_status}
                     timestamp={event.timestamp}
                     hasRecording={event.properties.$has_recording as boolean | undefined}
+                    checkRecordingExists={checkRecordingExists}
                     openPlayerIn={RecordingPlayerType.NewTab}
                     size="xsmall"
                     type="secondary"

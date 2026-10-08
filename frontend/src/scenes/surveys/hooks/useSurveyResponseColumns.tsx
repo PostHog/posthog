@@ -72,7 +72,7 @@ export function useSurveyResponseColumns(): Record<string, QueryContextColumn> {
             ),
             actions: {
                 title: ' ',
-                render: ({ record }) => <EventRowActions event={(record as EventType[])[0]} />,
+                render: ({ record }) => <EventRowActions event={(record as EventType[])[0]} checkRecordingExists />,
             },
         }
 

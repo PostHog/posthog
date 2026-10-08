@@ -1,5 +1,7 @@
 import type { Meta } from '@storybook/react'
 
+import { mswDecorator } from '~/mocks/browser'
+
 import ViewRecordingButton, { ViewRecordingButtonProps, ViewRecordingButtonVariant } from './ViewRecordingButton'
 
 const meta = {
@@ -45,3 +47,40 @@ export function LinkVariant(): JSX.Element {
         </div>
     )
 }
+
+const batchCheckExists = (): [number, { results: Record<string, boolean> }] => [
+    200,
+    { results: { 'session-with-recording': true } },
+]
+
+export function CheckRecordingExists(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-y-2 grow-0">
+            <ViewRecordingButton
+                sessionId="session-with-recording"
+                variant={ViewRecordingButtonVariant.Link}
+                checkRecordingExists
+            />
+            <ViewRecordingButton
+                sessionId="session-without-recording"
+                variant={ViewRecordingButtonVariant.Link}
+                timestamp="2024-01-01T00:00:00Z"
+                checkRecordingExists
+            />
+            <ViewRecordingButton
+                sessionId="session-without-recording"
+                type="secondary"
+                size="xsmall"
+                checkRecordingExists
+            />
+        </div>
+    )
+}
+CheckRecordingExists.decorators = [
+    mswDecorator({
+        post: {
+            '/api/environments/:id/session_recordings/batch_check_exists': batchCheckExists,
+            '/api/projects/:id/session_recordings/batch_check_exists': batchCheckExists,
+        },
+    }),
+]
