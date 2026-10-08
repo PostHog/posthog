@@ -35,7 +35,6 @@ const MAX_COLUMN_PADDING = 120
 
 const CHART_CONFIG: SankeyChartConfig = {
     linkOpacity: 0.35,
-    showNodeValues: true,
     valueFormatter: formatNumber,
 }
 
@@ -52,7 +51,11 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
         () => [...allEdges].sort((a, b) => (b.value ?? 0) - (a.value ?? 0)).slice(0, MAX_EDGES),
         [allEdges]
     )
-    const graph = useMemo(() => buildPathsSankeyGraph(edges, { labelUrls: true, pinSteps: true }), [edges])
+    const truncated = edges.length < allEdges.length
+    const graph = useMemo(
+        () => buildPathsSankeyGraph(edges, { labelUrls: true, pinStepsUpTo: MAX_SCROLL_COLUMNS }),
+        [edges]
+    )
     // Step headers only line up when every node sits in its step's column.
     const columnLabels = useMemo(
         () => (graph.stepsPinned ? Array.from({ length: graph.stepCount }, (_, i) => `Step ${i + 1}`) : []),
@@ -68,9 +71,10 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
         const densest = Math.max(1, ...perStep.values())
         return densest > 1 ? Math.min(NODE_PADDING, MAX_COLUMN_PADDING / (densest - 1)) : NODE_PADDING
     }, [graph.nodes, graph.stepsPinned])
+    // A node's value counts only its drawn ribbons, so a truncated view would label partial totals.
     const config = useMemo<SankeyChartConfig>(
-        () => ({ ...CHART_CONFIG, columnLabels, nodePadding }),
-        [columnLabels, nodePadding]
+        () => ({ ...CHART_CONFIG, columnLabels, nodePadding, showNodeValues: !truncated }),
+        [columnLabels, nodePadding, truncated]
     )
     const labelOf = useMemo(() => new Map(graph.nodes.map((node) => [node.id, node.label])), [graph.nodes])
 
@@ -100,7 +104,6 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
         MAX_SCROLL_COLUMNS
     )
     const chartWidth = columnCount > MAX_STEPS_IN_FRAME ? `${(columnCount / MAX_STEPS_IN_FRAME) * 100}%` : '100%'
-    const truncated = edges.length < allEdges.length
 
     return (
         <div data-attr="paths-sankey" className="w-full">
