@@ -85,16 +85,17 @@ const SEND_AND_SET_STATUS_OPTIONS: { value: TicketStatus; statusLabel: string }[
 ]
 
 // The composer header's recipient: the addresses an email goes to, otherwise the customer's name.
-function simplifiedRepliesFor(ticket: Ticket, emailRecipients: string): SimplifiedRepliesProps {
+export function simplifiedRepliesFor(ticket: Ticket, emailRecipients: string): SimplifiedRepliesProps {
+    const customer =
+        ticket.person?.properties?.name ||
+        ticket.person?.properties?.email ||
+        ticket.anonymous_traits?.name ||
+        ticket.anonymous_traits?.email ||
+        null
+    // Person properties and traits can hold any JSON value, and React cannot render an object.
+    const customerText = customer === null || typeof customer === 'string' ? customer : JSON.stringify(customer)
     return {
-        recipient:
-            ticket.channel_source === 'email'
-                ? emailRecipients
-                : ticket.person?.properties?.name ||
-                  ticket.person?.properties?.email ||
-                  ticket.anonymous_traits?.name ||
-                  ticket.anonymous_traits?.email ||
-                  null,
+        recipient: ticket.channel_source === 'email' ? emailRecipients : customerText,
         statusLabel: statusOptionsWithoutAll.find((option) => option.value === ticket.status)?.label,
     }
 }
