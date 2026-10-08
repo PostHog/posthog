@@ -1,5 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
@@ -47,6 +50,7 @@ describe('metricsCatalogLogic', () => {
             },
         } as AppContext
         initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: true })
         jest.mocked(metricsValuesCreate).mockReset()
         jest.mocked(metricsValuesCreate).mockResolvedValue({ results: [SPARKLINE_ITEM] } as any)
         jest.mocked(metricsNamesRetrieve).mockReset()
