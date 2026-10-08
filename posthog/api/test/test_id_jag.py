@@ -13,6 +13,7 @@ The strategy is:
 
 import time
 from typing import Any
+from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -35,12 +36,14 @@ from posthog.api.id_jag import (
     _get_sub,
     issue_access_token,
 )
+from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
 from posthog.auth import IDJagAccessTokenAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.utils import ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH
 from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
+from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User as UserModel
@@ -63,10 +66,30 @@ _SITE_URL = "https://posthog.test"
 _AUTH_SERVER_URL = _SITE_URL
 _RESOURCE_URL = _SITE_URL
 _RESOURCE_CLIENT_ID = "client_abc-at-posthog"
+_CLIENT_SECRET = "id-jag-test-client-secret"
 
 
 def _public_key_for(pem: str) -> Any:
     return serialization.load_pem_private_key(pem.encode(), password=None).public_key()
+
+
+def _create_client(
+    client_id: str,
+    *,
+    client_type: str = OAuthApplication.CLIENT_CONFIDENTIAL,
+    client_secret: str = _CLIENT_SECRET,
+    jwks_uri: str | None = None,
+) -> OAuthApplication:
+    return OAuthApplication.objects.create(
+        name=client_id,
+        client_id=client_id,
+        client_secret=client_secret,
+        client_type=client_type,
+        jwks_uri=jwks_uri,
+        authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+        redirect_uris="https://client.example.com/callback",
+        algorithm="RS256",
+    )
 
 
 def _make_id_jag(
@@ -141,6 +164,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
             organization=cls.organization, name=_IDP_CONFIG_NAME, id_jag_issuer_url=_IDP_ISSUER
         )
         LinkedIdentityProviderConfig.objects.create(organization_domain=domain, identity_provider_config=config)
+        _create_client(_RESOURCE_CLIENT_ID)
 
     def setUp(self) -> None:
         super().setUp()
@@ -157,8 +181,20 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self._jwks_patch.start()
         self.addCleanup(self._jwks_patch.stop)
 
-    def _post_token(self, body: dict[str, Any]) -> Any:
-        return self.client.post("/oauth/token", data=body, content_type="application/json")
+    def _post_token(
+        self,
+        body: dict[str, Any],
+        *,
+        client_id: str = _RESOURCE_CLIENT_ID,
+        credentials: dict[str, str] | None = None,
+        content_type: str = "application/json",
+    ) -> Any:
+        if credentials is None:
+            credentials = {"client_id": client_id, "client_secret": _CLIENT_SECRET}
+        data = {**credentials, **body}
+        if content_type.startswith("application/x-www-form-urlencoded"):
+            return self.client.post("/oauth/token", data=urlencode(data), content_type=content_type)
+        return self.client.post("/oauth/token", data=data, content_type=content_type)
 
     @parameterized.expand(
         [
@@ -220,7 +256,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
         assertion = _make_id_jag()
         with self.assertRaises(AccessDeniedError):
-            issue_access_token(assertion, requested_scope=None, request_client_id=None)
+            issue_access_token(assertion, requested_scope=None, authenticated_client_id=_RESOURCE_CLIENT_ID)
 
     def test_email_claim_is_preferred_over_sub_for_user_lookup(self) -> None:
         # IdPs are not required to put an email in `sub` — it may be an opaque
@@ -360,12 +396,9 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(resp.json()["scope"], "feature_flag:read")
 
     def test_accepts_form_urlencoded_body(self) -> None:
-        from urllib.parse import urlencode
-
         assertion = _make_id_jag()
-        resp = self.client.post(
-            "/oauth/token",
-            data=urlencode({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion}),
+        resp = self._post_token(
+            {"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion},
             content_type="application/x-www-form-urlencoded",
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
@@ -373,12 +406,9 @@ class TestIdJagTokenEndpoint(APIBaseTest):
     def test_accepts_form_urlencoded_body_with_charset_suffix(self) -> None:
         # RFC 6749 doesn't pin the charset, and real-world clients tack on a
         # `; charset=utf-8` (or UTF-8) — DRF's FormParser must still match.
-        from urllib.parse import urlencode
-
         assertion = _make_id_jag()
-        resp = self.client.post(
-            "/oauth/token",
-            data=urlencode({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion}),
+        resp = self._post_token(
+            {"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion},
             content_type="application/x-www-form-urlencoded; charset=UTF-8",
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
@@ -386,18 +416,9 @@ class TestIdJagTokenEndpoint(APIBaseTest):
     def test_form_urlencoded_with_scope_parameter(self) -> None:
         # Scope is a space-separated string per RFC 6749 §3.3 and must survive
         # the form-encoded round-trip without being treated as a multi-value.
-        from urllib.parse import urlencode
-
         assertion = _make_id_jag(scope="feature_flag:read feature_flag:write")
-        resp = self.client.post(
-            "/oauth/token",
-            data=urlencode(
-                {
-                    "grant_type": JWT_BEARER_GRANT_TYPE,
-                    "assertion": assertion,
-                    "scope": "feature_flag:read",
-                }
-            ),
+        resp = self._post_token(
+            {"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion, "scope": "feature_flag:read"},
             content_type="application/x-www-form-urlencoded",
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
@@ -581,24 +602,95 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
         self.assertEqual(resp.status_code, expected_status, resp.json())
 
-    def test_rejects_request_client_id_mismatch(self) -> None:
-        assertion = _make_id_jag(client_id="client_abc-at-posthog")
+    def test_rejects_id_jag_issued_to_another_client(self) -> None:
+        _create_client("client_other-at-posthog")
+        assertion = _make_id_jag(client_id=_RESOURCE_CLIENT_ID)
         resp = self._post_token(
-            {
-                "grant_type": JWT_BEARER_GRANT_TYPE,
-                "assertion": assertion,
-                "client_id": "client_DIFFERENT-at-posthog",
-            }
+            {"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion},
+            client_id="client_other-at-posthog",
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(resp.json()["error"], "invalid_grant")
 
-    def test_arbitrary_client_id_is_accepted_when_no_allowlist(self) -> None:
-        # When `OrganizationDomain.id_jag_allowed_clients` is empty (the default),
-        # any `client_id` value passes — the IdP signature is the binding.
-        # We still require the claim to be present.
+        retry = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(retry.status_code, status.HTTP_200_OK, retry.json())
+
+    @parameterized.expand(
+        [
+            ("no_credentials", {"client_id": _RESOURCE_CLIENT_ID}),
+            ("wrong_secret", {"client_id": _RESOURCE_CLIENT_ID, "client_secret": "wrong"}),
+            ("unregistered_client", {"client_id": "client_unknown", "client_secret": _CLIENT_SECRET}),
+            ("public_client", {"client_id": "client_public"}),
+        ]
+    )
+    def test_rejects_unauthenticated_client_without_consuming_the_assertion(
+        self, _name: str, credentials: dict[str, str]
+    ) -> None:
+        _create_client("client_public", client_type=OAuthApplication.CLIENT_PUBLIC, client_secret="")
+        assertion = _make_id_jag()
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion}, credentials=credentials)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(resp.json()["error"], "invalid_client")
+
+        retry = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(retry.status_code, status.HTTP_200_OK, retry.json())
+
+    @parameterized.expand([("allowed", True, status.HTTP_200_OK), ("throttled", False, status.HTTP_401_UNAUTHORIZED)])
+    def test_first_seen_cimd_client_authenticates_with_private_key_jwt(
+        self, _name: str, throttle_allows: bool, expected_status: int
+    ) -> None:
+        client_id = "https://agent.example.com/client.json"
+        throttle = MagicMock(scope="cimd_burst")
+        throttle.allow_request.return_value = throttle_allows
+        client_key = ec.generate_private_key(ec.SECP256R1())
+        jwk = jwt.algorithms.ECAlgorithm.to_jwk(client_key.public_key(), as_dict=True)
+        jwk.update({"kid": "client-key", "alg": "ES256", "use": "sig"})
+        now = int(time.time())
+        client_assertion = jwt.encode(
+            {
+                "iss": client_id,
+                "sub": client_id,
+                "aud": f"{_SITE_URL}/oauth/token/",
+                "jti": f"client-assertion-{now}",
+                "iat": now,
+                "exp": now + 60,
+            },
+            client_key,
+            algorithm="ES256",
+            headers={"kid": "client-key"},
+        )
+
+        with (
+            patch(
+                "posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=({"keys": [jwk]}, None)
+            ),
+            patch(
+                "posthog.api.oauth.views.get_or_create_cimd_application",
+                side_effect=lambda cimd_client_id: _create_client(
+                    cimd_client_id, client_secret="", jwks_uri="https://agent.example.com/jwks.json"
+                ),
+            ) as create_cimd_application,
+            patch("posthog.api.oauth.views.CIMD_THROTTLE_CLASSES", new=[MagicMock(return_value=throttle)]),
+        ):
+            resp = self._post_token(
+                {
+                    "grant_type": JWT_BEARER_GRANT_TYPE,
+                    "assertion": _make_id_jag(client_id=client_id),
+                    "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER,
+                    "client_assertion": client_assertion,
+                },
+                credentials={},
+            )
+        self.assertEqual(resp.status_code, expected_status, resp.json())
+        self.assertEqual(create_cimd_application.called, throttle_allows)
+
+    def test_any_authenticated_client_is_accepted_when_no_allowlist(self) -> None:
+        _create_client("client_anything-at-posthog")
         assertion = _make_id_jag(client_id="client_anything-at-posthog")
-        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        resp = self._post_token(
+            {"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion},
+            client_id="client_anything-at-posthog",
+        )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         body = resp.json()
         claims = jwt.decode(
@@ -735,8 +827,12 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         config.id_jag_allowed_clients = ["client_first", "client_second"]
         config.save()
 
+        _create_client("client_second")
         assertion = _make_id_jag(client_id="client_second")
-        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        resp = self._post_token(
+            {"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion},
+            client_id="client_second",
+        )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
     def test_allowed_clients_rejects_unlisted_client_id(self) -> None:
@@ -745,8 +841,12 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         config.id_jag_allowed_clients = ["client_first", "client_second"]
         config.save()
 
+        _create_client("client_third")
         assertion = _make_id_jag(client_id="client_third")
-        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        resp = self._post_token(
+            {"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion},
+            client_id="client_third",
+        )
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(resp.json()["error"], "invalid_client")
 
@@ -785,7 +885,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
     def test_issue_access_token_helper(self) -> None:
         assertion = _make_id_jag()
         issued_access_token = issue_access_token(
-            assertion, requested_scope="feature_flag:read", request_client_id=_RESOURCE_CLIENT_ID
+            assertion, requested_scope="feature_flag:read", authenticated_client_id=_RESOURCE_CLIENT_ID
         )
         self.assertEqual(issued_access_token.granted_scopes, ["feature_flag:read"])
         self.assertEqual(issued_access_token.expires_in_seconds, 300)

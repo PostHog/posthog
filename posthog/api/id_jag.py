@@ -258,7 +258,7 @@ def _get_scopes(id_jag_scopes: list[str], requested_scopes: list[str] | None) ->
     return intersected
 
 
-def _verify_and_extract_id_jag_token(assertion: str) -> _VerifiedIdJag:
+def _verify_and_extract_id_jag_token(assertion: str, authenticated_client_id: str) -> _VerifiedIdJag:
     """
     Verifies the provided ID-JAG token against the IdP's JWKS and returns the
     claims, the provider name we stamp into the issued access token's `sub`,
@@ -378,6 +378,10 @@ def _verify_and_extract_id_jag_token(assertion: str) -> _VerifiedIdJag:
     client_id = claims.get("client_id")
     if not client_id:
         raise InvalidGrantError("ID-JAG is missing the client_id claim")
+
+    # Checked before the jti is consumed, so another client holding a captured ID-JAG cannot burn it.
+    if client_id != authenticated_client_id:
+        raise InvalidGrantError("ID-JAG client_id doesn't match the authenticating client")
 
     # validate allowed clients if set in config
     if idp_config.id_jag_allowed_clients and client_id not in idp_config.id_jag_allowed_clients:
@@ -507,22 +511,20 @@ def _parse_scope_list(value: str | list[str] | None) -> list[str]:
 
 
 def issue_access_token(
-    assertion: str, requested_scope: str | list[str] | None, request_client_id: str | None
+    assertion: str, requested_scope: str | list[str] | None, authenticated_client_id: str
 ) -> IssuedAccessToken:
     """
     Validate an ID-JAG `assertion` and mint an access token. Pulled out of the
     view so the same path is exercised by tests, batch tools, and the HTTP
-    handler.
+    handler. `authenticated_client_id` must come from verified client
+    authentication, never from an unchecked request field.
     """
 
-    verified_id_jag = _verify_and_extract_id_jag_token(assertion)
+    verified_id_jag = _verify_and_extract_id_jag_token(assertion, authenticated_client_id)
 
     organization = verified_id_jag.identity_provider_config.organization
     if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
         raise AccessDeniedError("ID-JAG (XAA) is not enabled for this organization")
-
-    if request_client_id and request_client_id != verified_id_jag.claims.get("client_id"):
-        raise InvalidGrantError("ID-JAG client_id doesn't match the authenticating client")
 
     id_jag_scopes = _parse_scope_list(verified_id_jag.claims.get("scope"))
     parsed_requested = _parse_scope_list(requested_scope) if requested_scope is not None else None
