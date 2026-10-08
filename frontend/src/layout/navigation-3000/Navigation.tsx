@@ -62,6 +62,7 @@ export function Navigation({
     } = useValues(todayShellLogic)
     const todayDrawerOpen = todayRail && mobileLayout && todaySidebarVisible
     const todayPhone = todayRail && todayPhoneLayout
+    const todayFramed = todayRail && !todayPhone
 
     // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
     // context above scene content, so we hide the notice for users on the new menu bar.
@@ -200,14 +201,25 @@ export function Navigation({
             >
                 <ProjectDragAndDropProvider>
                     {todayRail ? <TodayShell className="left-nav" /> : <PanelLayout className="left-nav" />}
+                    {todayFramed && (
+                        // The chrome token exists only inside a quill scope, so the backdrop that fills the gap above the frame carries data-quill.
+                        <div data-quill aria-hidden className="TodayAppLayout__backdrop bg-[var(--chrome)]" />
+                    )}
 
                     <div
                         className={cn(
                             '@container/main-content-container main-content-container flex overflow-hidden border-primary relative',
-                            // Under the Today layout the shell draws the seam against the content in quill's border.
-                            // The column is a grid there: the warehouse header spans the top row, and the warehouse sidebar sits under it beside the page.
+                            // Under the Today layout the column is a grid: the warehouse header spans the top row, and the warehouse sidebar sits under it beside the page.
                             todayRail
-                                ? 'grid grid-cols-[auto_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)]'
+                                ? [
+                                      'grid grid-cols-[auto_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)]',
+                                      todayFramed && 'TodayAppLayout__content',
+                                      // A docked sidebar owns the corner and the seam, so the content draws them only without one.
+                                      // The warehouse sidebar sits inside the content, so the content draws them beside it too.
+                                      todayFramed &&
+                                          (mobileLayout || !todaySidebarVisible || todaySidebarInContent) &&
+                                          'TodayAppLayout__content--corner',
+                                  ]
                                 : [
                                       'lg:rounded border-t lg:border lg:mr-1 lg:mb-1 lg:mt-1',
                                       sidePanelOpen && 'rounded-r-none',
@@ -215,6 +227,10 @@ export function Navigation({
                         )}
                         {...(todayDrawerOpen ? { inert: '' } : {})}
                     >
+                        {todayFramed && (
+                            // The frame edge uses quill's border token so it matches the sidebar seam, and that token exists only inside a quill scope.
+                            <div data-quill aria-hidden className="TodayAppLayout__frame" />
+                        )}
                         {todayWarehouseHeaderShown && <TodayWarehouseHeader className="col-span-2 row-start-1" />}
                         {todayRail && todaySidebarInContent && todaySidebarVisible && (
                             <TodayWarehouseSidebar className="col-start-1 row-start-2" />
