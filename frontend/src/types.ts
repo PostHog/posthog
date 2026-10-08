@@ -42,6 +42,7 @@ import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants
 import type {
     FlagEvaluationsModeEnumApi,
     OrganizationMemberNoticeApi,
+    OrganizationTeamBasicApi,
     OrganizationNotificationLockApi,
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
@@ -613,7 +614,7 @@ export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
     plugins_access_level: PluginsAccessLevel
-    teams: TeamBasicType[]
+    teams: (TeamBasicType & Partial<Pick<OrganizationTeamBasicApi, 'project_group'>>)[]
     projects: ProjectBasicType[]
     available_product_features: BillingFeatureType[]
     is_member_join_email_enabled: boolean
@@ -1141,6 +1142,7 @@ export enum ReplayTabs {
     Home = 'home',
     Playlists = 'playlists',
     Settings = 'settings',
+    WhatToWatch = 'what-to-watch',
 }
 
 export type ReplayTab = {
@@ -6520,6 +6522,7 @@ export interface ExternalDataSource {
     supports_column_selection?: boolean
     api_version?: string | null
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
+    connection_warning?: string | null
 }
 
 export interface ExternalDataSourceApiVersionDeprecation {
@@ -7016,6 +7019,7 @@ export type BatchExportConfiguration = {
     paused: boolean
     model: string
     hogql_query?: BatchExportApi['hogql_query']
+    hogql_modifiers?: BatchExportApi['hogql_modifiers']
     filters: AnyPropertyFilter[]
     latest_runs?: BatchExportRun[]
 }

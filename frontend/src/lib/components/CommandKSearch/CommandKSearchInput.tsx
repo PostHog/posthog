@@ -67,7 +67,7 @@ export function CommandKSearchInput(): JSX.Element {
                 >
                     <IconSearch className="size-4 shrink-0" />
                     {chips.map((chip, index) => (
-                        // Committed filters read as typed text: plain key, brand-tinted value.
+                        // Committed filters read as typed text: muted key, brand-tinted value.
                         <button
                             key={chip.key}
                             type="button"
@@ -81,7 +81,7 @@ export function CommandKSearchInput(): JSX.Element {
                             onMouseDown={(event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault()}
                             onClick={() => selectChip(index)}
                         >
-                            <span className="shrink-0">
+                            <span className="shrink-0 font-normal text-muted-foreground">
                                 {chip.negated ? '-' : ''}
                                 {chip.key}:
                             </span>

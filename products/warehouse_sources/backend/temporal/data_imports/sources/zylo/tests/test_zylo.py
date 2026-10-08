@@ -55,12 +55,16 @@ class TestZyloSourceResumeBehavior:
         should_use_incremental_field: bool = False,
         incremental_field: str | None = None,
         db_incremental_field_last_value: Any = None,
+        sent_urls: list[str] | None = None,
+        rows: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         sent_params: list[dict[str, Any]] = []
         response_iter = iter(responses)
 
         def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
             sent_params.append(dict(request.params or {}))
+            if sent_urls is not None:
+                sent_urls.append(request.url)
             return next(response_iter)
 
         with patch(
@@ -82,7 +86,9 @@ class TestZyloSourceResumeBehavior:
                 should_use_incremental_field=should_use_incremental_field,
                 incremental_field=incremental_field,
             )
-            list(cast(Iterable[Any], resource.items()))
+            for item in cast(Iterable[Any], resource.items()):
+                if rows is not None:
+                    rows.extend(item if isinstance(item, list) else [item])
             return sent_params
 
     def test_fresh_run_saves_skip_after_each_non_terminal_page(self) -> None:
@@ -138,6 +144,67 @@ class TestZyloSourceResumeBehavior:
 
         assert sent_params[0]["zylo_created_at"] == f"{INITIAL_INCREMENTAL_VALUE},gte"
         assert sent_params[0]["sort"] == "+zylo_created_at"
+
+    def test_executions_fan_out_per_automation_with_incremental_filter(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        responses = [
+            _make_http_response([{"id": "auto_1"}, {"id": "auto_2"}]),
+            _make_http_response([{"id": f"exec_{i}", "automation_id": "auto_1"} for i in range(1000)]),
+            _make_http_response([{"id": "exec_last", "automation_id": "auto_1"}]),
+            _make_http_response([{"id": "exec_b", "automation_id": "auto_2"}]),
+        ]
+        sent_urls: list[str] = []
+        rows: list[dict[str, Any]] = []
+        sent_params = self._drive(
+            "AutomationExecutions",
+            manager,
+            responses,
+            should_use_incremental_field=True,
+            incremental_field="zylo_modified_at",
+            db_incremental_field_last_value=datetime(2026, 7, 21, 12, tzinfo=UTC),
+            sent_urls=sent_urls,
+            rows=rows,
+        )
+
+        assert [url.removeprefix("https://api.zylo.com") for url in sent_urls] == [
+            "/v2/automations",
+            "/v2/automations/auto_1/executions",
+            "/v2/automations/auto_1/executions",
+            "/v2/automations/auto_2/executions",
+        ]
+        assert "zylo_modified_at" not in sent_params[0]
+        assert [p.get("skip") for p in sent_params[1:]] == [0, 1000, 0]
+        for child_params in sent_params[1:]:
+            assert child_params["zylo_modified_at"] == "2026-07-21,gte"
+            assert child_params["sort"] == "+zylo_modified_at"
+        assert len(rows) == 1002
+
+    def test_executions_resume_skips_completed_automations(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = ZyloResumeConfig(
+            fanout_state={"completed": ["/v2/automations/auto_1/executions"], "current": None, "child_state": None}
+        )
+
+        responses = [
+            _make_http_response([{"id": "auto_1"}, {"id": "auto_2"}]),
+            _make_http_response([{"id": "exec_b", "automation_id": "auto_2"}]),
+        ]
+        sent_urls: list[str] = []
+        self._drive("AutomationExecutions", manager, responses, sent_urls=sent_urls)
+
+        assert [url.removeprefix("https://api.zylo.com") for url in sent_urls] == [
+            "/v2/automations",
+            "/v2/automations/auto_2/executions",
+        ]
+        saved = manager.save_state.call_args_list[-1].args[0]
+        assert saved.next_skip is None
+        assert set(saved.fanout_state["completed"]) == {
+            "/v2/automations/auto_1/executions",
+            "/v2/automations/auto_2/executions",
+        }
 
 
 class TestValidateCredentials:

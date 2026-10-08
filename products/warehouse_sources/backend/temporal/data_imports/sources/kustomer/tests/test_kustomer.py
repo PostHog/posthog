@@ -1,5 +1,6 @@
 import json
 from typing import Any
+from urllib.parse import urlparse
 
 import pytest
 from unittest import mock
@@ -102,6 +103,19 @@ class TestValidateCredentials:
     def test_validate_credentials_rejects_bad_org_without_request(self, mock_session):
         assert validate_credentials("my org!", "key") is False
         mock_session.return_value.get.assert_not_called()
+
+
+class TestRequestParams:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_sub_statuses_requests_conversation_resource(self, MockSession):
+        # The sub-statuses list rejects requests without the `resource` filter.
+        session = MockSession.return_value
+        urls = _wire(session, [_response([])])
+
+        _rows(_source("myorg", "key", "sub_statuses", _make_manager()))
+
+        assert urlparse(urls[0]).path == "/v1/sub-statuses"
+        assert session.prepare_request.call_args.args[0].params["resource"] == "conversation"
 
 
 class TestPagination:

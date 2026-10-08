@@ -1352,6 +1352,12 @@ export interface CanvasViewedProperties {
   template_id: string;
 }
 
+export interface CanvasUnavailableProperties {
+  dashboard_id: string;
+  /** `no_access`: the canvas is in a space not shared with the viewer. `missing`: any other miss. */
+  reason: "no_access" | "missing";
+}
+
 export interface CanvasRuntimeErrorProperties {
   channel_id?: string;
   dashboard_id?: string;
@@ -1852,6 +1858,7 @@ export const ANALYTICS_EVENTS = {
   DASHBOARD_ACTION: "Dashboard action",
   CANVAS_PROMPT_SENT: "Canvas prompt sent",
   CANVAS_VIEWED: "Canvas viewed",
+  CANVAS_UNAVAILABLE: "Canvas unavailable",
   CANVAS_RENDERED: "Canvas rendered",
   CANVAS_RUNTIME_ERROR: "Canvas runtime error",
   CANVAS_DATA_REQUEST_REJECTED: "Canvas data request rejected",
@@ -2076,6 +2083,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.DASHBOARD_ACTION]: DashboardActionProperties;
   [ANALYTICS_EVENTS.CANVAS_PROMPT_SENT]: CanvasPromptSentProperties;
   [ANALYTICS_EVENTS.CANVAS_VIEWED]: CanvasViewedProperties;
+  [ANALYTICS_EVENTS.CANVAS_UNAVAILABLE]: CanvasUnavailableProperties;
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
   [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
   [ANALYTICS_EVENTS.CANVAS_DATA_REQUEST_REJECTED]: CanvasDataRequestRejectedProperties;

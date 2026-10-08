@@ -116,6 +116,7 @@ class TestRecalculationService(BaseTest):
             ("manual_retry_inside_window_starts_new", "manual_retry", "completed", "manual", 2, True),
         ]
     )
+    @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=True)
     def test_request_recalculation_user_refresh_window(
         self,
         name: str,
@@ -124,6 +125,7 @@ class TestRecalculationService(BaseTest):
         latest_trigger: str,
         minutes_since_completed: int,
         expects_new_run: bool,
+        _mock_flag,
     ):
         exp = self._launched_experiment(flag_key=f"window-{name}")
         now = timezone.now()
@@ -152,8 +154,26 @@ class TestRecalculationService(BaseTest):
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 
     @override_settings(DEBUG=True, TEST=False)
-    def test_request_recalculation_skips_the_refresh_window_in_local_development(self):
+    @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=True)
+    def test_request_recalculation_skips_the_refresh_window_in_local_development(self, _mock_flag):
         exp = self._launched_experiment(flag_key="window-debug")
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="completed",
+            trigger="manual",
+            query_to=timezone.now() - timedelta(days=1),
+            completed_at=timezone.now() - timedelta(minutes=2),
+        )
+
+        result = request_recalculation(exp, self.user, "manual")
+
+        assert result["is_existing"] is False
+        assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 2
+
+    @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=False)
+    def test_request_recalculation_skips_the_refresh_window_when_the_flag_is_off(self, _mock_flag):
+        exp = self._launched_experiment(flag_key="window-flag-off")
         ExperimentMetricsRecalculation.objects.create(
             team=self.team,
             experiment=exp,
