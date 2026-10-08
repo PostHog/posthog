@@ -13,10 +13,12 @@ import {
     useReactFlow,
 } from '@xyflow/react'
 import { BindLogic, useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect, useMemo, useRef } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { workflowLogic } from '../workflowLogic'
@@ -78,12 +80,12 @@ function HogFlowGraphEditor(): JSX.Element {
 
     return (
         <div
-            className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden @max-[48rem]/workflow-editor:flex-col @max-[48rem]/workflow-editor:overflow-y-auto"
+            className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden @max-[32rem]/workflow-editor:flex-col @max-[32rem]/workflow-editor:overflow-y-auto"
             data-attr="workflow-editor"
         >
             <div
                 ref={reactFlowWrapper}
-                className="flex min-h-0 min-w-0 grow @max-[48rem]/workflow-editor:min-h-80 @max-[48rem]/workflow-editor:shrink-0"
+                className="flex min-h-0 min-w-0 grow @max-[32rem]/workflow-editor:min-h-80 @max-[32rem]/workflow-editor:shrink-0"
             >
                 <ReactFlow<HogFlowActionNode, HogFlowActionEdge>
                     className="grow"
@@ -137,7 +139,7 @@ function HogFlowGraphEditor(): JSX.Element {
 function HogFlowTreeEditorContent(): JSX.Element {
     return (
         <div
-            className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden @max-[48rem]/workflow-editor:flex-col @max-[48rem]/workflow-editor:overflow-y-auto"
+            className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden @max-[32rem]/workflow-editor:flex-col @max-[32rem]/workflow-editor:overflow-y-auto"
             data-attr="workflow-editor"
         >
             <HogFlowTreeEditor />
@@ -146,12 +148,32 @@ function HogFlowTreeEditorContent(): JSX.Element {
     )
 }
 
+// Match the 32rem and 48rem container-query breakpoints in the editor classes, at a 16px root font size
+function getEditorLayout(width: number): 'stacked' | 'compact' | 'wide' {
+    return width < 512 ? 'stacked' : width < 768 ? 'compact' : 'wide'
+}
+
 export function HogFlowEditor({ isTreeView }: { isTreeView: boolean }): JSX.Element {
     const { logicProps } = useValues(workflowLogic)
+    const { sidePanelOpen } = useValues(sidePanelStateLogic)
+    const containerRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        const width = containerRef.current?.getBoundingClientRect().width ?? 0
+        posthog.capture('workflows editor opened', {
+            view: isTreeView ? 'list' : 'graph',
+            layout: getEditorLayout(width),
+            editor_width: Math.round(width),
+            side_panel_open: sidePanelOpen,
+        })
+        // Report the layout once per view, not on every side panel toggle
+        // oxlint-disable-next-line exhaustive-deps
+    }, [isTreeView])
+
     return (
         <BindLogic logic={hogFlowEditorLogic} props={logicProps}>
             <HogFlowBranchSelectionProvider>
-                <div className="@container/workflow-editor flex min-h-0 min-w-0 flex-1">
+                <div ref={containerRef} className="@container/workflow-editor flex min-h-0 min-w-0 flex-1">
                     {isTreeView ? (
                         <ReactFlowProvider>
                             <HogFlowTreeEditorContent />
