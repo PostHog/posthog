@@ -951,11 +951,14 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
     })),
-    beforeUnload(({ values, actions }) => ({
-        enabled: (newLocation?: CombinedLocation) =>
-            values.hasUnsavedChanges && (!newLocation || newLocation.pathname !== router.values.location.pathname),
+    beforeUnload((logic) => ({
+        enabled: (newLocation?: CombinedLocation): boolean =>
+            logic.props.id !== 'new' &&
+            heatmapLogic.findMounted(logic.props) === logic &&
+            logic.values.hasUnsavedChanges &&
+            (!newLocation || newLocation.pathname !== router.values.location.pathname),
         message: 'Leave this heatmap? Changes you made will be discarded.',
-        onConfirm: () => actions.discardChanges(),
+        onConfirm: () => logic.actions.discardChanges(),
     })),
     afterMount(({ actions }) => {
         actions.load()
