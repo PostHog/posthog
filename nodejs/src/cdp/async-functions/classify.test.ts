@@ -85,6 +85,11 @@ describe('postHogClassify', () => {
             /500 characters or fewer/,
         ],
         ['an oversized context', { ...payload, context: { message: 'x'.repeat(65_536) } }, /65536 characters of JSON/],
+        [
+            'a deeply nested context',
+            { ...payload, context: Array.from({ length: 255 }).reduce<unknown>((inner) => ({ a: inner }), 'x') },
+            /100 levels of nesting or fewer/,
+        ],
     ])('rejects %s in both mocked and live calls', async (_name, args, expected) => {
         expect(() => getAsyncFunctionHandler('postHogClassify')!.mock([args], [] as MinimalLogEntry[])).toThrow(
             expected

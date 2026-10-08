@@ -29,6 +29,24 @@ const MAX_CATEGORY_NAME_LENGTH = 100
 const MAX_DESCRIPTION_LENGTH = 500
 // Counted on the JSON text, like MAX_CONTEXT_CHARS in workflow_classifications.py.
 const MAX_CONTEXT_CHARS = 65_536
+const MAX_CONTEXT_DEPTH = 100
+
+const nestingExceeds = (value: unknown, limit: number): boolean => {
+    const pending: [unknown, number][] = [[value, 1]]
+    while (pending.length > 0) {
+        const [item, depth] = pending.pop()!
+        if (item === null || typeof item !== 'object') {
+            continue
+        }
+        if (depth > limit) {
+            return true
+        }
+        for (const child of Object.values(item)) {
+            pending.push([child, depth + 1])
+        }
+    }
+    return false
+}
 
 // The step test panel mocks async functions by default, so `mock` runs these checks too.
 const parseClassifyPayload = (args: any[]): Record<string, unknown> => {
@@ -58,6 +76,9 @@ const parseClassifyPayload = (args: any[]): Record<string, unknown> => {
         )
     ) {
         throw new Error(`Keep each category description to ${MAX_DESCRIPTION_LENGTH} characters or fewer`)
+    }
+    if (nestingExceeds(payload.context, MAX_CONTEXT_DEPTH)) {
+        throw new Error(`Keep the context to ${MAX_CONTEXT_DEPTH} levels of nesting or fewer`)
     }
     if ([...(JSON.stringify(payload.context) ?? '')].length > MAX_CONTEXT_CHARS) {
         throw new Error(`Keep the context to ${MAX_CONTEXT_CHARS} characters of JSON or fewer`)

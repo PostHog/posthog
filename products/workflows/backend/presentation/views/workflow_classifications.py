@@ -37,6 +37,26 @@ MAX_CATEGORY_NAME_LENGTH = 100
 # Same state limit as the ml_inference decide API, which asks the same model.
 # Keep it equal to MAX_CONTEXT_CHARS in nodejs/src/cdp/async-functions/classify.ts.
 MAX_CONTEXT_CHARS = 65_536
+# DecisionRequest validation fails on JSON nested about 255 levels deep, and its error text repeats the
+# whole context into logs and exception reporting. A small payload can reach that depth, so cap it first.
+# Keep it equal to MAX_CONTEXT_DEPTH in nodejs/src/cdp/async-functions/classify.ts.
+MAX_CONTEXT_DEPTH = 100
+
+
+def _nesting_exceeds(value: Any, limit: int) -> bool:
+    pending: list[tuple[Any, int]] = [(value, 1)]
+    while pending:
+        item, depth = pending.pop()
+        if isinstance(item, dict):
+            children = list(item.values())
+        elif isinstance(item, list):
+            children = item
+        else:
+            continue
+        if depth > limit:
+            return True
+        pending.extend((child, depth + 1) for child in children)
+    return False
 
 
 class WorkflowClassifyJWTAuthentication(ScopedServiceJWTAuthentication):
@@ -57,7 +77,7 @@ class WorkflowClassificationRequestSerializer(serializers.Serializer):
         help_text="What to decide about the context, for example 'Which team should handle this ticket?'",
     )
     context = serializers.JSONField(  # type: ignore[assignment]  # The field name shadows DRF Field.context.
-        help_text=f"The data to classify, such as ticket fields or event properties. The model reads it as data, never as instructions. At most {MAX_CONTEXT_CHARS} characters of JSON."
+        help_text=f"The data to classify, such as ticket fields or event properties. The model reads it as data, never as instructions. At most {MAX_CONTEXT_CHARS} characters of JSON and {MAX_CONTEXT_DEPTH} levels of nesting."
     )
     categories = serializers.DictField(
         child=serializers.CharField(max_length=500, allow_blank=True),
@@ -65,6 +85,8 @@ class WorkflowClassificationRequestSerializer(serializers.Serializer):
     )
 
     def validate_context(self, value: Any) -> Any:
+        if _nesting_exceeds(value, MAX_CONTEXT_DEPTH):
+            raise serializers.ValidationError(f"Keep the context to {MAX_CONTEXT_DEPTH} levels of nesting or fewer.")
         if len(json.dumps(value, ensure_ascii=False, separators=(",", ":"))) > MAX_CONTEXT_CHARS:
             raise serializers.ValidationError(f"Keep the context to {MAX_CONTEXT_CHARS} characters of JSON or fewer.")
         return value
