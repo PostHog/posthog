@@ -577,8 +577,9 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         surveysResponsesCount: {
             __default: {} as { [key: string]: number },
-            loadResponsesCount: async (surveyIds: string[]) => {
+            loadResponsesCount: async (surveyIds: string[], breakpoint) => {
                 const responseCounts = await api.surveys.getResponsesCount(surveyIds.join(','))
+                breakpoint()
                 const countsForRequestedSurveys = Object.fromEntries(surveyIds.map((surveyId) => [surveyId, 0]))
 
                 return { ...values.surveysResponsesCount, ...countsForRequestedSurveys, ...responseCounts }
