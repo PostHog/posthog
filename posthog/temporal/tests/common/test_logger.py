@@ -966,3 +966,41 @@ def test_logger_skips_produce_when_its_loop_is_closed():
     loop.close()
 
     Logger("test", queue=asyncio.Queue(), loop=loop).produce(b"late message")
+
+
+@pytest.mark.parametrize(
+    "workflow_id,expected_source_id",
+    [
+        pytest.param(
+            "019bdc25-3569-0000-9f32-e7d02775304b-2026-09-30T12:00:00Z",
+            "019bdc25-3569-0000-9f32-e7d02775304b",
+            id="schedule_run",
+        ),
+        pytest.param(
+            "019bdc25-3569-0000-9f32-e7d02775304b-queue-8f2c1d9e",
+            "019bdc25-3569-0000-9f32-e7d02775304b",
+            id="queue_run",
+        ),
+        pytest.param(
+            "019bdc25-3569-0000-9f32-e7d02775304b-admin-sync-1759233600",
+            "019bdc25-3569-0000-9f32-e7d02775304b",
+            id="ad_hoc_run",
+        ),
+        pytest.param(
+            "019bdc25-3569-0000-9f32-e7d02775304b",
+            "019bdc25-3569-0000-9f32-e7d02775304b",
+            id="bare_schema_id",
+        ),
+        pytest.param("my-custom-run-2026-09-30T12:00:00Z", "my-custom-run", id="not_a_uuid"),
+        pytest.param(
+            "019bdc25-3569-0000-9f32-e7d02775304bx-2026-09-30T12:00:00Z",
+            "019bdc25-3569-0000-9f32-e7d02775304bx",
+            id="uuid_run_into_other_characters",
+        ),
+    ],
+)
+def test_resolve_log_source_external_data_job(workflow_id: str, expected_source_id: str) -> None:
+    source, source_id = resolve_log_source("external-data-job", workflow_id)
+
+    assert source == "external_data_jobs"
+    assert source_id == expected_source_id

@@ -27,6 +27,7 @@ automatically included.
 import os
 import sys
 import json
+import uuid
 import typing
 import asyncio
 import functools
@@ -861,6 +862,18 @@ BATCH_EXPORT_WORKFLOW_TYPES = {
 }
 
 
+def _leading_uuid(value: str) -> str | None:
+    """The canonical UUID at the start of `value`, when a dash or the end of the string follows it."""
+    candidate = value[:36]
+    if len(value) > 36 and value[36] != "-":
+        return None
+    try:
+        parsed = uuid.UUID(candidate)
+    except ValueError:
+        return None
+    return candidate if str(parsed) == candidate.lower() else None
+
+
 def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str | None, str | None]:
     """Resolves `log_source` and `log_source_id` from workflow parameters.
 
@@ -886,8 +899,10 @@ def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str | None
         log_source_id = workflow_id.split("-Backfill")[0]
         log_source = "batch_exports_backfill"
     elif workflow_type == "external-data-job":
-        # This works because the WorkflowID is made up like f"{external_data_schema_id}-{data_interval_end}"
-        log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
+        # Every starter puts the schema id first, but the suffix differs: a schedule adds
+        # f"-{data_interval_end}", an ad-hoc run adds a prefix and a timestamp. The rsplit only
+        # handles the schedule shape, so it is the fallback for ids without a UUID prefix.
+        log_source_id = _leading_uuid(workflow_id) or workflow_id.rsplit("-", maxsplit=3)[0]
         log_source = "external_data_jobs"
     elif workflow_type == "cdc-extraction":
         # WorkflowID is f"cdc-extraction-{source_id}-{iso_ts}". Per-schema lines override

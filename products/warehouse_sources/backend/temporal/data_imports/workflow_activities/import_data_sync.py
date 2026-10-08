@@ -26,9 +26,8 @@ from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.errors import NonReportableError
-from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -75,6 +74,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typ
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import PROGRESSLESS_RESUMABLE_ATTEMPTS
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
+from products.warehouse_sources.backend.temporal.data_imports.run_control import RunControl, temporal_run_control
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FAST_RETURN_PROBE_TIMEOUT,
@@ -373,6 +373,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 
     await asyncio.to_thread(report_heartbeat_timeout, inputs, logger)
 
+    control = temporal_run_control()
+
     # Async variant: teardown joins the sampler thread and talks to Redis, which must not block
     # this activity's event loop (or its heartbeats).
     async with aworkload_reporting(
@@ -382,10 +384,10 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         host=socket.gethostname(),
         # Retries share the run_id; the attempt lets the newest reporter own the run key while a
         # zombie predecessor stands down (its heartbeat timed out, but it may still be running).
-        attempt=current_import_attempt(),
+        attempt=control.attempt,
     ):
         try:
-            return await _import_data_with_reporting(inputs, logger)
+            return await run_extraction(inputs, logger, control)
         except WorkerShuttingDownError:
             if not inputs.handoffs_are_free:
                 raise
@@ -417,8 +419,11 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             raise NonReportableError(POSTHOG_DATABASE_UNAVAILABLE_MESSAGE) from e
 
 
-async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> PipelineResult:
-    async with Heartbeater(factor=30), ShutdownMonitor() as shutdown_monitor:
+async def run_extraction(
+    inputs: ImportDataActivityInputs, logger: FilteringBoundLogger, control: RunControl
+) -> PipelineResult:
+    """Extract one run of a schema. Anything that depends on the runtime comes from `control`."""
+    async with control.heartbeat(), control.shutdown_monitor:
         await setup_row_tracking(inputs.team_id, inputs.schema_id)
 
         model = await _get_external_data_job(inputs.run_id)
@@ -430,7 +435,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 f"Job {inputs.run_id} uses pipeline version {model.pipeline_version}. Only V3 jobs can run."
             )
 
-        attempt = current_import_attempt()
+        attempt = control.attempt
         if attempt > 1 and model.status in TERMINAL_JOB_STATUSES:
             await logger.ainfo(
                 "Skipping retry - job already terminal",
@@ -468,7 +473,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             sync_type=model.schema.sync_type if model.schema is not None else None,
             pipeline_version=model.pipeline_version,
         )
-        shutdown_monitor.run_on_shutdown(functools.partial(_log_worker_shutdown_during_import, logger))
+        control.shutdown_monitor.run_on_shutdown(functools.partial(_log_worker_shutdown_during_import, logger))
 
         job_inputs = PipelineInputs(
             source_id=inputs.source_id,
@@ -638,8 +643,9 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 # A schema-level override (user-managed) wins over the source pin.
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
-                activity_attempt=current_import_attempt(),
+                activity_attempt=control.attempt,
                 source_cursor=source_cursor_manager,
+                shutdown_wait=control.shutdown_wait or control.shutdown_monitor.wait_for_worker_shutdown_sync,
             )
 
             try:
@@ -733,7 +739,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 source_response=source_response,
                 logger=logger,
                 reset_pipeline=reset_pipeline,
-                shutdown_monitor=shutdown_monitor,
+                control=control,
                 resumable_source_manager=resumable_source_manager,
                 source_cursor_manager=source_cursor_manager,
                 incremental_checkpoints_allowed=incremental_checkpoints_allowed,
@@ -1107,7 +1113,7 @@ async def _run(
     source_response: SourceResponse,
     logger: FilteringBoundLogger,
     reset_pipeline: bool,
-    shutdown_monitor: ShutdownMonitor,
+    control: RunControl,
     resumable_source_manager: ResumableSourceManager | None,
     source_cursor_manager: SourceCursorManager[Any] | None = None,
     incremental_checkpoints_allowed: bool = False,
@@ -1124,13 +1130,16 @@ async def _run(
             logger,
             job_inputs.run_id,
             reset_pipeline,
-            shutdown_monitor,
+            control.shutdown_monitor,
             resumable_source_manager,
             models=models,
             source_cursor_manager=source_cursor_manager,
             incremental_checkpoints_allowed=incremental_checkpoints_allowed,
             resumed_incremental_run_uuid=resumed_incremental_run_uuid,
             resumed_incremental_value=resumed_incremental_value,
+            attempt=control.attempt,
+            workflow_id=control.workflow_id,
+            workflow_run_id=control.workflow_run_id,
         )
 
         result = await pipeline.run()
