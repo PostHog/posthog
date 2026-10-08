@@ -300,6 +300,21 @@ describe('MessageInput simplified replies', () => {
         expect(onSendMessage).toHaveBeenCalledWith('hello', { type: 'doc' }, false, expect.any(Function), status)
     })
 
+    test.each<[string, string]>([
+        ['Enter', '{Enter}'],
+        ['a digit', '2'],
+    ])('%s in a field outside the composer does not send', async (_name, keys) => {
+        const onSendMessage = renderSimplified()
+        render(<input aria-label="Sidebar field" />)
+
+        await userEvent.click(screen.getByTestId('support-editor'))
+        expect(await screen.findByTestId('send-menu')).toBeInTheDocument()
+
+        screen.getByLabelText('Sidebar field').focus()
+        await userEvent.keyboard(keys)
+        expect(onSendMessage).not.toHaveBeenCalled()
+    })
+
     it('goes back to the draft on Escape', async () => {
         const onSendMessage = renderSimplified()
 

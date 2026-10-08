@@ -60,6 +60,7 @@ export function SendMenu({
     onVisibilityChange,
     onSend,
     onCancel,
+    composerRef,
     verb,
     isPrivate,
     channel,
@@ -74,6 +75,8 @@ export function SendMenu({
     onVisibilityChange: (visible: boolean) => void
     onSend: (statusAfterSend?: TicketStatus) => void
     onCancel: () => void
+    /** The composer the shortcuts belong to */
+    composerRef: React.RefObject<HTMLElement>
     verb: string
     isPrivate: boolean
     channel?: TicketChannel
@@ -96,10 +99,15 @@ export function SendMenu({
             if (e.metaKey || e.ctrlKey || e.altKey) {
                 return
             }
-            const target = e.target as HTMLElement | null
+            const target = e.target as HTMLElement
+            const inMenu = !!overlayRef.current?.contains(target)
+            // Another focused control, like a ticket sidebar field, keeps its own keys.
+            if (!inMenu && target !== document.body && !composerRef.current?.contains(target)) {
+                return
+            }
             if (e.key === 'Enter') {
                 // A focused row inside the menu answers to Enter itself.
-                if (target && overlayRef.current?.contains(target) && target.closest('button, a')) {
+                if (inMenu && target.closest('button, a')) {
                     return
                 }
                 e.preventDefault()
@@ -122,7 +130,7 @@ export function SendMenu({
         }
         document.addEventListener('keydown', onKeyDown, true)
         return () => document.removeEventListener('keydown', onKeyDown, true)
-    }, [visible, onSend, onCancel, choices])
+    }, [visible, onSend, onCancel, choices, composerRef])
 
     return (
         <LemonDropdown

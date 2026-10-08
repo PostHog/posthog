@@ -104,6 +104,7 @@ export function MessageInput({
         setComposerExpanded(false)
     }
     const editorRef = useRef<RichContentEditorType | null>(null)
+    const composerRef = useRef<HTMLDivElement>(null)
     const lastSeededEditId = useRef<string | null>(null)
     const draftContentRef = useRef(draftContent)
     draftContentRef.current = draftContent
@@ -318,7 +319,7 @@ export function MessageInput({
     }
 
     return (
-        <div>
+        <div ref={composerRef}>
             <SupportEditor
                 initialContent={typeof draftContent === 'string' ? null : draftContent}
                 placeholder={resolvedPlaceholder}
@@ -411,6 +412,7 @@ export function MessageInput({
                             onVisibilityChange={setSendMenuOpen}
                             onSend={sendFromMenu}
                             onCancel={closeSendMenu}
+                            composerRef={composerRef}
                             verb={sendVerb}
                             isPrivate={isPrivate}
                             channel={channel}
