@@ -71,7 +71,11 @@ tools:
             matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with
             workflows-schedule-create. A 'schedule' trigger has no audience: it runs once per occurrence, so attach its
             cadence with workflows-schedule-create and skip the audience preview. Behavioral targeting ('did event X at
-            least N times over the last M days') is unsupported; reject it and explain why.
+            least N times over the last M days') is unsupported; reject it and explain why. Keep each workflow small
+            (aim for about 30 steps): a very large graph, especially one with many email steps, can make the visual
+            editor run out of memory and become impossible to open. When a journey needs more, split it into several
+            workflows chained by a 'Capture event' step (function, template_id 'template-posthog-capture') whose event
+            triggers the next workflow; see the building-workflows skill.
         ui_app: workflow
     workflows-discard-draft:
         operation: hog_flows_discard_draft_create
@@ -312,7 +316,9 @@ tools:
             workflows-publish. The full updated workflow is returned, so you don't need to re-fetch before the next
             edit. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper:
             {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with
-            workflows-test-run after patching.
+            workflows-test-run after patching. Do not keep growing one workflow: when adding steps would take it well
+            past about 30 steps, propose splitting it into chained workflows instead (see the building-workflows
+            skill).
     workflows-publish:
         operation: hog_flows_publish_create
         enabled: true

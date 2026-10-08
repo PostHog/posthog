@@ -134,6 +134,16 @@ The snapshot is one-way: editing the library template later does not change step
 
 Always give templates a real plain-text `text` alongside the design: clients that block rich content show only `text`, so filler like "placeholder" reaches real inboxes.
 
+## Keep workflows small
+
+Build several focused workflows, not one huge graph. The visual editor loads the full graph, every email's design and HTML, into the browser. A workflow with well over a hundred steps and many email steps can make the tab run out of memory, so nobody can open, inspect, or fix it in the UI. Most real workflows have fewer than 30 steps.
+
+- **Aim for about 30 steps per workflow.** Before you create a workflow, or patch one, that would go well past that, stop and propose a split to the user. Do the same when one workflow holds many email steps.
+- **Split at natural stage boundaries**: one workflow per stage (for example onboarding, activation, win-back), or one per independent branch of a large `conditional_branch`.
+- **Chain the parts with an event.** End the first workflow with a "Capture event" step (`function`, `config.template_id` `'template-posthog-capture'`) that captures a custom event, for example `onboarding_stage_1_completed`. Give the next workflow an `event` trigger on that event. Pass the values the next workflow needs as event properties: workflow variables do not move across workflows. A chain stops after 10 captures in a row (loop protection), so keep chains short.
+- **Test each part on its own**, then test the hand-off: test-run the capture step, then test-run the next workflow's trigger with that event as `globals`.
+- If the user asks you to make an existing, very large workflow smaller, build the new workflows as drafts beside it. Do not delete or disable the original until the user approves the cutover.
+
 ## Hard rules to surface to the user, not work around
 
 - **Behavioral targeting is unsupported.** "Did event X at least N times over the last M days" can't be expressed as a trigger or a batch/schedule audience. If asked, reject it and explain; don't approximate it with a broken filter. (The backend rejects behavioral cohorts in batch audiences outright.)
