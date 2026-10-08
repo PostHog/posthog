@@ -83,6 +83,7 @@ def search_workflows(
     if include_archived:
         statuses.append(HogFlow.State.ARCHIVED)
     queryset = access_control.filter_queryset_by_access_level(
+        # nosemgrep: environment-model-scoped-by-project -- matches core /api/search, which searches every environment of the project for each entity
         HogFlow.objects.filter(team__project_id=project_id, status__in=statuses)
     )
 
