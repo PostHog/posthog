@@ -311,11 +311,11 @@ export interface autoresearchPipelineLogicValues {
     detailRequested: boolean
     expandedLogRunIds: string[]
     expandedRunId: string | null
-    lifecycleSteps: LifecycleStep[] | null
-    modelByTrainingRun: Record<string, AutoresearchModelApi>
     experimentLogFilter: ExperimentLogFilter
     experimentLogGroups: ExperimentLogGroup[]
     hasLiveTrainingRun: boolean
+    lifecycleSteps: LifecycleStep[] | null
+    modelByTrainingRun: Record<string, AutoresearchModelApi>
     models: AutoresearchModelApi[]
     modelsError: boolean
     modelsLoaded: boolean
@@ -633,20 +633,20 @@ export interface autoresearchPipelineLogicActions {
         scoreResult: AutoresearchRunApi | null
         payload?: any
     }
-    searchPointClicked: (point: SearchPoint) => {
-        point: SearchPoint
-    }
     scoreRunFinished: (run: AutoresearchRunApi) => {
         run: AutoresearchRunApi
+    }
+    searchPointClicked: (point: SearchPoint) => {
+        point: SearchPoint
     }
     setActiveScoreRun: (run: AutoresearchRunApi | null) => {
         run: AutoresearchRunApi | null
     }
-    setExperimentLogFilter: (filter: ExperimentLogFilter) => {
-        filter: ExperimentLogFilter
-    }
     setActiveTab: (tab: AutoresearchPipelineTab) => {
         tab: AutoresearchPipelineTab
+    }
+    setExperimentLogFilter: (filter: ExperimentLogFilter) => {
+        filter: ExperimentLogFilter
     }
     setPredictionsPeopleView: (view: PredictionsPeopleView) => {
         view: PredictionsPeopleView
@@ -663,9 +663,6 @@ export interface autoresearchPipelineLogicActions {
     startScorePolling: () => {
         value: true
     }
-    startTrainingPolling: () => {
-        value: true
-    }
     startTraining: () => any
     startTrainingFailure: (
         error: string,
@@ -673,6 +670,9 @@ export interface autoresearchPipelineLogicActions {
     ) => {
         error: string
         errorObject?: any
+    }
+    startTrainingPolling: () => {
+        value: true
     }
     startTrainingSuccess: (
         startTrainingResult: AutoresearchTrainingRunApi | null,
@@ -752,6 +752,14 @@ export interface autoresearchPipelineLogicMeta {
         ) => ScoringCoverage | null
         onlinePerformanceRows: (validationRuns: AutoresearchRunApi[]) => OnlinePerformanceRow[]
         probabilityHistogram: (probabilityDistribution: ProbabilityBucket[] | null) => ProbabilityBucket[] | null
+        hasLiveTrainingRun: (trainingRuns: AutoresearchTrainingRunApi[]) => boolean
+        agentSearch: (trainingRuns: AutoresearchTrainingRunApi[], champion: AutoresearchModelApi | null) => AgentSearch
+        experimentLogGroups: (
+            trainingRuns: AutoresearchTrainingRunApi[],
+            agentSearch: AgentSearch,
+            experimentLogFilter: ExperimentLogFilter
+        ) => ExperimentLogGroup[]
+        agentNotes: (trainingRuns: AutoresearchTrainingRunApi[]) => AgentNotes | null
         defaultTab: (pipeline: AutoresearchPipelineApi | null) => AutoresearchPipelineTab
         activeTab: (
             selectedTab: AutoresearchPipelineTab | null,
