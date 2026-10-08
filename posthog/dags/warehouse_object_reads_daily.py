@@ -22,6 +22,7 @@ from posthog.clickhouse.warehouse_object_reads import (
 from posthog.dags.common import JobOwners, settings_with_log_comment
 from posthog.dags.common.common import EXECUTING_RUN_STATUSES, describe_runs
 from posthog.dags.common.resources import SatelliteClickhouseClusterResource
+from posthog.dataclasses import frozen
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.web_analytics.dags.web_preaggregated_utils import (
@@ -270,21 +271,39 @@ def drop_day_partition(cluster: ClickhouseCluster, day: date) -> None:
     ).result()
 
 
-def read_saved_query_read_summaries(
-    cluster: ClickhouseCluster, window_start: date
-) -> list[tuple[uuid.UUID, datetime, int, int]]:
-    return cluster.any_host_by_roles(
+@frozen
+class SavedQueryReadSummary:
+    saved_query_id: uuid.UUID
+    last_read_at: datetime
+    read_count_30d: int
+    user_count_30d: int
+
+
+def read_saved_query_read_summaries(cluster: ClickhouseCluster, window_start: date) -> list[SavedQueryReadSummary]:
+    rows = cluster.any_host_by_roles(
         lambda client: client.execute(SAVED_QUERY_READ_SUMMARIES_SQL, {"window_start": window_start}),
         [ROLLUP_NODE_ROLE],
     ).result()
+    return [
+        SavedQueryReadSummary(
+            saved_query_id=saved_query_id,
+            last_read_at=last_read_at,
+            read_count_30d=read_count,
+            user_count_30d=user_count,
+        )
+        for saved_query_id, last_read_at, read_count, user_count in rows
+    ]
 
 
-def write_saved_query_read_summaries(summaries: list[tuple[uuid.UUID, datetime, int, int]], window_start: date) -> None:
+def write_saved_query_read_summaries(summaries: list[SavedQueryReadSummary], window_start: date) -> None:
     for batch in batched(summaries, READ_SUMMARY_BATCH_SIZE, strict=False):
-        summary_by_id = {summary[0]: summary for summary in batch}
+        summary_by_id = {summary.saved_query_id: summary for summary in batch}
         views = list(DataWarehouseSavedQuery.objects.filter(id__in=summary_by_id).only("id"))
         for view in views:
-            _, view.last_read_at, view.read_count_30d, view.user_count_30d = summary_by_id[view.id]
+            summary = summary_by_id[view.id]
+            view.last_read_at = summary.last_read_at
+            view.read_count_30d = summary.read_count_30d
+            view.user_count_30d = summary.user_count_30d
         DataWarehouseSavedQuery.objects.bulk_update(views, DataWarehouseSavedQuery.READ_SUMMARY_FIELDS)
     DataWarehouseSavedQuery.objects.filter(
         read_count_30d__gt=0, last_read_at__lt=datetime.combine(window_start, time.min, tzinfo=UTC)
