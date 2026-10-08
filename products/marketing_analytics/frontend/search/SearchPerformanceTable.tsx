@@ -48,7 +48,7 @@ export function SearchPerformanceTable({
     const rows = (response as MarketingAnalyticsSearchQueryResponse | undefined)?.results ?? []
     const hasPaidSources = query.sources.some((source) => source.sourceType !== 'GoogleSearchConsole')
     const hasPositionSources = query.sources.some((source) =>
-        ['GoogleSearchConsole', 'GoogleAds'].includes(source.sourceType)
+        ['GoogleSearchConsole', 'GoogleAds', 'BingAds'].includes(source.sourceType)
     )
     const metricKeys: Exclude<
         keyof MarketingAnalyticsSearchMetrics,
@@ -185,7 +185,7 @@ export function SearchPerformanceTable({
                             cpc: 'Spend divided by clicks',
                             cpa: 'Spend divided by conversions',
                             position:
-                                'Organic search position or Google Ads top and first-position impression percentages. Hover over a value for details.',
+                                'Organic search position or paid search top and first-position impression percentages. Hover over a value for details.',
                         }[metric],
                         key: metric,
                         align: 'right' as const,

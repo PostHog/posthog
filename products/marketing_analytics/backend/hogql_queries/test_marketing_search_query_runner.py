@@ -89,12 +89,15 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
                 "spend": "Float64",
                 "conversions": "Float64",
                 "time_period": "Date",
+                "top_impression_rate_percent": "String",
+                "absolute_top_impression_rate_percent": "String",
             },
-            "keyword,bid_match_type,currency_code,clicks,impressions,spend,conversions,time_period\n"
-            "Hedgehog,Exact,USD,4,80,8,1,2023-01-10\n"
-            "Hedgehog,Phrase,USD,1,20,2,0,2023-01-10\n"
-            "Zero,Exact,USD,0,0,0,0,2023-01-10\n"
-            "Previous only,Exact,USD,5,100,10,0.5,2022-12-15\n",
+            "keyword,bid_match_type,currency_code,clicks,impressions,spend,conversions,time_period,top_impression_rate_percent,absolute_top_impression_rate_percent\n"
+            "Hedgehog,Exact,USD,2,20,4,0.5,2023-01-10,80%,40%\n"
+            "Hedgehog,Exact,USD,2,60,4,0.5,2023-01-11,40,20\n"
+            "Hedgehog,Phrase,USD,1,20,2,0,2023-01-10,--,--\n"
+            "Zero,Exact,USD,0,0,0,0,2023-01-10,0,0\n"
+            "Previous only,Exact,USD,5,100,10,0.5,2022-12-15,60%,30%\n",
         )
         query = MarketingAnalyticsSearchQuery(
             dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
@@ -126,6 +129,13 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             "cpa": 24,
             "previous": None,
         }
+        bing = next(
+            row for row in rows if row.platform == "BingAds" and row.matchType == "exact" and row.keyword == "hedgehog"
+        )
+        assert bing.topImpressionRate == pytest.approx(0.5)
+        assert bing.absoluteTopImpressionRate == pytest.approx(0.25)
+        missing = next(row for row in rows if row.platform == "BingAds" and row.matchType == "phrase")
+        assert missing.topImpressionRate is None and missing.absoluteTopImpressionRate is None
         zero = next(row for row in rows if row.keyword == "zero")
         assert zero.topImpressionRate is None and zero.absoluteTopImpressionRate is None
         assert zero.ctr is None and zero.cpc is None and zero.cpa is None
@@ -162,6 +172,8 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         assert previous_only.clicks == 0
         assert previous_only.ctr is None and previous_only.cpc is None and previous_only.cpa is None
         assert previous_only.previous is not None and previous_only.previous.clicks == 5
+        assert previous_only.previous.topImpressionRate == pytest.approx(0.6)
+        assert previous_only.previous.absoluteTopImpressionRate == pytest.approx(0.3)
         new_keyword = next(row for row in compared if row.keyword == "other keyword")
         assert new_keyword.previous is not None and new_keyword.previous.clicks == 0
         assert new_keyword.previous.ctr is None
@@ -179,7 +191,7 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         assert previous_year.previous is not None and previous_year.previous.clicks == 8
         assert not any(row.keyword == "previous only" for row in year_compared)
 
-    @parameterized.expand([("GoogleAds", True), ("GoogleAds", False), ("BingAds", False)])
+    @parameterized.expand([("GoogleAds", True), ("GoogleAds", False), ("BingAds", False), ("BingAds", True)])
     def test_landing_pages_exclude_non_search_traffic_and_keep_currencies(
         self, platform: str, placement_available: bool
     ) -> None:
@@ -226,6 +238,30 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
                 csv,
             )
         else:
+            csv = (
+                "time_period,destination_url,ad_distribution,currency_code,clicks,impressions,spend,conversions_qualified\n"
+                "2023-01-10,https://example.com/a,Search,USD,10,100,20,2\n"
+                "2023-01-11,https://example.com/a,Search,USD,5,50,10,0.5\n"
+                "2023-01-10,https://example.com/a,Search,EUR,3,30,6,1\n"
+                "2023-01-10,https://example.com/a,Audience,USD,900,9000,90,90\n"
+                "2022-01-10,https://example.com/a,Search,USD,900,9000,90,90\n"
+            )
+            placement_columns = {}
+            if placement_available:
+                placement_columns = {
+                    "top_impression_rate_percent": "String",
+                    "absolute_top_impression_rate_percent": "String",
+                }
+                lines = csv.splitlines()
+                csv = (
+                    "\n".join(
+                        [
+                            lines[0] + ",top_impression_rate_percent,absolute_top_impression_rate_percent",
+                            *(line + ",80%,40%" for line in lines[1:]),
+                        ]
+                    )
+                    + "\n"
+                )
             table = self._table(
                 "bing_landing_pages",
                 {
@@ -237,13 +273,9 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
                     "impressions": "Float64",
                     "spend": "Float64",
                     "conversions_qualified": "Float64",
+                    **placement_columns,
                 },
-                "time_period,destination_url,ad_distribution,currency_code,clicks,impressions,spend,conversions_qualified\n"
-                "2023-01-10,https://example.com/a,Search,USD,10,100,20,2\n"
-                "2023-01-11,https://example.com/a,Search,USD,5,50,10,0.5\n"
-                "2023-01-10,https://example.com/a,Search,EUR,3,30,6,1\n"
-                "2023-01-10,https://example.com/a,Audience,USD,900,9000,90,90\n"
-                "2022-01-10,https://example.com/a,Search,USD,900,9000,90,90\n",
+                csv,
             )
         query = MarketingAnalyticsSearchQuery(
             breakdown="page",

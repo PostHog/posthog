@@ -15,12 +15,15 @@ These counts guide connection suggestions; they do not change report attribution
 
 Spend and conversions require a synced ad platform source in the current search filters.
 Google Search Console reports organic traffic metrics only.
-The Traffic view always includes the Position column when Google Search Console or Google Ads is ready.
-The Position cell shows the organic average position for Google Search Console, or top and first-position impression percentages for Google Ads.
+The Traffic view always includes the Position column when Google Search Console, Google Ads, or Bing Ads is ready.
+The Position cell shows the organic average position for Google Search Console, or top and first-position impression percentages for Google Ads or Bing Ads.
 Hover over each label or value for its definition.
-These percentages use Google Search impressions with placement data, weighted by impressions; Search partners are excluded.
-They do not identify second or third position.
-Existing connections need to sync `keyword_stats` or `landing_page_stats` to import the new fields; older rows without placement data show no value.
+Google Ads percentages use Google Search impressions with placement data, weighted by impressions; Search partners are excluded.
+Bing Ads percentages use Microsoft Advertising report values, weighted by impressions.
+They do not identify second or third position, or the search results page.
+Existing Google Ads connections need to sync `keyword_stats` or `landing_page_stats` to import the new fields.
+Bing Ads connections need to sync `keyword_performance_report` or `destination_url_performance_report`.
+Older rows without placement data show no value.
 When no paid source is ready, the disabled control directs users to check their source settings or filters.
 For Google Ads landing pages, enable `landing_page_stats` and wait for its first sync to finish.
 

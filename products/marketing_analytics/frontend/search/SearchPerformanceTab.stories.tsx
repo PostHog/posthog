@@ -129,6 +129,8 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
     {
         keyword: 'product analytics',
         platform: 'BingAds',
+        topImpressionRate: 0.64,
+        absoluteTopImpressionRate: 0.28,
         matchType: 'exact',
         currency: 'USD',
         clicks: 240,
@@ -142,6 +144,8 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
     {
         keyword: 'conversion tracking',
         platform: 'BingAds',
+        topImpressionRate: 0.64,
+        absoluteTopImpressionRate: 0.28,
         matchType: 'broad',
         currency: 'EUR',
         clicks: 80,
@@ -639,6 +643,8 @@ export const PositionMetrics: Story = {
         await expect(await canvas.findByRole('columnheader', { name: /position|pos\./i })).toBeVisible()
         await expect(await canvas.findAllByText('72.0%')).not.toHaveLength(0)
         await expect(await canvas.findAllByText('38.0%')).not.toHaveLength(0)
+        await expect(await canvas.findAllByText('64.0%')).not.toHaveLength(0)
+        await expect(await canvas.findAllByText('28.0%')).not.toHaveLength(0)
         await expect(canvas.queryByRole('button', { name: 'Visibility' })).not.toBeInTheDocument()
         await userEvent.hover((await canvas.findAllByText('Top'))[0])
         await expect(

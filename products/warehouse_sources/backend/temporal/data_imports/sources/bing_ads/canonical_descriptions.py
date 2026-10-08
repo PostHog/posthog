@@ -70,6 +70,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://learn.microsoft.com/en-us/advertising/reporting-service/campaignperformancereportrequest",
         "columns": {
             **_REPORT_METRICS,
+            "top_impression_rate_percent": "Percentage of ad impressions shown above search results.",
+            "absolute_top_impression_rate_percent": "Percentage of ad impressions shown as the first ad.",
             "absolute_top_impression_share_percent": "Percentage of impressions shown in the very top position.",
             "top_impression_share_percent": "Percentage of impressions shown in a top position above search results.",
             "impression_share_percent": "Share of impressions received out of those the ad was eligible for.",
@@ -116,6 +118,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://learn.microsoft.com/en-us/advertising/reporting-service/keywordperformancereportrequest",
         "columns": {
             **_REPORT_METRICS,
+            "top_impression_rate_percent": "Percentage of ad impressions shown above search results.",
+            "absolute_top_impression_rate_percent": "Percentage of ad impressions shown as the first ad.",
             "ad_group_id": "Identifier of the ad group the keyword belongs to.",
             "ad_group_name": "Name of the ad group the keyword belongs to.",
             "keyword": "The keyword text that triggered the ad.",

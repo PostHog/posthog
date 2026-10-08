@@ -74,13 +74,26 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
 
     def _placement_fields(self, source: MarketingAnalyticsSearchSource) -> dict[str, ast.Expr]:
         table = self.hogql_database.get_table(source.statsTable.split("."))
-        return {
-            name: ast.Field(chain=["s", field]) if table.has_field(field) else ast.Constant(value=None)
-            for name, field in (
+        fields = (
+            (
                 ("top_rate", "metrics_top_impression_percentage"),
                 ("absolute_top_rate", "metrics_absolute_top_impression_percentage"),
             )
-        }
+            if source.sourceType == "GoogleAds"
+            else (
+                ("top_rate", "top_impression_rate_percent"),
+                ("absolute_top_rate", "absolute_top_impression_rate_percent"),
+            )
+        )
+        result: dict[str, ast.Expr] = {}
+        for name, field in fields:
+            value: ast.Expr = ast.Field(chain=["s", field]) if table.has_field(field) else ast.Constant(value=None)
+            result[name] = (
+                parse_expr("toFloatOrNull(replaceAll(toString({value}), '%', '')) / 100", placeholders={"value": value})
+                if source.sourceType == "BingAds" and table.has_field(field)
+                else value
+            )
+        return result
 
     def _source_query(
         self, source: MarketingAnalyticsSearchSource, date_range: QueryDateRange, period: int
@@ -91,7 +104,7 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             "date_from": ast.Constant(value=date_range.date_from()),
             "date_to": ast.Constant(value=date_range.date_to()),
         }
-        if source.sourceType == "GoogleAds":
+        if source.sourceType in ("GoogleAds", "BingAds"):
             placeholders.update(self._placement_fields(source))
         if source.sourceType == "GoogleSearchConsole":
             if (self.query.keyword is not None or self.query.page is not None) and not source.queryPageTable:
@@ -142,9 +155,11 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                     sum(toFloat(clicks)) AS click_count, sum(toFloat(impressions)) AS impression_count,
                     sum(toFloat(spend)) AS total_cost,
                     sum(toFloat(conversions_qualified)) AS conversion_count, 0 AS position_total,
-                    NULL AS top_impressions, 0 AS top_eligible_impressions,
-                    NULL AS absolute_top_impressions, 0 AS absolute_top_eligible_impressions
-                FROM {stats}
+                    sum({top_rate} * toFloat(s.impressions)) AS top_impressions,
+                    sumIf(toFloat(s.impressions), {top_rate} IS NOT NULL) AS top_eligible_impressions,
+                    sum({absolute_top_rate} * toFloat(s.impressions)) AS absolute_top_impressions,
+                    sumIf(toFloat(s.impressions), {absolute_top_rate} IS NOT NULL) AS absolute_top_eligible_impressions
+                FROM {stats} AS s
                 WHERE toDate(time_period) >= toDate({date_from}) AND toDate(time_period) <= toDate({date_to})
                     AND ad_distribution = 'Search'
                 GROUP BY page, currency
@@ -216,9 +231,11 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                 nullIf(lower(bid_match_type), '') AS matchType, nullIf(upper(currency_code), '') AS currency,
                 sum(toFloat(clicks)) AS click_count, sum(toFloat(impressions)) AS impression_count,
                 sum(toFloat(spend)) AS total_cost, sum(toFloat(conversions)) AS conversion_count, 0 AS position_total,
-                    NULL AS top_impressions, 0 AS top_eligible_impressions,
-                    NULL AS absolute_top_impressions, 0 AS absolute_top_eligible_impressions
-            FROM {stats}
+                    sum({top_rate} * toFloat(s.impressions)) AS top_impressions,
+                    sumIf(toFloat(s.impressions), {top_rate} IS NOT NULL) AS top_eligible_impressions,
+                    sum({absolute_top_rate} * toFloat(s.impressions)) AS absolute_top_impressions,
+                    sumIf(toFloat(s.impressions), {absolute_top_rate} IS NOT NULL) AS absolute_top_eligible_impressions
+            FROM {stats} AS s
             WHERE toDate(time_period) >= toDate({date_from}) AND toDate(time_period) <= toDate({date_to})
             GROUP BY keyword, matchType, currency
             """,

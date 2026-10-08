@@ -23,23 +23,25 @@ export function SearchPositionCell({
             />
         )
     }
-    if (row.platform !== 'GoogleAds') {
+    if (row.platform !== 'GoogleAds' && row.platform !== 'BingAds') {
         return <span className="text-muted">–</span>
     }
+    const searchName = row.platform === 'GoogleAds' ? 'Google Search' : 'Microsoft Advertising search'
+    const networkNote = row.platform === 'GoogleAds' ? ' Excludes Search partners.' : ''
     return (
         <div className="flex flex-col items-end gap-1">
             {(
                 [
-                    ['topImpressionRate', 'Top', 'Percentage of Google Search ad impressions shown among the top ads.'],
+                    ['topImpressionRate', 'Top', `Percentage of ${searchName} ad impressions shown among the top ads.`],
                     [
                         'absoluteTopImpressionRate',
                         'First',
-                        'Percentage of Google Search ad impressions shown as the first ad.',
+                        `Percentage of ${searchName} ad impressions shown as the first ad.`,
                     ],
                 ] as const
             ).map(([metric, label, definition]) => (
                 <div key={metric} className="flex max-w-full flex-wrap items-center justify-end gap-x-1">
-                    <Tooltip title={`${definition} Excludes Search partners. Requires a sync with ad placement data.`}>
+                    <Tooltip title={`${definition}${networkNote} Requires a sync with ad placement data.`}>
                         <span className="text-xs text-secondary">{label}</span>
                     </Tooltip>
                     <ChangeValueCell
@@ -47,7 +49,7 @@ export function SearchPositionCell({
                         compare={compare}
                         kind="percentage"
                         currency={CurrencyCode.USD}
-                        tooltipContent={`${definition} Excludes Search partners.`}
+                        tooltipContent={`${definition}${networkNote}`}
                     />
                 </div>
             ))}
