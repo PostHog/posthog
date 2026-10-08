@@ -22,6 +22,7 @@ from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, S
 from pymongo.hello import Hello
 from pymongo.server_description import ServerDescription
 
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
@@ -30,10 +31,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
+    CONNECT_TIMEOUT_MS,
     MONGO_DOCUMENT_MISSING_ID_ERROR,
     MONGO_KEYS_UNAVAILABLE_ERROR,
     MONGO_MAX_CHUNK_ROWS,
     MONGO_MIN_CHUNK_ROWS,
+    SERVER_SELECTION_TIMEOUT_MS,
+    SOCKET_TIMEOUT_MS,
     MongoResumeConfig,
     _adaptive_chunk_size,
     _build_query,
@@ -45,11 +49,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     _make_safe_server_selector,
     _process_doc_with_field_logging,
     _process_nested_value,
+    connection_timeouts,
     decode_resume_id,
     encode_resume_id,
     get_index_keys,
     get_index_keys_by_collection,
     get_server_metadata,
+    mongo_client,
     mongo_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import MongoDBSource
@@ -1223,3 +1229,68 @@ class TestGetServerMetadata(SimpleTestCase):
             assert "wire_version" not in metadata
         else:
             assert metadata["wire_version"] == expected_wire_version
+
+
+_MONGO_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo"
+
+
+class TestConnectionTimeouts(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "no_options",
+                "mongodb+srv://user:pw@cluster.example.com/db",
+                {"connectTimeoutMS": CONNECT_TIMEOUT_MS, "socketTimeoutMS": SOCKET_TIMEOUT_MS},
+            ),
+            (
+                "other_options_only",
+                "mongodb://user:pw@db.example.com:27017/db?retryWrites=true&w=majority",
+                {"connectTimeoutMS": CONNECT_TIMEOUT_MS, "socketTimeoutMS": SOCKET_TIMEOUT_MS},
+            ),
+            (
+                "socket_timeout_in_the_connection_string",
+                "mongodb://user:pw@db.example.com/db?socketTimeoutMS=900000",
+                {"connectTimeoutMS": CONNECT_TIMEOUT_MS},
+            ),
+            (
+                "option_names_are_not_case_sensitive",
+                "mongodb://user:pw@db.example.com/db?connecttimeoutms=5000&SOCKETTIMEOUTMS=5000",
+                {},
+            ),
+            (
+                "an_option_name_in_another_options_value_is_not_an_option",
+                "mongodb://user:pw@db.example.com/db?appName=import-socketTimeoutMS=1",
+                {"connectTimeoutMS": CONNECT_TIMEOUT_MS, "socketTimeoutMS": SOCKET_TIMEOUT_MS},
+            ),
+            (
+                "an_option_name_in_the_credentials_is_not_an_option",
+                "mongodb://sockettimeoutms=1:pw@db.example.com/db",
+                {"connectTimeoutMS": CONNECT_TIMEOUT_MS, "socketTimeoutMS": SOCKET_TIMEOUT_MS},
+            ),
+        ]
+    )
+    def test_default_timeouts_give_way_to_the_connection_string(self, _name, connection_string, expected):
+        # A keyword argument to `MongoClient` wins over the connection string, so a default that
+        # was always sent would discard the limit a customer chose.
+        assert connection_timeouts(connection_string) == expected
+
+    def test_client_limits_server_selection_connect_and_each_socket_wait(self):
+        with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
+            with mongo_client("mongodb://user:pw@db.example.com/db", team_id=1):
+                pass
+
+        kwargs = client_class.call_args.kwargs
+        assert kwargs["serverSelectionTimeoutMS"] == SERVER_SELECTION_TIMEOUT_MS
+        assert kwargs["connectTimeoutMS"] == CONNECT_TIMEOUT_MS
+        assert kwargs["socketTimeoutMS"] == SOCKET_TIMEOUT_MS
+
+    def test_socket_timeout_error_is_retryable(self):
+        # pymongo's NetworkTimeout wording when a socket read reaches `socketTimeoutMS`.
+        message = (
+            "db.example.com:27017: timed out (configured timeouts: socketTimeoutMS: 600000.0ms, "
+            "connectTimeoutMS: 10000.0ms)"
+        )
+        source = MongoDBSource()
+
+        assert error_message_matches(message, source.get_retryable_errors())
+        assert not error_message_matches(message, {**Any_Source_Errors, **source.get_non_retryable_errors()})

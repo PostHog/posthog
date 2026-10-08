@@ -1,3 +1,5 @@
+import threading
+import concurrent.futures
 from types import SimpleNamespace
 from typing import cast
 
@@ -11,6 +13,7 @@ from google.api_core.exceptions import (
     DeadlineExceeded,
     Forbidden,
     InternalServerError,
+    InvalidArgument,
     NotFound,
     PermissionDenied,
     ServiceUnavailable,
@@ -23,11 +26,14 @@ from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
 from products.batch_exports.backend.facade.destinations.bigquery import ServiceAccountOwnershipError
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
+    BIGQUERY_COPY_JOB_TIMEOUT_SECONDS,
     BIGQUERY_CREATE_READ_SESSION_RETRY,
     BIGQUERY_CREDENTIALS_REJECTED_ERROR,
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
+    BIGQUERY_HTTP_TIMEOUT_SECONDS,
     BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
     BIGQUERY_INTEGRATION_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
@@ -38,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_QUERY_CREATE_RETRY,
     BIGQUERY_QUERY_JOB_RETRY,
     BIGQUERY_READ_ROWS_RETRY,
+    BIGQUERY_ROW_COUNT_JOB_TIMEOUT_SECONDS,
     BIGQUERY_TOKEN_REFRESH_RETRY,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BIGQUERY_VALIDATION_GENERIC_ERROR,
@@ -48,12 +55,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BigQueryImplementation,
     BigQueryInvalidIdentifierError,
     BigQueryInvalidTokenUriError,
+    BigQueryJobTimeoutError,
+    BigQueryReadTimeoutError,
     BigQueryTokenRefreshError,
     _bq_select_clause,
     _get_primary_keys_for_table,
     _get_query,
     _get_rows_to_sync,
     _has_duplicate_primary_keys,
+    _pages_with_idle_timeout,
     _resolve_region,
     _run_destination_query_with_job_retry,
     delete_all_temp_destination_tables,
@@ -61,6 +71,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     validate_bigquery_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source import BigQuerySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.identifiers import (
     InvalidIdentifierError,
 )
@@ -1552,3 +1563,124 @@ def test_bigquery_validate_config_reads_a_bare_selection_from_the_flat_payload(j
     assert not any("Required field" in error for error in errors)
     if not expected_valid:
         assert any("Google Cloud service account" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "caller_timeout, sent_timeout",
+    [(None, BIGQUERY_HTTP_TIMEOUT_SECONDS), (5.0, 5.0)],
+    ids=["client_default_of_none", "explicit_timeout_is_kept"],
+)
+def test_bigquery_rest_requests_always_have_a_timeout(caller_timeout, sent_timeout):
+    # The BigQuery client passes `timeout=None` for each call without one, and `requests` then
+    # waits on a silent server without limit.
+    with (
+        bq_module.bigquery_client(
+            project_id="project-id", location=None, credentials=mock.Mock(spec=GoogleAuthCredentials)
+        ) as client,
+        mock.patch.object(bq_module.AuthorizedSession, "request") as request,
+    ):
+        client._http.request("GET", "https://bigquery.googleapis.com/x", timeout=caller_timeout)
+
+    assert request.call_args.kwargs["timeout"] == sent_timeout
+
+
+@pytest.mark.parametrize("cancel_error", [None, RuntimeError("cancel refused")], ids=["cancelled", "cancel_fails"])
+def test_copy_job_past_its_limit_is_cancelled_and_raises_a_retryable_error(cancel_error):
+    client = mock.MagicMock()
+    job = client.query.return_value
+    job.result.side_effect = concurrent.futures.TimeoutError()
+    job.cancel.side_effect = cancel_error
+
+    with pytest.raises(BigQueryJobTimeoutError) as error:
+        _run_destination_query_with_job_retry(
+            client, "SELECT 1", destination_table=mock.MagicMock(), query_parameters=[], project="prj"
+        )
+
+    assert job.result.call_args.kwargs["timeout"] == BIGQUERY_COPY_JOB_TIMEOUT_SECONDS
+    job.cancel.assert_called_once()
+    _assert_retryable(str(error.value))
+
+
+def test_bigquery_get_rows_to_sync_gives_zero_when_the_count_is_past_its_limit():
+    table = mock.MagicMock(project="proj", dataset_id="ds", table_id="t")
+    table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
+    client = mock.MagicMock()
+    job = client.query.return_value
+    job.result.side_effect = concurrent.futures.TimeoutError()
+
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.capture_exception"
+    ) as mock_capture:
+        result = _get_rows_to_sync(
+            table=table,
+            client=client,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            logger=mock.MagicMock(),
+            row_filters=[
+                ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
+            ],
+        )
+
+    assert result == 0
+    assert job.result.call_args.kwargs["timeout"] == BIGQUERY_ROW_COUNT_JOB_TIMEOUT_SECONDS
+    # A slow count is expected on a large filtered table, so it is not an error to track.
+    mock_capture.assert_not_called()
+
+
+def _assert_retryable(message: str) -> None:
+    source = BigQuerySource()
+    assert error_message_matches(message, source.get_retryable_errors())
+    assert not error_message_matches(message, {**Any_Source_Errors, **source.get_non_retryable_errors()})
+
+
+def test_row_pages_that_keep_coming_never_end_the_read():
+    end_read = mock.Mock()
+
+    pages = list(_pages_with_idle_timeout(iter([1, 2, 3]), timeout_seconds=30, end_read=end_read))
+
+    assert pages == [1, 2, 3]
+    end_read.assert_not_called()
+
+
+def test_each_row_page_gets_its_own_wait_limit(monkeypatch):
+    # A limit on the stream as a whole would end a long read that is in good health.
+    timers: list[mock.Mock] = []
+
+    def fake_timer(interval, function):
+        timers.append(mock.Mock(interval=interval))
+        return timers[-1]
+
+    monkeypatch.setattr(bq_module.threading, "Timer", fake_timer)
+
+    list(_pages_with_idle_timeout(iter([1, 2]), timeout_seconds=600, end_read=mock.Mock()))
+
+    # One wait for each page, and one for the end of the stream.
+    assert [timer.interval for timer in timers] == [600, 600, 600]
+    assert all(timer.start.called and timer.cancel.called for timer in timers)
+
+
+def test_row_page_that_does_not_come_ends_the_read_with_a_retryable_error():
+    ended = threading.Event()
+
+    def silent_stream():
+        yield "first page"
+        assert ended.wait(5)
+        raise ValueError("Cannot invoke RPC on closed channel!")
+
+    taken = []
+    with pytest.raises(BigQueryReadTimeoutError) as error:
+        for page in _pages_with_idle_timeout(silent_stream(), timeout_seconds=0.05, end_read=ended.set):
+            taken.append(page)
+
+    assert taken == ["first page"]
+    _assert_retryable(str(error.value))
+
+
+def test_row_page_error_before_the_limit_keeps_its_own_class():
+    def broken_stream():
+        raise InvalidArgument("the read session is not valid")
+        yield
+
+    with pytest.raises(InvalidArgument):
+        list(_pages_with_idle_timeout(broken_stream(), timeout_seconds=30, end_read=mock.Mock()))
