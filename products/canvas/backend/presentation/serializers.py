@@ -252,6 +252,14 @@ class CanvasOperationDeclarationSerializer(serializers.Serializer):
         help_text="Payload fields the caller supplies at invoke time. Any other argument is refused.",
     )
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        overlap = sorted(set(attrs.get("payload") or {}) & set(attrs.get("inputs") or []))
+        if overlap:
+            raise serializers.ValidationError(
+                {"inputs": "A field is either fixed in payload or supplied in inputs, not both: " + ", ".join(overlap)}
+            )
+        return attrs
+
 
 class CanvasPostHogCapabilitiesSerializer(serializers.Serializer):
     insights = serializers.ListField(child=serializers.CharField(max_length=128), max_length=100)

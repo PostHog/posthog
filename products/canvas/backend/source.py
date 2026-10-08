@@ -16,6 +16,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import jsonschema
+from rest_framework import serializers
 
 from products.canvas.backend.actions import CANVAS_ACTIONS
 from products.canvas.backend.connectors import (
@@ -790,7 +791,8 @@ def _validate_operation_declarations(posthog_capabilities: dict[str, Any]) -> li
                 )
             )
             continue
-        accepted_keys = set(CANVAS_ACTIONS[verb].payload_serializer().fields)
+        verb_fields = CANVAS_ACTIONS[verb].payload_serializer().fields
+        accepted_keys = set(verb_fields)
         payload = operation.get("payload", {})
         if not isinstance(payload, dict):
             diagnostics.append(diagnostic("error", "operation_invalid", f"{label}.payload must be an object"))
@@ -827,7 +829,65 @@ def _validate_operation_declarations(posthog_capabilities: dict[str, Any]) -> li
                         f'{label}.inputs names fields "{verb}" does not accept: ' + ", ".join(unknown_inputs),
                     )
                 )
+        if isinstance(payload, dict) and isinstance(inputs, list):
+            diagnostics.extend(_validate_operation_payload(label, verb, verb_fields, payload, inputs))
     return diagnostics
+
+
+def _validate_operation_payload(
+    label: str, verb: str, verb_fields: Any, payload: dict[str, Any], inputs: list[Any]
+) -> list[dict[str, Any]]:
+    """Check the fixed payload values now, so a bad value fails at publish and not on every invoke.
+
+    A field is either fixed in ``payload`` or supplied through ``inputs``, never both: a caller must not
+    replace a value the author fixed. Every required field of the verb must come from one of the two.
+    """
+    diagnostics: list[dict[str, Any]] = []
+    input_keys = {key for key in inputs if isinstance(key, str)}
+    overlap = sorted(set(payload) & input_keys)
+    if overlap:
+        diagnostics.append(
+            diagnostic(
+                "error",
+                "operation_invalid",
+                f"{label} names fields in both payload and inputs: " + ", ".join(overlap),
+            )
+        )
+    for key, value in payload.items():
+        field = verb_fields.get(key)
+        if field is None:
+            continue
+        try:
+            field.run_validation(value)
+        except serializers.ValidationError as error:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "operation_invalid",
+                    f'{label}.payload.{key} is not a valid value for "{verb}": {_validation_message(error.detail)}',
+                )
+            )
+    missing = sorted(
+        name for name, field in verb_fields.items() if field.required and name not in payload and name not in input_keys
+    )
+    if missing:
+        diagnostics.append(
+            diagnostic(
+                "error",
+                "operation_invalid",
+                f'{label} does not supply fields "{verb}" requires; fix them in payload or list them in inputs: '
+                + ", ".join(missing),
+            )
+        )
+    return diagnostics
+
+
+def _validation_message(detail: Any) -> str:
+    if isinstance(detail, dict):
+        return "; ".join(f"{key}: {_validation_message(value)}" for key, value in detail.items())
+    if isinstance(detail, list):
+        return "; ".join(_validation_message(item) for item in detail)
+    return str(detail)
 
 
 def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") -> list[dict[str, Any]]:

@@ -417,7 +417,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         # not let a caller rotate canvases past the project-wide limits.
         if self.action == "set_state":
             return [*super().get_throttles(), CanvasStateWriteThrottle()]
-        if self.action == "invoke_action":
+        if self.action in ("invoke_action", "invoke_operation"):
             return [*super().get_throttles(), CanvasActionInvokeThrottle()]
         if self.action == "call_connector":
             return [*super().get_throttles(), CanvasConnectorCallThrottle()]
@@ -429,16 +429,23 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         # to create tasks or annotations.
         action_name = getattr(view, "action", None)
         if action_name == "invoke_operation":
-            operation_name = view.kwargs.get("operation_name")
-            return (
-                canvas_api.operation_required_scopes(self.team_id, view.kwargs["pk"], operation_name)
-                if isinstance(operation_name, str)
-                else None
-            )
+            return canvas_api.operation_verb_required_scopes(self._operation_verb_for_scopes(view))
         if action_name != "invoke_action":
             return None
         verb = request.data.get("verb") if isinstance(request.data, dict) else None
         return canvas_api.action_required_scopes(verb) if isinstance(verb, str) else None
+
+    def _operation_verb_for_scopes(self, view: Any) -> str | None:
+        # Read the operation's verb once per request. invoke_operation runs only this verb, so a publish
+        # that rebinds the operation between the scope check and the invoke cannot run an unchecked verb.
+        if not hasattr(self, "_scope_checked_operation_verb"):
+            operation_name = view.kwargs.get("operation_name")
+            self._scope_checked_operation_verb = (
+                canvas_api.operation_verb(self.team_id, view.kwargs["pk"], operation_name)
+                if isinstance(operation_name, str)
+                else None
+            )
+        return self._scope_checked_operation_verb
 
     # Content writes. Every member who can see a canvas in a public space may
     # publish a new version of it; a canvas in a personal space is only visible
@@ -1919,6 +1926,9 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 description="Actions are disabled for the team, the caller is a sandbox, or the viewer may not write."
             ),
             404: OpenApiResponse(description="The canvas declares no operation with this name."),
+            409: OpenApiResponse(
+                description="A publish changed the operation's verb during the request, or an approval policy took the change."
+            ),
         },
     )
     @action(methods=["POST"], detail=True, url_path=r"operations/(?P<operation_name>[a-z0-9-]+)/invoke")
@@ -1948,6 +1958,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         payload = CanvasOperationInvokeSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         verb = operation["verb"]
+        if hasattr(self, "_scope_checked_operation_verb") and self._scope_checked_operation_verb != verb:
+            return Response(
+                {"detail": f'The canvas changed operation "{operation_name}" during this request. Try again.'},
+                status=status.HTTP_409_CONFLICT,
+            )
         try:
             verb_payload = canvas_api.validate_action(
                 canvas.head_capabilities,
@@ -1979,7 +1994,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         responses={
             200: CanvasPublishSkillResponseSerializer,
             403: OpenApiResponse(description="The caller is a sandbox; skills are published by people."),
-            409: OpenApiResponse(description="The canvas's live version declares no operations."),
+            409: OpenApiResponse(
+                description=(
+                    "The canvas's live version declares no operations, another skill already has the name, "
+                    "or a concurrent publish won."
+                )
+            ),
         },
     )
     @action(
@@ -2006,14 +2026,28 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 {"detail": "This canvas's live version declares no operations to publish."},
                 status=status.HTTP_409_CONFLICT,
             )
-        skill = skills_facade.upsert_skill(
-            team_id=self.team_id,
-            user_id=user.id,
-            name=canvas_api.operation_skill_name(canvas),
-            description=canvas_api.operation_skill_description(canvas, operations),
-            body=canvas_api.operation_skill_body(canvas, operations, canvas_url(canvas)),
-            metadata={"canvas_id": str(canvas.id), "source": "canvas_operations"},
+        owner = canvas_api.operation_skill_owner(canvas)
+        # A renamed canvas keeps the skill it published first.
+        skill_name = skills_facade.find_skill_name(team_id=self.team_id, owner=owner) or (
+            canvas_api.operation_skill_name(canvas)
         )
+        try:
+            skill = skills_facade.upsert_skill(
+                team_id=self.team_id,
+                user_id=user.id,
+                name=skill_name,
+                description=canvas_api.operation_skill_description(canvas, operations),
+                body=canvas_api.operation_skill_body(canvas, operations, canvas_url(canvas)),
+                metadata=owner,
+                owner=owner,
+            )
+        except skills_facade.SkillNameTaken:
+            return Response(
+                {"detail": f'The team already has a skill named "{skill_name}" that this canvas did not publish.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except skills_facade.SkillPublishConflict as conflict:
+            return Response({"detail": str(conflict)}, status=status.HTTP_409_CONFLICT)
         self._log_canvas_activity(
             canvas,
             "skill_published",

@@ -2159,7 +2159,7 @@
         }
     },
     "canvas-operations-publish-skill": {
-        "description": "Write (or republish) a team skill that documents a canvas's declared operations and the exact MCP calls that run them, so any agent in the project can discover and use them. The skill name is stable per canvas; calling this again after the canvas changes publishes a new version. Fails with 409 when the canvas's live version declares no operations. Do this when the user asks to expose a canvas's operations to agents, after the canvas is published.",
+        "description": "Write (or republish) a team skill that documents a canvas's declared operations and the exact MCP calls that run them, so any agent in the project can discover and use them. The skill name is stable per canvas, also after a rename; each call publishes a new version, so do not retry a call that succeeded. Fails with 409 when the canvas's live version declares no operations, when a skill of that name exists that this canvas did not publish, or when a concurrent publish won. Do this when the user asks to expose a canvas's operations to agents, after the canvas is published.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "Publish canvas operations as a skill",
@@ -2167,7 +2167,7 @@
         "required_scopes": ["canvas:write", "llm_skill:write"],
         "annotations": {
             "destructiveHint": false,
-            "idempotentHint": true,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }

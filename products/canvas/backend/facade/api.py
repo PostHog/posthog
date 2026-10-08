@@ -60,6 +60,9 @@ from products.canvas.backend.logic.operations import (
     operation_skill_body as operation_skill_body,
     operation_skill_description as operation_skill_description,
     operation_skill_name as operation_skill_name,
+    operation_skill_owner as operation_skill_owner,
+    operation_verb as operation_verb,
+    operation_verb_required_scopes as operation_verb_required_scopes,
 )
 from products.canvas.backend.logic.runtime import (
     action_required_scopes as action_required_scopes,
