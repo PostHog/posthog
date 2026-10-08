@@ -264,6 +264,8 @@ depends_on = [
     "posthog",
     # A behavioural cohort filter reads a trends insight's display type.
     "products.product_analytics",
+    # The facade checks the acting user's object access before a write.
+    "products.access_control",
 ]
 layer = "modules"
 

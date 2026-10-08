@@ -51,7 +51,7 @@ describe('CanvasDataBridge query routing', () => {
 })
 
 describe('CanvasDataBridge action confirmation', () => {
-    test('invokes a plain write without asking the viewer', async () => {
+    test.each([false, true])('asks the viewer before a plain write, allowed: %s', async (allowed) => {
         const action = {
             verb: 'annotations.create',
             summary: 'Create an annotation.',
@@ -64,7 +64,7 @@ describe('CanvasDataBridge action confirmation', () => {
         jest.mocked(canvasesActionsInvoke)
             .mockReset()
             .mockResolvedValue({ verb: action.verb, result: { annotation_id: 1 } })
-        const confirmAction = jest.fn(async () => false)
+        const confirmAction = jest.fn(async () => allowed)
         const bridge = new CanvasDataBridge(
             () => ({
                 projectId: '1',
@@ -81,11 +81,15 @@ describe('CanvasDataBridge action confirmation', () => {
             }
         )
 
-        await expect(bridge.handle('actionInvoke', { verb: action.verb, payload })).resolves.toEqual({
-            verb: action.verb,
-            result: { annotation_id: 1 },
-        })
-        expect(confirmAction).not.toHaveBeenCalled()
+        const invocation = bridge.handle('actionInvoke', { verb: action.verb, payload })
+        if (allowed) {
+            await expect(invocation).resolves.toEqual({ verb: action.verb, result: { annotation_id: 1 } })
+            expect(canvasesActionsInvoke).toHaveBeenCalledWith('1', 'canvas-1', { verb: action.verb, payload })
+        } else {
+            await expect(invocation).rejects.toThrow('Canvas action canceled')
+            expect(canvasesActionsInvoke).not.toHaveBeenCalled()
+        }
+        expect(confirmAction).toHaveBeenCalledWith({ action, payload })
     })
 
     test.each([false, true])('only starts a paid task after approval: %s', async (allowed) => {

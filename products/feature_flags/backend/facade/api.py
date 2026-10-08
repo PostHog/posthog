@@ -38,7 +38,10 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.approvals.backend.exceptions import ApprovalRequired as ApprovalRequired
+from products.approvals.backend.exceptions import (
+    ApprovalRequired as ApprovalRequired,
+    PolicyConflict as PolicyConflict,
+)
 from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE

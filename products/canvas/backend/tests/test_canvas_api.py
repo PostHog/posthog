@@ -31,6 +31,7 @@ from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.annotations.backend.models.annotation import Annotation
+from products.approvals.backend.exceptions import PolicyConflict
 from products.canvas.backend import build_service
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
 from products.canvas.backend.facade import access as canvas_facade
@@ -2729,6 +2730,54 @@ class TestCanvasActions(CanvasAPIBaseTest):
             canvas_id, "cohorts.add_persons", {"cohort_id": foreign.id, "person_ids": [str(person.uuid)]}
         )
         assert missing.status_code == status.HTTP_404_NOT_FOUND, missing.json()
+
+    def test_cohorts_add_persons_needs_edit_access_to_the_cohort(self):
+        canvas_id = self._actions_canvas(verbs=("cohorts.add_persons",))
+        cohort = Cohort.objects.create(team=self.team, name="Beta testers", is_static=True, created_by=self.user)
+        person = create_person(team=self.team, distinct_ids=["person-1"], properties={})
+        viewer = User.objects.create_and_join(self.organization, "viewer@example.test", None)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="cohort",
+            resource_id=str(cohort.id),
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=viewer),
+            access_level="viewer",
+        )
+        cache.clear()
+        self.client.force_login(viewer)
+
+        refused = self._invoke(
+            canvas_id, "cohorts.add_persons", {"cohort_id": cohort.id, "person_ids": [str(person.uuid)]}
+        )
+
+        assert refused.status_code == status.HTTP_403_FORBIDDEN, refused.json()
+        assert refused.json()["detail"] == f"You cannot edit cohort {cohort.id}."
+        cohort.refresh_from_db()
+        assert cohort.count in (None, 0)
+
+    def test_feature_flag_policy_conflict_is_a_bad_request(self):
+        canvas_id = self._actions_canvas(verbs=("feature_flags.enable",))
+        FeatureFlag.objects.create(team=self.team, key="beta-checkout", active=False, created_by=self.user)
+        conflict = PolicyConflict(
+            conflicting_policies=[{"id": "policy-a"}, {"id": "policy-b"}],
+            message="This change matches more than one approval policy.",
+            guidance="Make one change at a time.",
+        )
+
+        with patch("products.feature_flags.backend.facade.api.set_flag_active", side_effect=conflict):
+            response = self._invoke(canvas_id, "feature_flags.enable", {"flag_key": "beta-checkout"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json() == {
+            "detail": "This change matches more than one approval policy.",
+            "code": "policy_conflict",
+            "conflicting_policies": [{"id": "policy-a"}, {"id": "policy-b"}],
+            "guidance": "Make one change at a time.",
+        }
 
     def test_error_tracking_assign_sets_and_clears_the_assignee(self):
         canvas_id = self._actions_canvas(verbs=("error_tracking.assign",))
