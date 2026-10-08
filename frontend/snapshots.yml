@@ -10107,13 +10107,13 @@ snapshots:
     scenes-app-errortracking--group-page-releases-stacked--light:
         hash: v1.k794b7964.bcda9410935407d6bebba2664a7623239144efd1c2572adbd14f1504f30be695.c7q4lo3ZHBJlP4187kCTO3ast1noiEce1kRQFogt5ms
     scenes-app-errortracking--group-page-with-many-self-driving-reports--dark:
-        hash: v1.k794b7964.0bf000742db3f9dc86e80fa360b83ec818324603103ab52d9d45ce0607631ee7.tkXTYQiPmTNrhpePaKOsVYoyoMT_Dx0clzaZqOjkcTw
+        hash: v1.k794b7964.3eae78db2136c1300bf579f8cc0e202c4c67a82073b116035a7a7f63a65ae07b.FVXVPYj2qDzQsgtY7ynrrO_AZFd7Tc3glFPLM3EHfJ4
     scenes-app-errortracking--group-page-with-many-self-driving-reports--light:
-        hash: v1.k794b7964.2037306c41f112214785618f556933ec91e95cabf187d87ba45528cf99e3252e.B8EvQBDMPa24k40ZZN-4eATHq2mgE-kxe6AAVCkZDI8
+        hash: v1.k794b7964.aec5b990cfa519ee8d8d40acf501629c06e0cb0e9a9b85414ce5cbfa849e36a5.XT1pMVQ14H09EAjCXCFxOag58SX0O_P6--vQpURE2vk
     scenes-app-errortracking--group-page-with-self-driving--dark:
-        hash: v1.k794b7964.9b65251bcd4677987856d5856c908b4824dabc16727f74bef08997b28b511ae5.6KjiNo3mj5O1m9NHP9MjApuJCzZGaU6ENGFp5J6oI-A
+        hash: v1.k794b7964.3ed34a9765956027cd4ef465b6fed776dcd1c42c40d32eddd00570768dfe040f.o3eWrjfExshyTaw2HbdRaYr2q_4edvY8PPwqI99Xsyg
     scenes-app-errortracking--group-page-with-self-driving--light:
-        hash: v1.k794b7964.7163253868938e0d915a6a9a896531f5262e52a658135391569fb4dc2b0887a5.pdiZKwe3cMksN4hEXYQerkKZtPbr8_KNihl6M2aSgNg
+        hash: v1.k794b7964.59535160229dce259d10969fab1281a28359bf3f2cf53b37c76d72b4e0201aff.8avZpQyawkdryfF5mp5mx2CrSyKfQKrLJmQCx7GkGaw
     scenes-app-errortracking--insights-page--dark:
         hash: v1.k794b7964.547ba7d50edff3d4fd57c33937b1536edb9837c5c34fd57543b29a5fb257e848.V99ai7csLzzA-J4mPePBh5GIyIie_ulJCWMMU7bfioE
     scenes-app-errortracking--insights-page--light:
