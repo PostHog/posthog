@@ -1,5 +1,7 @@
+import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
+
 import type { ExperimentHealthApi, ExperimentHealthFindingApi } from '../generated/api.schemas'
-import { type ExposureHealthInput, healthPanelFindings } from './healthPanelFindings'
+import { healthPanelFindings } from './healthPanelFindings'
 
 const serverFinding = (code: ExperimentHealthFindingApi['code']): ExperimentHealthFindingApi => ({
     code,
@@ -12,26 +14,18 @@ const serverFinding = (code: ExperimentHealthFindingApi['code']): ExperimentHeal
     diagnostic_ref: null,
 })
 
-// The exposure query returns a series for every configured variant, with zero counts when nobody was exposed.
-const NO_EXPOSURES = {
-    timeseries: [{ variant: 'control' }, { variant: 'test' }],
-    total_exposures: { control: 0, test: 0 },
-}
-
 const UNEVEN_EXPOSURES = {
     timeseries: [{ variant: 'control' }, { variant: 'test' }],
     total_exposures: { control: 600, test: 400 },
-    sample_ratio_mismatch: { expected: { control: 500, test: 500 }, p_value: 0.0001 },
-    bias_risk: { multiple_variant_percentage: 5 },
-}
+    health_findings: [serverFinding('srm'), serverFinding('bias_risk_multiple_excluded')],
+} as unknown as ExperimentExposureQueryResponse
 
 describe('healthPanelFindings', () => {
     test.each<{
         name: string
         health: ExperimentHealthApi | null
-        exposures: Record<string, unknown> | null
+        exposures: ExperimentExposureQueryResponse | null
         isExperimentDraft: boolean
-        hoursSinceStart: number | null
         expected: string[] | null
     }>([
         {
@@ -39,7 +33,6 @@ describe('healthPanelFindings', () => {
             health: null,
             exposures: UNEVEN_EXPOSURES,
             isExperimentDraft: false,
-            hoursSinceStart: 72,
             expected: null,
         },
         {
@@ -47,44 +40,32 @@ describe('healthPanelFindings', () => {
             health: { findings: [serverFinding('no_metric')] },
             exposures: null,
             isExperimentDraft: false,
-            hoursSinceStart: 72,
             expected: ['no_metric'],
         },
         {
-            name: 'no zero-exposure finding on a draft',
+            name: 'the findings of the exposure answer join those of the experiment read',
+            health: { findings: [serverFinding('no_metric')] },
+            exposures: UNEVEN_EXPOSURES,
+            isExperimentDraft: false,
+            expected: ['no_metric', 'srm', 'bias_risk_multiple_excluded'],
+        },
+        {
+            name: 'a draft shows no finding of the exposure answer that a reset left in the page',
             health: { findings: [serverFinding('flag_live_before_launch')] },
-            exposures: NO_EXPOSURES,
+            exposures: UNEVEN_EXPOSURES,
             isExperimentDraft: true,
-            hoursSinceStart: null,
             expected: ['flag_live_before_launch'],
         },
         {
-            name: 'no users exposed a day after launch',
-            health: { findings: [] },
-            exposures: NO_EXPOSURES,
-            isExperimentDraft: false,
-            hoursSinceStart: 24,
-            expected: ['zero_exposures'],
-        },
-        {
-            name: 'no zero-exposure finding in the first day',
-            health: { findings: [] },
-            exposures: NO_EXPOSURES,
-            isExperimentDraft: false,
-            hoursSinceStart: 23,
-            expected: [],
-        },
-        {
-            name: 'a finding the server already sent is not added again from the exposures',
+            name: 'a code the experiment read sent is not added again from the exposure answer',
             health: { findings: [serverFinding('bias_risk_multiple_excluded')] },
             exposures: UNEVEN_EXPOSURES,
             isExperimentDraft: false,
-            hoursSinceStart: 72,
             expected: ['bias_risk_multiple_excluded', 'srm'],
         },
-    ])('$name', ({ health, exposures, isExperimentDraft, hoursSinceStart, expected }) => {
-        const input = { exposures, isExperimentDraft, hoursSinceStart } as ExposureHealthInput
-
-        expect(healthPanelFindings(health, input)?.map(({ code }) => code) ?? null).toEqual(expected)
+    ])('$name', ({ health, exposures, isExperimentDraft, expected }) => {
+        expect(healthPanelFindings(health, exposures, isExperimentDraft)?.map(({ code }) => code) ?? null).toEqual(
+            expected
+        )
     })
 })
