@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     PatchedReviewBlindSpotsConfigSelectApi,
     PatchedReviewPerspectiveConfigUpdateApi,
+    PatchedReviewRepositoryUpdateApi,
     PatchedReviewResolutionConfigSelectApi,
     PatchedReviewUserSettingsApi,
     PatchedReviewValidatorConfigSelectApi,
@@ -21,6 +22,9 @@ import type {
     ReviewPerspectiveConfigApi,
     ReviewPerspectiveStatsApi,
     ReviewRecentReviewsPageApi,
+    ReviewRepositoryApi,
+    ReviewRepositoryChoiceRequestApi,
+    ReviewRepositoryPersonRequestApi,
     ReviewResolutionConfigApi,
     ReviewTriggerRequestApi,
     ReviewTriggerResponseApi,
@@ -122,6 +126,172 @@ export const reviewHogPerspectivesPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedReviewPerspectiveConfigUpdateApi),
+    })
+}
+
+export const getReviewHogRepositoriesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/review_hog/repositories/`
+}
+
+/**
+ * The repositories where PostHog Review runs automatic reviews for this project.
+ *
+ * Any project member can add a repository, change its rule, and change its lists. Every such change
+ * goes to the activity log. The `my_choice` action stores the requesting user's own choice for their
+ * pull requests in one repository.
+ */
+export const reviewHogRepositoriesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ReviewRepositoryApi[]> => {
+    return apiMutator<ReviewRepositoryApi[]>(getReviewHogRepositoriesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReviewHogRepositoriesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/review_hog/repositories/`
+}
+
+/**
+ * Add a GitHub repository, so pull requests there can get automatic reviews. By default only listed people get Flash reviews, and nobody is listed.
+ * @summary Add a repository
+ */
+export const reviewHogRepositoriesCreate = async (
+    projectId: string,
+    reviewRepositoryApi: NonReadonly<ReviewRepositoryApi>,
+    options?: RequestInit
+): Promise<ReviewRepositoryApi> => {
+    return apiMutator<ReviewRepositoryApi>(getReviewHogRepositoriesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reviewRepositoryApi),
+    })
+}
+
+export const getReviewHogRepositoriesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/review_hog/repositories/${id}/`
+}
+
+/**
+ * Change who gets automatic Flash reviews in the repository, and whether bots are excluded. Only the provided fields change.
+ * @summary Change a repository's rule
+ */
+export const reviewHogRepositoriesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedReviewRepositoryUpdateApi?: PatchedReviewRepositoryUpdateApi,
+    options?: RequestInit
+): Promise<ReviewRepositoryApi> => {
+    return apiMutator<ReviewRepositoryApi>(getReviewHogRepositoriesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedReviewRepositoryUpdateApi),
+    })
+}
+
+export const getReviewHogRepositoriesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/review_hog/repositories/${id}/`
+}
+
+/**
+ * Remove the repository. Pull requests there stop getting automatic reviews, and its lists and everyone's own choices for it are deleted.
+ * @summary Remove a repository
+ */
+export const reviewHogRepositoriesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getReviewHogRepositoriesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getReviewHogRepositoriesMyChoiceUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/review_hog/repositories/${id}/my_choice/`
+}
+
+/**
+ * Set the requesting user's own automatic review for their pull requests in this repository. It wins over their default_review_mode and over the repository's rule.
+ * @summary Set my choice for a repository
+ */
+export const reviewHogRepositoriesMyChoiceUpdate = async (
+    projectId: string,
+    id: string,
+    reviewRepositoryChoiceRequestApi: ReviewRepositoryChoiceRequestApi,
+    options?: RequestInit
+): Promise<ReviewRepositoryApi> => {
+    return apiMutator<ReviewRepositoryApi>(getReviewHogRepositoriesMyChoiceUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reviewRepositoryChoiceRequestApi),
+    })
+}
+
+export const getReviewHogRepositoriesMyChoiceDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/review_hog/repositories/${id}/my_choice/`
+}
+
+/**
+ * Clear the requesting user's own choice for this repository, so their default_review_mode applies again.
+ * @summary Clear my choice for a repository
+ */
+export const reviewHogRepositoriesMyChoiceDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReviewRepositoryApi> => {
+    return apiMutator<ReviewRepositoryApi>(getReviewHogRepositoriesMyChoiceDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getReviewHogRepositoriesPeopleCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/review_hog/repositories/${id}/people/`
+}
+
+/**
+ * Add a project member to the repository's 'listed' or 'excepted' list.
+ * @summary Add a person to a repository list
+ */
+export const reviewHogRepositoriesPeopleCreate = async (
+    projectId: string,
+    id: string,
+    reviewRepositoryPersonRequestApi: ReviewRepositoryPersonRequestApi,
+    options?: RequestInit
+): Promise<ReviewRepositoryApi> => {
+    return apiMutator<ReviewRepositoryApi>(getReviewHogRepositoriesPeopleCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reviewRepositoryPersonRequestApi),
+    })
+}
+
+export const getReviewHogRepositoriesPeopleDestroyUrl = (projectId: string, id: string, personId: string) => {
+    return `/api/projects/${projectId}/review_hog/repositories/${id}/people/${personId}/`
+}
+
+/**
+ * Remove one entry from the repository's 'listed' or 'excepted' list.
+ * @summary Remove a person from a repository list
+ */
+export const reviewHogRepositoriesPeopleDestroy = async (
+    projectId: string,
+    id: string,
+    personId: string,
+    options?: RequestInit
+): Promise<ReviewRepositoryApi> => {
+    return apiMutator<ReviewRepositoryApi>(getReviewHogRepositoriesPeopleDestroyUrl(projectId, id, personId), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

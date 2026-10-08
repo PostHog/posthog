@@ -34,6 +34,73 @@ export const ReviewHogPerspectivesPartialUpdateBody = /* @__PURE__ */ zod.object
 })
 
 /**
+ * Add a GitHub repository, so pull requests there can get automatic reviews. By default only listed people get Flash reviews, and nobody is listed.
+ * @summary Add a repository
+ */
+export const reviewHogRepositoriesCreateBodyFullNameMax = 200
+
+export const ReviewHogRepositoriesCreateBody = /* @__PURE__ */ zod.object({
+    full_name: zod
+        .string()
+        .max(reviewHogRepositoriesCreateBodyFullNameMax)
+        .describe(
+            "GitHub repository in 'owner\/name' form, spelled as GitHub returns it (e.g. 'PostHog\/posthog'). Compared case-insensitively; a repository can be added once per project."
+        ),
+    flash_for: zod
+        .enum(['everyone', 'listed'])
+        .describe('\* `everyone` - Everyone\n\* `listed` - Only listed people')
+        .optional()
+        .describe(
+            "Who gets automatic Flash reviews when they follow the repository rules: 'everyone' (except the excepted people) or 'listed' (only the listed people, the default). A person's own choice always wins.\n\n\* `everyone` - Everyone\n\* `listed` - Only listed people"
+        ),
+    exclude_bots: zod
+        .boolean()
+        .optional()
+        .describe('Skip automatic reviews of pull requests that bots open. On by default.'),
+})
+
+/**
+ * Change who gets automatic Flash reviews in the repository, and whether bots are excluded. Only the provided fields change.
+ * @summary Change a repository's rule
+ */
+export const ReviewHogRepositoriesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    flash_for: zod
+        .enum(['everyone', 'listed'])
+        .describe('\* `everyone` - Everyone\n\* `listed` - Only listed people')
+        .optional()
+        .describe(
+            "Who gets automatic Flash reviews when they follow the repository rules: 'everyone' (except the excepted people) or 'listed' (only the listed people).\n\n\* `everyone` - Everyone\n\* `listed` - Only listed people"
+        ),
+    exclude_bots: zod.boolean().optional().describe('Skip automatic reviews of pull requests that bots open.'),
+})
+
+/**
+ * Set the requesting user's own automatic review for their pull requests in this repository. It wins over their default_review_mode and over the repository's rule.
+ * @summary Set my choice for a repository
+ */
+export const ReviewHogRepositoriesMyChoiceUpdateBody = /* @__PURE__ */ zod.object({
+    mode: zod
+        .enum(['flash', 'full', 'off'])
+        .describe(
+            "The requesting user's own automatic review for their pull requests in this repository: 'flash', 'full', or 'off'. Clear the choice with DELETE to follow default_review_mode again.\n\n\* `flash` - Flash\n\* `full` - Full\n\* `off` - Off"
+        ),
+})
+
+/**
+ * Add a project member to the repository's 'listed' or 'excepted' list.
+ * @summary Add a person to a repository list
+ */
+export const ReviewHogRepositoriesPeopleCreateBody = /* @__PURE__ */ zod.object({
+    user_id: zod.number().describe('Id of the project member to add. Must be an active member.'),
+    kind: zod
+        .enum(['listed', 'excepted'])
+        .describe('\* `listed` - Listed\n\* `excepted` - Excepted')
+        .describe(
+            "Which list to add the person to: 'listed' or 'excepted'.\n\n\* `listed` - Listed\n\* `excepted` - Excepted"
+        ),
+})
+
+/**
  * Make a `review-hog-resolution-*` skill the single criteria the resolution stage applies on the requesting user's PRs, switching the user's other resolution skills off in the same call. Only skills visible to the user — the canonical plus the customs they authored — can be selected; anything else 404s. Upserts the per-user config row, so selecting a freshly authored custom skill works in one call.
  * @summary Select the active resolution criteria
  */
@@ -108,7 +175,14 @@ export const ReviewHogSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            'Automatically review pull requests authored by this user in PostHog\/posthog in Flash mode. Off by default. Flash reviews post findings without resolving comments.'
+            "Deprecated: use default_review_mode. True when default_review_mode is 'flash'. Writing true sets default_review_mode to 'flash', and writing false sets it to 'follow'."
+        ),
+    default_review_mode: zod
+        .enum(['follow', 'flash', 'full', 'off'])
+        .describe('\* `follow` - Follow repositories\n\* `flash` - Flash\n\* `full` - Full\n\* `off` - Off')
+        .optional()
+        .describe(
+            "Automatic reviews of this user's own pull requests in every repository added to PostHog Review: 'follow' (default) uses each repository's rule, 'flash' and 'full' review every pull request, 'off' reviews none. A per-repository choice overrides it. Flash reviews post findings without resolving comments.\n\n\* `follow` - Follow repositories\n\* `flash` - Flash\n\* `full` - Full\n\* `off` - Off"
         ),
     flash_reasoning_effort: zod
         .enum(['medium', 'xhigh'])

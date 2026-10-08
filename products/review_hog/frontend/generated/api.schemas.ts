@@ -39,6 +39,223 @@ export interface PatchedReviewPerspectiveConfigUpdateApi {
     enabled?: boolean
 }
 
+/**
+ * * `everyone` - Everyone
+ * * `listed` - Only listed people
+ */
+export type ReviewRepositoryFlashForEnumApi =
+    (typeof ReviewRepositoryFlashForEnumApi)[keyof typeof ReviewRepositoryFlashForEnumApi]
+
+export const ReviewRepositoryFlashForEnumApi = {
+    Everyone: 'everyone',
+    Listed: 'listed',
+} as const
+
+/**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `student` - Student
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Student: 'student',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+/**
+ * * `listed` - Listed
+ * * `excepted` - Excepted
+ */
+export type ReviewRepositoryPersonKindEnumApi =
+    (typeof ReviewRepositoryPersonKindEnumApi)[keyof typeof ReviewRepositoryPersonKindEnumApi]
+
+export const ReviewRepositoryPersonKindEnumApi = {
+    Listed: 'listed',
+    Excepted: 'excepted',
+} as const
+
+export interface ReviewRepositoryPersonApi {
+    /** Id of this list entry. Use it to remove the person. */
+    readonly id: string
+    /** The project member on the list. */
+    readonly user: UserBasicApi
+    /** Which list: 'listed' (gets Flash when the repository reviews only listed people) or 'excepted' (skipped when the repository reviews everyone).
+     *
+     * * `listed` - Listed
+     * * `excepted` - Excepted */
+    readonly kind: ReviewRepositoryPersonKindEnumApi
+}
+
+export type ReviewUserRepositoryChoiceModeEnumApi =
+    (typeof ReviewUserRepositoryChoiceModeEnumApi)[keyof typeof ReviewUserRepositoryChoiceModeEnumApi]
+
+export const ReviewUserRepositoryChoiceModeEnumApi = {
+    Flash: 'flash',
+    Full: 'full',
+    Off: 'off',
+} as const
+
+/**
+ * * `flash` - Flash
+ * * `full` - Full
+ * * `none` - No automatic review
+ */
+export type AutomaticReviewModeEnumApi = (typeof AutomaticReviewModeEnumApi)[keyof typeof AutomaticReviewModeEnumApi]
+
+export const AutomaticReviewModeEnumApi = {
+    Flash: 'flash',
+    Full: 'full',
+    None: 'none',
+} as const
+
+/**
+ * * `bot_excluded` - Bots are excluded
+ * * `own_repository_choice` - Own choice for this repository
+ * * `own_default` - Own default
+ * * `everyone` - Repository reviews everyone
+ * * `excepted` - Excepted by the repository
+ * * `listed` - Listed by the repository
+ * * `not_listed` - Not listed by the repository
+ */
+export type AutomaticReviewReasonEnumApi =
+    (typeof AutomaticReviewReasonEnumApi)[keyof typeof AutomaticReviewReasonEnumApi]
+
+export const AutomaticReviewReasonEnumApi = {
+    BotExcluded: 'bot_excluded',
+    OwnRepositoryChoice: 'own_repository_choice',
+    OwnDefault: 'own_default',
+    Everyone: 'everyone',
+    Excepted: 'excepted',
+    Listed: 'listed',
+    NotListed: 'not_listed',
+} as const
+
+export interface AutomaticReviewDecisionApi {
+    /** The automatic review the requesting user's pull requests get in this repository: 'flash', 'full', or 'none'.
+     *
+     * * `flash` - Flash
+     * * `full` - Full
+     * * `none` - No automatic review */
+    mode: AutomaticReviewModeEnumApi
+    /** Which rule decided the mode: 'own_repository_choice' and 'own_default' are the user's own choices; 'everyone', 'excepted', 'listed', and 'not_listed' come from the repository's rule; 'bot_excluded' applies to bot authors.
+     *
+     * * `bot_excluded` - Bots are excluded
+     * * `own_repository_choice` - Own choice for this repository
+     * * `own_default` - Own default
+     * * `everyone` - Repository reviews everyone
+     * * `excepted` - Excepted by the repository
+     * * `listed` - Listed by the repository
+     * * `not_listed` - Not listed by the repository */
+    reason: AutomaticReviewReasonEnumApi
+}
+
+export interface ReviewRepositoryApi {
+    /** Id of the repository entry. */
+    readonly id: string
+    /**
+     * GitHub repository in 'owner/name' form, spelled as GitHub returns it (e.g. 'PostHog/posthog'). Compared case-insensitively; a repository can be added once per project.
+     * @maxLength 200
+     */
+    full_name: string
+    /** Who gets automatic Flash reviews when they follow the repository rules: 'everyone' (except the excepted people) or 'listed' (only the listed people, the default). A person's own choice always wins.
+     *
+     * * `everyone` - Everyone
+     * * `listed` - Only listed people */
+    flash_for?: ReviewRepositoryFlashForEnumApi
+    /** Skip automatic reviews of pull requests that bots open. On by default. */
+    exclude_bots?: boolean
+    /** Who added the repository. */
+    readonly created_by: UserBasicApi
+    /** When the repository was added. */
+    readonly created_at: string
+    /** The people on the repository's two lists. Only the list that matches flash_for has an effect. */
+    readonly people: readonly ReviewRepositoryPersonApi[]
+    /** The requesting user's own choice for their pull requests in this repository: 'flash', 'full', 'off', or null when their default_review_mode applies. */
+    readonly my_choice: ReviewUserRepositoryChoiceModeEnumApi | null
+    /** What the requesting user's own pull requests get in this repository, and the rule that decided it. */
+    readonly my_result: AutomaticReviewDecisionApi
+}
+
+export interface PatchedReviewRepositoryUpdateApi {
+    /** Who gets automatic Flash reviews when they follow the repository rules: 'everyone' (except the excepted people) or 'listed' (only the listed people).
+     *
+     * * `everyone` - Everyone
+     * * `listed` - Only listed people */
+    flash_for?: ReviewRepositoryFlashForEnumApi
+    /** Skip automatic reviews of pull requests that bots open. */
+    exclude_bots?: boolean
+}
+
+export interface ReviewRepositoryChoiceRequestApi {
+    /** The requesting user's own automatic review for their pull requests in this repository: 'flash', 'full', or 'off'. Clear the choice with DELETE to follow default_review_mode again.
+     *
+     * * `flash` - Flash
+     * * `full` - Full
+     * * `off` - Off */
+    mode: ReviewUserRepositoryChoiceModeEnumApi
+}
+
+export interface ReviewRepositoryPersonRequestApi {
+    /** Id of the project member to add. Must be an active member. */
+    user_id: number
+    /** Which list to add the person to: 'listed' or 'excepted'.
+     *
+     * * `listed` - Listed
+     * * `excepted` - Excepted */
+    kind: ReviewRepositoryPersonKindEnumApi
+}
+
+export interface ReviewRepositoryErrorApi {
+    /** Why the request was rejected. */
+    error: string
+}
+
 export interface ReviewResolutionConfigApi {
     /** Name of the `review-hog-resolution-*` skill this row represents (the criteria's identity). */
     skill_name: string
@@ -519,6 +736,22 @@ export interface ReviewTriggerErrorApi {
 }
 
 /**
+ * * `follow` - Follow repositories
+ * * `flash` - Flash
+ * * `full` - Full
+ * * `off` - Off
+ */
+export type ReviewUserSettingsDefaultReviewModeEnumApi =
+    (typeof ReviewUserSettingsDefaultReviewModeEnumApi)[keyof typeof ReviewUserSettingsDefaultReviewModeEnumApi]
+
+export const ReviewUserSettingsDefaultReviewModeEnumApi = {
+    Follow: 'follow',
+    Flash: 'flash',
+    Full: 'full',
+    Off: 'off',
+} as const
+
+/**
  * * `medium` - Medium
  * * `xhigh` - Extra high
  */
@@ -555,8 +788,15 @@ export interface ReviewUserSettingsApi {
     resolve_comments?: boolean
     /** Show a fun image in the review comment when a review of this user's pull requests finds nothing to raise. On by default; turning it off makes clean reviews end with the text summary only. */
     celebrate_clean_reviews?: boolean
-    /** Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. Off by default. Flash reviews post findings without resolving comments. */
+    /** Deprecated: use default_review_mode. True when default_review_mode is 'flash'. Writing true sets default_review_mode to 'flash', and writing false sets it to 'follow'. */
     review_authored_prs?: boolean
+    /** Automatic reviews of this user's own pull requests in every repository added to PostHog Review: 'follow' (default) uses each repository's rule, 'flash' and 'full' review every pull request, 'off' reviews none. A per-repository choice overrides it. Flash reviews post findings without resolving comments.
+     *
+     * * `follow` - Follow repositories
+     * * `flash` - Flash
+     * * `full` - Full
+     * * `off` - Off */
+    default_review_mode?: ReviewUserSettingsDefaultReviewModeEnumApi
     /** Reasoning effort for this user's automatic and manually requested Flash reviews: 'medium' (default) or 'xhigh'. Applies to both review and validation. Saved independently of the automatic-review toggle.
      *
      * * `medium` - Medium
@@ -587,8 +827,15 @@ export interface PatchedReviewUserSettingsApi {
     resolve_comments?: boolean
     /** Show a fun image in the review comment when a review of this user's pull requests finds nothing to raise. On by default; turning it off makes clean reviews end with the text summary only. */
     celebrate_clean_reviews?: boolean
-    /** Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. Off by default. Flash reviews post findings without resolving comments. */
+    /** Deprecated: use default_review_mode. True when default_review_mode is 'flash'. Writing true sets default_review_mode to 'flash', and writing false sets it to 'follow'. */
     review_authored_prs?: boolean
+    /** Automatic reviews of this user's own pull requests in every repository added to PostHog Review: 'follow' (default) uses each repository's rule, 'flash' and 'full' review every pull request, 'off' reviews none. A per-repository choice overrides it. Flash reviews post findings without resolving comments.
+     *
+     * * `follow` - Follow repositories
+     * * `flash` - Flash
+     * * `full` - Full
+     * * `off` - Off */
+    default_review_mode?: ReviewUserSettingsDefaultReviewModeEnumApi
     /** Reasoning effort for this user's automatic and manually requested Flash reviews: 'medium' (default) or 'xhigh'. Applies to both review and validation. Saved independently of the automatic-review toggle.
      *
      * * `medium` - Medium

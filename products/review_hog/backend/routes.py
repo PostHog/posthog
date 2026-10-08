@@ -5,6 +5,7 @@ from products.review_hog.backend.api import (
     ReviewHogTriggerViewSet,
     ReviewPerspectiveConfigViewSet,
     ReviewRecentReviewsViewSet,
+    ReviewRepositoryViewSet,
     ReviewResolutionConfigViewSet,
     ReviewUserSettingsViewSet,
     ReviewValidatorConfigViewSet,
@@ -48,6 +49,13 @@ def register_routes(routers: RouterRegistry) -> None:
         r"review_hog/reviews",
         ReviewRecentReviewsViewSet,
         "project_review_hog_reviews",
+        ["team_id"],
+    )
+    # Team-scoped: the repositories that get automatic reviews, shared by every project member.
+    routers.projects.register(
+        r"review_hog/repositories",
+        ReviewRepositoryViewSet,
+        "project_review_hog_repositories",
         ["team_id"],
     )
     # Team-scoped: per-user trigger opt-outs + urgency threshold, at review_hog/settings (the viewset
