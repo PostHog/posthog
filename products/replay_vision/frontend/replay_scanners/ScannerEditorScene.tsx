@@ -53,7 +53,7 @@ import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
 import { parseExperimentScannerParams } from './experimentTargeting'
-import { replayScannerLogic } from './replayScannerLogic'
+import { leaveScannerEditor, replayScannerLogic } from './replayScannerLogic'
 import {
     SCANNER_EDITOR_STEPS,
     SCANNER_EDITOR_STEP_ORDER,
@@ -515,7 +515,7 @@ function EditorFooter({
     const cancel = (): void => {
         // Resetting first leaves nothing unsaved, so the leave guard can't prompt on top of this.
         discardScannerDraft()
-        router.actions.push(isNew ? urls.replayVision() : urls.replayVision(scannerId))
+        leaveScannerEditor(scannerId, isNew ? urls.replayVision() : urls.replayVision(scannerId))
     }
     const handleCancel = (): void => {
         if (!hasUnsavedChanges) {

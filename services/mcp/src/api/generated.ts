@@ -18691,6 +18691,7 @@ export namespace Schemas {
      * * `open` - OPEN
      * * `done` - DONE
      * * `dismissed` - DISMISSED
+     * * `left` - LEFT
      */
     export type BriefingItemStateEnum = typeof BriefingItemStateEnum[keyof typeof BriefingItemStateEnum];
 
@@ -18699,6 +18700,7 @@ export namespace Schemas {
       Open: 'open',
       Done: 'done',
       Dismissed: 'dismissed',
+      Left: 'left',
     } as const;
 
     export interface BriefingItem {
@@ -18724,11 +18726,12 @@ export namespace Schemas {
       group: TodayItemGroupEnum;
       source: TodayItemSourceEnum;
       reason: TodayItemReasonEnum;
-      /** `done` when the item was resolved since the briefing was written, `dismissed` when it was dismissed or suppressed, else `open`. Pull requests always stay `open`.
+      /** `done` when the item was resolved since the briefing was written, `dismissed` when it was dismissed or suppressed, `left` when the report no longer names the viewer as a suggested reviewer, else `open`. Pull requests always stay `open`.
        *
        * * `open` - OPEN
        * * `done` - DONE
-       * * `dismissed` - DISMISSED */
+       * * `dismissed` - DISMISSED
+       * * `left` - LEFT */
       state: BriefingItemStateEnum;
     }
 
@@ -119717,7 +119720,7 @@ export namespace Schemas {
      */
     prompt_name?: string;
     /**
-     * Free-text search applied to the experiment name (case-insensitive).
+     * Free-text search applied to the experiment name and its feature flag key (case-insensitive).
      */
     search?: string;
     /**
@@ -119797,7 +119800,7 @@ export namespace Schemas {
      */
     prompt_name?: string;
     /**
-     * Free-text search applied to the experiment name (case-insensitive).
+     * Free-text search applied to the experiment name and its feature flag key (case-insensitive).
      */
     search?: string;
     /**
