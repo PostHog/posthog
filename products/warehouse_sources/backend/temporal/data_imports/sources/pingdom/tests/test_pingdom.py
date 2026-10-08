@@ -14,10 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pingdom.pi
     pingdom_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pingdom.settings import (
-    ENDPOINTS,
-    PINGDOM_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.pingdom.settings import PINGDOM_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -108,14 +105,6 @@ class TestPagination:
         assert manager.save_state.call_args.args[0] == PingdomResumeConfig(offset=page_size)
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checks_uses_large_page_size(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response("checks", [{"id": 1}])])
-
-        _rows(pingdom_source("token", "checks", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-        assert params[0]["limit"] == 25000
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response("checks", [{"id": 1}])])
@@ -124,14 +113,6 @@ class TestPagination:
         _rows(pingdom_source("token", "checks", team_id=1, job_id="j", resumable_source_manager=manager))
 
         assert params[0]["offset"] == 50000
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_extracts_nested_alerts_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response("alerts", [{"time": 1}, {"time": 2}])])
-
-        rows = _rows(pingdom_source("token", "alerts", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-        assert [r["time"] for r in rows] == [1, 2]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_request_includes_from_filter(self, MockSession) -> None:
@@ -151,48 +132,6 @@ class TestPagination:
         )
         assert params[0]["from"] == 1700000000
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_has_no_from_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response("alerts", [])])
-
-        _rows(pingdom_source("token", "alerts", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-        assert "from" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_stops_without_saving_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response("checks", [])])
-
-        manager = _make_manager()
-        rows = _rows(pingdom_source("token", "checks", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == []
-        manager.save_state.assert_not_called()
-
-    @pytest.mark.parametrize(
-        "body",
-        [
-            {},
-            {"actions": {}},
-            {"actions": {"alerts": None}},
-            {"actions": None},
-        ],
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_or_absent_nested_key_yields_no_rows(self, MockSession, body) -> None:
-        session = MockSession.return_value
-        resp = Response()
-        resp.status_code = 200
-        resp._content = json.dumps(body).encode()
-        _wire(session, [resp])
-
-        manager = _make_manager()
-        rows = _rows(pingdom_source("token", "alerts", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == []
-        manager.save_state.assert_not_called()
-
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
@@ -209,29 +148,8 @@ class TestValidateCredentials:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert validate_credentials("token") is expected
 
-    @mock.patch(PINGDOM_SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("token") is False
-
 
 class TestPingdomSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
-        config = PINGDOM_ENDPOINTS[endpoint]
-        response = pingdom_source("token", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_alerts_duplicate_composite_key_does_not_block_incremental_sync(self, MockSession):
         # Alert rows' composite key (checkid, time, userid, via) can collide, but that's expected

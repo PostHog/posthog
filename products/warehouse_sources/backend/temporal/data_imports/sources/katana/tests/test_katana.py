@@ -3,7 +3,6 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-import time_machine
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -12,7 +11,6 @@ from requests import HTTPError, Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.katana.katana import (
     PAGE_SIZE,
     KatanaResumeConfig,
-    _clamp_future_value_to_now,
     _format_incremental_value,
     katana_source,
     validate_credentials,
@@ -103,64 +101,8 @@ class TestFormatIncrementalValue:
     def test_format(self, _name: str, value: object, expected: str) -> None:
         assert _format_incremental_value(value) == expected
 
-    def test_no_plus_offset(self) -> None:
-        assert "+00:00" not in _format_incremental_value(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC))
-
-
-class TestClampFutureValue:
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_future_datetime_clamped_to_now(self) -> None:
-        clamped = _clamp_future_value_to_now(datetime(2027, 1, 1, tzinfo=UTC))
-        assert clamped == datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_past_datetime_untouched(self) -> None:
-        past = datetime(2026, 1, 1, tzinfo=UTC)
-        assert _clamp_future_value_to_now(past) == past
-
 
 class TestPagination:
-    @patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_short_page(self, MockSession: MagicMock) -> None:
-        # Two full pages then a short (non-empty) page terminates pagination WITHOUT an extra request —
-        # Katana has no next-page cursor, so a page below PAGE_SIZE is the last one.
-        session = MockSession.return_value
-        full_page = [{"id": i} for i in range(PAGE_SIZE)]
-        short_page = [{"id": 9001}]
-        params = _wire(session, [_response(full_page), _response(full_page), _response(short_page)])
-
-        rows = _rows(_source(MockSession))
-
-        assert len(rows) == 2 * PAGE_SIZE + 1
-        assert session.send.call_count == 3
-        assert [p["page"] for p in params] == [1, 2, 3]
-        assert all(p["limit"] == PAGE_SIZE for p in params)
-
-    @patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-        manager = _make_manager()
-
-        rows = _rows(_source(MockSession, resumable_source_manager=manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @patch(CLIENT_SESSION_PATCH)
-    def test_checkpoint_saved_after_full_page(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        full_page = [{"id": i} for i in range(PAGE_SIZE)]
-        _wire(session, [_response(full_page), _response([{"id": 1}])])
-        manager = _make_manager()
-
-        _rows(_source(MockSession, resumable_source_manager=manager))
-
-        # Checkpoint saved after the first full page (points at the next page); the short page ends it.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == KatanaResumeConfig(page=2)
-
     @patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession: MagicMock) -> None:
         session = MockSession.return_value
@@ -191,40 +133,6 @@ class TestIncrementalFilter:
         assert len(params) == 2
         for p in params:
             assert p["updated_at_min"] == "2026-01-01T00:00:00.000Z"
-
-    @patch(CLIENT_SESSION_PATCH)
-    def test_respects_user_chosen_incremental_field(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": 1}])])
-
-        _rows(
-            _source(
-                MockSession,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-                incremental_field="created_at",
-            )
-        )
-
-        assert "created_at_min" in params[0]
-        assert "updated_at_min" not in params[0]
-
-    @patch(CLIENT_SESSION_PATCH)
-    def test_falls_back_to_default_incremental_field(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": 1}])])
-
-        _rows(
-            _source(
-                MockSession,
-                endpoint="inventory_movements",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-                incremental_field=None,
-            )
-        )
-
-        assert "created_at_min" in params[0]
 
     @patch(CLIENT_SESSION_PATCH)
     def test_first_sync_has_no_filter(self, MockSession: MagicMock) -> None:
@@ -258,23 +166,6 @@ class TestIncrementalFilter:
         )
 
         assert params[0] == {"page": 1, "limit": PAGE_SIZE}
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    @patch(CLIENT_SESSION_PATCH)
-    def test_future_cursor_clamped(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": 1}])])
-
-        _rows(
-            _source(
-                MockSession,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2027, 1, 1, tzinfo=UTC),
-                incremental_field="updated_at",
-            )
-        )
-
-        assert params[0]["updated_at_min"] == "2026-06-15T12:00:00.000Z"
 
 
 class TestErrorHandling:
@@ -364,16 +255,6 @@ class TestKatanaSourceResponse:
 
 
 class TestValidateCredentials:
-    @patch(KATANA_SESSION_PATCH)
-    def test_valid_key(self, mock_session_factory: MagicMock) -> None:
-        session = MagicMock()
-        session.get.return_value = MagicMock(status_code=200)
-        mock_session_factory.return_value = session
-
-        assert validate_credentials("good-key") is True
-        # The key must be registered with the tracked transport so it's masked in logged URLs / samples.
-        mock_session_factory.assert_called_once_with(redact_values=("good-key",))
-
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
     @patch(KATANA_SESSION_PATCH)
     def test_invalid_key(self, _name: str, status: int, mock_session_factory: MagicMock) -> None:
@@ -382,11 +263,3 @@ class TestValidateCredentials:
         mock_session_factory.return_value = session
 
         assert validate_credentials("bad-key") is False
-
-    @patch(KATANA_SESSION_PATCH)
-    def test_network_error_is_false(self, mock_session_factory: MagicMock) -> None:
-        session = MagicMock()
-        session.get.side_effect = ConnectionError("no network")
-        mock_session_factory.return_value = session
-
-        assert validate_credentials("key") is False

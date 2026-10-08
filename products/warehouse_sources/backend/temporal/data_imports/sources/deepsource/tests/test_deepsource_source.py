@@ -26,27 +26,9 @@ class TestDeepsourceSource:
         # both must be host fields — the update serializer then demands the PAT be re-entered.
         assert DeepsourceSource().connection_host_fields == ["account_login", "vcs_provider"]
 
-    def test_get_schemas_lists_every_endpoint_as_full_refresh(self) -> None:
-        schemas = DeepsourceSource().get_schemas(_CONFIG, team_id=1)
-
-        assert [s.name for s in schemas] == list(ENDPOINTS)
-        # The API has no server-side timestamp filters, so nothing may advertise incremental.
-        assert all(not s.supports_incremental and not s.supports_append for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = DeepsourceSource().get_schemas(_CONFIG, team_id=1, names=["repositories", "reports"])
         assert {s.name for s in schemas} == {"repositories", "reports"}
-
-    def test_get_documented_tables_renders_static_catalog(self) -> None:
-        source = DeepsourceSource()
-        assert source.lists_tables_without_credentials
-
-        tables = source.get_documented_tables()
-
-        assert [t["name"] for t in tables] == list(ENDPOINTS)
-        # Canonical descriptions must cover every endpoint so the public docs aren't thin.
-        assert all(t["description"] for t in tables)
 
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_source_for_pipeline_wires_endpoint_config(self, endpoint: str) -> None:

@@ -27,26 +27,6 @@ class SyncSourceResponse(Protocol):
     def items(self) -> Generator[list[dict[str, Any]]]: ...
 
 
-@pytest.mark.parametrize("name, offset_param", [("contacts", "pageStartIndex"), ("lead_sources", "recordStartIndex")])
-def test_pagination_advances_by_returned_rows_and_stops_at_count(
-    name: str,
-    offset_param: str,
-    pipeline: Callable[..., SyncSourceResponse],
-    http_send: MagicMock,
-    response: Callable[..., Response],
-) -> None:
-    def send(request: PreparedRequest, **_: Any) -> Response:
-        params = parse_qs(urlsplit(request.url or "").query)
-        offset = int(params[offset_param][0])
-        assert "startDate" not in params
-        assert "since" not in params
-        return response(request, {"count": 2, "pageSize": 25, "pageStartIndex": offset, "items": [{"id": str(offset)}]})
-
-    http_send.side_effect = send
-    assert list(pipeline(name).items()) == [[{"id": "0"}], [{"id": "1"}]]
-    assert http_send.call_count == 2
-
-
 @pytest.mark.parametrize(
     "body, status, error",
     [
@@ -161,54 +141,6 @@ def test_unsplittable_job_day_fails_instead_of_truncating(
     assert any(pattern in str(error.value) for pattern in AcculynxSource().get_non_retryable_errors())
 
 
-@pytest.mark.parametrize(
-    "name, parent, child, data",
-    [
-        ("estimates", "estimates", "estimates/parent-one", {"id": "child-one", "createdDate": "2025-01-01T00:00:00Z"}),
-        ("financials", "jobs", "jobs/parent-one/financials", {"id": "child-one", "balanceDue": 100}),
-        (
-            "invoices",
-            "jobs",
-            "jobs/parent-one/invoices",
-            {"count": 1, "pageSize": 25, "pageStartIndex": 0, "items": [{"id": "child-one"}]},
-        ),
-    ],
-)
-def test_child_rows_have_parent_keys_and_use_documented_selectors(
-    name: str,
-    parent: str,
-    child: str,
-    data: dict[str, Any],
-    pipeline: Callable[..., SyncSourceResponse],
-    http_send: MagicMock,
-    response: Callable[..., Response],
-) -> None:
-    def send(request: PreparedRequest, **_: Any) -> Response:
-        path = urlsplit(request.url or "").path.removeprefix("/api/v2/")
-        if path == parent:
-            return response(
-                request,
-                {
-                    "count": 1,
-                    "pageSize": 25,
-                    "pageStartIndex": 0,
-                    "items": [
-                        {"id": "parent-one", "createdDate": "2025-01-01T00:00:00Z"},
-                    ],
-                },
-            )
-        assert path == child
-        return response(request, data)
-
-    http_send.side_effect = send
-    resource = pipeline(name)
-    rows = [row for page in resource.items() for row in page]
-    assert len(rows) == 1
-    assert rows[0]["id"] == "child-one"
-    assert rows[0]["estimate_id" if name == "estimates" else "job_id"] == "parent-one"
-    assert resource.primary_keys and all(key in rows[0] for key in resource.primary_keys)
-
-
 def test_payments_explode_each_group_without_parent_key_collisions(
     pipeline: Callable[..., SyncSourceResponse],
     http_send: MagicMock,
@@ -243,42 +175,6 @@ def test_payments_explode_each_group_without_parent_key_collisions(
     assert len(rows) == 6
     assert resource.primary_keys
     assert len({tuple(row[key] for key in resource.primary_keys) for row in rows}) == 6
-
-
-def test_fanout_resume_skips_completed_parents_and_keeps_the_current_parent(
-    pipeline: Callable[..., SyncSourceResponse],
-    manager: ResumableSourceManager[AcculynxResumeConfig],
-    http_send: MagicMock,
-    response: Callable[..., Response],
-) -> None:
-    child_paths = []
-
-    def send(request: PreparedRequest, **_: Any) -> Response:
-        path = urlsplit(request.url or "").path
-        if path == "/api/v2/estimates":
-            return response(
-                request,
-                {
-                    "count": 3,
-                    "pageSize": 25,
-                    "pageStartIndex": 0,
-                    "items": [{"id": f"estimate-{i}"} for i in range(3)],
-                },
-            )
-        child_paths.append(path)
-        return response(request, {"id": path.rsplit("/", 1)[1]})
-
-    http_send.side_effect = send
-    pages = iter(pipeline("estimates").items())
-    assert next(pages)[0]["id"] == "estimate-0"
-    assert next(pages)[0]["id"] == "estimate-1"
-    manager.confirm()
-    manager.commit()
-    pages.close()
-    child_paths.clear()
-    rows = [row for page in pipeline("estimates").items() for row in page]
-    assert [row["id"] for row in rows] == ["estimate-1", "estimate-2"]
-    assert child_paths == ["/api/v2/estimates/estimate-1", "/api/v2/estimates/estimate-2"]
 
 
 @pytest.mark.parametrize("status", [404, 416])

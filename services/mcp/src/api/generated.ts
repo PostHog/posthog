@@ -10746,6 +10746,14 @@ export namespace Schemas {
       Number50000: 50000,
     } as const;
 
+    export type MissingDates = typeof MissingDates[keyof typeof MissingDates];
+
+
+    export const MissingDates = {
+      Gap: 'gap',
+      Zero: 'zero',
+    } as const;
+
     export type Operator1 = typeof Operator1[keyof typeof Operator1];
 
 
@@ -10841,6 +10849,8 @@ export namespace Schemas {
     export interface BITableCalculation {
       /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
       computeUsing?: string | null;
+      /** Require a complete window of non-null values before displaying a moving average. */
+      requireFullWindow?: boolean | null;
       type: BITableCalculationType;
       /** Number of points, including the current point, in a trailing moving average. */
       window?: number | null;
@@ -10865,6 +10875,8 @@ export namespace Schemas {
       dateRange?: DateRange | null;
       filters: BIFilter[];
       limit: BIQueryLimit;
+      /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
+      missingDates?: MissingDates | null;
       resultFilterGroup?: BIConditionGroup | null;
       resultFilters?: BIResultFilter[] | null;
       rowFilterGroup?: BIConditionGroup | null;
@@ -13525,6 +13537,22 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    export interface AutoresearchLiveTrainingRun {
+      /** Unique UUID of the live training run. */
+      readonly id: string;
+      /** Maximum experiments allowed for this run. */
+      readonly iteration_budget: number;
+      /** Experiments the agent has recorded so far in this run. */
+      readonly experiment_count: number;
+      /**
+         * Best holdout AUC so far in this run. Null before any is recorded.
+         * @nullable
+         */
+      readonly best_holdout_score: number | null;
+      /** The agent's rationale for its newest experiment. */
+      readonly latest_agent_description: string;
+    }
+
     /**
      * Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata.
      */
@@ -13713,6 +13741,13 @@ export namespace Schemas {
       Archived: 'archived',
     } as const;
 
+    export interface AutoresearchRealizedAucPoint {
+      /** Validated prediction date. */
+      readonly prediction_date: string;
+      /** Realized AUC on that date. */
+      readonly realized_auc: number;
+    }
+
     export interface AutoresearchPipeline {
       /** Unique UUID of this pipeline. */
       readonly id: string;
@@ -13813,6 +13848,19 @@ export namespace Schemas {
          * @nullable
          */
       readonly champion_is_preliminary: boolean | null;
+      /** Realized AUC of the current champion on its newest 14 validated prediction dates, oldest first. */
+      readonly champion_realized_auc_trend: readonly AutoresearchRealizedAucPoint[];
+      /**
+         * People scored by the most recent completed inference run. Null before the first scoring run.
+         * @nullable
+         */
+      readonly people_scored: number | null;
+      /** Training runs started for this pipeline. */
+      readonly training_run_count: number;
+      /** Experiments (iterations) recorded across every training run. */
+      readonly experiment_count: number;
+      /** Progress of the pending or running training run. Null when no run is live. */
+      readonly live_training_run: AutoresearchLiveTrainingRun | null;
     }
 
     /**
@@ -107673,6 +107721,61 @@ export namespace Schemas {
       temperature?: number | null;
     }
 
+    /**
+     * * `offer` - offer
+     * * `answer` - answer
+     */
+    export type TerminalNetplayDescriptionTypeEnum = typeof TerminalNetplayDescriptionTypeEnum[keyof typeof TerminalNetplayDescriptionTypeEnum];
+
+
+    export const TerminalNetplayDescriptionTypeEnum = {
+      Offer: 'offer',
+      Answer: 'answer',
+    } as const;
+
+    export interface TerminalNetplayDescription {
+      /** WebRTC session description type.
+       *
+       * * `offer` - offer
+       * * `answer` - answer */
+      type: TerminalNetplayDescriptionTypeEnum;
+      /**
+         * WebRTC session description with ICE candidates.
+         * @maxLength 16384
+         */
+      sdp: string;
+    }
+
+    export interface TerminalNetplayReceivedSignal {
+      /** Peer that sent the description. */
+      sender: string;
+      description: TerminalNetplayDescription;
+    }
+
+    export interface TerminalNetplayMailbox {
+      /** Descriptions received since the last read. */
+      signals: TerminalNetplayReceivedSignal[];
+    }
+
+    export interface TerminalNetplaySignal {
+      /**
+         * Room code shown by the game host.
+         * @pattern ^[A-Z0-9]{4,12}$
+         */
+      room: string;
+      /**
+         * Peer that sent the description.
+         * @pattern ^[a-z0-9]{1,32}$
+         */
+      sender: string;
+      /**
+         * Peer that receives the description.
+         * @pattern ^[a-z0-9]{1,32}$
+         */
+      recipient: string;
+      description: TerminalNetplayDescription;
+    }
+
     export type TestHogRequestOutputConfigOptionsItem = {
       /**
          * Stable category key.
@@ -116795,7 +116898,7 @@ export namespace Schemas {
      */
     archive_state?: CustomerTasksListArchiveState;
     /**
-     * Filter by me, unassigned, or one user ID.
+     * Filter by me, unassigned, one user ID, or role:<role UUID>. A role returns tasks assigned to any current member of that organization role.
      * @minLength 1
      */
     assigned_to?: string;
@@ -125978,6 +126081,21 @@ export namespace Schemas {
       Json: 'json',
       Txt: 'txt',
     } as const;
+
+    export type TerminalNetplayMailboxRetrieveParams = {
+    /**
+     * Peer whose mailbox to read. The host reads 'host'.
+     * @minLength 1
+     * @pattern ^[a-z0-9]{1,32}$
+     */
+    peer: string;
+    /**
+     * Room code shown by the game host.
+     * @minLength 1
+     * @pattern ^[A-Z0-9]{4,12}$
+     */
+    room: string;
+    };
 
     export type TodayBriefingRetrieveParams = {
     /**
