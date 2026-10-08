@@ -9,7 +9,7 @@ use feature_flags::flags::flag_models::FeatureFlag;
 use serde_json::{json, Value};
 
 pub fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rules_v2_evaluation/2.3.0")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rules_v2_evaluation/2.3.1")
 }
 
 pub fn load(path: &str) -> Value {

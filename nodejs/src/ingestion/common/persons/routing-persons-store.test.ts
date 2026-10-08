@@ -6,6 +6,7 @@ import {
     personhogStoreShadowComparedCounter,
     personhogStoreShadowDivergenceCounter,
     personhogStoreShadowErrorsCounter,
+    personhogStoreShadowMergeRedriveCounter,
     personhogStoreShadowSkipsCounter,
 } from '~/common/persons/metrics'
 import { logger } from '~/common/utils/logger'
@@ -27,6 +28,7 @@ jest.mock('~/common/persons/metrics', () => ({
     personhogStoreShadowComparedCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personhogStoreShadowCompareFailedCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personhogStoreShadowFoldRedriveCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+    personhogStoreShadowMergeRedriveCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personhogStoreShadowDurationSeconds: {
         labels: jest.fn().mockReturnValue({ startTimer: jest.fn(() => mockShadowTimerStop) }),
     },
@@ -94,7 +96,11 @@ describe('RoutingPersonsStore', () => {
         // The personhog store implements PersonsStore, so the same
         // compile-checked factory serves; the cast to the concrete class
         // is the constructor's requirement, not an escape from checking.
-        const personhogMock = Object.assign(mockStore(), { abandonBatch: jest.fn() })
+        const personhogMock = Object.assign(mockStore(), {
+            abandonBatch: jest.fn(),
+            holdEventOps: jest.fn(),
+            hasHeldOps: jest.fn().mockReturnValue(false),
+        })
         const personhog = personhogMock as unknown as PersonhogPersonsStore
         return { pg, personhogMock, personhog }
     }
@@ -162,6 +168,25 @@ describe('RoutingPersonsStore', () => {
             expect(divergences()).toEqual([])
             expect(personhogStoreShadowComparedCounter.labels).toHaveBeenCalledWith({ verb: 'fetchForUpdate' })
         })
+
+        it.each([
+            ['empty properties', { properties: {} }, []],
+            ['another person', { uuid: 'other-uuid' }, [{ verb: 'fetchForChecking', field: 'uuid' }]],
+        ])(
+            'compares a checking read on identity only, given a shadow answer with %s',
+            async (_case, shadowDiff, expected) => {
+                const stores = makeStores()
+                stores.pg.fetchForChecking.mockResolvedValue({ ...person(1, '1'), properties: { plan: 'pro' } })
+                stores.personhogMock.fetchForChecking.mockResolvedValue({ ...person(1, '1'), ...shadowDiff })
+                const store = makeStore(stores, 'shadow')
+
+                await store.fetchForChecking(1, 'd1', 0)
+
+                // personhog answers a checking read from the identity service, without properties.
+                expect(divergences()).toEqual(expected)
+                expect(personhogStoreShadowComparedCounter.labels).toHaveBeenCalledWith({ verb: 'fetchForChecking' })
+            }
+        )
 
         it.each([
             ['a nested object whose keys arrived in another order', { a: 1, b: 2 }, { b: 2, a: 1 }, false],
@@ -758,6 +783,89 @@ describe('RoutingPersonsStore', () => {
             }
         )
 
+        const createIn = (store: RoutingPersonsStore, isIdentified = false) =>
+            store.createPerson(
+                DateTime.fromMillis(3_600_000, { zone: 'utc' }),
+                { plan: 'pro' },
+                {},
+                {},
+                1,
+                null,
+                isIdentified,
+                'caller-supplied-uuid',
+                { distinctId: 'd1' },
+                undefined,
+                undefined,
+                0
+            )
+        const createdByPg = {
+            success: true,
+            person: person(1, '7'),
+            messages: [],
+            created: true,
+        } as never
+
+        it.each([
+            [
+                'retriable, holds its properties set-once',
+                Object.assign(new ConnectError('timed out', Code.DeadlineExceeded), { isRetriable: true }),
+                false,
+                { set: {}, setOnce: { plan: 'pro' }, unset: [], denied: false, shouldForceUpdate: true },
+            ],
+            [
+                'retriable for an identified person, holds the identity too',
+                Object.assign(new ConnectError('timed out', Code.DeadlineExceeded), { isRetriable: true }),
+                true,
+                { setOnce: { plan: 'pro' }, isIdentified: true },
+            ],
+            ['deterministic, holds nothing', new ConnectError('rejected', Code.InvalidArgument), false, null],
+        ])('a shadow createPerson whose failure is %s', async (_case, failure, isIdentified, held) => {
+            const stores = makeStores()
+            stores.pg.createPerson.mockResolvedValue(createdByPg)
+            stores.personhogMock.createPerson.mockRejectedValue(failure)
+            const store = makeStore(stores, 'shadow')
+
+            const result = await createIn(store, isIdentified)
+
+            expect(result).toBe(createdByPg)
+            expect(personhogStoreShadowErrorsCounter.labels).toHaveBeenCalledWith(
+                expect.objectContaining({ verb: 'createPerson' })
+            )
+            if (held === null) {
+                expect(stores.personhogMock.holdEventOps).not.toHaveBeenCalled()
+            } else {
+                expect(stores.personhogMock.holdEventOps).toHaveBeenCalledWith(
+                    1,
+                    'd1',
+                    expect.objectContaining({ ...held, eventName: '$create_person' }),
+                    0
+                )
+            }
+        })
+
+        it('a shadow createPerson that fails after the ceiling abandoned it holds nothing', async () => {
+            jest.useFakeTimers()
+            try {
+                const stores = makeStores()
+                stores.pg.createPerson.mockResolvedValue(createdByPg)
+                let fail: (error: Error) => void = () => {}
+                stores.personhogMock.createPerson.mockReturnValue(
+                    new Promise<never>((_resolve, reject) => (fail = reject))
+                )
+                const store = makeStore(stores, 'shadow')
+
+                const creating = createIn(store)
+                await jest.advanceTimersByTimeAsync(60_000)
+                await creating
+                fail(Object.assign(new ConnectError('timed out', Code.DeadlineExceeded), { isRetriable: true }))
+                await jest.advanceTimersByTimeAsync(1)
+
+                expect(stores.personhogMock.holdEventOps).not.toHaveBeenCalled()
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('mergePersons replays the same request against the personhog backend, pg staying authoritative', async () => {
             const stores = makeStores()
             const pgResult = { survivor: person(1, '7'), results: [] }
@@ -774,34 +882,58 @@ describe('RoutingPersonsStore', () => {
         const noVerdict = (): Error => new PersonMergeCallFailedError('no verdict', new Error('shed'))
 
         it.each([
-            ['a no-verdict failure that clears is retried under the same request', [noVerdict()], 2, null],
+            ['a no-verdict failure that clears is retried under the same request', [noVerdict()], 2, null, false],
             [
-                'a failure through every attempt is swallowed and counted',
+                'a failure through every attempt is counted and re-driven at a flush',
                 [noVerdict(), noVerdict(), noVerdict()],
                 3,
                 'PersonMergeCallFailedError',
+                true,
             ],
             [
-                'a deterministic refusal is counted without a retry',
+                'a deterministic refusal is counted without a retry or a re-drive',
                 [new ConnectError('refused', Code.InvalidArgument)],
                 1,
                 'InvalidArgument',
+                false,
             ],
-        ])('shadow merge: %s', async (_name, failures, expectedCalls, countedAs) => {
-            const stores = makeStores()
-            stores.pg.mergePersons.mockResolvedValue(emptyMergeResult())
-            for (const failure of failures) {
-                stores.personhogMock.mergePersons.mockRejectedValueOnce(failure)
+        ])('shadow merge: %s', async (_name, failures, expectedCalls, countedAs, redriven) => {
+            jest.useFakeTimers()
+            try {
+                const stores = makeStores()
+                stores.pg.mergePersons.mockResolvedValue(emptyMergeResult())
+                stores.personhogMock.mergePersons.mockResolvedValue(emptyMergeResult())
+                for (const failure of failures) {
+                    stores.personhogMock.mergePersons.mockRejectedValueOnce(failure)
+                }
+                const store = makeStore(stores, 'shadow')
+                const request = mergeRequest() as never
+
+                const merging = store.mergePersons(request, 0)
+                await jest.advanceTimersByTimeAsync(1_000)
+                await expect(merging).resolves.toEqual(emptyMergeResult())
+
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(expectedCalls)
+                expect(stores.personhogMock.mergePersons).toHaveBeenLastCalledWith(request, 0)
+                const counted = (personhogStoreShadowErrorsCounter.labels as jest.Mock).mock.calls.map(
+                    ([labels]) => labels
+                )
+                expect(counted).toEqual(countedAs === null ? [] : [{ verb: 'mergePersons', error: countedAs }])
+
+                // Past the re-drive delay, a flush re-drives only a merge that never got a verdict.
+                await jest.advanceTimersByTimeAsync(5_000)
+                const flushing = store.flush()
+                await jest.advanceTimersByTimeAsync(1_000)
+                await flushing
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(expectedCalls + (redriven ? 1 : 0))
+                if (redriven) {
+                    expect(personhogStoreShadowMergeRedriveCounter.labels).toHaveBeenCalledWith({ outcome: 'settled' })
+                } else {
+                    expect(personhogStoreShadowMergeRedriveCounter.labels).not.toHaveBeenCalled()
+                }
+            } finally {
+                jest.useRealTimers()
             }
-            const store = makeStore(stores, 'shadow')
-            const request = mergeRequest() as never
-
-            await expect(store.mergePersons(request, 0)).resolves.toEqual(emptyMergeResult())
-
-            expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(expectedCalls)
-            expect(stores.personhogMock.mergePersons).toHaveBeenLastCalledWith(request, 0)
-            const counted = (personhogStoreShadowErrorsCounter.labels as jest.Mock).mock.calls.map(([labels]) => labels)
-            expect(counted).toEqual(countedAs === null ? [] : [{ verb: 'mergePersons', error: countedAs }])
         })
 
         it.each([
@@ -834,12 +966,210 @@ describe('RoutingPersonsStore', () => {
             expect(personhogStoreShadowErrorsCounter.labels).not.toHaveBeenCalled()
         })
 
-        it('prefetch warms both worlds', async () => {
+        /** Unsettled through the first `unsettledCalls` calls, settled from then on; call `hangingCall` never answers. */
+        const unsettledUntil = (stores: ReturnType<typeof makeStores>, unsettledCalls: number, hangingCall = 0) => {
+            stores.pg.mergePersons.mockResolvedValue({
+                survivor: person(1, '1'),
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
+            })
+            stores.personhogMock.mergePersons.mockImplementation(() => {
+                const call = stores.personhogMock.mergePersons.mock.calls.length
+                if (call === hangingCall) {
+                    return new Promise<never>(() => {})
+                }
+                return Promise.resolve(
+                    call <= unsettledCalls
+                        ? {
+                              survivor: person(1, '1'),
+                              results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict', settled: false }],
+                          }
+                        : {
+                              survivor: person(1, '1'),
+                              results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
+                          }
+                )
+            })
+        }
+
+        /** A merge whose three attempts all come back unsettled, so the store defers it. */
+        const deferredMerge = async (store: RoutingPersonsStore, request: unknown) => {
+            const merging = store.mergePersons(request as never, 0)
+            await jest.advanceTimersByTimeAsync(1_000)
+            await merging
+        }
+
+        it.each([
+            ['settles at the first re-drive', 3, [4], ['settled'], 'settled'],
+            ['settles at a later re-drive', 6, [6, 7], ['deferred', 'settled'], 'settled'],
+            [
+                'stays unsettled and is dropped once its window closes',
+                Infinity,
+                [6, 9, 12, 15, 18],
+                ['deferred', 'deferred', 'deferred', 'deferred', 'dropped'],
+                'dropped',
+            ],
+        ])(
+            'a shadow merge unsettled through its retries %s',
+            async (_name, unsettledAttempts, expectedCallsPerFlush, outcomes, finalOutcome) => {
+                jest.useFakeTimers()
+                try {
+                    const stores = makeStores()
+                    unsettledUntil(stores, unsettledAttempts)
+                    const store = makeStore(stores, 'shadow')
+                    const request = mergeRequest() as never
+                    await deferredMerge(store, request)
+                    expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(3)
+
+                    // A flush inside the delay leaves the merge waiting.
+                    await store.flush()
+                    expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(3)
+
+                    for (const [index, expectedCalls] of expectedCallsPerFlush.entries()) {
+                        // Past the delay each time, and the last re-drive lands inside the window with its next
+                        // turn outside it, so the drop happens at that re-drive rather than at a later flush.
+                        await jest.advanceTimersByTimeAsync(4_500)
+                        const flushing = store.flush()
+                        await jest.advanceTimersByTimeAsync(1_000)
+                        await flushing
+                        expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(expectedCalls)
+                        expect(stores.personhogMock.mergePersons).toHaveBeenLastCalledWith(request, 0)
+                        expect(personhogStoreShadowMergeRedriveCounter.labels).toHaveBeenNthCalledWith(index + 1, {
+                            outcome: outcomes[index],
+                        })
+                    }
+                    // Settled or dropped, the merge is gone from the next flush.
+                    await jest.advanceTimersByTimeAsync(5_000)
+                    await store.flush()
+                    expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(
+                        expectedCallsPerFlush[expectedCallsPerFlush.length - 1]
+                    )
+                    expect(personhogStoreShadowMergeRedriveCounter.labels).toHaveBeenLastCalledWith({
+                        outcome: finalOutcome,
+                    })
+                    expect(personhogStoreShadowErrorsCounter.labels).not.toHaveBeenCalled()
+                } finally {
+                    jest.useRealTimers()
+                }
+            }
+        )
+
+        it('the ceiling ends a re-drive loop and re-queues the merges it had not run', async () => {
+            jest.useFakeTimers()
+            try {
+                const stores = makeStores()
+                // Two deferred merges; the first re-drive's call, the seventh, never answers.
+                unsettledUntil(stores, 6, 7)
+                const store = makeStore(stores, 'shadow')
+                await deferredMerge(store, mergeRequest())
+                await deferredMerge(store, mergeRequest())
+                await jest.advanceTimersByTimeAsync(5_000)
+
+                const flushing = store.flush()
+                await jest.advanceTimersByTimeAsync(60_000)
+                await flushing
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(7)
+                expect(personhogStoreShadowMergeRedriveCounter.labels).toHaveBeenLastCalledWith({
+                    outcome: 'abandoned',
+                })
+
+                // Both windows closed while the leg hung, so the next flush drops both rather than leaving them
+                // behind the call that never answered.
+                await store.flush()
+
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(7)
+                const outcomes = (personhogStoreShadowMergeRedriveCounter.labels as jest.Mock).mock.calls.map(
+                    ([labels]) => labels.outcome
+                )
+                expect(outcomes.filter((outcome) => outcome === 'dropped')).toHaveLength(2)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('a flush re-drives a bounded number of deferred merges and the rest wait for the next', async () => {
+            jest.useFakeTimers()
+            try {
+                const stores = makeStores()
+                const deferrals = 17
+                unsettledUntil(stores, deferrals * 3)
+                const store = makeStore(stores, 'shadow')
+                for (let i = 0; i < deferrals; i++) {
+                    await deferredMerge(store, mergeRequest())
+                }
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(deferrals * 3)
+
+                await jest.advanceTimersByTimeAsync(5_000)
+                await store.flush()
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(deferrals * 3 + 16)
+                await store.flush()
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(deferrals * 3 + 17)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('the store keeps a bounded number of deferred merges and drops the oldest past it', async () => {
+            jest.useFakeTimers()
+            try {
+                const stores = makeStores()
+                unsettledUntil(stores, Infinity)
+                const store = makeStore(stores, 'shadow')
+                for (let i = 0; i < 1_000; i++) {
+                    await deferredMerge(store, mergeRequest())
+                }
+                expect(personhogStoreShadowMergeRedriveCounter.labels).not.toHaveBeenCalled()
+
+                await deferredMerge(store, mergeRequest())
+
+                expect(personhogStoreShadowMergeRedriveCounter.labels).toHaveBeenCalledTimes(1)
+                expect(personhogStoreShadowMergeRedriveCounter.labels).toHaveBeenCalledWith({ outcome: 'dropped' })
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('a flush runs the lanes before the deferred re-drives', async () => {
+            jest.useFakeTimers()
+            try {
+                const stores = makeStores()
+                stores.pg.mergePersons.mockResolvedValue({
+                    survivor: person(1, '1'),
+                    results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
+                })
+                stores.personhogMock.mergePersons.mockResolvedValue({
+                    survivor: person(1, '1'),
+                    results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict', settled: false }],
+                })
+                const store = makeStore(stores, 'shadow')
+                const merging = store.mergePersons(mergeRequest() as never, 0)
+                await jest.advanceTimersByTimeAsync(1_000)
+                await merging
+                stores.personhogMock.mergePersons.mockClear()
+
+                await jest.advanceTimersByTimeAsync(5_000)
+                const flushing = store.flush()
+                await jest.advanceTimersByTimeAsync(1_000)
+                await flushing
+
+                expect(stores.personhogMock.flush.mock.invocationCallOrder[0]).toBeLessThan(
+                    stores.personhogMock.mergePersons.mock.invocationCallOrder[0]
+                )
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('prefetch warms both worlds, starting the shadow one before the authoritative one finishes', async () => {
             const stores = makeStores()
             const store = makeStore(stores, 'shadow')
-            await store.prefetchPersons([{ teamId: 1, distinctId: 'd', batchId: 0 }])
+            let finishPg: () => void = () => {}
+            stores.pg.prefetchPersons.mockReturnValueOnce(new Promise<void>((resolve) => (finishPg = resolve)))
+
+            const prefetching = store.prefetchPersons([{ teamId: 1, distinctId: 'd', batchId: 0 }])
             expect(stores.pg.prefetchPersons).toHaveBeenCalled()
             expect(stores.personhogMock.prefetchPersons).toHaveBeenCalled()
+            finishPg()
+            await prefetching
         })
 
         it('getFlushStats counts a batch once when both worlds reference it', () => {
@@ -883,7 +1213,7 @@ describe('RoutingPersonsStore', () => {
             expect((shadowArgs[0] as InternalPerson).id).toBe('99')
         })
 
-        it('skips the shadow write, counted, when the person does not exist in the personhog backend', async () => {
+        it('holds the ops for a resolve at flush when the person does not exist in the personhog backend', async () => {
             const stores = makeStores()
             stores.pg.applyEventOps.mockResolvedValue([person(1, '7'), []])
             stores.personhogMock.fetchForUpdate.mockResolvedValue(null)
@@ -893,7 +1223,37 @@ describe('RoutingPersonsStore', () => {
 
             expect(result.id).toBe('7')
             expect(stores.personhogMock.applyEventOps).not.toHaveBeenCalled()
-            expect(personhogStoreShadowSkipsCounter.labels).toHaveBeenCalledWith({ verb: 'applyEventOps' })
+            expect(stores.personhogMock.holdEventOps).toHaveBeenCalledWith(1, 'd1', ops, 0)
+            expect(personhogStoreShadowSkipsCounter.labels).not.toHaveBeenCalled()
+        })
+
+        it('holds the ops behind ops already held for the distinct id, without resolving the person', async () => {
+            const stores = makeStores()
+            stores.pg.applyEventOps.mockResolvedValue([person(1, '7'), []])
+            stores.personhogMock.hasHeldOps.mockReturnValue(true)
+            stores.personhogMock.fetchForUpdate.mockResolvedValue(person(1, '99'))
+            const store = makeStore(stores, 'shadow')
+
+            await store.applyEventOps(person(1, '7'), ops, 'd1', 0)
+
+            expect(stores.personhogMock.hasHeldOps).toHaveBeenCalledWith(1, 'd1')
+            expect(stores.personhogMock.fetchForUpdate).not.toHaveBeenCalled()
+            expect(stores.personhogMock.applyEventOps).not.toHaveBeenCalled()
+            expect(stores.personhogMock.holdEventOps).toHaveBeenCalledWith(1, 'd1', ops, 0)
+        })
+
+        it('skips a direct diff update, counted, when the person does not exist in the personhog backend', async () => {
+            const stores = makeStores()
+            stores.pg.updatePersonWithPropertiesDiffForUpdate.mockResolvedValue([person(1, '7'), [], true])
+            stores.personhogMock.fetchForUpdate.mockResolvedValue(null)
+            const store = makeStore(stores, 'shadow')
+
+            await store.updatePersonWithPropertiesDiffForUpdate(person(1, '7'), { a: '1' }, [], {}, 'd1', 0)
+
+            expect(stores.personhogMock.updatePersonWithPropertiesDiffForUpdate).not.toHaveBeenCalled()
+            expect(personhogStoreShadowSkipsCounter.labels).toHaveBeenCalledWith({
+                verb: 'updatePersonWithPropertiesDiffForUpdate',
+            })
         })
     })
 

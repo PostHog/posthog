@@ -313,6 +313,7 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
     last_emitted_by_skill = {
         row["skill_name"]: row["last_emitted_at"]
         for row in SignalScoutRun.objects.for_team(team.id)
+        .exclude(metadata__has_key="scout_trial")
         .filter(created_at__gte=emitted_since)
         .filter(Q(emitted_count__gt=0) | touched_a_report)
         .values("skill_name")

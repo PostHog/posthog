@@ -30,6 +30,12 @@ export const CanvasesListQueryParams = () => zod.object({
         .describe('Only return canvases of this kind. kind=component lists the component store.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    ordering: zod
+        .enum(['-created_at', '-updated_at'])
+        .optional()
+        .describe(
+            'Sort order. -created_at (default) puts the newest canvases first. -updated_at puts the most recently changed canvases first.'
+        ),
     search: zod
         .string()
         .optional()
@@ -494,11 +500,6 @@ export const CanvasesDraftsRetrieveParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
-})
-
-export const CanvasesDraftsRetrieveQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
 /**

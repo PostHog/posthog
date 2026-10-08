@@ -37,6 +37,7 @@ from ee.api.agentic_provisioning.constants import (
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.ratelimits import Budget, rate_limited
 from ee.api.agentic_provisioning.tokens import (
+    base_team_id_from_scope,
     compute_partner_scoped_teams,
     get_available_teams_for_user,
     lock_application,
@@ -339,16 +340,12 @@ class OAuthTokenView(ProvisioningAPIView):
                 capture_provisioning_event("token_exchange", "user_inactive", grant_type="refresh_token")
                 raise ProvisioningError("invalid_grant", "User is not active; re-authorize.")
 
-            # base_team_id at refresh: the first team in the prior scope. The consent team
-            # (authorized at grant time) has the lowest id and sorts first at issuance;
-            # partner-provisioned teams are always created later, so they take higher ids
-            # and are only ever appended after it. [0] is therefore the consent team. This
-            # ordering is load-bearing: compute_partner_scoped_teams re-adds the consent
-            # team only when it is base_team_id (it has no TeamProvisioningConfig for this
-            # app), so a lower-id provisioned team becoming [0] would silently drop the
-            # consent team from the refreshed scope. If the prior token was somehow empty-
-            # scoped, fall back to zero so the helper short-circuits without claiming a team.
-            base_team_id = old_scoped_teams[0] if old_scoped_teams else 0
+            # base_team_id at refresh must be the consent team. compute_partner_scoped_teams
+            # keeps base_team_id unconditionally but keeps other teams only when they have a
+            # TeamProvisioningConfig for this app, so any other base silently drops an
+            # unattributed consent team from the refreshed scope. An empty prior scope yields
+            # zero, so the helper short-circuits without claiming a team.
+            base_team_id = base_team_id_from_scope(oauth_app, old_scoped_teams)
             scoped_teams = compute_partner_scoped_teams(oauth_app, user, base_team_id)
 
             # Same fail-closed rule as issuance: an empty scoped_teams is unrestricted under the

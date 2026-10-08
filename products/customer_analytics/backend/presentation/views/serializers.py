@@ -43,7 +43,6 @@ from products.customer_analytics.backend.facade.api import (
 )
 from products.customer_analytics.backend.facade.constants import (
     CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
-    CUSTOM_PROPERTY_OPTION_COLORS,
     SLACK_SUMMARY_CADENCE_CHOICES,
 )
 from products.customer_analytics.backend.facade.contracts import (
@@ -83,9 +82,10 @@ from products.customer_analytics.backend.facade.contracts import (
     MeetingView,
 )
 from products.customer_analytics.backend.facade.enums import (
-    ACCOUNT_PROPERTY_PIN_KIND_CHOICES,
+    AccountPropertyPinKind,
     AccountRelationshipSource,
     AccountViewVisibility,
+    CustomPropertyOptionColor,
     TaskDigestCadence,
 )
 
@@ -1668,6 +1668,13 @@ class MeetingSerializer(DataclassSerializer):
 
     id = serializers.UUIDField(read_only=True, help_text="UUID of the meeting.")
     title = serializers.CharField(read_only=True, allow_blank=True, help_text="Meeting title; may be empty.")
+    is_recurring = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "Whether the meeting belongs to a recurring series. Account meeting lists include all past occurrences "
+            "and only the next upcoming, non-canceled occurrence of each series."
+        ),
+    )
     gong_url = serializers.URLField(
         read_only=True,
         allow_null=True,
@@ -1686,7 +1693,17 @@ class MeetingSerializer(DataclassSerializer):
     class Meta:
         dataclass = MeetingView
         ref_name = "Meeting"
-        fields = ["id", "title", "gong_url", "start_time", "end_time", "organizer_email", "status", "participants"]
+        fields = [
+            "id",
+            "title",
+            "is_recurring",
+            "gong_url",
+            "start_time",
+            "end_time",
+            "organizer_email",
+            "status",
+            "participants",
+        ]
 
 
 class CustomPropertyReferenceSerializer(DataclassSerializer):
@@ -2000,7 +2017,7 @@ class CustomPropertyOptionSerializer(DataclassSerializer):
         help_text="Display label of the option. Stored as the account's value when picked.",
     )
     color = serializers.ChoiceField(
-        choices=CUSTOM_PROPERTY_OPTION_COLORS,
+        choices=CustomPropertyOptionColor.choices,
         help_text="Preset color token used to render the option ('preset-1' through 'preset-10').",
     )
 
@@ -2227,7 +2244,7 @@ class CustomPropertyValueSuggestionsResponseSerializer(serializers.Serializer):
 
 class PinnedAccountPropertySerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
-        choices=ACCOUNT_PROPERTY_PIN_KIND_CHOICES,
+        choices=AccountPropertyPinKind.choices,
         help_text="Definition type for this pinned account property.",
     )
     id = serializers.UUIDField(

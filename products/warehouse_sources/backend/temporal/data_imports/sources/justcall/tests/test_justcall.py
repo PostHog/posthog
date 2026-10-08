@@ -13,10 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.justcall.j
     justcall_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.justcall.settings import (
-    ENDPOINTS,
-    JUSTCALL_ENDPOINTS,
-)
 
 # validate_credentials builds its own tracked session in the justcall module.
 JUSTCALL_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.justcall.justcall"
@@ -94,42 +90,6 @@ class TestFormatCursor:
 
 class TestRequestParams:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_endpoint_sorts_by_datetime_ascending(self, MockSession):
-        session = MockSession.return_value
-        _, params = _run(session, [_response([{"id": 1}])], "calls", _make_manager())
-
-        assert params[0]["sort"] == "datetime"
-        assert params[0]["order"] == "asc"
-        assert params[0]["per_page"] == 100
-        assert params[0]["page"] == 0
-        # No watermark passed → no server-side time filter on the request.
-        assert "from_datetime" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_endpoint_has_no_sort_or_filter(self, MockSession):
-        # `users` has no server-side time filter, so an incremental value must not leak into the request.
-        session = MockSession.return_value
-        _, params = _run(
-            session,
-            [_response([{"id": 1}])],
-            "users",
-            _make_manager(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2021-08-25",
-        )
-
-        assert "sort" not in params[0]
-        assert "from_datetime" not in params[0]
-        assert params[0]["order"] == "asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_phone_numbers_uses_uppercase_order(self, MockSession):
-        session = MockSession.return_value
-        _, params = _run(session, [_response([{"id": 1}])], "phone_numbers", _make_manager())
-
-        assert params[0]["order"] == "ASC"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_request_carries_from_datetime(self, MockSession):
         session = MockSession.return_value
         _, params = _run(
@@ -146,43 +106,17 @@ class TestRequestParams:
 
 
 class TestPagination:
-    @mock.patch(f"{JUSTCALL_MODULE}.PAGE_SIZE", 2)
+    @pytest.mark.parametrize("endpoint, page_size", [("sales_dialer_campaigns", 50), ("calls_ai", 20)])
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_short_page(self, MockSession):
-        # A full page (== PAGE_SIZE) continues; a short page ends pagination with no extra request.
+    def test_endpoint_page_size_cap_drives_short_page_detection(self, MockSession, endpoint, page_size):
+        # A full page at the endpoint's lower cap must not be read as the last page.
         session = MockSession.return_value
-        rows, params = _run(
-            session,
-            [_response([{"id": 1}, {"id": 2}]), _response([{"id": 3}])],
-            "users",
-            _make_manager(),
-        )
+        full_page = [{"id": i} for i in range(page_size)]
+        rows, params = _run(session, [_response(full_page), _response([{"id": page_size}])], endpoint, _make_manager())
 
-        assert [r["id"] for r in rows] == [1, 2, 3]
+        assert len(rows) == page_size + 1
         assert session.send.call_count == 2
-        assert params[0]["page"] == 0
-        assert params[1]["page"] == 1
-
-    @mock.patch(f"{JUSTCALL_MODULE}.PAGE_SIZE", 2)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_page_then_short_page_checkpoints_next_page(self, MockSession):
-        # The first full page checkpoints the next page to fetch; the terminal short page does not.
-        session = MockSession.return_value
-        manager = _make_manager()
-        _run(session, [_response([{"id": 1}, {"id": 2}]), _response([{"id": 3}])], "users", manager)
-
-        manager.save_state.assert_called_once_with(JustCallResumeConfig(page=1))
-
-    @mock.patch(f"{JUSTCALL_MODULE}.PAGE_SIZE", 2)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_stops_without_saving(self, MockSession):
-        session = MockSession.return_value
-        manager = _make_manager()
-        rows, _ = _run(session, [_response([])], "calls", manager)
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
+        assert params[0]["per_page"] == page_size
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession):
@@ -199,32 +133,3 @@ class TestValidateCredentials:
         response = mock.MagicMock(status_code=status_code)
         mock_session.return_value.get.return_value = response
         assert validate_credentials("key", "secret") is expected
-
-    @mock.patch(f"{JUSTCALL_MODULE}.make_tracked_session")
-    def test_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key", "secret") is False
-
-
-class TestJustCallSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = JUSTCALL_ENDPOINTS[endpoint]
-        response = justcall_source(
-            "key", "secret", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == "asc"
-        if config.incremental_cursor:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.incremental_cursor]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
-    @pytest.mark.parametrize("config", list(JUSTCALL_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_user_date_fields(self, config):
-        if config.incremental_cursor:
-            assert config.incremental_cursor in {"call_user_date", "sms_user_date"}

@@ -91,6 +91,7 @@ PRODUCTS_APPS = [
     "products.metrics.backend.apps.MetricsConfig",
     "products.apm.backend.apps.ApmConfig",
     "products.notifications.backend.apps.NotificationsConfig",
+    "products.cross_project_dashboards.backend.apps.CrossProjectDashboardsConfig",
     "products.dashboards.backend.apps.DashboardsConfig",
     "products.messaging.backend.apps.MessagingConfig",
     "products.mcp_analytics.backend.apps.McpAnalyticsConfig",
@@ -105,6 +106,7 @@ PRODUCTS_APPS = [
     "products.warehouse_sources.backend.apps.WarehouseSourcesConfig",
     "products.data_tools.backend.apps.DataToolsConfig",
     "products.alerts.backend.apps.AlertsConfig",
+    "products.alerts_platform.backend.apps.AlertsPlatformConfig",
     "products.actions.backend.apps.ActionsConfig",
     "products.autoresearch.backend.apps.AutoresearchConfig",
     "products.product_analytics.backend.apps.ProductAnalyticsConfig",
@@ -123,6 +125,8 @@ PRODUCTS_APPS = [
     "products.data_catalog.backend.apps.DataCatalogConfig",
     "products.data_quality.backend.apps.DataQualityConfig",
     "products.security.backend.apps.SecurityConfig",
+    "products.webmcp.backend.apps.WebmcpConfig",
+    "products.warehouse_suggestions.backend.apps.WarehouseSuggestionsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -314,6 +318,9 @@ SOCIAL_AUTH_PIPELINE = (
     # Must stay ahead of associate_by_email, which links an existing account by email with no check of its own
     "posthog.api.authentication.social_email_verified_by_provider",
     "social_core.pipeline.social_auth.associate_by_email",
+    # Must stay ahead of the end of the pipeline, where the session starts, and after the steps
+    # that resolve the existing account
+    "posthog.api.authentication.social_access_rules_allow",
     "posthog.api.signup.social_create_user",
     "social_core.pipeline.social_auth.associate_user",
     "social_core.pipeline.social_auth.load_extra_data",
@@ -604,6 +611,9 @@ SPECTACULAR_SETTINGS = {
             "TicketPriorityEnum": "products.conversations.backend.models.constants.Priority",
             # ExperimentMetricsRecalculation and ExperimentTimeseriesRecalculation both define this Status.
             "MetricsRecalculationStatusEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status",
+            # tasks' SpaceGoalPeriod measures a goal over day/week/month and alerts_platform's
+            # recurrence unit repeats on one, so the pairs match and neither name fits both.
+            "CalendarUnitEnum": "products.alerts_platform.backend.facade.enums.PlatformAlertConfigurationRecurrenceUnit.choices",
             # Matches tasks' LoopVisibility (personal/team).
             "MCPAgentGrantScopeEnum": "products.mcp_store.backend.models.AGENT_GRANT_SCOPE_CHOICES",
             # Matches Subscription frequency (daily/weekly/monthly).
@@ -623,10 +633,20 @@ SPECTACULAR_SETTINGS = {
             "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
             # signals' report-metric role; AutoresearchModel.Role also sits on a field named `role`.
             "RoleEnum": ["primary", "supporting"],
+            # Keeps the name `CodeEnum` for the dataset conflict codes of ai_observability. A second field named
+            # `code` with fixed values (the experiment health finding codes) would otherwise rename it, and the
+            # frontend imports of `CodeEnumApi` would break.
+            "CodeEnum": [
+                "dataset_archived",
+                "dataset_name_conflict",
+                "dataset_item_archived",
+                "dataset_item_active",
+                "client_item_id_conflict",
+                "limit_reached",
+                "stale_version",
+            ],
             # replay_vision alert destinations: the create body and the alert's listed destinations share this set.
             "VisionAlertDestinationTypeEnum": ["slack", "webhook"],
-            # The API-only pin kind uses StrEnum; name its component without a Django Choices class.
-            "AccountPropertyPinKindEnum": "products.customer_analytics.backend.facade.enums.ACCOUNT_PROPERTY_PIN_KIND_CHOICES",
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
             # The subset a client may write. Shared by the single-issue and bulk write serializers,
@@ -650,7 +670,6 @@ SPECTACULAR_SETTINGS = {
             # warehouse's own SyncStatus, but that class carries different labels, so the two are
             # distinct choice sets and this one needs its own name.
             "SignalSourceSyncStatusEnum": ["running", "completed", "failed"],
-            "RunSourceEnum": ["manual", "signal_report", "agent"],
             "TaskBootstrapRunSourceEnum": ["manual", "signal_report"],
             # Completion providers are a subset of LLMProvider that excludes evaluation-only models.
             "LLMCompletionProviderEnum": "products.ai_observability.backend.models.provider_keys.llm_completion_provider_choices",
@@ -664,6 +683,9 @@ SPECTACULAR_SETTINGS = {
             "DiagnosticSeverityEnum": ["error", "warning"],
             "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
             "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
+            "LogsAlertDestinationTypeEnum": ["slack", "webhook", "teams", "pagerduty"],
+            "PagerDutySeverityEnum": ["critical", "error", "warning", "info"],
+            "PagerDutyRegionEnum": ["us", "eu"],
             # growth's identity-matching tier and the signals scout suggestion confidence.
             "ConfidenceTierEnum": ["low", "medium", "high"],
             #
@@ -679,8 +701,10 @@ SPECTACULAR_SETTINGS = {
             "PRTimelineSegmentKindEnum": "products.engineering_analytics.backend.facade.contracts.PRTimelineSegmentKind",
             "DeliveryScopeKindEnum": "products.engineering_analytics.backend.facade.contracts.DeliveryScopeKind",
             "FrictionGroupEnum": "products.engineering_analytics.backend.facade.contracts.FrictionGroup",
+            "TraceNodeKindEnum": "products.ai_observability.backend.facade.contracts.TRACE_NODE_KINDS",
             "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
             "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
+            "DismissalReasonEnum": "products.signals.backend.views.SIGNAL_REPORT_DISMISSAL_REASON_CHOICES",
             "ErrorTrackingIssueSeverityRuleEnum": ["low", "medium", "high", "critical"],
             #
             # The choices come from a typing.Literal via get_args; there is no class.
@@ -744,12 +768,9 @@ SPECTACULAR_SETTINGS = {
             # The choices are computed: a subset or union of another definition, a plain
             # Python enum's values, or a per-widget constant. Converting each producer to
             # a TextChoices class would delete its entry here.
-            "TaskChannelWriteTypeEnum": "products.tasks.backend.facade.enums.CHANNEL_WRITE_TYPE_CHOICES",
             "ChannelTypeEnum": "products.error_tracking.backend.facade.alerts.ALERT_CHANNEL_TYPES",
             "TicketChannelFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_CHANNEL_FILTER_CHOICES",
             "TicketSlaFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_SLA_FILTER_CHOICES",
-            "TicketSortOrderEnum": "products.conversations.backend.api.ticket_filters.TICKET_SORT_ORDER_CHOICES",
-            "UtmIssueKindEnum": "products.marketing_analytics.backend.services.types.UTM_ISSUE_KIND_CHOICES",
             "ConversionGoalKindEnum": "products.marketing_analytics.backend.hogql_queries.constants.CONVERSION_GOAL_KIND_CHOICES",
             "ReasoningEffortEnum": ["low", "medium", "high", "xhigh", "max", "ultracode", None],
             "TaskRunReasoningEffortEnum": [
@@ -765,39 +786,13 @@ SPECTACULAR_SETTINGS = {
             ],
             "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
             "DataQualityCheckSeverityEnum": ["error", "warn"],
-            "DataQualityScheduleIntervalEnum": "products.data_quality.backend.facade.enums.schedule_interval_choices",
-            "CanvasStateScopeEnum": ["user", "shared"],
-            "CanvasKindEnum": ["freeform", "grid", "component"],
-            "CanvasPlacementStatusEnum": ["pending", "generating", "live", "failed"],
             "CanvasGridColumnsEnum": [(4, 4), (6, 6), (8, 8), (10, 10), (12, 12)],
             "CanvasLayoutSchemaVersionEnum": [(1, 1)],
-            "ExperimentSessionBucketEnum": ["fired_any", "no_metric_activity", "funnel_dropoff"],
-            "ExperimentWatchCardKindEnum": ["behavior", "friction", "variant_only", "metric"],
-            "ExperimentWatchCardStrengthEnum": ["only", "far_more", "more", "slightly_more"],
             "ExperimentWatchMultipleVariantHandlingEnum": ["exclude", "first_seen"],
-            "ExperimentWatchEmptyReasonEnum": [
-                "too_early",
-                "no_separation",
-                "no_recordings",
-                "no_session_linked_exposures",
-            ],
             "ReviewIssuePriorityEnum": ["must_fix", "should_fix", "consider"],
             "OtelMetricTypeEnum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
-            "VerdictEnum": ["yes", "no", "inconclusive"],
             "AIObservabilityInstrumentationCheckEnum": ["sessions", "tool_calls", "user_identity", "trace_structure"],
             "LoopTriggerTypeEnum": ["schedule", "github", "api"],
-            "CustomPropertyOptionColorEnum": [f"preset-{i}" for i in range(1, 11)],
-            "SavedQuerySyncFrequencyEnum": [
-                "never",
-                "15min",
-                "30min",
-                "1hour",
-                "6hour",
-                "12hour",
-                "24hour",
-                "7day",
-                "30day",
-            ],
             "MaterializeSyncFrequencyEnum": [
                 "15min",
                 "30min",
@@ -807,17 +802,6 @@ SPECTACULAR_SETTINGS = {
                 "24hour",
                 "7day",
                 "30day",
-            ],
-            "AssigneeTypeEnum": ["user", "role"],
-            "TaskRunArtifactTypeEnum": [
-                "plan",
-                "context",
-                "reference",
-                "output",
-                "artifact",
-                "tree_snapshot",
-                "user_attachment",
-                "skill_bundle",
             ],
             "ArtifactType2f0Enum": [
                 "slack_message",
@@ -831,10 +815,9 @@ SPECTACULAR_SETTINGS = {
             "AdapterEnum": ["slack_message", "slack_canvas", "slack_file", "document_connector", "github_pr"],
             "ActionStepMatchingEnum": ["contains", "regex", "exact"],
             "DetailModeValueEnum": ["minimal", "detailed"],
-            "RuntimeAdapterEnum": ["claude", "codex"],
             "ClaudeRuntimeAdapterEnum": ["claude"],
             "CodexRuntimeAdapterEnum": ["codex"],
-            "StaffCacheKindEnum": ["evaluation", "definitions"],
+            "TrialEvidenceSourceKindEnum": ["instructions", "context", "summary", "report", "memory", "trace"],
             #
             # One single-value discriminator enum per dashboard widget.
             # bin/build-dashboard-widget-types.py checks these against WIDGET_SPECS.
@@ -916,6 +899,10 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
 
 # We keep the number of buckets low to reduce resource usage on the Prometheus
 PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1, float("inf")]
+
+# Chrome origin trial tokens, comma-separated. Each token is bound to one origin, so each deployment sets its own.
+# Tokens are base64, so they never contain a comma.
+ORIGIN_TRIAL_TOKENS = get_list(os.getenv("ORIGIN_TRIAL_TOKENS", ""))
 
 ####
 # Proxy and IP egress config
@@ -1405,6 +1392,10 @@ DESKTOP_GATEWAY_ROLLOUT_FLAG = get_from_env("DESKTOP_GATEWAY_ROLLOUT_FLAG", "pos
 # Per-user mint ceiling because OAuth callers skip DRF's default throttles. At the default TTL each
 # open project on each device mints about 13 times an hour.
 DESKTOP_GATEWAY_MINTS_PER_HOUR = get_from_env("DESKTOP_GATEWAY_MINTS_PER_HOUR", 120, type_cast=int)
+# Users who joined PostHog at or after this ISO 8601 instant cannot use Desktop while the
+# posthog-desktop-signup-gate flag is on for them, unless posthog-desktop-access-override matches
+# them. An empty value turns the signup gate off.
+DESKTOP_SIGNUP_CUTOFF = get_from_env("DESKTOP_SIGNUP_CUTOFF", "" if TEST else "2026-10-01T00:00:00+00:00")
 
 # Exact MCP endpoints that operators explicitly allow the MCP Store to reach even
 # when normal SSRF validation rejects their private/internal address. This is an

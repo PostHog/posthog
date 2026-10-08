@@ -55,7 +55,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
 from products.slack_app.backend import inbox_channel
-from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
 from products.slack_app.backend.discussion_replies import try_ingest_discussion_reply
 from products.slack_app.backend.feature_flags import (
     ASSISTANT_REQUIRED_SCOPES,
@@ -338,17 +338,22 @@ def _post_slack_user_feedback(
     A thread post whose root has been deleted is skipped rather than posted — see
     ``post_slack_thread_reply``. That counts as "nothing reached Slack", which is
     accurate: the user retracted the message this feedback answers."""
+    # Every caller runs inside the Slack webhook, so the SDK's 30 second default would
+    # outlast the acknowledgement window. The client is held in a local because
+    # ``SlackIntegration.client`` builds a new one on every access.
+    client = slack.client
+    client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
     if prefer_thread_message:
         try:
-            return post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text) is not None
+            return post_slack_thread_reply(client, channel=channel, thread_ts=thread_ts, text=text) is not None
         except Exception:
             logger.warning("slack_user_feedback_thread_post_failed", channel=channel, slack_user_id=slack_user_id)
 
     try:
-        slack.client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
+        client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
     except Exception:
         try:
-            return post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text) is not None
+            return post_slack_thread_reply(client, channel=channel, thread_ts=thread_ts, text=text) is not None
         except Exception:
             logger.warning("slack_user_feedback_failed", channel=channel, slack_user_id=slack_user_id)
             return False
@@ -886,11 +891,6 @@ def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
         result = resolve_from_candidates(candidates, slack_team_id=slack_team_id, channel=channel, thread_ts=thread_ts)
         return JsonResponse({"claimed": claimed, "thread_claimed": result.source == "thread"})
     return JsonResponse({"claimed": claimed})
-
-
-def _build_slack_thread_key(slack_workspace_id: str, channel: str, thread_ts: str) -> str:
-    """Build the unique key for a Slack thread."""
-    return f"{slack_workspace_id}:{channel}:{thread_ts}"
 
 
 def _strip_bot_mentions(text: str) -> str:
@@ -3842,11 +3842,19 @@ def _handle_untagged_followup_dismiss(payload: dict) -> HttpResponse:
         if integration_id and slack_team_id
         else None
     )
+    dismisser_slack_user_id = payload.get("user", {}).get("id")
     if dismissing_integration is not None:
         capture_slack_event(
             dismissing_integration,
             "slack app untagged followup dismissed",
-            slack_user_id=payload.get("user", {}).get("id"),
+            slack_user_id=dismisser_slack_user_id,
+            posthog_user=resolve_posthog_user_from_event(
+                slack_user_id=dismisser_slack_user_id,
+                probe_integration=dismissing_integration,
+                candidate_integrations=[dismissing_integration],
+            )
+            if dismisser_slack_user_id
+            else None,
         )
     return HttpResponse(status=200)
 
@@ -3900,7 +3908,7 @@ def _report_slack_mention_received(
         properties: dict[str, Any] = {
             "is_first_message_in_session": is_first_message_in_session,
             "session_message_count": session_message_count,
-            "slack_session_id": f"{slack_team_id}:{channel}:{thread_ts}" if channel and thread_ts else None,
+            "slack_session_id": slack_session_id(slack_team_id, channel, thread_ts) if channel and thread_ts else None,
             "slack_team_id": slack_team_id,
             "slack_channel": channel,
             "slack_thread_ts": thread_ts,
@@ -3975,7 +3983,7 @@ def _report_slack_mention_dropped(
             "drop_reason": reason,
             "replied": replied,
             "slack_event_type": event.get("type"),
-            "slack_session_id": f"{slack_team_id}:{channel}:{thread_ts}" if channel and thread_ts else None,
+            "slack_session_id": slack_session_id(slack_team_id, channel, thread_ts) if channel and thread_ts else None,
             "slack_team_id": slack_team_id,
             "slack_channel": channel,
             "slack_thread_ts": thread_ts,

@@ -1,5 +1,3 @@
-import { useActions, useValues } from 'kea'
-
 import {
     AlertDialog,
     AlertDialogContent,
@@ -11,44 +9,55 @@ import {
 } from '@posthog/quill'
 
 import { bulkArchiveWarning, sessionsLabel } from './todaySessionSelection'
-import { todaySessionSelectionLogic } from './todaySessionSelectionLogic'
+import { TodayBulkArchiveConfirm } from './todaySessionSelectionLogic'
+
+interface TodaySessionBulkArchiveDialogProps {
+    confirm: TodayBulkArchiveConfirm
+    archiving: boolean
+    onCancel: () => void
+    onConfirm: () => void
+    /** Starts each button's `data-attr`, so every surface counts on its own. */
+    dataAttrPrefix: string
+}
 
 /** One confirm for the whole selection, shown when any of it is still running. */
-export function TodaySessionBulkArchiveDialog(): JSX.Element {
-    const { bulkArchiveConfirm, bulkAction } = useValues(todaySessionSelectionLogic)
-    const { closeBulkArchiveConfirm, archiveSelected } = useActions(todaySessionSelectionLogic)
-    const archiving = bulkAction === 'archive'
-
+export function TodaySessionBulkArchiveDialog({
+    confirm,
+    archiving,
+    onCancel,
+    onConfirm,
+    dataAttrPrefix,
+}: TodaySessionBulkArchiveDialogProps): JSX.Element {
     return (
         <AlertDialog
-            open={bulkArchiveConfirm.open}
+            open={confirm.open}
             onOpenChange={(open: boolean) => {
                 if (!open && !archiving) {
-                    closeBulkArchiveConfirm()
+                    onCancel()
                 }
             }}
         >
             <AlertDialogContent>
                 <AlertDialogHeader>
-                    <AlertDialogTitle>{`Archive ${sessionsLabel(bulkArchiveConfirm.count)}?`}</AlertDialogTitle>
+                    <AlertDialogTitle>{`Archive ${sessionsLabel(confirm.count)}?`}</AlertDialogTitle>
                     <AlertDialogDescription>
-                        {bulkArchiveWarning(bulkArchiveConfirm.count, bulkArchiveConfirm.running)}
+                        {bulkArchiveWarning(confirm.count, confirm.running)}
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                     <Button
                         variant="outline"
-                        onClick={closeBulkArchiveConfirm}
+                        onClick={onCancel}
                         disabled={archiving}
-                        data-attr="today-session-bulk-archive-cancel"
+                        data-attr={`${dataAttrPrefix}-archive-cancel`}
                     >
                         Cancel
                     </Button>
                     <Button
                         variant="destructive-outline"
                         loading={archiving}
-                        onClick={archiveSelected}
-                        data-attr="today-session-bulk-archive-confirm"
+                        onClick={onConfirm}
+                        data-attr={`${dataAttrPrefix}-archive-confirm`}
                     >
                         Archive
                     </Button>

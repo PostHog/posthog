@@ -25,10 +25,8 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.temporal.activities import (
     advance_scanner_watermark_activity,
     check_scanner_budget_activity,
-    count_in_flight_applies_activity,
     count_in_flight_by_team_activity,
     find_scanner_candidates_activity,
-    refresh_prompt_suggestion_activity,
 )
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
@@ -36,9 +34,6 @@ from products.replay_vision.backend.temporal.constants import (
     CHECK_SCANNER_BUDGET_TIMEOUT,
     COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
     FIND_SCANNER_CANDIDATES_TIMEOUT,
-    MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
-    MAX_IN_FLIGHT_APPLIES_PER_TEAM,
-    REFRESH_PROMPT_SUGGESTION_TIMEOUT,
     SWEEP_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
     in_flight_headroom,
@@ -49,7 +44,6 @@ from products.replay_vision.backend.temporal.sweep_types import (
     CheckScannerBudgetInputs,
     CountInFlightAppliesInputs,
     FindScannerCandidatesInputs,
-    RefreshPromptSuggestionInputs,
     SweepScannerInputs,
 )
 from products.replay_vision.backend.temporal.types import ApplyScannerInputs
@@ -61,77 +55,38 @@ class SweepScannerWorkflow(PostHogWorkflow):
 
     @wf.run
     async def run(self, inputs: SweepScannerInputs) -> None:
-        # Declared until no history carrying the marker can replay.
-        wf.deprecate_patch("drop-vision-action-dispatch-2026-09")
-
-        # Same heartbeat keeps the prompt recommendation fresh. The activity self-gates to at most one
-        # regeneration per day and only when ratings changed, so the 5-minute sweep cadence is fine.
-        # Best-effort: an LLM hiccup must never block the session scan. wf.patched keeps sweeps
-        # in flight across the deploy replaying deterministically.
-        if wf.patched("prompt-suggestion-refresh"):
-            try:
-                await wf.execute_activity(
-                    refresh_prompt_suggestion_activity,
-                    RefreshPromptSuggestionInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id),
-                    start_to_close_timeout=REFRESH_PROMPT_SUGGESTION_TIMEOUT,
-                    retry_policy=common.RetryPolicy(maximum_attempts=1),
-                )
-            except Exception:
-                wf.logger.warning(
-                    "replay_vision.prompt_suggestion_refresh_failed", extra={"scanner_id": str(inputs.scanner_id)}
-                )
-
-        # A capped scanner scans no sessions this tick; the heartbeats above spend no scanner
-        # credits, so they ran first. Fails open (admissions stay gated at the persistence
-        # boundary); patched so in-flight sweeps replay unchanged across the deploy.
-        if wf.patched("replay-vision-scanner-credit-limit"):
-            try:
-                budget = await wf.execute_activity(
-                    check_scanner_budget_activity,
-                    CheckScannerBudgetInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id),
-                    start_to_close_timeout=CHECK_SCANNER_BUDGET_TIMEOUT,
-                    retry_policy=common.RetryPolicy(maximum_attempts=1),
-                )
-                if budget.capped:
-                    return
-            except Exception:
-                if not wf.unsafe.is_replaying():
-                    record_sweep_outcome("scanner_budget_check_failed")
-                wf.logger.warning(
-                    "replay_vision.scanner_budget_check_failed", extra={"scanner_id": str(inputs.scanner_id)}
-                )
+        # A capped scanner scans no sessions this tick. Fails open because admissions stay gated at the
+        # persistence boundary.
+        wf.deprecate_patch("drop-prompt-suggestion-refresh-2026-10")
+        wf.deprecate_patch("replay-vision-scanner-credit-limit")
+        try:
+            budget = await wf.execute_activity(
+                check_scanner_budget_activity,
+                CheckScannerBudgetInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id),
+                start_to_close_timeout=CHECK_SCANNER_BUDGET_TIMEOUT,
+                retry_policy=common.RetryPolicy(maximum_attempts=1),
+            )
+            if budget.capped:
+                return
+        except Exception:
+            if not wf.unsafe.is_replaying():
+                record_sweep_outcome("scanner_budget_check_failed")
+            wf.logger.warning("replay_vision.scanner_budget_check_failed", extra={"scanner_id": str(inputs.scanner_id)})
 
         # Hard concurrency caps: per scanner (one bad config) and per team (many scanners), enforced as the
         # min of the two headrooms. Skip entirely when saturated. Keeps any single tenant from flooding the
         # shared rasterizer + provider concurrency. A DB error fails the count (single attempt), so the sweep
         # skips this tick rather than dispatching against an unknown load; the next tick retries in 5 minutes.
-        count_inputs = CountInFlightAppliesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id)
-        if wf.patched("replay-vision-team-in-flight-caps"):
-            in_flight = await wf.execute_activity(
-                count_in_flight_by_team_activity,
-                count_inputs,
-                start_to_close_timeout=COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
-                retry_policy=common.RetryPolicy(maximum_attempts=1),
-            )
-            scanner_in_flight, team_in_flight = in_flight.scanner, in_flight.team
-        else:
-            # Pre-deploy sweeps replay the legacy scanner-only counter's recorded int; no team cap for them.
-            scanner_in_flight = await wf.execute_activity(
-                count_in_flight_applies_activity,
-                count_inputs,
-                start_to_close_timeout=COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
-                retry_policy=common.RetryPolicy(maximum_attempts=1),
-            )
-            team_in_flight = 0
-        # Patched: a history recorded without the reserve must replay the un-reserved arithmetic it ran,
-        # or the tick can flip between dispatching and returning early mid-replay.
-        if wf.patched("replay-vision-on-demand-reserved-headroom"):
-            headroom = in_flight_headroom(scanner_in_flight, team_in_flight)
-        else:
-            headroom = min(
-                MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight,
-                MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight,
-            )
+        wf.deprecate_patch("replay-vision-team-in-flight-caps")
+        in_flight = await wf.execute_activity(
+            count_in_flight_by_team_activity,
+            CountInFlightAppliesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id),
+            start_to_close_timeout=COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
+        )
+        scanner_in_flight, team_in_flight = in_flight.scanner, in_flight.team
+        wf.deprecate_patch("replay-vision-on-demand-reserved-headroom")
+        headroom = in_flight_headroom(scanner_in_flight, team_in_flight)
         if headroom <= 0:
             # At a cap — drain before fetching more. Don't advance the watermark; resume next tick.
             wf.logger.info(
@@ -160,12 +115,14 @@ class SweepScannerWorkflow(PostHogWorkflow):
             ),
         )
         # A no-op when both lists are empty. First failure aborts the gather and skips the advance;
-        # UNIQUE(scanner_id, session_id) dedups retries.
+        # UNIQUE(scanner_id, session_id) dedups retries. Priming samples everything, so the tick's
+        # balanced rates describe only the fast and deep candidates.
         await asyncio.gather(
             *(
-                self._start_child(inputs, c)
-                for c in (*find_result.candidates, *find_result.deep_candidates, *find_result.priming_candidates)
-            )
+                self._start_child(inputs, c, find_result.variant_sampling_rates)
+                for c in (*find_result.candidates, *find_result.deep_candidates)
+            ),
+            *(self._start_child(inputs, c, None) for c in find_result.priming_candidates),
         )
 
         if find_result.keyset_end is not None:
@@ -175,10 +132,6 @@ class SweepScannerWorkflow(PostHogWorkflow):
             # Always carried: the keyset compares the whole tuple, so keeping the tiebreaker cannot
             # skip anything, while dropping it hides any session tied at that exact end_time.
             last_seen_session_id = find_result.keyset_session_id
-        elif find_result.candidates:
-            # Activity results recorded before this deploy carry no keyset.
-            last = find_result.candidates[-1]
-            swept_at, last_seen_session_id = last.session_end, (last.session_id if find_result.saturated else "")
         elif find_result.swept_through is not None:
             # Advance through the covered settle horizon so `last_swept_at` reflects sweep liveness
             # instead of freezing on low-yield scanners.
@@ -215,7 +168,12 @@ class SweepScannerWorkflow(PostHogWorkflow):
             retry_policy=common.RetryPolicy(maximum_attempts=3),
         )
 
-    async def _start_child(self, inputs: SweepScannerInputs, candidate: CandidateSessionPayload) -> None:
+    async def _start_child(
+        self,
+        inputs: SweepScannerInputs,
+        candidate: CandidateSessionPayload,
+        variant_sampling_rates: dict[str, float] | None,
+    ) -> None:
         try:
             await wf.start_child_workflow(
                 APPLY_SCANNER_WORKFLOW_NAME,
@@ -224,6 +182,7 @@ class SweepScannerWorkflow(PostHogWorkflow):
                     session_id=candidate.session_id,
                     team_id=inputs.team_id,
                     triggered_by=ObservationTrigger.SCHEDULE,
+                    variant_sampling_rates=variant_sampling_rates,
                 ),
                 id=build_apply_scanner_workflow_id(inputs.scanner_id, candidate.session_id),
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,

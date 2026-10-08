@@ -172,6 +172,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # discovery but can never run a scheduled import.
     supports_scheduled_sync: bool = True
 
+    # Sources with stable upstream resource ids need unfiltered discovery when a stored schema name
+    # may no longer match after an upstream rename.
+    uses_stable_schema_resource_ids: bool = False
+
     # Vendor API versions this source implements, as opaque vendor labels (Stripe date
     # versions, semver, names) — never parsed or ordered by the framework. Sources whose
     # vendor has no meaningful API versioning keep the `UNVERSIONED_API_VERSION` default.
@@ -384,6 +388,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
         return self._config_class.validate_dict(job_inputs)
 
+    def serialize_config(self, config: ConfigType) -> dict[str, Any]:
+        """Serialize parsed config for storage. Sources may retain rollout-compatible fields."""
+        return config.to_dict()
+
     @property
     def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
         return None
@@ -503,7 +511,6 @@ class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData
         self,
         *,
         incremental_or_append: bool,
-        keyset_full_load_enabled: bool = False,
         schema_name: str | None = None,
     ) -> bool:
         """Whether this source's resume mechanism covers a run of this shape.

@@ -268,6 +268,13 @@ export const NewTask: Story = {
     },
 }
 
+export const NewTaskQuill: Story = {
+    parameters: {
+        pageUrl: taskNewUrl(),
+        featureFlags: [FEATURE_FLAGS.TASKS, FEATURE_FLAGS.PHAI_QUILL],
+    },
+}
+
 // New-task route with a GitHub integration connected — the footer shows the repository picker chip (and,
 // once a repo is auto/selected, the branch picker) instead of the "Connect GitHub" chip.
 export const NewTaskWithRepository: Story = {

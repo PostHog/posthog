@@ -3,8 +3,10 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
@@ -661,5 +663,117 @@ describe('displayedFlags stability while a load is in flight', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.displayedFlags.map((f) => f.key)).toEqual(['fresh'])
+    })
+})
+
+describe('rows in config version 2', () => {
+    let logic: ReturnType<typeof featureFlagsLogic.build>
+
+    const V1_ROW: FeatureFlagType = { ...NEW_FLAG, id: 1, key: 'release-v1', active: true, version: 4 }
+    const V2_ROW: FeatureFlagType = {
+        ...NEW_FLAG,
+        id: 2,
+        key: 'checkout-rules-v2',
+        active: false,
+        version: 7,
+        filters: { version: 2, return_type: 'boolean', default_value: false, rules: [] },
+    }
+
+    beforeEach(silenceKeaLoadersErrors)
+    afterEach(resumeKeaLoadersErrors)
+
+    beforeEach(async () => {
+        useMocks({
+            get: {
+                '/api/projects/:projectId/feature_flags/': () => [200, { results: [V1_ROW, V2_ROW], count: 2 }],
+                '/api/projects/:projectId/feature_flags/2/': () => [200, { ...V2_ROW, version: 8 }],
+            },
+        })
+        initKeaTests()
+        logic = featureFlagsLogic()
+        logic.mount()
+        logic.actions.loadFeatureFlags()
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+        jest.restoreAllMocks()
+    })
+
+    it('loads a list mixing v1 and v2 rows', () => {
+        expect(logic.values.displayedFlags.map((flag) => flag.key)).toEqual(['release-v1', 'checkout-rules-v2'])
+    })
+
+    it('sends the row version only when toggling a v2 row', async () => {
+        const update = jest
+            .spyOn(api, 'update')
+            .mockImplementation(async (_url, payload) => ({ ...V2_ROW, ...(payload as object) }))
+
+        logic.actions.updateFeatureFlag({ id: 2, payload: { active: true } })
+        logic.actions.updateFeatureFlag({ id: 1, payload: { active: false } })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(update).toHaveBeenCalledWith(expect.stringContaining('/feature_flags/2'), { active: true, version: 7 })
+        expect(update).toHaveBeenCalledWith(expect.stringContaining('/feature_flags/1'), { active: false })
+    })
+
+    it('offers archive only for a v1 row when disabling, and disables a v2 row with its version', async () => {
+        const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+        const update = jest
+            .spyOn(api, 'update')
+            .mockImplementation(async (_url, payload) => ({ ...V2_ROW, ...(payload as object) }))
+
+        logic.actions.toggleFeatureFlagActive(1, false)
+        logic.actions.toggleFeatureFlagActive(2, false)
+        expect(openDialog.mock.calls[0][0].secondaryButton?.children).toBe('Disable and archive')
+        expect(openDialog.mock.calls[1][0].secondaryButton).toBeNull()
+
+        openDialog.mock.calls[1][0].primaryButton?.onClick?.(undefined as any)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(update).toHaveBeenCalledWith(expect.stringContaining('/feature_flags/2'), { active: false, version: 7 })
+    })
+
+    it('refetches a v2 row whose version was stale instead of retrying', async () => {
+        // The conflicting write replaced the document, so the row must show it, not only its version.
+        const changedElsewhere = {
+            ...V2_ROW,
+            name: 'Renamed elsewhere',
+            version: 8,
+            filters: { ...V2_ROW.filters, default_value: true },
+        }
+        useMocks({ get: { '/api/projects/:projectId/feature_flags/2/': () => [200, changedElsewhere] } })
+        const detail = 'This feature flag has changed since version 7'
+        const update = jest
+            .spyOn(api, 'update')
+            .mockRejectedValueOnce(new ApiError(undefined, 409, undefined, { detail }))
+        const toastError = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+
+        logic.actions.updateFeatureFlag({ id: 2, payload: { active: true } })
+        await expectLogic(logic).toDispatchActions(['updateFlag', 'updateFeatureFlagFailure']).toFinishAllListeners()
+
+        expect(update).toHaveBeenCalledTimes(1)
+        expect(logic.values.featureFlags.results.find((flag) => flag.id === 2)).toEqual(changedElsewhere)
+        expect(showApprovalRequiredToast).not.toHaveBeenCalled()
+        expect(toastError).toHaveBeenCalledWith(detail)
+    })
+
+    it('keeps the stale refusal as the failure when the refetch also fails', async () => {
+        useMocks({ get: { '/api/projects/:projectId/feature_flags/2/': () => [500, {}] } })
+        const stale = new ApiError(undefined, 409, undefined, {
+            detail: 'This feature flag has changed since version 7',
+        })
+        jest.spyOn(api, 'update').mockRejectedValueOnce(stale)
+        jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+
+        logic.actions.updateFeatureFlag({ id: 2, payload: { active: true } })
+        await expectLogic(logic)
+            .toDispatchActions([
+                (action) =>
+                    action.type === logic.actionTypes.updateFeatureFlagFailure && action.payload.errorObject === stale,
+            ])
+            .toFinishAllListeners()
+
+        expect(logic.values.featureFlags.results.find((flag) => flag.id === 2)).toEqual(V2_ROW)
     })
 })

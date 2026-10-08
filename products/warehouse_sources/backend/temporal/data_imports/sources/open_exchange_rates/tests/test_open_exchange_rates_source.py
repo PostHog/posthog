@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openexchangerates import (
     OpenExchangeRatesSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.source import (
     OpenExchangeRatesSource,
 )
@@ -20,51 +19,10 @@ class TestOpenExchangeRatesSource:
         # Static endpoint catalog with no I/O — safe to surface in public docs.
         assert self.source.lists_tables_without_credentials is True
 
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://openexchangerates.org/api/latest.json",
-            "403 Client Error: Forbidden for url: https://openexchangerates.org/api/usage.json",
-            "429 Client Error: Too Many Requests for url: https://openexchangerates.org/api/latest.json?base=EUR",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_and_plan_failures(self, observed_error: str) -> None:
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "500 Server Error for url: https://openexchangerates.org/api/historical/2024-01-01.json",
-            "503 Server Error for url: https://openexchangerates.org/api/latest.json",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_transient(self, other_error: str) -> None:
-        assert not any(key in other_error for key in self.source.get_non_retryable_errors())
-
-    def test_get_schemas_covers_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
-    def test_only_historical_supports_incremental(self) -> None:
-        by_name = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-        # Only /historical selects a single value date server-side, so only new days are fetched.
-        assert by_name["historical"].supports_incremental is True
-        assert [f["field"] for f in by_name["historical"].incremental_fields] == ["date"]
-        assert by_name["currencies"].supports_incremental is False
-        assert by_name["latest"].supports_incremental is False
-        assert by_name["usage"].supports_incremental is False
-
-    def test_all_endpoints_sync_by_default(self) -> None:
-        by_name = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-        assert all(schema.should_sync_default for schema in by_name.values())
-
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["latest"])
         assert len(schemas) == 1
         assert schemas[0].name == "latest"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

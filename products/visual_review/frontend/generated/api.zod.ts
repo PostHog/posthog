@@ -52,6 +52,12 @@ export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object(
         .string()
         .max(visualReviewReposQuarantineCreateBodyReasonMax)
         .describe('Why this snapshot is being quarantined.'),
+    expires_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            'When the quarantine lifts itself, as an ISO 8601 datetime. Through MCP an omitted or later expiry becomes 30 days from now; anywhere else omitting it means no expiry.'
+        ),
     source_run_id: zod
         .uuid()
         .nullish()
@@ -64,7 +70,6 @@ export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object(
         .describe(
             'Post the quarantine to the Slack channel of the team that owns the story, naming the user who quarantined it. Only Storybook snapshots have an owning team. Best effort: skipped when the story has no owning team or the project has no Slack integration.'
         ),
-    expires_at: zod.iso.datetime({ offset: true }).nullish(),
 })
 
 /**
@@ -202,6 +207,20 @@ export const VisualReviewRunsFinalizeCreateBody = /* @__PURE__ */ zod.object({
         .default(visualReviewRunsFinalizeCreateBodyAddImagesToCommentOnPrDefault)
         .describe(
             "Whether to embed the before\/after snapshot images in the post-approval PR comment. The comment itself is posted when the repo has PR comments enabled and `commit_to_github` is true: it updates the run's review prompt when the run has one, and posts a new comment when it does not. This flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots."
+        ),
+})
+
+/**
+ * Lift a quarantined snapshot's quarantine once this run's pull request merges. The lift applies only after a default-branch run that contains the merge renders the expected picture, and the baseline entry holds that same picture. Requesting a lift never approves a picture: approve a changed or new snapshot by identifier first. Requesting again from the same pull request replaces the pending request.
+ */
+export const visualReviewRunsLiftOnMergeCreateBodyIdentifierMax = 512
+
+export const VisualReviewRunsLiftOnMergeCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(visualReviewRunsLiftOnMergeCreateBodyIdentifierMax)
+        .describe(
+            "Identifier of a quarantined snapshot in this run, such as a Storybook story ID. The snapshot's picture is what a default-branch run must render for the quarantine to lift. An unchanged snapshot uses its baseline. A changed or new snapshot must be approved first, because requesting a lift never approves a picture."
         ),
 })
 

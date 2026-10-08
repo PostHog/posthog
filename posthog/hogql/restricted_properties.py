@@ -1,6 +1,9 @@
+from collections.abc import Iterable
+
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql.constants import FEATURE_FLAG_PROPERTY_PREFIX
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AiEventsTable
@@ -68,6 +71,13 @@ def mirrored_property_for_column(table_type: ast.Type, column_name: str, context
     if isinstance(table, FlagEvaluationsTable):
         return _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
     return None
+
+
+def restricted_feature_flag_names(keys: Iterable[str]) -> list[str]:
+    """The `$feature_flags` map keys of the restricted `$feature/<key>` properties in `keys`, sorted for stable SQL."""
+    return sorted(
+        key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX) for key in keys if key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
+    )
 
 
 def restricted_property_keys_for_table_type(

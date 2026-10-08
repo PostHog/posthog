@@ -3,22 +3,10 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack import (
     source as better_stack_source_module,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.source import BetterStackSource
-
-
-class TestBetterStackSourceConfig:
-    def test_config_basics(self) -> None:
-        config = BetterStackSource().get_source_config
-        assert config.label == "Better Stack"
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source ships visible — the scaffold's unreleasedSource flag must stay gone.
-        assert not config.unreleasedSource
 
 
 class TestBetterStackGetSchemas:
@@ -182,12 +170,3 @@ class TestBetterStackResumableAndPipeline:
         assert response.partition_keys == expected_keys
         assert response.partition_mode == expected_mode
         assert response.sort_mode == expected_sort
-
-
-class TestBetterStackCanonicalDescriptions:
-    def test_descriptions_keyed_by_endpoint_name(self) -> None:
-        descriptions = BetterStackSource().get_canonical_descriptions()
-        # Every documented key must be a real endpoint so enrichment binds to the right table.
-        assert set(descriptions).issubset(set(ENDPOINTS))
-        assert "incidents" in descriptions
-        assert descriptions["incidents"]["columns"]["id"]

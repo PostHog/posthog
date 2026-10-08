@@ -224,6 +224,7 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
                                     )}
                                     <div className="flex gap-2">
                                         <LemonButton
+                                            data-attr="replay-survey-submit"
                                             type="primary"
                                             disabledReason={
                                                 surveyResponse.length === 0 && openChoice === null
@@ -236,6 +237,7 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
                                         </LemonButton>
                                         {isHelpEnabled && !todayRailEnabled && (
                                             <LemonButton
+                                                data-attr="replay-survey-ask-max"
                                                 disabledReason={
                                                     !openChoice || openChoice.length < 5
                                                         ? 'Message must be at least 5 characters'

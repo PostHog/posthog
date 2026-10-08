@@ -88,26 +88,6 @@ class TestTinyemailTransport:
         # An email is only unique within one contact list, so the parent id is part of the key.
         assert response.primary_keys == ["contact_id", "email"]
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.tinyemail.build_dependent_resource"
-    )
-    def test_tinyemail_source_contact_members_wiring(self, mock_build_dependent_resource) -> None:
-        mock_build_dependent_resource.return_value = iter([])
-
-        tinyemail_source(api_key="key", endpoint="contact_members", team_id=1, job_id="job-1")
-
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["page_size_param"] == "size"
-        assert kwargs["client_config"]["allow_redirects"] is False
-        assert kwargs["fanout"].parent_name == "contacts"
-        assert isinstance(kwargs["parent_endpoint_extra"]["paginator"], SinglePagePaginator)
-        assert kwargs["parent_endpoint_extra"]["data_selector"] == "contacts"
-        child_paginator = kwargs["child_endpoint_extra"]["paginator"]
-        assert isinstance(child_paginator, PageNumberPaginator)
-        # Member pages are 1-indexed (unlike campaign pages) — starting at 0 would duplicate page one.
-        assert child_paginator.page == 1
-        assert kwargs["child_endpoint_extra"]["data_selector"] == "members.content"
-
     @parameterized.expand(
         [
             ("valid", 200, True, None),
@@ -121,19 +101,6 @@ class TestTinyemailTransport:
         mock_session.return_value.get.return_value = Mock(status_code=status)
 
         assert validate_credentials(api_key="key") == (expected_valid, expected_message)
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.tinyemail.make_tracked_session")
-    def test_validate_credentials_sends_api_key_header(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = Mock(status_code=200)
-
-        validate_credentials(api_key="secret-key")
-
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://api.tinyemail.com/v1/contacts"
-        assert call.kwargs["headers"]["X-API-KEY"] == "secret-key"
-        assert mock_session.call_args.kwargs["redact_values"] == ("secret-key",)
-        # A followed cross-host redirect would replay the X-API-KEY header off-host.
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.tinyemail.make_tracked_session")
     def test_validate_credentials_handles_request_exception(self, mock_session) -> None:

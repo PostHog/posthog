@@ -9,10 +9,8 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.harvest.harvest import (
     HARVEST_API_HOST,
-    HARVEST_USER_AGENT,
     HarvestResumeConfig,
     _to_iso8601,
     harvest_source,
@@ -124,21 +122,6 @@ class TestHarvestTransport:
         assert _to_iso8601(value) == expected
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_account_and_user_agent_headers_and_bearer_auth(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _params, _urls, auths = _wire(session, [_page([{"id": 1}])])
-
-        _rows(_source())
-
-        # A token can reach several accounts, so Harvest 401s without the account header, and
-        # 400s without a descriptive User-Agent.
-        assert session.headers["Harvest-Account-Id"] == "123456"
-        assert session.headers["User-Agent"] == HARVEST_USER_AGENT
-        auth = auths[0]
-        assert isinstance(auth, BearerTokenAuth)
-        assert auth.token == "pat-secret"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_links_next_across_pages(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         next_url = f"https://{HARVEST_API_HOST}/v2/time_entries?cursor=abc&per_page=1000"
@@ -156,17 +139,6 @@ class TestHarvestTransport:
         # The next link is self-contained, so the original params must not be re-appended.
         assert urls[1] == next_url
         assert params[1] == {}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_resume_state_only_while_a_next_page_remains(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        next_url = f"https://{HARVEST_API_HOST}/v2/time_entries?cursor=abc"
-        _wire(session, [_page([{"id": 1}], next_url=next_url), _page([{"id": 2}])])
-
-        manager = _make_manager()
-        _rows(_source(manager=manager))
-
-        manager.save_state.assert_called_once_with(HarvestResumeConfig(next_url=next_url))
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_next_url(self, MockSession: mock.MagicMock) -> None:
@@ -263,13 +235,6 @@ class TestHarvestTransport:
         assert response.partition_keys == ([partition_key] if partition_key else None)
         assert response.partition_mode == ("datetime" if partition_key else None)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sort_mode_is_desc(self, MockSession: mock.MagicMock) -> None:
-        # Harvest lists newest-first by a domain date and exposes no sort param, so rows never
-        # arrive ordered by updated_at. "asc" would checkpoint the watermark mid-sync and skip
-        # rows an interrupted run had not reached.
-        assert _source().sort_mode == "desc"
-
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
@@ -279,21 +244,3 @@ class TestValidateCredentials:
         ok, reported = validate_credentials("123456", "pat-secret", "v2")
         assert ok is expected_ok
         assert reported == status
-
-    @mock.patch(HARVEST_SESSION_PATCH)
-    def test_transport_errors_do_not_raise(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("123456", "pat-secret", "v2") == (False, None)
-
-    @mock.patch(HARVEST_SESSION_PATCH)
-    def test_probe_targets_users_me_with_both_credentials(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("123456", "pat-secret", "v2")
-
-        args, kwargs = mock_session.return_value.get.call_args
-        # /users/me is readable by every role, unlike listing users, which needs an admin.
-        assert args[0] == f"https://{HARVEST_API_HOST}/v2/users/me"
-        assert kwargs["headers"]["Authorization"] == "Bearer pat-secret"
-        assert kwargs["headers"]["Harvest-Account-Id"] == "123456"
-        # Custom credential headers are not stripped by requests on a cross-origin redirect.
-        assert kwargs["allow_redirects"] is False

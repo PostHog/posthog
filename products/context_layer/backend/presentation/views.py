@@ -629,6 +629,7 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "update_page": "task:write",
         "propose_page": "task:write",
     }
+    request_dependent_scope_actions = frozenset(_RUN_TASK_SCOPES)
 
     def dangerously_get_required_scopes(self, request: Request, view=None) -> list[str] | None:  # noqa: ANN001
         """A run acts with task scopes; everyone else faces the organization ones.

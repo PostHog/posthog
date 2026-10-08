@@ -23,6 +23,86 @@ const meta: Meta<typeof OfflineScoreTrendChart> = {
 export default meta
 type Story = StoryObj<typeof OfflineScoreTrendChart>
 export const Numeric: Story = {}
+export const NumericPassingRule: Story = {
+    args: {
+        periods: [
+            {
+                ...meta.args!.periods![0],
+                points: OFFLINE_STORY_POINTS.map((point, index) => ({
+                    ...point,
+                    summary: {
+                        ...point.summary,
+                        scorer: {
+                            ...point.summary.scorer,
+                            config: { min: 0, max: 5, passing_rule: { operator: 'gte', threshold: 4 } },
+                        },
+                        pass_count: 60 + index,
+                        fail_count: 32 - index,
+                        pass_rate: (60 + index) / 92,
+                    },
+                })),
+            },
+        ],
+    },
+}
+export const LowerIsBetter: Story = {
+    args: {
+        periods: [
+            {
+                ...NumericPassingRule.args!.periods![0],
+                points: NumericPassingRule.args!.periods![0].points.map((point) => ({
+                    ...point,
+                    summary: {
+                        ...point.summary,
+                        scorer: {
+                            ...point.summary.scorer,
+                            name: 'Response time',
+                            config: { min: 0, max: 5, passing_rule: { operator: 'lte', threshold: 3.5 } },
+                        },
+                    },
+                })),
+            },
+        ],
+    },
+}
+export const BooleanDetector: Story = {
+    args: {
+        periods: [
+            {
+                ...meta.args!.periods![0],
+                points: OFFLINE_STORY_POINTS.map((point, index) => ({
+                    ...point,
+                    summary: {
+                        ...point.summary,
+                        scorer: {
+                            ...point.summary.scorer,
+                            name: 'Hallucination detected',
+                            kind: 'boolean',
+                            config: { true_is_failure: true },
+                        },
+                        mean: null,
+                        true_count: 12 - index,
+                        false_count: 80 + index,
+                        true_rate: (12 - index) / 92,
+                        pass_count: 80 + index,
+                        fail_count: 12 - index,
+                        pass_rate: (80 + index) / 92,
+                    },
+                })),
+            },
+        ],
+    },
+}
+export const NarrowPassingRule: Story = {
+    ...NumericPassingRule,
+    decorators: [
+        (Story) => (
+            <div className="w-[520px]">
+                <Story />
+            </div>
+        ),
+    ],
+}
 export const Narrow: Story = {
     decorators: [
         (Story) => (

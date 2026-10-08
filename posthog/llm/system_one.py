@@ -3,8 +3,8 @@
 A System One model such as Jev answers typed questions about a ``state`` and returns judgments
 rather than text. A noul question returns the probability that a yes/no statement holds. A choice
 question picks one option from the criteria the caller supplies, with a probability for every
-option. Score questions exist too and stay unwired until a caller needs one, so the request body
-remains a checked shape.
+option. A score question returns a fractional index into an ordered list of rubric levels. A model
+can refuse any question, which answers it with a refusal instead.
 
 Keep user text in ``state`` and refer to it from the instructions by name. Never interpolate it
 into ``instructions``, so user text cannot become an instruction.
@@ -23,6 +23,7 @@ SYSTEM_ONE_PATH = "/v1/systemone"
 
 # The most options a System One server takes in one choice question. A model can take fewer.
 MAX_CHOICE_OPTIONS = 255
+MAX_SCORE_LEVELS = 10
 
 type JsonValue = str | int | float | bool | None | Mapping[str, JsonValue] | Sequence[JsonValue]
 
@@ -78,7 +79,20 @@ class ChoiceQuestion:
         return {"type": "choice", "instructions": self.instructions, "criteria": dict(self.criteria)}
 
 
-type Question = NoulQuestion | ChoiceQuestion
+@frozen
+class ScoreQuestion:
+    instructions: JsonValue
+    criteria: Sequence[JsonValue]
+
+    def __post_init__(self) -> None:
+        if not 2 <= len(self.criteria) <= MAX_SCORE_LEVELS:
+            raise ValueError(f"A score question needs between 2 and {MAX_SCORE_LEVELS} rubric levels")
+
+    def to_json(self) -> dict[str, JsonValue]:
+        return {"type": "score", "instructions": self.instructions, "criteria": list(self.criteria)}
+
+
+type Question = NoulQuestion | ChoiceQuestion | ScoreQuestion
 
 
 @frozen
@@ -93,7 +107,19 @@ class ChoiceAnswer:
     probabilities: Mapping[str, float]
 
 
-type Answer = NoulAnswer | ChoiceAnswer
+@frozen
+class ScoreAnswer:
+    score: float
+    confidence: float
+    probabilities: Mapping[str, float]
+
+
+@frozen
+class RefusalAnswer:
+    """The model declined to answer this question. Other answers in the same result stay usable."""
+
+
+type Answer = NoulAnswer | ChoiceAnswer | ScoreAnswer | RefusalAnswer
 
 
 @frozen
@@ -130,6 +156,8 @@ def _parse_answer(question_id: str, question: Question, raw: object) -> Answer:
     answer = _as_mapping(raw)
     if answer is None:
         raise SystemOneRequestFailed(f"The System One server returned no answer for {question_id!r}")
+    if answer.get("type") == "refusal":
+        return RefusalAnswer()
 
     if isinstance(question, NoulQuestion):
         probability = _as_probability(answer.get("noul"))
@@ -137,6 +165,27 @@ def _parse_answer(question_id: str, question: Question, raw: object) -> Answer:
         if answer.get("type", "noul") != "noul" or probability is None:
             raise SystemOneRequestFailed(f"The System One server returned a malformed noul for {question_id!r}")
         return NoulAnswer(probability=probability)
+
+    if isinstance(question, ScoreQuestion):
+        score = answer.get("score")
+        if (
+            answer.get("type", "score") != "score"
+            or isinstance(score, bool)
+            or not isinstance(score, int | float)
+            or not 0 <= score <= len(question.criteria) - 1
+        ):
+            raise SystemOneRequestFailed(f"The System One server returned a malformed score for {question_id!r}")
+        confidence = _as_probability(answer.get("confidence"))
+        raw_probabilities = _as_mapping(answer.get("probabilities")) or {}
+        probabilities = {
+            str(index): _as_probability(raw_probabilities.get(str(index))) for index in range(len(question.criteria))
+        }
+        complete = {index: probability for index, probability in probabilities.items() if probability is not None}
+        if confidence is None or len(complete) != len(question.criteria):
+            raise SystemOneRequestFailed(
+                f"The System One server returned malformed score probabilities for {question_id!r}"
+            )
+        return ScoreAnswer(score=float(score), confidence=confidence, probabilities=complete)
 
     choice = answer.get("choice")
     confidence = _as_probability(answer.get("confidence"))

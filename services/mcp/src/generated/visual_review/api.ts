@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 17 enabled ops
+ * PostHog API - MCP 23 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -63,7 +63,7 @@ export const VisualReviewReposPartialUpdateBody = () => zod.object({
 })
 
 /**
- * Snapshots in a repo whose rendering cannot be trusted: those that failed the gate or were absorbed by a toleration on a recent default-branch run, and those under an active quarantine. Everything else is omitted, so this is far smaller than the baselines universe; `totals.tracked` gives the full denominator. Each entry carries the share of the last 7 days of default-branch runs that failed the gate (`hard_rate`) and the share a toleration absorbed (`soft_rate`), plus `headroom`, the fraction of the diff threshold its worst absorbed run leaves free. Capped at 2000 entries, which sets `truncated`. Filtering, faceting and search are done client-side; this endpoint takes no filter query params.
+ * Snapshots in a repo whose rendering cannot be trusted: those that failed the gate on a recent default-branch run, those whose absorbed diff is close to the threshold, and those under an active quarantine. Small absorbed diffs well under the threshold are omitted, as is everything else, so this is far smaller than the baselines universe; `totals.tracked` gives the full denominator. Each entry carries the share of the last 7 days of default-branch runs that failed the gate (`hard_rate`) and the share a toleration absorbed (`soft_rate`), plus `headroom`, the fraction of the diff threshold its worst absorbed run leaves free. Capped at 2000 entries, which sets `truncated`. Filtering, faceting and search are done client-side; this endpoint takes no filter query params.
  */
 export const VisualReviewReposFlakinessRetrieveParams = () => zod.object({
     id: zod.string(),
@@ -91,6 +91,80 @@ export const VisualReviewReposQuarantineListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     run_type: zod.string().optional().describe('Filter by run type'),
+})
+
+/**
+ * Quarantine a snapshot identifier for a specific run type.
+ */
+export const visualReviewReposQuarantineCreatePathRunTypeRegExp = new RegExp('^[^\/]+$')
+
+export const VisualReviewReposQuarantineCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    run_type: zod.string().regex(visualReviewReposQuarantineCreatePathRunTypeRegExp),
+})
+
+export const visualReviewReposQuarantineCreateBodyIdentifierMax = 512
+
+export const visualReviewReposQuarantineCreateBodyReasonMax = 255
+
+export const visualReviewReposQuarantineCreateBodyNotifyOwnersDefault = false
+
+export const VisualReviewReposQuarantineCreateBody = () => zod.object({
+    identifier: zod
+        .string()
+        .max(visualReviewReposQuarantineCreateBodyIdentifierMax)
+        .describe('Snapshot identifier to quarantine.'),
+    reason: zod
+        .string()
+        .max(visualReviewReposQuarantineCreateBodyReasonMax)
+        .describe('Why this snapshot is being quarantined.'),
+    expires_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            'When the quarantine lifts itself, as an ISO 8601 datetime. Through MCP an omitted or later expiry becomes 30 days from now; anywhere else omitting it means no expiry.'
+        ),
+    source_run_id: zod
+        .string()
+        .nullish()
+        .describe(
+            "Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later."
+        ),
+    notify_owners: zod
+        .boolean()
+        .default(visualReviewReposQuarantineCreateBodyNotifyOwnersDefault)
+        .describe(
+            'Post the quarantine to the Slack channel of the team that owns the story, naming the user who quarantined it. Only Storybook snapshots have an owning team. Best effort: skipped when the story has no owning team or the project has no Slack integration.'
+        ),
+})
+
+/**
+ * Expire all active quarantine entries for an identifier.
+ */
+export const visualReviewReposQuarantineExpireCreatePathRunTypeRegExp = new RegExp('^[^\/]+$')
+
+export const VisualReviewReposQuarantineExpireCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    run_type: zod.string().regex(visualReviewReposQuarantineExpireCreatePathRunTypeRegExp),
+})
+
+export const visualReviewReposQuarantineExpireCreateBodyIdentifierMax = 512
+
+export const VisualReviewReposQuarantineExpireCreateBody = () => zod.object({
+    identifier: zod
+        .string()
+        .max(visualReviewReposQuarantineExpireCreateBodyIdentifierMax)
+        .describe('Snapshot identifier to unquarantine'),
 })
 
 /**
@@ -177,7 +251,12 @@ export const VisualReviewReposRunsListParams = () => zod.object({
 export const VisualReviewReposRunsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    review_state: zod.string().optional().describe('Filter by review state'),
+    review_state: zod
+        .enum(['clean', 'needs_review', 'processing', 'stale'])
+        .optional()
+        .describe(
+            'Filter by where the run stands in review. `needs_review`: a completed pull request run with changes nobody approved yet. `clean`: no changes, or approved. `processing`: diffs still computing. `stale`: superseded by a newer run while its changes were unapproved.'
+        ),
     search: zod.string().optional().describe('Free-text search over branch, commit SHA, run type, and PR number'),
 })
 
@@ -210,7 +289,12 @@ export const VisualReviewRunsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     pr_number: zod.number().optional().describe('Filter by GitHub PR number'),
-    review_state: zod.string().optional().describe('Filter by review state'),
+    review_state: zod
+        .enum(['clean', 'needs_review', 'processing', 'stale'])
+        .optional()
+        .describe(
+            'Filter by where the run stands in review. `needs_review`: a completed pull request run with changes nobody approved yet. `clean`: no changes, or approved. `processing`: diffs still computing. `stale`: superseded by a newer run while its changes were unapproved.'
+        ),
     search: zod.string().optional().describe('Free-text search over branch, commit SHA, run type, and PR number'),
 })
 
@@ -305,6 +389,66 @@ export const VisualReviewRunsFinalizeCreateBody = () => zod.object({
 })
 
 /**
+ * Lift a quarantined snapshot's quarantine once this run's pull request merges. The lift applies only after a default-branch run that contains the merge renders the expected picture, and the baseline entry holds that same picture. Requesting a lift never approves a picture: approve a changed or new snapshot by identifier first. Requesting again from the same pull request replaces the pending request.
+ */
+export const VisualReviewRunsLiftOnMergeCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visualReviewRunsLiftOnMergeCreateBodyIdentifierMax = 512
+
+export const VisualReviewRunsLiftOnMergeCreateBody = () => zod.object({
+    identifier: zod
+        .string()
+        .max(visualReviewRunsLiftOnMergeCreateBodyIdentifierMax)
+        .describe(
+            "Identifier of a quarantined snapshot in this run, such as a Storybook story ID. The snapshot's picture is what a default-branch run must render for the quarantine to lift. An unchanged snapshot uses its baseline. A changed or new snapshot must be approved first, because requesting a lift never approves a picture."
+        ),
+})
+
+/**
+ * Every request to lift a quarantine when this run's pull request merges, newest first, in any state. Empty for a run without a pull request.
+ */
+export const VisualReviewRunsQuarantineLiftsListParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Withdraw a pending request to lift a quarantine when this run's pull request merges.
+ */
+export const VisualReviewRunsQuarantineLiftsCancelCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    request_id: zod.string().describe("UUID of a pending lift request for this run's pull request."),
+})
+
+/**
+ * Re-evaluate quarantine and counts, update commit status, and optionally rerun the CI job.
+ */
+export const VisualReviewRunsRecomputeCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * Recent change history for a snapshot identifier across runs.
  */
 export const VisualReviewRunsSnapshotHistoryListParams = () => zod.object({
@@ -344,6 +488,7 @@ export const VisualReviewRunsSnapshotsListParams = () => zod.object({
 
 export const visualReviewRunsSnapshotsListQueryExcludeUnchangedDefault = false
 export const visualReviewRunsSnapshotsListQueryIncludeQuarantinedDefault = false
+export const visualReviewRunsSnapshotsListQueryQuarantinedOnlyDefault = false
 
 export const VisualReviewRunsSnapshotsListQueryParams = () => zod.object({
     exclude_unchanged: zod
@@ -356,10 +501,16 @@ export const VisualReviewRunsSnapshotsListQueryParams = () => zod.object({
         .boolean()
         .default(visualReviewRunsSnapshotsListQueryIncludeQuarantinedDefault)
         .describe(
-            'Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes.'
+            "Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes. This filter uses the quarantines active now. Each snapshot's `is_quarantined` flag holds the state when the run was gated, so for an older run pass true and read the flag."
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    quarantined_only: zod
+        .boolean()
+        .default(visualReviewRunsSnapshotsListQueryQuarantinedOnlyDefault)
+        .describe(
+            "Whether to list only the snapshots whose identifier is currently quarantined. Defaults to false. When true, `include_quarantined` is ignored and quarantined snapshots are returned. Combine with `exclude_unchanged=false` to find a quarantined story that rendered `unchanged`, which is the snapshot to request a lift on merge for. This uses the quarantines active now, not each snapshot's `is_quarantined` flag, so on an older run it misses stories whose quarantine has ended since."
+        ),
     snapshot_id: zod
         .string()
         .optional()

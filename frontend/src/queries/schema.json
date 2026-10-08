@@ -1685,6 +1685,9 @@
                     "$ref": "#/definitions/MarketingAnalyticsRetentionQuery"
                 },
                 {
+                    "$ref": "#/definitions/MarketingAnalyticsSearchQuery"
+                },
+                {
                     "$ref": "#/definitions/WebOverviewQuery"
                 },
                 {
@@ -2921,6 +2924,7 @@
                 "person",
                 "event",
                 "event_metadata",
+                "element",
                 "session",
                 "hogql",
                 "cohort",
@@ -5047,8 +5051,6 @@
                 "search_session_recordings",
                 "create_ai_trace_parser",
                 "fix_hogql_query",
-                "analyze_user_interviews",
-                "create_user_interview_topic",
                 "create_hog_transformation_function",
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
@@ -5109,7 +5111,6 @@
                 "marketing_audit_utm",
                 "marketing_suggest_conversion_goals",
                 "marketing_suggest_utm_mappings",
-                "summarize_replay_vision_summaries",
                 "draft_replay_vision_scanner_prompt",
                 "search_replay_vision_observations",
                 "scan_replay_vision_sessions",
@@ -5561,7 +5562,7 @@
                 },
                 "display": {
                     "default": "ActionsLineGraph",
-                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison (\"how many X in the last 30 days\", \"what's our conversion rate this month\", \"how does this month compare to last\"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown. `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
+                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart with one bar per interval and breakdown values stacked in each bar. Do not use it to compare breakdown values or series as totals. Use `ActionsBarValue` for that. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison (\"how many X in the last 30 days\", \"what's our conversion rate this month\", \"how does this month compare to last\"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown. `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart with one bar per breakdown value or series; good for categorical data such as \"top pages\" or \"failures by reason\". `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
                     "enum": [
                         "Auto",
                         "ActionsLineGraph",
@@ -6138,6 +6139,474 @@
             ],
             "type": "string"
         },
+        "BIAggregation": {
+            "enum": ["count", "count_distinct", "sum", "average", "minimum", "maximum", "custom"],
+            "type": "string"
+        },
+        "BICategoryGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "values": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["name", "values"],
+            "type": "object"
+        },
+        "BIConditionGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "filters": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "groups": {
+                    "items": {
+                        "$ref": "#/definitions/BIConditionGroup"
+                    },
+                    "type": "array"
+                },
+                "operator": {
+                    "enum": ["AND", "OR"],
+                    "type": "string"
+                }
+            },
+            "required": ["operator", "filters", "groups"],
+            "type": "object"
+        },
+        "BIConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "chartType": {
+                    "$ref": "#/definitions/ChartDisplayType"
+                },
+                "columns": {
+                    "items": {
+                        "$ref": "#/definitions/BIField"
+                    },
+                    "type": "array"
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
+                "comparisonPeriod": {
+                    "description": "Explore only the comparison window, using dateRange as its reference window.",
+                    "enum": ["previous", null],
+                    "type": ["string", "null"]
+                },
+                "dateField": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BIField"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Column that receives the worksheet and dashboard date range."
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filters": {
+                    "items": {
+                        "$ref": "#/definitions/BIFilter"
+                    },
+                    "type": "array"
+                },
+                "limit": {
+                    "$ref": "#/definitions/BIQueryLimit"
+                },
+                "localFields": {
+                    "description": "Reusable expressions owned by this worksheet only.",
+                    "items": {
+                        "$ref": "#/definitions/BIField"
+                    },
+                    "type": "array"
+                },
+                "missingDates": {
+                    "description": "Fill missing date buckets before table calculations. Unset preserves observed points only.",
+                    "enum": ["gap", "zero"],
+                    "type": "string"
+                },
+                "resultFilterGroup": {
+                    "$ref": "#/definitions/BIConditionGroup"
+                },
+                "resultFilters": {
+                    "items": {
+                        "$ref": "#/definitions/BIResultFilter"
+                    },
+                    "type": "array"
+                },
+                "rowFilterGroup": {
+                    "$ref": "#/definitions/BIConditionGroup"
+                },
+                "rows": {
+                    "items": {
+                        "$ref": "#/definitions/BIField"
+                    },
+                    "type": "array"
+                },
+                "sort": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BISort"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "null sorts automatically: newest date or highest value first, so top rows survive the LIMIT."
+                },
+                "source": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BIDataSource"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "topN": {
+                    "$ref": "#/definitions/BITopN"
+                },
+                "totals": {
+                    "$ref": "#/definitions/BITotals"
+                },
+                "values": {
+                    "items": {
+                        "$ref": "#/definitions/BIValue"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["source", "chartType", "rows", "columns", "values", "filters", "limit"],
+            "type": "object"
+        },
+        "BIDataSource": {
+            "additionalProperties": false,
+            "properties": {
+                "connectionId": {
+                    "type": "string"
+                },
+                "table": {
+                    "type": "string"
+                }
+            },
+            "required": ["table"],
+            "type": "object"
+        },
+        "BIDateBucket": {
+            "enum": ["minute", "hour", "day", "week", "month", "quarter", "year"],
+            "type": "string"
+        },
+        "BIField": {
+            "additionalProperties": false,
+            "properties": {
+                "dateBucket": {
+                    "$ref": "#/definitions/BIDateBucket"
+                },
+                "expression": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "localDefinition": {
+                    "$ref": "#/definitions/BILocalFieldDefinition"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/BIDataSource"
+                },
+                "type": {
+                    "$ref": "#/definitions/DatabaseSerializedFieldType"
+                }
+            },
+            "required": ["id", "name", "expression", "type", "source"],
+            "type": "object"
+        },
+        "BIFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "customExpression": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "field": {
+                    "$ref": "#/definitions/BIField"
+                },
+                "operator": {
+                    "$ref": "#/definitions/BIFilterOperator"
+                },
+                "value": {
+                    "type": "string"
+                },
+                "valueTo": {
+                    "type": "string"
+                },
+                "values": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["field", "operator", "value"],
+            "type": "object"
+        },
+        "BIFilterOperator": {
+            "enum": [
+                "equals",
+                "not_equals",
+                "contains",
+                "in",
+                "not_in",
+                "between",
+                "greater_than",
+                "less_than",
+                "last_7_days",
+                "is_set",
+                "is_not_set",
+                "custom"
+            ],
+            "type": "string"
+        },
+        "BILocalFieldDefinition": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "expression": {
+                            "type": "string"
+                        },
+                        "groups": {
+                            "items": {
+                                "$ref": "#/definitions/BICategoryGroup"
+                            },
+                            "type": "array"
+                        },
+                        "kind": {
+                            "const": "groups",
+                            "type": "string"
+                        },
+                        "other": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind", "expression", "groups", "other"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "expression": {
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "bins",
+                            "type": "string"
+                        },
+                        "origin": {
+                            "type": "number"
+                        },
+                        "width": {
+                            "type": "number"
+                        }
+                    },
+                    "required": ["kind", "expression", "width", "origin"],
+                    "type": "object"
+                }
+            ]
+        },
+        "BIQueryLimit": {
+            "enum": [100, 1000, 10000, 50000],
+            "type": "number"
+        },
+        "BIResultFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "measureIndex": {
+                    "$ref": "#/definitions/non_negative_integer"
+                },
+                "operator": {
+                    "enum": [
+                        "equals",
+                        "not_equals",
+                        "greater_than",
+                        "less_than",
+                        "greater_than_or_equal",
+                        "less_than_or_equal",
+                        "between",
+                        "is_set",
+                        "is_not_set"
+                    ],
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                },
+                "valueTo": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "measureIndex", "operator", "value"],
+            "type": "object"
+        },
+        "BISort": {
+            "additionalProperties": false,
+            "properties": {
+                "direction": {
+                    "$ref": "#/definitions/BISortDirection"
+                },
+                "key": {
+                    "type": "string"
+                }
+            },
+            "required": ["key", "direction"],
+            "type": "object"
+        },
+        "BISortDirection": {
+            "enum": ["asc", "desc"],
+            "type": "string"
+        },
+        "BITableCalculation": {
+            "additionalProperties": false,
+            "properties": {
+                "computeUsing": {
+                    "description": "Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions.",
+                    "type": "string"
+                },
+                "requireFullWindow": {
+                    "description": "Require a complete window of non-null values before displaying a moving average.",
+                    "type": "boolean"
+                },
+                "type": {
+                    "$ref": "#/definitions/BITableCalculationType"
+                },
+                "window": {
+                    "$ref": "#/definitions/positive_integer",
+                    "description": "Number of points, including the current point, in a trailing moving average."
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
+        "BITableCalculationType": {
+            "enum": ["percent_of_total", "running_total", "difference", "percent_change", "moving_average", "rank"],
+            "type": "string"
+        },
+        "BITopN": {
+            "additionalProperties": false,
+            "properties": {
+                "count": {
+                    "$ref": "#/definitions/positive_integer"
+                },
+                "fieldId": {
+                    "type": "string"
+                },
+                "includeOther": {
+                    "type": "boolean"
+                },
+                "measureIndex": {
+                    "$ref": "#/definitions/non_negative_integer"
+                }
+            },
+            "required": ["fieldId", "count", "measureIndex", "includeOther"],
+            "type": "object"
+        },
+        "BITotals": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "type": "boolean"
+                },
+                "rows": {
+                    "type": "boolean"
+                },
+                "subtotals": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "BIValue": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation": {
+                    "$ref": "#/definitions/BIAggregation"
+                },
+                "customExpression": {
+                    "type": "string"
+                },
+                "display": {
+                    "$ref": "#/definitions/ChartSettingsDisplay"
+                },
+                "field": {
+                    "$ref": "#/definitions/BIField"
+                },
+                "formatting": {
+                    "$ref": "#/definitions/ChartSettingsFormatting"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "tableCalculation": {
+                    "$ref": "#/definitions/BITableCalculation"
+                }
+            },
+            "required": ["field", "aggregation"],
+            "type": "object"
+        },
+        "BIVisualizationNode": {
+            "additionalProperties": false,
+            "properties": {
+                "chartSettings": {
+                    "$ref": "#/definitions/ChartSettings"
+                },
+                "config": {
+                    "$ref": "#/definitions/BIConfig"
+                },
+                "display": {
+                    "$ref": "#/definitions/ChartDisplayType"
+                },
+                "kind": {
+                    "const": "BIVisualizationNode",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/HogQLQuery"
+                },
+                "tableSettings": {
+                    "$ref": "#/definitions/TableSettings"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["config", "kind", "source"],
+            "type": "object"
+        },
         "BaseAssistantMessage": {
             "additionalProperties": false,
             "properties": {
@@ -6527,6 +6996,7 @@
                 "person",
                 "event",
                 "event_metadata",
+                "element",
                 "group",
                 "session",
                 "hogql",
@@ -12625,6 +13095,110 @@
             ],
             "type": "object"
         },
+        "CachedMarketingAnalyticsSearchQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsSearchRow"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedMarketingAnalyticsTableQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -17118,6 +17692,7 @@
                 "Metric",
                 "ActionsPie",
                 "ActionsDonut",
+                "ActionsProportionBar",
                 "ActionsBarValue",
                 "ActionsTable",
                 "WorldMap",
@@ -17152,7 +17727,7 @@
                     "$ref": "#/definitions/YAxisSettings"
                 },
                 "legendPosition": {
-                    "description": "Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest.",
+                    "description": "Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest.",
                     "enum": ["top", "bottom", "left", "right"],
                     "type": "string"
                 },
@@ -18251,6 +18826,20 @@
                         }
                     ],
                     "description": "Time granularity forced onto every insight that supports one. Absent/null = inherit."
+                },
+                "metricFilters": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MetricsQueryFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Metric label matchers ANDed into every metrics tile. Other tiles ignore them."
                 },
                 "properties": {
                     "anyOf": [
@@ -27084,6 +27673,7 @@
                 "managed_viewsets",
                 "endpoints",
                 "sql_editor",
+                "business_intelligence",
                 "web_analytics",
                 "error_tracking",
                 "heatmap",
@@ -27092,7 +27682,6 @@
                 "session_profile",
                 "survey",
                 "product_tour",
-                "user_interview",
                 "early_access_feature",
                 "experiment",
                 "feature_flag",
@@ -27102,8 +27691,6 @@
                 "data_pipeline_metadata",
                 "data_warehouse",
                 "task",
-                "link",
-                "live_debugger",
                 "logs",
                 "tracing",
                 "metrics",
@@ -27250,6 +27837,20 @@
                     },
                     "type": "array"
                 },
+                "searchKeywords": {
+                    "description": "Other terms that find this item in search, for example the names of its tabs or common synonyms",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "searchTabs": {
+                    "description": "Tabs of this item that search lists as their own results",
+                    "items": {
+                        "$ref": "#/definitions/FileSystemSearchTab"
+                    },
+                    "type": "array"
+                },
                 "shortcut": {
                     "description": "Whether this is a shortcut or the actual item",
                     "type": "boolean"
@@ -27276,6 +27877,28 @@
                 }
             },
             "required": ["path"],
+            "type": "object"
+        },
+        "FileSystemSearchTab": {
+            "additionalProperties": false,
+            "properties": {
+                "flag": {
+                    "type": "string"
+                },
+                "href": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "searchKeywords": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["name", "href"],
             "type": "object"
         },
         "FileSystemViewLogEntry": {
@@ -28869,7 +29492,7 @@
             "type": "string"
         },
         "HedgehogActorSkinOption": {
-            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost"],
+            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost", "pig"],
             "type": "string"
         },
         "HogCompileResponse": {
@@ -29012,6 +29635,10 @@
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown."
                 },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}."
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -29053,6 +29680,10 @@
                 "globals": {
                     "description": "Extra globals for the query",
                     "type": "object"
+                },
+                "includeOutputTypes": {
+                    "description": "Infer output column names and types without executing the query. Adds a type-resolution pass, so callers must opt in.",
+                    "type": "boolean"
                 },
                 "indexUsage": {
                     "description": "Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it.",
@@ -29099,6 +29730,21 @@
             "required": ["kind", "language", "query"],
             "type": "object"
         },
+        "HogQLMetadataColumn": {
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "description": "Output column name, in the same order as the SELECT list.",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "Inferred runtime type, including nullability. Unknown means inference could not determine the type; execution remains authoritative.",
+                    "type": "string"
+                }
+            },
+            "required": ["name", "type"],
+            "type": "object"
+        },
         "HogQLMetadataResponse": {
             "additionalProperties": false,
             "properties": {
@@ -29130,6 +29776,13 @@
                 "notices": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
+                    },
+                    "type": "array"
+                },
+                "output_columns": {
+                    "description": "Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds.",
+                    "items": {
+                        "$ref": "#/definitions/HogQLMetadataColumn"
                     },
                     "type": "array"
                 },
@@ -29337,6 +29990,10 @@
                         "rust_py_with_cpp_shadow"
                     ],
                     "type": "string"
+                },
+                "personIdPushdown": {
+                    "description": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table.",
+                    "type": "boolean"
                 },
                 "personsArgMaxVersion": {
                     "enum": ["auto", "v1", "v2"],
@@ -30568,12 +31225,14 @@
                 "customerio-webhook",
                 "customerio-track",
                 "apns",
+                "apple-ads",
                 "postgresql",
                 "aws-s3",
                 "aws-redshift",
                 "s3-compatible",
                 "snowflake",
-                "youtube-analytics"
+                "youtube-analytics",
+                "twitter-ads"
             ],
             "type": "string"
         },
@@ -35760,6 +36419,241 @@
             "enum": ["string", "integer", "number", "float", "datetime", "date", "boolean"],
             "type": "string"
         },
+        "MarketingAnalyticsSearchMetrics": {
+            "additionalProperties": false,
+            "properties": {
+                "clicks": {
+                    "type": "number"
+                },
+                "conversions": {
+                    "type": ["number", "null"]
+                },
+                "cost": {
+                    "type": ["number", "null"]
+                },
+                "cpa": {
+                    "type": ["number", "null"]
+                },
+                "cpc": {
+                    "type": ["number", "null"]
+                },
+                "ctr": {
+                    "type": ["number", "null"]
+                },
+                "impressions": {
+                    "type": "number"
+                },
+                "position": {
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["clicks", "impressions", "cost", "conversions", "ctr", "cpc", "cpa"],
+            "type": "object"
+        },
+        "MarketingAnalyticsSearchQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown": {
+                    "enum": ["keyword", "page"],
+                    "type": "string"
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "keyword": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "MarketingAnalyticsSearchQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "page": {
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/MarketingAnalyticsSearchQueryResponse"
+                },
+                "search": {
+                    "type": "string"
+                },
+                "sources": {
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsSearchSource"
+                    },
+                    "type": "array"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "sources"],
+            "type": "object"
+        },
+        "MarketingAnalyticsSearchQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsSearchRow"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "MarketingAnalyticsSearchRow": {
+            "additionalProperties": false,
+            "properties": {
+                "clicks": {
+                    "type": "number"
+                },
+                "conversions": {
+                    "type": ["number", "null"]
+                },
+                "cost": {
+                    "type": ["number", "null"]
+                },
+                "cpa": {
+                    "type": ["number", "null"]
+                },
+                "cpc": {
+                    "type": ["number", "null"]
+                },
+                "ctr": {
+                    "type": ["number", "null"]
+                },
+                "currency": {
+                    "type": ["string", "null"]
+                },
+                "impressions": {
+                    "type": "number"
+                },
+                "keyword": {
+                    "type": ["string", "null"]
+                },
+                "matchType": {
+                    "type": ["string", "null"]
+                },
+                "page": {
+                    "type": ["string", "null"]
+                },
+                "platform": {
+                    "enum": ["GoogleAds", "BingAds", "GoogleSearchConsole"],
+                    "type": "string"
+                },
+                "position": {
+                    "type": ["number", "null"]
+                },
+                "previous": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsSearchMetrics"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": [
+                "clicks",
+                "conversions",
+                "cost",
+                "cpa",
+                "cpc",
+                "ctr",
+                "currency",
+                "impressions",
+                "keyword",
+                "matchType",
+                "platform"
+            ],
+            "type": "object"
+        },
+        "MarketingAnalyticsSearchSource": {
+            "additionalProperties": false,
+            "properties": {
+                "keywordTable": {
+                    "type": "string"
+                },
+                "queryPageTable": {
+                    "type": "boolean"
+                },
+                "sourceType": {
+                    "enum": ["GoogleAds", "BingAds", "GoogleSearchConsole"],
+                    "type": "string"
+                },
+                "statsTable": {
+                    "type": "string"
+                }
+            },
+            "required": ["sourceType", "statsTable"],
+            "type": "object"
+        },
         "MarketingAnalyticsTableQuery": {
             "additionalProperties": false,
             "properties": {
@@ -37002,6 +37896,78 @@
                         "statsTableName",
                         "defaultSources",
                         "primarySource"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "adsetStatsTableName": {
+                            "const": "line_item_stats",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "line_items",
+                            "type": "string"
+                        },
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "twitter",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "x",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "twitter_ads",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "x_ads",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 4,
+                            "minItems": 4,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "twitter",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "TwitterAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_stats",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "defaultSources",
+                        "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName"
                     ],
                     "type": "object"
                 }
@@ -38262,6 +39228,10 @@
                 "metricName": {
                     "type": "string"
                 },
+                "metricType": {
+                    "$ref": "#/definitions/MetricsOtelType",
+                    "description": "Pins the OTel type, as on a MetricsQuery clause: one name can exist as more than one type, and the heatmap must grid only the distribution series."
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -38400,7 +39370,7 @@
                     "type": "string"
                 },
                 "interval": {
-                    "description": "Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted",
+                    "description": "Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets.",
                     "type": "string"
                 },
                 "kind": {
@@ -38892,6 +39862,7 @@
                 "person",
                 "event",
                 "event_metadata",
+                "element",
                 "group",
                 "session",
                 "hogql",
@@ -38915,7 +39886,8 @@
                 "AppleSearchAds",
                 "OpenAIAds",
                 "AmazonAds",
-                "RoktAds"
+                "RoktAds",
+                "TwitterAds"
             ],
             "type": "string"
         },
@@ -39011,6 +39983,7 @@
                 "SessionBatchEventsQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
+                "BIVisualizationNode",
                 "SavedInsightNode",
                 "InsightVizNode",
                 "TrendsQuery",
@@ -39041,6 +40014,7 @@
                 "MarketingAnalyticsAttributionQuery",
                 "MarketingAnalyticsAttributionPathsQuery",
                 "MarketingAnalyticsRetentionQuery",
+                "MarketingAnalyticsSearchQuery",
                 "ExperimentMetric",
                 "ExperimentQuery",
                 "ExperimentExposureQuery",
@@ -40560,8 +41534,6 @@
                 "history",
                 "ingestion_warnings",
                 "integrations",
-                "links",
-                "live_debugger",
                 "llm_clusters",
                 "llm_datasets",
                 "llm_evaluations",
@@ -40600,7 +41572,6 @@
                 "toolbar",
                 "tracing",
                 "metrics",
-                "user_interviews",
                 "visual_review",
                 "web_analytics",
                 "workflows"
@@ -41696,6 +42667,13 @@
                         "notices": {
                             "items": {
                                 "$ref": "#/definitions/HogQLNotice"
+                            },
+                            "type": "array"
+                        },
+                        "output_columns": {
+                            "description": "Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds.",
+                            "items": {
+                                "$ref": "#/definitions/HogQLMetadataColumn"
                             },
                             "type": "array"
                         },
@@ -43929,6 +44907,71 @@
                         "totalCohortSize",
                         "truncatedCohorts"
                     ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchRow"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
                     "type": "object"
                 },
                 {
@@ -49758,7 +50801,13 @@
                     "$ref": "#/definitions/MarketingAnalyticsRetentionQuery"
                 },
                 {
+                    "$ref": "#/definitions/MarketingAnalyticsSearchQuery"
+                },
+                {
                     "$ref": "#/definitions/DataVisualizationNode"
+                },
+                {
+                    "$ref": "#/definitions/BIVisualizationNode"
                 },
                 {
                     "$ref": "#/definitions/DataTableNode"
@@ -49971,7 +51020,7 @@
                 },
                 "error_code": {
                     "default": null,
-                    "description": "Stable machine-readable code for the error (the DRF exception code), when known.",
+                    "description": "Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.",
                     "type": ["string", "null"]
                 },
                 "error_message": {
@@ -51099,6 +52148,22 @@
                     "$ref": "#/definitions/AssistantToolCallMessage"
                 }
             ]
+        },
+        "SQLEditorConfiguration": {
+            "additionalProperties": {},
+            "description": "Customization of the SQL editor. Extra keys are tolerated so older servers accept configs written by newer clients.",
+            "properties": {
+                "vim_mode_enabled": {
+                    "description": "Whether the SQL editor uses Vim keybindings. An absent value falls back to the legacy browser preference.",
+                    "type": "boolean"
+                },
+                "vimrc": {
+                    "description": "Vim commands to run when Vim mode starts, one per line, such as `imap jj <Esc>` or `set cursorblink`.",
+                    "maxLength": 10000,
+                    "type": "string"
+                }
+            },
+            "type": "object"
         },
         "SampleRatioMismatch": {
             "additionalProperties": false,
@@ -55833,6 +56898,10 @@
             "required": ["kind"],
             "type": "object"
         },
+        "TwitterAdsDefaultSources": {
+            "enum": ["twitter", "x", "twitter_ads", "x_ads"],
+            "type": "string"
+        },
         "UIVisibilityConfig": {
             "additionalProperties": false,
             "description": "Visibility of a single customizable UI element. An absent config or an absent `visible` means the element is shown.",
@@ -56067,6 +57136,9 @@
             "properties": {
                 "sidebar": {
                     "$ref": "#/definitions/SidebarConfiguration"
+                },
+                "sql_editor": {
+                    "$ref": "#/definitions/SQLEditorConfiguration"
                 },
                 "version": {
                     "description": "Schema version of this configuration blob, for future format migrations.",
@@ -56368,6 +57440,16 @@
             },
             "required": ["answer", "query", "type"],
             "type": "object"
+        },
+        "VisualizationNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/DataVisualizationNode"
+                },
+                {
+                    "$ref": "#/definitions/BIVisualizationNode"
+                }
+            ]
         },
         "VizSpecificOptions": {
             "additionalProperties": false,

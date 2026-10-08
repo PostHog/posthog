@@ -717,7 +717,10 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     );
     const mcpServers = toCodexMcpServers(
       [...(params.mcpServers ?? []), ...(localTools ? [localTools] : [])],
-      { gatePosthogExec: true },
+      {
+        gatePosthogExec: true,
+        requirePosthogMcp: this.environment === "cloud",
+      },
     );
     const config = buildThreadConfig(mcpServers, params.additionalDirectories);
 

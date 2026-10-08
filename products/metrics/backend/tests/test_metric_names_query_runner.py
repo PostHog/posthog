@@ -1,7 +1,7 @@
 import datetime as dt
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -183,6 +183,45 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = runner.run()
         self.assertEqual(results[0]["name"], "bar")
 
+    @parameterized.expand(
+        [
+            (
+                "search ranks exact, prefix, suffix, then service count, then name",
+                "HTTP",
+                [],
+                ["http", "http.requests", "server.http", "b.http.x", "a.http.x", "c.http.x"],
+            ),
+            (
+                "no search ranks by service count, then name",
+                "",
+                [],
+                ["b.http.x", "a.http.x", "c.http.x", "http", "http.requests", "other", "server.http"],
+            ),
+            (
+                "service scope counts the selected services only",
+                "",
+                ["web"],
+                ["a.http.x", "b.http.x", "c.http.x", "http", "server.http"],
+            ),
+        ]
+    )
+    def test_sort_order(self, _name: str, search: str, services: list[str], expected: list[str]):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        for metric_name, metric_services in (
+            ("c.http.x", ["web"]),
+            ("a.http.x", ["web"]),
+            ("b.http.x", ["web", "worker"]),
+            ("server.http", ["web"]),
+            ("http.requests", ["worker"]),
+            ("http", ["web"]),
+            ("other", ["worker"]),
+        ):
+            for service in metric_services:
+                seed_metric(team_id=self.team.id, metric_name=metric_name, points=[(anchor, 1.0)], service_name=service)
+
+        runner = MetricNamesQueryRunner(team=self.team, search=search, services=services, include_sparklines=False)
+        self.assertEqual([row["name"] for row in runner.run()], expected)
+
     def test_respects_team_isolation(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
         _seed_point(team_id=99999, metric_name="other.team.metric", value=1.0, timestamp=anchor)
@@ -251,8 +290,12 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"results": []})
 
-    def test_values_returns_metric_names(self):
+    @parameterized.expand([("finite", 1.0), ("overflowing_average", 1e308)])
+    def test_values_returns_metric_names(self, _name: str, value: float):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        earlier = anchor - dt.timedelta(minutes=20)
+        _seed_point(team_id=self.team.id, metric_name="m1", value=value, timestamp=earlier)
+        seed_metric(team_id=self.team.id, metric_name="m1", points=[(earlier, value)], labels={"shard": "other"})
         _seed_point(team_id=self.team.id, metric_name="m1", value=1.0, timestamp=anchor)
         _seed_point(team_id=self.team.id, metric_name="m2", value=2.0, timestamp=anchor, metric_type="gauge")
 
@@ -262,6 +305,8 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         names = {row["name"] for row in body["results"]}
         self.assertEqual(names, {"m1", "m2"})
         self.assertIn("sparkline", body["results"][0])
+        sparkline = next(row["sparkline"] for row in body["results"] if row["name"] == "m1")
+        self.assertEqual(sparkline, [1.0, 1.0] if value == 1.0 else [1.0])
 
     def test_names_returns_picker_fields_only(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
@@ -486,9 +531,11 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _seed_point(team_id=self.team.id, metric_name="m1", value=1.0, timestamp=anchor)
 
         with patch("products.metrics.backend.metric_names_query_runner.execute_hogql_query") as execute:
-            execute.return_value.results = [("m1", "gauge", "", timezone.now())]
+            execute.side_effect = [
+                MagicMock(results=[("m1", 1)]),
+                MagicMock(results=[("m1", "gauge", "", timezone.now())]),
+            ]
             rows = MetricNamesQueryRunner(team=self.team, include_sparklines=False).run()
 
-        # One query for the names, none for the samples.
-        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(execute.call_count, 2)
         self.assertEqual(rows[0]["sparkline"], [])

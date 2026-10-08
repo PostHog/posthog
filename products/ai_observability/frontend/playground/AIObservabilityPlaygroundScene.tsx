@@ -3,7 +3,6 @@ import posthog from 'posthog-js'
 import React from 'react'
 
 import {
-    IconChevronRight,
     IconGear,
     IconPencil,
     IconPlay,
@@ -24,7 +23,6 @@ import {
     LemonSkeleton,
     LemonSwitch,
     LemonTag,
-    LemonTextArea,
     Spinner,
     Link,
     LemonDivider,
@@ -50,6 +48,7 @@ import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
 import { getModelPickerFooterLink, ModelPicker, parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
+import { CollapsibleChevronIcon } from './CollapsibleChevronIcon'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import {
     getLinkedSourceLabel,
@@ -59,8 +58,12 @@ import {
     type PromptConfig,
 } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundRunLogic, type ComparisonItem, type UsageSummary } from './llmPlaygroundRunLogic'
+import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
+import { MessageToolCallsEditor } from './MessageToolCallsEditor'
 import { PlaygroundSaveMenu } from './PlaygroundSaveMenu'
 import { PlaygroundVariablesPanel } from './PlaygroundVariablesPanel'
+import { TemplateVariableTextArea } from './TemplateVariableTextArea'
+import { ToolCallDisplay } from './ToolCallDisplay'
 
 // Cap inline JSON previews at 20 lines so they don't dominate the layout
 const INLINE_JSON_MAX_LINES = 20
@@ -89,17 +92,6 @@ const EXAMPLE_TOOL = [
         },
     },
 ]
-
-function CollapsibleChevron({ collapsed }: { collapsed: boolean }): JSX.Element {
-    return (
-        <LemonButton
-            size="xsmall"
-            noPadding
-            className="h-5 w-5 [&_svg]:h-3.5 [&_svg]:w-3.5"
-            icon={<IconChevronRight className={`transition-transform ${collapsed ? 'rotate-0' : 'rotate-90'}`} />}
-        />
-    )
-}
 
 export const scene: SceneExport = {
     component: AIObservabilityPlaygroundScene,
@@ -380,13 +372,14 @@ function hasUsage(usage: UsageSummary | undefined): boolean {
 function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
     const isStreaming = !!item && item.latencyMs == null && !item.error
     const { addResultToConversation } = useActions(llmPlaygroundPromptsLogic)
-    const canAddToConversation = !!item?.response && !item.error && !isStreaming
+    const hasToolCalls = !!item?.toolCalls?.length
+    const canAddToConversation = (!!item?.response || hasToolCalls) && !item?.error && !isStreaming
 
     const handleAddToConversation = (): void => {
-        if (!item?.response) {
+        if (!item || (!item.response && !item.toolCalls?.length)) {
             return
         }
-        addResultToConversation(item.response, item.promptId)
+        addResultToConversation(item.response, item.toolCalls, item.promptId)
     }
 
     return (
@@ -410,7 +403,11 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                                     ? 'Only successful responses can be added'
                                     : 'No response to add'
                         }
-                        tooltip="Adds this result as an assistant message and starts a blank user message for the next turn."
+                        tooltip={
+                            hasToolCalls
+                                ? 'Adds this result as an assistant message and starts an empty tool result for each call. Fill the results in, then run again.'
+                                : 'Adds this result as an assistant message and starts a blank user message for the next turn.'
+                        }
                         data-attr="llma-playground-add-result-to-conversation"
                     >
                         Add to conversation
@@ -434,18 +431,25 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                             <LemonMarkdown className="whitespace-pre-wrap break-words [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded [&_img]:my-2">
                                 {item.response}
                             </LemonMarkdown>
-                        ) : isStreaming ? (
+                        ) : isStreaming && !hasToolCalls ? (
                             <div className="h-full flex items-center justify-center text-xs text-muted">
                                 <div className="inline-flex items-center gap-2">
                                     <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                                     <span>Generating response...</span>
                                 </div>
                             </div>
-                        ) : (
+                        ) : !hasToolCalls ? (
                             <span className="text-muted italic">No response</span>
+                        ) : null}
+                        {hasToolCalls && (
+                            <div className={`space-y-2 ${item.response ? 'mt-2' : ''}`}>
+                                {item.toolCalls?.map((toolCall) => (
+                                    <ToolCallDisplay key={toolCall.id} toolCall={toolCall} />
+                                ))}
+                            </div>
                         )}
                     </div>
-                    {(!!item.response || hasUsage(item.usage)) && (
+                    {(!!item.response || hasToolCalls || hasUsage(item.usage)) && (
                         <MetadataHeader
                             className="mt-2 pt-2"
                             isError={item.error}
@@ -869,6 +873,8 @@ function getRoleDotClass(role: string): string {
             return 'bg-[var(--color-green-500)]'
         case 'system':
             return 'bg-[var(--color-purple-500)]'
+        case 'tool':
+            return 'bg-[var(--color-orange-500)]'
         default:
             return 'bg-muted'
     }
@@ -877,6 +883,7 @@ function getRoleDotClass(role: string): string {
 function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
     const { promptConfigs, editModal, collapsedSections, linkedSource } = useValues(llmPlaygroundPromptsLogic)
+    const { unfilledVariables } = useValues(llmPlaygroundVariablesLogic)
     const { setSystemPrompt, setEditModal, toggleCollapsed } = useActions(llmPlaygroundPromptsLogic)
     const { submitPrompt } = useActions(llmPlaygroundRunLogic)
 
@@ -942,11 +949,13 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                     />
                 </div>
 
-                <div
-                    className={`flex items-center gap-2 cursor-pointer ${collapsed ? 'mb-0' : 'mb-2'}`}
+                <button
+                    type="button"
+                    className={`flex w-full items-center gap-2 cursor-pointer text-left ${collapsed ? 'mb-0' : 'mb-2'}`}
                     onClick={() => toggleCollapsed(`system:${promptId}`)}
+                    aria-expanded={!collapsed}
                 >
-                    <CollapsibleChevron collapsed={collapsed} />
+                    <CollapsibleChevronIcon collapsed={collapsed} />
                     <span className={`w-2 h-2 rounded-full shrink-0 ${getRoleDotClass('system')}`} />
                     <LemonTag type="default" size="small">
                         System
@@ -963,7 +972,7 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                                 : 'No system prompt'}
                         </span>
                     )}
-                </div>
+                </button>
 
                 <AnimatedCollapsible collapsed={collapsed}>
                     <div>
@@ -973,13 +982,12 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                                 evaluations apply those rules when they run.
                             </p>
                         )}
-                        <LemonTextArea
-                            className="text-sm w-full"
+                        <TemplateVariableTextArea
                             placeholder="System instructions for the AI assistant..."
                             value={prompt.systemPrompt}
                             onChange={(value) => setSystemPrompt(value, promptId)}
+                            unfilledVariables={unfilledVariables}
                             minRows={2}
-                            maxRows={undefined}
                             onPressCmdEnter={() => submitPrompt()}
                         />
                     </div>
@@ -1003,11 +1011,11 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                 <div className="space-y-4">
                     <div>
                         <label className="font-semibold mb-1 block text-sm">System instructions</label>
-                        <LemonTextArea
-                            className="text-sm w-full"
+                        <TemplateVariableTextArea
                             placeholder="System instructions for the AI assistant..."
                             value={prompt.systemPrompt}
                             onChange={(value) => setSystemPrompt(value, promptId)}
+                            unfilledVariables={unfilledVariables}
                             minRows={8}
                         />
                     </div>
@@ -1027,6 +1035,7 @@ function MessageDisplay({
     index: number
 }): JSX.Element {
     const { editModal, collapsedSections } = useValues(llmPlaygroundPromptsLogic)
+    const { unfilledVariables } = useValues(llmPlaygroundVariablesLogic)
     const { updateMessage, deleteMessage, setEditModal, toggleCollapsed } = useActions(llmPlaygroundPromptsLogic)
     const { submitPrompt } = useActions(llmPlaygroundRunLogic)
 
@@ -1037,7 +1046,15 @@ function MessageDisplay({
 
     const handleRoleChange = (newRole: MessageRole): void => {
         posthog.capture('llma playground message role changed', { from: message.role, to: newRole })
-        updateMessage(index, { role: newRole }, promptId)
+        updateMessage(
+            index,
+            {
+                role: newRole,
+                ...(newRole !== 'assistant' ? { toolCalls: undefined } : {}),
+                ...(newRole !== 'tool' ? { toolCallId: undefined, toolName: undefined } : {}),
+            },
+            promptId
+        )
     }
 
     const handleContentChange = (newContent: string | undefined): void => {
@@ -1047,10 +1064,13 @@ function MessageDisplay({
     const roleOptions: { label: string; value: MessageRole }[] = [
         { label: 'User', value: 'user' },
         { label: 'Assistant', value: 'assistant' },
+        { label: 'Tool', value: 'tool' },
     ]
 
     const trimmedContent = message.content.trim()
-    const useJsonEditor = trimmedContent.startsWith('{') || trimmedContent.startsWith('[')
+    // A leading `{{` is a template token, not JSON (no valid JSON starts with it)
+    const useJsonEditor =
+        (trimmedContent.startsWith('{') && !trimmedContent.startsWith('{{')) || trimmedContent.startsWith('[')
 
     return (
         <>
@@ -1063,7 +1083,7 @@ function MessageDisplay({
                         noPadding
                         onClick={() => {
                             posthog.capture('llma playground response copied', {
-                                content_type: message.role === 'assistant' ? 'assistant_message' : 'user_message',
+                                content_type: `${message.role}_message`,
                             })
                             void copyToClipboard(message.content, `${message.role} message`)
                         }}
@@ -1089,7 +1109,16 @@ function MessageDisplay({
                     className={`flex items-center gap-2 cursor-pointer ${collapsed ? 'mb-0' : 'mb-2'}`}
                     onClick={() => toggleCollapsed(messageKey)}
                 >
-                    <CollapsibleChevron collapsed={collapsed} />
+                    {/* The row click is a convenience target; this button is the accessible
+                        control, and its click bubbles to the row handler */}
+                    <button
+                        type="button"
+                        className="flex items-center cursor-pointer"
+                        aria-label="Toggle message"
+                        aria-expanded={!collapsed}
+                    >
+                        <CollapsibleChevronIcon collapsed={collapsed} />
+                    </button>
                     <span className={`w-2 h-2 rounded-full shrink-0 ${getRoleDotClass(message.role)}`} />
                     <div onClick={(e) => e.stopPropagation()}>
                         <LemonSelect<MessageRole>
@@ -1104,32 +1133,71 @@ function MessageDisplay({
                         <span className="text-xs text-muted truncate flex-1">
                             {message.content
                                 ? message.content.slice(0, 80) + (message.content.length > 80 ? '…' : '')
-                                : `Empty ${message.role} message`}
+                                : message.toolCalls?.length
+                                  ? `${message.toolCalls.length} tool call${message.toolCalls.length === 1 ? '' : 's'}`
+                                  : `Empty ${message.role} message`}
                         </span>
                     )}
                 </div>
 
                 <AnimatedCollapsible collapsed={collapsed}>
-                    {useJsonEditor ? (
-                        <div className={`border rounded ${INLINE_JSON_MAX_HEIGHT_CLASS}`}>
-                            <JSONEditor
+                    <div>
+                        {message.role === 'tool' && (
+                            <div className="flex gap-2 mb-2">
+                                <LemonInput
+                                    size="small"
+                                    className="flex-1"
+                                    placeholder="Tool name"
+                                    value={message.toolName ?? ''}
+                                    onChange={(value) => updateMessage(index, { toolName: value }, promptId)}
+                                    data-attr="llma-playground-tool-result-name"
+                                />
+                                <LemonInput
+                                    size="small"
+                                    className="flex-1 font-mono"
+                                    placeholder="Tool call id"
+                                    value={message.toolCallId ?? ''}
+                                    onChange={(value) => updateMessage(index, { toolCallId: value }, promptId)}
+                                    data-attr="llma-playground-tool-result-call-id"
+                                />
+                            </div>
+                        )}
+                        {useJsonEditor ? (
+                            <div className={`border rounded ${INLINE_JSON_MAX_HEIGHT_CLASS}`}>
+                                <JSONEditor
+                                    value={message.content}
+                                    onChange={handleContentChange}
+                                    defaultNumberOfLines={2}
+                                    maxNumberOfLines={INLINE_JSON_MAX_LINES}
+                                />
+                            </div>
+                        ) : (
+                            <TemplateVariableTextArea
+                                placeholder={
+                                    message.role === 'tool'
+                                        ? 'Enter the tool result here...'
+                                        : `Enter ${message.role} message here...`
+                                }
                                 value={message.content}
                                 onChange={handleContentChange}
-                                defaultNumberOfLines={2}
-                                maxNumberOfLines={INLINE_JSON_MAX_LINES}
+                                unfilledVariables={unfilledVariables}
+                                minRows={2}
+                                onPressCmdEnter={() => submitPrompt()}
                             />
-                        </div>
-                    ) : (
-                        <LemonTextArea
-                            className="text-sm w-full"
-                            placeholder={`Enter ${message.role} message here...`}
-                            value={message.content}
-                            onChange={handleContentChange}
-                            minRows={2}
-                            maxRows={undefined}
-                            onPressCmdEnter={() => submitPrompt()}
-                        />
-                    )}
+                        )}
+                        {message.role === 'assistant' && (
+                            <MessageToolCallsEditor
+                                toolCalls={message.toolCalls ?? []}
+                                onChange={(toolCalls) =>
+                                    updateMessage(
+                                        index,
+                                        { toolCalls: toolCalls.length > 0 ? toolCalls : undefined },
+                                        promptId
+                                    )
+                                }
+                            />
+                        )}
+                    </div>
                 </AnimatedCollapsible>
             </div>
 
@@ -1150,11 +1218,11 @@ function MessageDisplay({
                 <div className="space-y-4">
                     <div>
                         <label className="font-semibold mb-1 block text-sm">Message content</label>
-                        <LemonTextArea
-                            className="text-sm w-full"
+                        <TemplateVariableTextArea
                             placeholder={`Enter ${message.role} message here...`}
                             value={message.content}
                             onChange={handleContentChange}
+                            unfilledVariables={unfilledVariables}
                             minRows={8}
                         />
                     </div>

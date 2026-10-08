@@ -9,7 +9,6 @@ import {
     EmptyDescription,
     EmptyHeader,
     EmptyTitle,
-    Skeleton,
     Tabs,
     TabsContent,
     TabsList,
@@ -29,26 +28,11 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { spaceLabel } from '~/layout/today/todaySpacesLogic'
 
-import { EmbeddedTaskComposer } from 'products/posthog_ai/frontend/api/runner'
-
+import { SpaceCanvases } from './SpaceCanvases'
 import { SpaceFeed } from './SpaceFeed'
-import { SpaceSceneLogicProps, SpaceTab, spaceSceneLogic } from './spaceSceneLogic'
+import { SpaceSceneLogicProps, SpaceTab, spaceComposerPanelId, spaceSceneLogic } from './spaceSceneLogic'
 import { SpaceSettings } from './SpaceSettings'
-
-const SPACE_COMPOSER_OVERRIDE = {
-    placeholder: 'What do you want to ship?',
-    hideSuggestions: true,
-    hideRecentTasks: true,
-    hideOnboardingReplay: true,
-}
-
-// The repository picker and the input frame at their loaded sizes, so the feed does not jump when the chunk lands.
-const COMPOSER_SKELETON = (
-    <div className="flex flex-col gap-2">
-        <Skeleton className="h-8 w-36" />
-        <Skeleton className="h-36 w-full rounded-lg" />
-    </div>
-)
+import { SpaceTaskComposer } from './SpaceTaskComposer'
 
 export const scene: SceneExport<SpaceSceneLogicProps> = {
     component: SpaceScene,
@@ -134,7 +118,13 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                 <Tabs
                     value={activeTab}
                     onValueChange={(tab: SpaceTab) =>
-                        router.actions.push(tab === 'settings' ? urls.taskSpaceSettings(id) : urls.taskSpace(id))
+                        router.actions.push(
+                            tab === 'settings'
+                                ? urls.taskSpaceSettings(id)
+                                : tab === 'canvases'
+                                  ? urls.taskSpaceCanvases(id)
+                                  : urls.taskSpace(id)
+                        )
                     }
                     className="-mt-4"
                     data-quill
@@ -143,6 +133,9 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                         <TabsList variant="line" aria-label="Space pages">
                             <TabsTrigger value="feed" data-attr="today-space-tab-feed">
                                 Activity
+                            </TabsTrigger>
+                            <TabsTrigger value="canvases" data-attr="today-space-tab-canvases">
+                                Canvases
                             </TabsTrigger>
                             <TabsTrigger value="settings" data-attr="today-space-tab-settings">
                                 Settings
@@ -155,21 +148,20 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                             {/* Mounted once the space loads, so the composer starts on the space's repository. */}
                             {space && (
                                 <div className="mb-1 border-b border-border pb-4" data-attr="today-space-new-task">
-                                    <EmbeddedTaskComposer
-                                        key={space.id}
-                                        panelId={`space-${space.id}`}
-                                        channelId={space.id}
-                                        initialRepositoryConfig={composerRepositoryConfig}
-                                        composerOverride={SPACE_COMPOSER_OVERRIDE}
+                                    <SpaceTaskComposer
+                                        space={space}
+                                        panelId={spaceComposerPanelId(id)}
+                                        repositoryConfig={composerRepositoryConfig}
                                         onTaskCreated={sessionStarted}
                                         focusRequest={composerFocusRequest}
-                                        autoFocus={false}
-                                        fallback={COMPOSER_SKELETON}
                                     />
                                 </div>
                             )}
                             <SpaceFeed id={id} />
                         </div>
+                    </TabsContent>
+                    <TabsContent value="canvases">
+                        <SpaceCanvases id={id} />
                     </TabsContent>
                     <TabsContent value="settings">
                         <SpaceSettings key={space?.id} id={id} />
