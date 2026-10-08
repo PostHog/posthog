@@ -855,3 +855,49 @@ func TestStripRestrictedReappliesNewerRules(t *testing.T) {
 	})
 	assert.Equal(t, map[string]interface{}{"$set": map[string]interface{}{"name": "Test User"}}, response.Properties)
 }
+
+func TestVisiblePropertyStripsGroupSetByGroupType(t *testing.T) {
+	restrictions := &auth.PropertyRestrictions{GroupProperties: map[string]map[string]struct{}{
+		"organization": {"email": {}},
+		"project":      {"owner": {}},
+	}}
+	groupSet := map[string]interface{}{"email": "hidden@example.com", "owner": "someone", "name": "Acme"}
+	event := PostHogEvent{Uuid: "1", DistinctId: "user1", Event: "$groupidentify", Properties: map[string]interface{}{
+		"$group_type": "organization",
+		"$group_set":  groupSet,
+	}}
+
+	byType := convertToResponsePostHogEvent(event, 1, nil, nil, restrictions)
+	assert.Equal(t, map[string]interface{}{"owner": "someone", "name": "Acme"}, byType.Properties["$group_set"])
+
+	// Without $group_type in the response the type is unknown, so every type's keys go.
+	response := ResponsePostHogEvent{Properties: map[string]interface{}{"$group_set": groupSet}}
+	response.StripRestricted(restrictions)
+	assert.Equal(t, map[string]interface{}{"name": "Acme"}, response.Properties["$group_set"])
+
+	assert.Equal(t, "$group_set", RestrictedFilterKey(
+		[]CompiledPropertyFilter{NewCompiledPropertyFilter("$group_set", OpIContains, []string{"acme"})}, restrictions))
+}
+
+func TestDeliverEventSkipsGeoWhenLocationIsRestricted(t *testing.T) {
+	restrictions := &atomic.Pointer[auth.PropertyRestrictions]{}
+	restrictions.Store(&auth.PropertyRestrictions{EventProperties: map[string]struct{}{"$geoip_country_code": {}}})
+	eventChan := make(chan interface{}, 2)
+	sub := Subscription{
+		SubID:         1,
+		TeamId:        1,
+		Geo:           true,
+		Restrictions:  restrictions,
+		EventChan:     eventChan,
+		ShouldClose:   &atomic.Bool{},
+		DroppedEvents: &atomic.Uint64{},
+	}
+	event := PostHogEvent{Uuid: "1", DistinctId: "user1", Event: "pageview", Lat: 40.7, Lng: -74.0, CountryCode: "US"}
+
+	deliverEvent(event, []Subscription{sub})
+	assert.Empty(t, eventChan)
+
+	restrictions.Store(nil)
+	deliverEvent(event, []Subscription{sub})
+	assert.Len(t, eventChan, 1)
+}

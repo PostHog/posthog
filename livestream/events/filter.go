@@ -138,9 +138,13 @@ func convertToResponseGeoEvent(event PostHogEvent) *ResponseGeoEvent {
 	}
 }
 
-// Person properties ride along on events under these keys, so a restricted
-// person property has to be removed from inside them as well.
-var personPropertyContainers = []string{"$set", "$set_once"}
+// Person and group properties ride along on events under these keys, so a
+// restricted person or group property has to be removed from inside them as well.
+var (
+	personPropertyContainers = []string{"$set", "$set_once"}
+	groupPropertyContainer   = "$group_set"
+	groupTypeProperty        = "$group_type"
+)
 
 func (s *Subscription) restrictions() *auth.PropertyRestrictions {
 	if s.Restrictions == nil {
@@ -160,8 +164,16 @@ func RestrictedFilterKey(filters []CompiledPropertyFilter, restrictions *auth.Pr
 		if restrictions.HasPersonRestrictions() && slices.Contains(personPropertyContainers, key) {
 			return key
 		}
+		if restrictions.HasGroupRestrictions() && key == groupPropertyContainer {
+			return key
+		}
 	}
 	return ""
+}
+
+func groupTypeOf(properties map[string]interface{}) string {
+	groupType, _ := properties[groupTypeProperty].(string)
+	return groupType
 }
 
 // StripRestricted removes hidden properties from an already built response. The handler calls it
@@ -171,8 +183,9 @@ func (e *ResponsePostHogEvent) StripRestricted(restrictions *auth.PropertyRestri
 		return
 	}
 	properties := make(map[string]interface{}, len(e.Properties))
+	groupType := groupTypeOf(e.Properties)
 	for k, v := range e.Properties {
-		if visible, ok := visibleProperty(k, v, restrictions); ok {
+		if visible, ok := visibleProperty(k, v, groupType, restrictions); ok {
 			properties[k] = visible
 		}
 	}
@@ -182,11 +195,17 @@ func (e *ResponsePostHogEvent) StripRestricted(restrictions *auth.PropertyRestri
 	e.Properties = properties
 }
 
-func visibleProperty(key string, value interface{}, restrictions *auth.PropertyRestrictions) (interface{}, bool) {
+func visibleProperty(key string, value interface{}, groupType string, restrictions *auth.PropertyRestrictions) (interface{}, bool) {
 	if restrictions.RestrictsEventProperty(key) {
 		return nil, false
 	}
-	if !restrictions.HasPersonRestrictions() || !slices.Contains(personPropertyContainers, key) {
+	var hidden func(string) bool
+	switch {
+	case restrictions.HasPersonRestrictions() && slices.Contains(personPropertyContainers, key):
+		hidden = restrictions.RestrictsPersonProperty
+	case restrictions.HasGroupRestrictions() && key == groupPropertyContainer:
+		hidden = func(k string) bool { return restrictions.RestrictsGroupProperty(groupType, k) }
+	default:
 		return value, true
 	}
 	nested, ok := value.(map[string]interface{})
@@ -195,7 +214,7 @@ func visibleProperty(key string, value interface{}, restrictions *auth.PropertyR
 	}
 	stripped := make(map[string]interface{}, len(nested))
 	for k, v := range nested {
-		if !restrictions.RestrictsPersonProperty(k) {
+		if !hidden(k) {
 			stripped[k] = v
 		}
 	}
@@ -210,6 +229,7 @@ func convertToResponsePostHogEvent(
 	restrictions *auth.PropertyRestrictions,
 ) *ResponsePostHogEvent {
 	var properties map[string]interface{}
+	groupType := groupTypeOf(event.Properties)
 	if columns == nil {
 		properties = event.Properties
 		if pathCleaner != nil || restrictions != nil {
@@ -217,7 +237,7 @@ func convertToResponsePostHogEvent(
 			// shared event map never carries one subscription's view into another.
 			properties = make(map[string]interface{}, len(event.Properties)+1)
 			for k, v := range event.Properties {
-				if visible, ok := visibleProperty(k, v, restrictions); ok {
+				if visible, ok := visibleProperty(k, v, groupType, restrictions); ok {
 					properties[k] = visible
 				}
 			}
@@ -226,7 +246,7 @@ func convertToResponsePostHogEvent(
 		properties = make(map[string]interface{})
 		for _, key := range columns {
 			if val, ok := event.Properties[key]; ok {
-				if visible, ok := visibleProperty(key, val, restrictions); ok {
+				if visible, ok := visibleProperty(key, val, groupType, restrictions); ok {
 					properties[key] = visible
 				}
 			}
@@ -446,7 +466,7 @@ func deliverEvent(event PostHogEvent, subs []Subscription) {
 		}
 
 		if sub.Geo {
-			if event.Lat != 0.0 {
+			if event.Lat != 0.0 && !restrictions.RestrictsGeo() {
 				if responseGeoEvent == nil {
 					responseGeoEvent = convertToResponseGeoEvent(event)
 				}

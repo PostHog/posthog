@@ -10,6 +10,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import OrganizationDomain, OrganizationMembership, PropertyDefinition
+from posthog.test.persons import create_group_type_mapping
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -52,7 +53,10 @@ class TestLivestreamAuthorization(APIBaseTest):
         )
         self.assertEqual(initial.status_code, 200)
         self.assertEqual(initial["Cache-Control"], "no-store")
-        self.assertEqual(initial.json(), {"restricted_event_properties": [], "restricted_person_properties": []})
+        self.assertEqual(
+            initial.json(),
+            {"restricted_event_properties": [], "restricted_person_properties": [], "restricted_group_properties": {}},
+        )
         legacy = self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization)
         self.assertEqual(legacy.status_code, 204)
         self.assertEqual(legacy["Cache-Control"], "no-store")
@@ -101,12 +105,18 @@ class TestLivestreamAuthorization(APIBaseTest):
             {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
         self.organization.save()
-        for name, property_type in (
-            ("$ip", PropertyDefinition.Type.EVENT),
-            ("email", PropertyDefinition.Type.PERSON),
-            ("$browser", PropertyDefinition.Type.EVENT),
+        create_group_type_mapping(
+            team=self.team, project=self.team.project, group_type="organization", group_type_index=0
+        )
+        for name, property_type, group_type_index in (
+            ("$ip", PropertyDefinition.Type.EVENT, None),
+            ("email", PropertyDefinition.Type.PERSON, None),
+            ("$browser", PropertyDefinition.Type.EVENT, None),
+            ("email", PropertyDefinition.Type.GROUP, 0),
         ):
-            definition = PropertyDefinition.objects.create(team=self.team, name=name, type=property_type)
+            definition = PropertyDefinition.objects.create(
+                team=self.team, name=name, type=property_type, group_type_index=group_type_index
+            )
             PropertyAccessControl.objects.create(
                 team=self.team,
                 property_definition=definition,
@@ -119,7 +129,12 @@ class TestLivestreamAuthorization(APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            response.json(), {"restricted_event_properties": ["$ip"], "restricted_person_properties": ["email"]}
+            response.json(),
+            {
+                "restricted_event_properties": ["$ip"],
+                "restricted_person_properties": ["email"],
+                "restricted_group_properties": {"organization": ["email"]},
+            },
         )
 
     def test_refuses_an_account_an_access_rule_blocks(self) -> None:

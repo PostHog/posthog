@@ -25,10 +25,11 @@ func TestCheckAccess(t *testing.T) {
 		{
 			name:   "restrictions are parsed",
 			status: http.StatusOK,
-			body:   `{"restricted_event_properties": ["$ip"], "restricted_person_properties": ["email"]}`,
+			body:   `{"restricted_event_properties": ["$ip"], "restricted_person_properties": ["email"], "restricted_group_properties": {"organization": ["email"], "project": []}}`,
 			wantRestrictions: &PropertyRestrictions{
 				EventProperties:  map[string]struct{}{"$ip": {}},
 				PersonProperties: map[string]struct{}{"email": {}},
+				GroupProperties:  map[string]map[string]struct{}{"organization": {"email": {}}},
 			},
 		},
 		{name: "malformed restrictions fail closed", status: http.StatusOK, body: `not json`, want: http.StatusServiceUnavailable},

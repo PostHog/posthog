@@ -11,10 +11,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.auth import refuse_blocked_account
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
 from posthog.models.activity_logging.utils import ActivityCredentialMixin
+from posthog.models.group_type_mapping import get_group_types_for_team
 from posthog.permissions import ActiveOrganizationPermission, VerifiedDomainEnforcementPermission
 from posthog.user_permissions import UserPermissions
 
@@ -74,6 +77,10 @@ class LivestreamAuthorizationSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Person property names the livestream service must remove from $set and $set_once.",
     )
+    restricted_group_properties = serializers.DictField(
+        child=serializers.ListField(child=serializers.CharField()),
+        help_text="Group property names to remove from $group_set, keyed by the group type name $group_type carries.",
+    )
 
 
 @extend_schema(exclude=True)
@@ -99,6 +106,24 @@ class LivestreamAuthorizationView(APIView):
                 "restricted_person_properties": sorted(
                     p.name for p in restricted if p.property_type == PropertyDefinition.Type.PERSON
                 ),
+                "restricted_group_properties": self._restricted_group_properties_by_type_name(team, restricted),
             }
         ).data
         return Response(payload, headers={"Cache-Control": "no-store"})
+
+    @staticmethod
+    def _restricted_group_properties_by_type_name(
+        team: Team, restricted: set[RestrictedProperty]
+    ) -> dict[str, list[str]]:
+        # Rules carry the group type index; a $groupidentify event carries the group type name.
+        by_index: dict[int, list[str]] = {}
+        for p in restricted:
+            if p.property_type == PropertyDefinition.Type.GROUP and p.group_type_index is not None:
+                by_index.setdefault(p.group_type_index, []).append(p.name)
+        if not by_index:
+            return {}
+        return {
+            mapping["group_type"]: sorted(by_index[mapping["group_type_index"]])
+            for mapping in get_group_types_for_team(team.id, caller_tag="livestream_authorize")
+            if mapping["group_type_index"] in by_index
+        }

@@ -22,7 +22,13 @@ var authorizationClient = &http.Client{
 type PropertyRestrictions struct {
 	EventProperties  map[string]struct{}
 	PersonProperties map[string]struct{}
+	// Keyed by group type name, the value `$group_type` carries on a $groupidentify event.
+	GroupProperties map[string]map[string]struct{}
 }
+
+// The geo stream derives its coordinates and country from the event's IP, so it stays
+// hidden while any of the properties that would carry those values is.
+var geoSourceProperties = []string{"$ip", "$geoip_latitude", "$geoip_longitude", "$geoip_country_code"}
 
 func (r *PropertyRestrictions) RestrictsEventProperty(key string) bool {
 	if r == nil {
@@ -44,9 +50,41 @@ func (r *PropertyRestrictions) HasPersonRestrictions() bool {
 	return r != nil && len(r.PersonProperties) > 0
 }
 
+func (r *PropertyRestrictions) HasGroupRestrictions() bool {
+	return r != nil && len(r.GroupProperties) > 0
+}
+
+// RestrictsGroupProperty reports whether key is hidden for groupType. An empty groupType
+// means the type is unknown, so the key is hidden if any group type hides it.
+func (r *PropertyRestrictions) RestrictsGroupProperty(groupType, key string) bool {
+	if r == nil {
+		return false
+	}
+	if groupType != "" {
+		_, restricted := r.GroupProperties[groupType][key]
+		return restricted
+	}
+	for _, keys := range r.GroupProperties {
+		if _, restricted := keys[key]; restricted {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *PropertyRestrictions) RestrictsGeo() bool {
+	for _, key := range geoSourceProperties {
+		if r.RestrictsEventProperty(key) {
+			return true
+		}
+	}
+	return false
+}
+
 type authorizationResponse struct {
-	RestrictedEventProperties  []string `json:"restricted_event_properties"`
-	RestrictedPersonProperties []string `json:"restricted_person_properties"`
+	RestrictedEventProperties  []string            `json:"restricted_event_properties"`
+	RestrictedPersonProperties []string            `json:"restricted_person_properties"`
+	RestrictedGroupProperties  map[string][]string `json:"restricted_group_properties"`
 }
 
 func toSet(keys []string) map[string]struct{} {
@@ -87,12 +125,22 @@ func CheckAccess(ctx context.Context, header http.Header) (*PropertyRestrictions
 		if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&payload); err != nil {
 			return nil, echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")
 		}
-		if len(payload.RestrictedEventProperties) == 0 && len(payload.RestrictedPersonProperties) == 0 {
+		var groups map[string]map[string]struct{}
+		for groupType, keys := range payload.RestrictedGroupProperties {
+			if set := toSet(keys); set != nil {
+				if groups == nil {
+					groups = make(map[string]map[string]struct{})
+				}
+				groups[groupType] = set
+			}
+		}
+		if len(payload.RestrictedEventProperties) == 0 && len(payload.RestrictedPersonProperties) == 0 && groups == nil {
 			return nil, nil
 		}
 		return &PropertyRestrictions{
 			EventProperties:  toSet(payload.RestrictedEventProperties),
 			PersonProperties: toSet(payload.RestrictedPersonProperties),
+			GroupProperties:  groups,
 		}, nil
 	case http.StatusUnauthorized, http.StatusForbidden:
 		return nil, echo.NewHTTPError(http.StatusUnauthorized, "live stream access denied")
