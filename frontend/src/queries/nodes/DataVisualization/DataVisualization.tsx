@@ -7,7 +7,7 @@ import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { PIE_DISPLAY_TYPES } from 'lib/constants'
+import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -42,11 +42,12 @@ import { DateRange } from '../DataNode/DateRange'
 import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
 import { QueryFeature } from '../DataTable/queryFeatures'
-import { PieChart } from './Components/Charts/PieChart'
+import { PartOfWholeChart } from './Components/Charts/PartOfWholeChart'
 import { SqlBoxPlot } from './Components/Charts/SqlBoxPlot'
 import { isSqlChartVisualizationType, SqlChart } from './Components/Charts/SqlChart'
 import { getSeriesKey } from './Components/Charts/sqlLineGraphAdapter'
 import { SqlMetricCard } from './Components/Charts/SqlMetricCard'
+import { partOfWholeChartData } from './Components/Charts/sqlPieGraphAdapter'
 import { SqlScatterGraph } from './Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
@@ -351,17 +352,14 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 />
             </BindLogic>
         )
-    } else if (PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
-        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        // Pie charts can consume breakdown series totals directly, even when there isn't
-        // a matching breakdown x-axis to swap in like the line/bar path expects.
-        const _yData = seriesBreakdownData.seriesData.length ? seriesBreakdownData.seriesData : yData
+    } else if (PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
+        const pieData = partOfWholeChartData(seriesBreakdownData, xData, yData)
 
         component = (
-            <PieChart
+            <PartOfWholeChart
                 className="p-3"
-                xData={_xData}
-                yData={_yData}
+                xData={pieData.xData}
+                yData={pieData.yData}
                 visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}

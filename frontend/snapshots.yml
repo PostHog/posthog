@@ -3936,6 +3936,10 @@ snapshots:
         hash: v1.k794b7964.d15af2bc969e9e442db3d5520d7b4c26a29f82dd001f9a3656da9cb838cd904e.HU5scx_5_NP2zMcUStE930Oaa1UgjhjHkEOUjAZ-u3w
     insights-sqlpiegraph--with-legend--light:
         hash: v1.k794b7964.e03eea04875a2046ced662098279559de6cfedb493840f3badf759e1a61a329b.Zkyv5NwjRftokqgfRfDPoMH62IXHvXLwEiQNGVkkoug
+    insights-sqlproportionbar--default--dark:
+        hash: v1.k794b7964.b54d88ba1bebf8f892bbd9af25cd5bd521b460f944501807767ebd14e921a0c3.MGorQmGvepwhhFGOgah4NNRjEw_vZjl45wYrJnst_Uw
+    insights-sqlproportionbar--default--light:
+        hash: v1.k794b7964.2b96a3584008203d1a2c8c12cbb647ec356fedf2975a93a7d402b80a22a73a9a.KaD0osaSl1FeRk0nZkHu1vQrHamGeVau_c_Rc6niWWY
     insights-sqlscattergraph--default--dark:
         hash: v1.k794b7964.5ca16c3fa53c4fa08dfd7c540a2a6dda5ce63b1f9ebcb0e604a4f13e32c17af5.BC1sKBXJftn3jhHnOKFddv2XmlLtCTyZSfPw9c2yt_4
     insights-sqlscattergraph--default--light:
