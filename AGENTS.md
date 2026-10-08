@@ -142,6 +142,7 @@ Examples:
 
 ## Security
 
+**Security fixes never land in this public repo.** Open them against `PostHog/posthog-private` on a `security/` branch; see [Routing security fixes](.agents/security.md#routing-security-fixes).
 Do not add new `INTERNAL_API_SECRET` callers.
 Read [.agents/security.md](.agents/security.md) before touching auth, secrets, service-to-service calls, raw SQL, or HogQL string building — it covers least privilege, the injection rules, and how to respond when semgrep flags your code.
 `.semgrep/rules/security/` is the enforced set; run `semgrep --config .semgrep/rules/security/ .` to check a change locally.
