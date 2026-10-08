@@ -611,9 +611,13 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         // content (navigation, version switch, refresh, failure) begins with
         // loadPrompt, so clearing on the trigger closes the whole class of
         // stale-preview states instead of patching individual outcomes.
+        // Cleared on loadResolvedPreview too: a late response for a previous
+        // version may have refilled it, and it would show while the new fetch
+        // is in flight.
         resolvedPreview: {
             loadPrompt: () => null,
             setMode: () => null,
+            loadResolvedPreview: () => null,
         },
         isShowingResolvedPreview: [
             false,
@@ -731,15 +735,19 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     loaders(({ props }) => ({
         resolvedPreview: {
             __default: null as LLMPromptPublicApi | null,
-            loadResolvedPreview: async () => {
+            loadResolvedPreview: async (_, breakpoint) => {
                 // Version from the router, like loadPrompt: values.prompt still holds
                 // the previous version while a back/forward navigation is loading.
                 const urlVersion = getSelectedVersionFromUrl()
-                return await llmPromptsNameRetrieve(
+                const response = await llmPromptsNameRetrieve(
                     String(ApiConfig.getCurrentTeamId()),
                     props.promptName,
                     urlVersion !== undefined ? { version: urlVersion } : undefined
                 )
+                // A newer load started while this one was in flight: discard this
+                // response, or the older version's content would display as resolved.
+                breakpoint()
+                return response
             },
         },
     })),
