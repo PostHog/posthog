@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconCheckCircle } from '@posthog/icons'
@@ -128,30 +128,14 @@ export function LoginForm(): JSX.Element {
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic({ screen: 'login' }))
-    const { hasRecentLogins, isOtherLoginMethodsCollapsed } = useValues(recentLoginsLogic)
-    const { showOtherLoginMethods } = useActions(recentLoginsLogic)
+    const { isChooserShown, canReturnToRecentLogins, isPasswordFocusRequested } = useValues(recentLoginsLogic)
+    const { selectAnotherAccount, returnToRecentLogins } = useActions(recentLoginsLogic)
 
     const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable
     const isCodeSent = codeVerificationRequired
     const lastLoginMethod = useLastLoginMethod()
     const greeting = loginGreeting(lastLoginMethod !== null)
-    const passwordInputRef = useRef<HTMLInputElement>(null)
     const prevEmail = usePrevious(login.email)
-    // Normally SAML replaces this row, but when the account has no password we need to show whatever it does have.
-    const showSocialLogin =
-        !isCodeSent &&
-        !precheckResponse.sso_enforcement &&
-        (!precheckResponse.saml_available || isPasswordLoginUnavailable)
-    const socialLoginButtons = (
-        <SocialLoginButtons
-            topDivider
-            caption={isPasswordLoginUnavailable ? 'Log in with' : 'Or log in with'}
-            captionLocation="top"
-            restrictToProviders={restrictToProviders}
-            // Once the precheck knows the account's methods, offer a passkey only if the account has one
-            showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
-        />
-    )
 
     useEffect(() => {
         const charDelta = login.email.length - (prevEmail?.length ?? 0)
@@ -336,6 +320,19 @@ export function LoginForm(): JSX.Element {
                             </Link>
                         </div>
                     </Form>
+                ) : isChooserShown ? (
+                    <>
+                        <RecentLogins />
+                        <p className="mt-4 mb-0 text-sm text-center">
+                            <Link
+                                onClick={selectAnotherAccount}
+                                data-attr="login-use-another-account"
+                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
+                            >
+                                Use another account
+                            </Link>
+                        </p>
+                    </>
                 ) : (
                     <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="flex flex-col gap-4">
                         <RegionField />
@@ -346,7 +343,7 @@ export function LoginForm(): JSX.Element {
                                     className="ph-ignore-input"
                                     data-attr="login-email"
                                     type="email"
-                                    autoFocus
+                                    autoFocus={!isPasswordFocusRequested}
                                     placeholder="you@yourcompany.com"
                                     // The `webauthn` token enables passkey autofill (conditional UI),
                                     // which we only offer on WebKit; elsewhere the auto-modal handles passkeys.
@@ -385,7 +382,7 @@ export function LoginForm(): JSX.Element {
                                         className="ph-ignore-input"
                                         data-attr="password"
                                         type="password"
-                                        inputRef={passwordInputRef}
+                                        autoFocus={isPasswordFocusRequested}
                                         placeholder="••••••••••"
                                         autoComplete="current-password"
                                         value={value ?? ''}
@@ -441,31 +438,33 @@ export function LoginForm(): JSX.Element {
                         )}
                     </Form>
                 )}
-                {showSocialLogin && !hasRecentLogins && socialLoginButtons}
-                {!isCodeSent && (
-                    <RecentLogins
-                        onSelect={({ method }) => {
-                            if (!method || method === 'password') {
-                                passwordInputRef.current?.focus()
-                            }
-                        }}
-                    />
+                {/* Normally SAML replaces this row, but when the account has no password we need to
+                    show whatever it does have. */}
+                {!isCodeSent &&
+                    !isChooserShown &&
+                    !precheckResponse.sso_enforcement &&
+                    (!precheckResponse.saml_available || isPasswordLoginUnavailable) && (
+                        <SocialLoginButtons
+                            topDivider
+                            caption={isPasswordLoginUnavailable ? 'Log in with' : 'Or log in with'}
+                            captionLocation="top"
+                            restrictToProviders={restrictToProviders}
+                            // Once we know the account's methods, only offer a passkey if it actually has
+                            // one — otherwise this is the same dead button we're removing.
+                            showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
+                        />
+                    )}
+                {canReturnToRecentLogins && (
+                    <p className="mt-4 mb-0 text-sm text-center">
+                        <Link
+                            onClick={returnToRecentLogins}
+                            data-attr="login-back-to-recent-logins"
+                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
+                        >
+                            Back to recent logins
+                        </Link>
+                    </p>
                 )}
-                {showSocialLogin &&
-                    hasRecentLogins &&
-                    (isOtherLoginMethodsCollapsed ? (
-                        <p className="mt-4 mb-0 text-sm text-center">
-                            <Link
-                                onClick={showOtherLoginMethods}
-                                data-attr="login-other-methods"
-                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
-                            >
-                                Log in another way
-                            </Link>
-                        </p>
-                    ) : (
-                        socialLoginButtons
-                    ))}
             </AuthSceneCard>
         </AuthScene>
     )

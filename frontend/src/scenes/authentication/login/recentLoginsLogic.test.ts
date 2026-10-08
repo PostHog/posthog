@@ -25,11 +25,13 @@ describe('recentLoginsLogic', () => {
     const originalVendor = window.navigator.vendor
     let assignMock: jest.Mock
     let precheckResponse: Record<string, unknown>
+    let precheckStatus: number
 
     beforeEach(() => {
         Object.defineProperty(window.navigator, 'vendor', { value: WEBKIT_VENDOR, configurable: true }) // skip passkey auto-trigger
         precheckResponse = { saml_available: false }
-        useMocks({ post: { '/api/login/precheck': () => [200, precheckResponse] } })
+        precheckStatus = 200
+        useMocks({ post: { '/api/login/precheck': () => [precheckStatus, precheckResponse] } })
         initKeaTests()
         router.actions.push('/login')
         // initKeaTests loads a mock user, and userLogic records that user
@@ -73,10 +75,19 @@ describe('recentLoginsLogic', () => {
         expect(readRecentLogins()).toEqual([])
     })
 
-    function selectRow(method: LoginMethod): ReturnType<typeof loginLogic.build> {
+    function mountLogin(url: string, hasRows: boolean): ReturnType<typeof loginLogic.build> {
+        if (hasRows) {
+            record('user@example.com', 'password')
+        }
+        router.actions.push(url)
         const login = loginLogic()
         login.mount()
         recentLoginsLogic.mount()
+        return login
+    }
+
+    function selectRow(method: LoginMethod): ReturnType<typeof loginLogic.build> {
+        const login = mountLogin('/login', true)
         recentLoginsLogic.actions.selectRecentLogin({
             email: 'user@example.com',
             method,
@@ -85,43 +96,63 @@ describe('recentLoginsLogic', () => {
         return login
     }
 
-    it.each<[LoginMethod, string]>([
-        ['saml', '/login/saml/?email=user%40example.com&idp=posthog_custom'],
-        ['google-oauth2', '/login/google-oauth2/?email=user%40example.com'],
-    ])('sends a %s row to %s', (method, redirectUrl) => {
+    it.each<[LoginMethod, number, Record<string, unknown>, string]>([
+        ['saml', 200, { sso_enforcement: null }, '/login/saml/?email=user%40example.com&idp=posthog_custom'],
+        ['google-oauth2', 200, { sso_enforcement: 'saml' }, '/login/saml/?email=user%40example.com&idp=posthog_custom'],
+        ['google-oauth2', 500, {}, '/login/google-oauth2/?email=user%40example.com'],
+    ])('sends a %s row with a %s precheck of %j to %s', async (method, status, response, redirectUrl) => {
+        precheckStatus = status
+        precheckResponse = response
         const login = selectRow(method)
 
+        await expectLogic(recentLoginsLogic).toFinishAllListeners()
         expect(assignMock).toHaveBeenCalledWith(redirectUrl)
         expect(login.values.login.email).toEqual('')
+        expect(recentLoginsLogic.values.checkingEmail).toBeNull()
     })
 
-    it.each<LoginMethod>(['password', null])('fills the form for a %s row without leaving the page', async (method) => {
+    it.each<LoginMethod>(['password', null])('opens the form with the email for a %s row', async (method) => {
         const login = selectRow(method)
 
         await expectLogic(login).toDispatchActions([login.actionCreators.precheck({ email: 'user@example.com' })])
         expect(assignMock).not.toHaveBeenCalled()
         expect(login.values.login.email).toEqual('user@example.com')
+        expect(recentLoginsLogic.values.isChooserShown).toBe(false)
+        expect(recentLoginsLogic.values.isPasswordFocusRequested).toBe(true)
     })
 
-    it.each([
-        ['with recent logins', true, { hasRows: true, linkClicked: false, hasPassword: true }],
-        ['after the link click', false, { hasRows: true, linkClicked: true, hasPassword: true }],
-        ['for an account without a password', false, { hasRows: true, linkClicked: false, hasPassword: false }],
-        ['without recent logins', false, { hasRows: false, linkClicked: false, hasPassword: true }],
-    ])('other login methods %s are collapsed: %s', async (_, collapsed, { hasRows, linkClicked, hasPassword }) => {
-        if (hasRows) {
-            record('user@example.com', 'password')
-        }
-        precheckResponse = { saml_available: false, password_login_available: hasPassword }
-        const login = loginLogic()
-        login.mount()
-        recentLoginsLogic.mount()
-        login.actions.precheck({ email: 'user@example.com' })
-        await expectLogic(login).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
-        if (linkClicked) {
-            recentLoginsLogic.actions.showOtherLoginMethods()
-        }
+    it.each<[string, boolean, string, boolean, (login: ReturnType<typeof loginLogic.build>) => Promise<void> | void]>([
+        ['with recent logins', true, '/login', true, () => {}],
+        ['without recent logins', false, '/login', false, () => {}],
+        ['after "Use another account"', false, '/login', true, () => recentLoginsLogic.actions.selectAnotherAccount()],
+        [
+            'after "Back to recent logins"',
+            true,
+            '/login',
+            true,
+            () => {
+                recentLoginsLogic.actions.selectAnotherAccount()
+                recentLoginsLogic.actions.returnToRecentLogins()
+            },
+        ],
+        ['for an ?email= link', false, '/login?email=user%40example.com', true, () => {}],
+        ['for an ?error_code= link', false, '/login?error_code=google_sso_enforced', true, () => {}],
+        ['for an invite link', false, '/login?next=%2Fsignup%2Fabc', true, () => {}],
+        [
+            'for an account without a password',
+            false,
+            '/login',
+            true,
+            async (login) => {
+                precheckResponse = { saml_available: false, password_login_available: false }
+                login.actions.precheck({ email: 'user@example.com' })
+                await expectLogic(login).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+            },
+        ],
+    ])('the recent logins list %s is shown: %s', async (_, chooserShown, url, hasRows, act) => {
+        const login = mountLogin(url, hasRows)
+        await act(login)
 
-        expect(recentLoginsLogic.values.isOtherLoginMethodsCollapsed).toBe(collapsed)
+        expect(recentLoginsLogic.values.isChooserShown).toBe(chooserShown)
     })
 })
