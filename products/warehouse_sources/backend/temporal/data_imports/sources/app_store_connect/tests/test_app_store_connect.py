@@ -1423,11 +1423,6 @@ class TestAnalyticsSnapshotBackfill:
     def test_a_second_snapshot_request_never_triggers_another_create(
         self, _name: str, replacement_bodies: dict[str, dict[str, Any]]
     ) -> None:
-        # An expired snapshot next to a replacement must not create a third request, whichever
-        # state the replacement is in. A replacement that comes back fulfilled with no instances
-        # looks identical to the expiry that prompted it, so acting on it again would add a report
-        # request to the customer's account on every scheduled run, forever, and lengthen the
-        # per-run report listing with each one.
         payload = _gzip_csv("Date,Sessions\n2026-07-31,7\n")
         api = _analytics_api(
             instances=[_instance("I1", "2026-08-01")],

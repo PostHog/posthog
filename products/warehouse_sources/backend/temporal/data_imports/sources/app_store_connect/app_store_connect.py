@@ -1435,11 +1435,7 @@ def _resolve_snapshot_plan(
     if resolved_report_ids and not generating and len(snapshot_requests) == 1:
         # Fulfilled once, but the instances aged out before they were downloaded — and no other
         # snapshot request is mid-generation, so re-requesting won't pile requests up while a
-        # replacement is already on its way. Only the first replacement is asked for. A fulfilled
-        # report with no instances is also what a report the account has no data for looks like,
-        # and that state never resolves, so acting on it every scheduled run would add a report
-        # request to the customer's Apple account forever. A replacement that comes back the same
-        # way is the evidence that separates the two, and the recovery left is a resync.
+        # replacement is already on its way.
         if not _request_snapshot(session, token_provider, logger, config, app_id):
             return _SnapshotPlan(state="forbidden")
         logger.info(
