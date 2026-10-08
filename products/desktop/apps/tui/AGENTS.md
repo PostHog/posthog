@@ -5,7 +5,7 @@ A chat runs pi, or Claude Code on the user's own Claude plan, here or in the clo
 
 ## What it does
 
-- Sidebar: a Today row that opens the day's briefing in the main view (with its composer), a New chat row that gives the main view back, split workspaces drawn as trees, each followed by a gap, then an All tasks list that also holds the workspaces' tasks (their row there jumps to the pane), with run status dots, and keyboard or mouse selection.
+- Sidebar: a Today row that opens the day's briefing in the main view (with its composer), split workspaces drawn as trees, each followed by a gap, then an All tasks list headed by the main view's new chat while it has one, that also holds the workspaces' tasks (their row there jumps to the pane), with run status dots, and keyboard or mouse selection.
 - Search: a full-screen search over your tasks, each with its sidebar status and when it was last active.
 - Panes: tmux-like splits, nested splits, focus by key or click, and a header with where the chat runs, its repo, its PR and its status.
 - Cloud chats: transcripts stream from `CloudTaskEngine`, recent history preloads and older pages load on scroll up. The composer starts a run or continues one. A pane shows a new run's first message, the sandbox's setup steps as the backend reports them, and a failure reason. A reply to a stopped run brings the same run back.

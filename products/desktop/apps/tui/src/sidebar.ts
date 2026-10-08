@@ -2,7 +2,6 @@ import type { Task } from "@posthog/shared";
 import {
   focusPane,
   type LayoutState,
-  newChat,
   openTask,
   panes,
   showToday,
@@ -199,17 +198,14 @@ export function sidebarRows({
     };
   };
 
-  // Today and New chat come first: each names the main view when it shows that, and opens it there otherwise.
-  // Split workspaces follow, each followed by a gap. All tasks comes last: single tasks the page does not hold,
-  // then the whole list. A split task shows in both places; its row under All tasks jumps to its pane.
+  // Today comes first, naming the main view while it shows the briefing. Split workspaces follow, each followed by
+  // a gap. All tasks comes last: the main view's new chat while it has one, single tasks the page does not hold, then
+  // the whole list. A split task shows in both places; its row under All tasks jumps to its pane.
   const today: SidebarRow & { kind: "today" } = { kind: "today", paneId: null };
-  const newChatRow = taskRow(null, null, false) as SidebarRow & {
-    kind: "task";
-  };
+  let newChatPaneId: string | null = null;
   const rows: SidebarRow[] = [
     { kind: "heading", label: "Work" },
     today,
-    newChatRow,
     { kind: "gap" },
   ];
   const singlePaneOf = new Map<string, string>();
@@ -220,7 +216,7 @@ export function sidebarRows({
       const [pane] = workspacePanes;
       if (pane.taskId === null) {
         if (pane.today) today.paneId = pane.id;
-        else newChatRow.paneId = pane.id;
+        else newChatPaneId = pane.id;
       } else if (listed.has(pane.taskId))
         singlePaneOf.set(pane.taskId, pane.id);
       // Shown once the list has loaded, so loading never lists tasks by saved name alone.
@@ -244,7 +240,11 @@ export function sidebarRows({
     });
     rows.push({ kind: "gap" });
   });
-  rows.push({ kind: "section", label: "All tasks" }, ...unlisted);
+  rows.push(
+    { kind: "section", label: "All tasks" },
+    ...(newChatPaneId ? [taskRow(null, newChatPaneId, false)] : []),
+    ...unlisted,
+  );
 
   if (!signedIn) {
     rows.push({ kind: "signedOut" });
@@ -293,9 +293,7 @@ export function activateRow(
       return row.paneId ? focusPane(layout, row.paneId) : showToday(layout);
     case "task":
       if (row.paneId) return focusPane(layout, row.paneId);
-      return row.taskId
-        ? openTask(layout, row.taskId, row.title)
-        : newChat(layout);
+      return row.taskId ? openTask(layout, row.taskId, row.title) : layout;
     case "workspace": {
       const workspace = layout.workspaces.find((w) => w.id === row.workspaceId);
       return workspace ? focusPane(layout, workspace.focusedPaneId) : layout;
