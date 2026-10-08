@@ -2,7 +2,6 @@
 //! out, and its later messages wait until that run settles.
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -59,11 +58,27 @@ pub struct ReadySize {
     pub bytes: usize,
 }
 
+impl std::ops::AddAssign for ReadySize {
+    fn add_assign(&mut self, other: Self) {
+        self.messages += other.messages;
+        self.bytes += other.bytes;
+    }
+}
+
 pub struct ReadyRun {
     pub class: RequestClass,
     pub run: KeyRun,
     pub bytes: usize,
     pub first_arrival: Instant,
+}
+
+impl ReadyRun {
+    fn size(&self) -> ReadySize {
+        ReadySize {
+            messages: self.run.messages.len(),
+            bytes: self.bytes,
+        }
+    }
 }
 
 /// Every settle releases a claim the queues handed out, so this is a
@@ -79,6 +94,15 @@ struct Segment {
     queued_at: Instant,
     bytes: usize,
     messages: Vec<SerializedKafkaMessage>,
+}
+
+impl Segment {
+    fn size(&self) -> ReadySize {
+        ReadySize {
+            messages: self.messages.len(),
+            bytes: self.bytes,
+        }
+    }
 }
 
 struct Claim {
@@ -107,16 +131,22 @@ impl KeyState {
         if !self.is_ready() {
             return None;
         }
-        let class = self.queue.front()?.class;
-        let size = self
+        let front = self.queue.front()?;
+        Some((front.class, front.size()))
+    }
+
+    fn claim_front(&mut self) -> Segment {
+        let segment = self.queue.pop_front().expect("a ready key has messages");
+        // Pushes merge into the back segment, so the front one is the whole run.
+        debug_assert!(self
             .queue
-            .iter()
-            .take_while(|segment| segment.class == class)
-            .fold(ReadySize::default(), |size, segment| ReadySize {
-                messages: size.messages + segment.messages.len(),
-                bytes: size.bytes + segment.bytes,
-            });
-        Some((class, size))
+            .front()
+            .is_none_or(|next| next.class != segment.class));
+        self.claim = Some(Claim {
+            assignment_epoch: segment.class.assignment_epoch,
+            revoked: Vec::new(),
+        });
+        segment
     }
 }
 
@@ -223,9 +253,8 @@ impl KeyQueues {
         self.ready.iter().find_map(|key| {
             self.keys
                 .get(key)
-                .filter(|state| state.is_ready())
-                .and_then(|state| state.queue.front())
-                .map(|segment| segment.class)
+                .and_then(KeyState::ready_size)
+                .map(|(class, _)| class)
         })
     }
 
@@ -287,73 +316,62 @@ impl KeyQueues {
         }
     }
 
-    /// Claims ready runs of `class` in ready order until they hold
-    /// `max_messages` messages or `max_bytes` bytes. Ready keys of other
-    /// classes keep their place.
+    /// Claims ready runs of `class` in ready order until `full` holds for
+    /// their total size. Ready keys of other classes keep their place.
     pub fn take_runs(
         &mut self,
         class: RequestClass,
-        max_messages: Option<NonZeroUsize>,
-        max_bytes: Option<NonZeroUsize>,
+        full: impl Fn(ReadySize) -> bool,
     ) -> Vec<ReadyRun> {
-        let reached = |size: ReadySize| {
-            max_messages.is_some_and(|max| size.messages >= max.get())
-                || max_bytes.is_some_and(|max| size.bytes >= max.get())
-        };
         let mut taken = ReadySize::default();
         let mut runs = Vec::new();
         let mut skipped = Vec::new();
-        while !reached(taken) {
-            let Some(key) = self.ready.pop_front() else {
+        while !full(taken) {
+            let Some(key) = self.next_ready(class, &mut skipped) else {
                 break;
             };
-            let Some(state) = self.keys.get_mut(&key) else {
-                continue;
-            };
-            let Some((run_class, size)) = state.ready_size() else {
-                continue;
-            };
-            if run_class != class {
-                skipped.push(key);
-                continue;
-            }
-            let Segment {
-                queued_at: first_arrival,
-                mut messages,
-                ..
-            } = state.queue.pop_front().expect("a ready key has messages");
-            while state
-                .queue
-                .front()
-                .is_some_and(|segment| segment.class == class)
-            {
-                messages.extend(state.queue.pop_front().expect("checked").messages);
-            }
-            self.ready_sizes.replace(Some((class, size)), None);
-            debug_assert!(self.queued_messages >= size.messages);
-            self.queued_messages = self.queued_messages.saturating_sub(size.messages);
-            self.queued_bytes = self.queued_bytes.saturating_sub(size.bytes);
-            state.claim = Some(Claim {
-                assignment_epoch: class.assignment_epoch,
-                revoked: Vec::new(),
-            });
-            self.claimed_keys += 1;
-            taken.messages += size.messages;
-            taken.bytes += size.bytes;
-            runs.push(ReadyRun {
-                class,
-                run: KeyRun {
-                    routing_key: key,
-                    messages,
-                },
-                bytes: size.bytes,
-                first_arrival,
-            });
+            let run = self.claim(key);
+            taken += run.size();
+            runs.push(run);
         }
         for key in skipped.into_iter().rev() {
             self.ready.push_front(key);
         }
         runs
+    }
+
+    fn next_ready(&mut self, class: RequestClass, skipped: &mut Vec<Arc<str>>) -> Option<Arc<str>> {
+        while let Some(key) = self.ready.pop_front() {
+            match self.keys.get(&key).and_then(KeyState::ready_size) {
+                Some((next, _)) if next == class => return Some(key),
+                Some(_) => skipped.push(key),
+                None => {}
+            }
+        }
+        None
+    }
+
+    fn claim(&mut self, key: Arc<str>) -> ReadyRun {
+        let state = self
+            .keys
+            .get_mut(&key)
+            .expect("next_ready returns ready keys");
+        let segment = state.claim_front();
+        let size = segment.size();
+        self.ready_sizes.replace(Some((segment.class, size)), None);
+        debug_assert!(self.queued_messages >= size.messages);
+        self.queued_messages = self.queued_messages.saturating_sub(size.messages);
+        self.queued_bytes = self.queued_bytes.saturating_sub(size.bytes);
+        self.claimed_keys += 1;
+        ReadyRun {
+            class: segment.class,
+            bytes: size.bytes,
+            first_arrival: segment.queued_at,
+            run: KeyRun {
+                routing_key: key,
+                messages: segment.messages,
+            },
+        }
     }
 
     pub fn settle(
@@ -494,7 +512,7 @@ mod tests {
         queues.promote_due(now);
         let mut runs = Vec::new();
         while let Some(class) = queues.oldest_ready_class() {
-            runs.extend(queues.take_runs(class, None, None));
+            runs.extend(queues.take_runs(class, |_| false));
         }
         runs
     }
@@ -550,7 +568,7 @@ mod tests {
         }
 
         assert_eq!(
-            claimed(&queues.take_runs(FRESH, NonZeroUsize::new(1), None)),
+            claimed(&queues.take_runs(FRESH, |taken| taken.messages >= 1)),
             vec![("a", vec![1], false)]
         );
         assert_eq!(queues.claimed_keys(), 1);
@@ -852,7 +870,7 @@ mod tests {
         };
         assert_eq!(queues.ready_sizes(), &[(epoch(1), size(2))]);
 
-        queues.take_runs(epoch(1), None, None);
+        queues.take_runs(epoch(1), |_| false);
         assert!(!queues.has_ready(), "a's epoch-2 run waits for its claim");
 
         queues
@@ -874,7 +892,7 @@ mod tests {
             replay: false,
         };
         assert_eq!(
-            claimed(&queues.take_runs(older_epoch, None, None)),
+            claimed(&queues.take_runs(older_epoch, |_| false)),
             vec![("b", vec![2], false)]
         );
         assert_eq!(

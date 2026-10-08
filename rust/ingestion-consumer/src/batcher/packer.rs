@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use metrics::counter;
 
-use super::key_queues::KeyQueues;
+use super::key_queues::{KeyQueues, ReadySize};
 use super::request::{Request, RequestClass};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -17,9 +17,10 @@ pub struct PackTargets {
 }
 
 impl PackTargets {
-    fn reached(&self, events: usize, bytes: usize) -> bool {
-        self.events.is_some_and(|target| events >= target.get())
-            || self.bytes.is_some_and(|target| bytes >= target.get())
+    fn reached(&self, size: ReadySize) -> bool {
+        self.events
+            .is_some_and(|target| size.messages >= target.get())
+            || self.bytes.is_some_and(|target| size.bytes >= target.get())
     }
 }
 
@@ -97,7 +98,8 @@ impl Packer {
                 }
                 break;
             };
-            let runs = keys.take_runs(class, self.targets.events, self.targets.bytes);
+            let targets = self.targets;
+            let runs = keys.take_runs(class, |taken| targets.reached(taken));
             counter!("ingestion_consumer_batcher_pack_seals_total", "reason" => reason.as_str())
                 .increment(1);
             requests.push(Request::from_runs(class, runs));
@@ -111,7 +113,7 @@ impl Packer {
     fn full_class(&self, keys: &KeyQueues) -> Option<RequestClass> {
         keys.ready_sizes()
             .iter()
-            .find(|(_, size)| self.targets.reached(size.messages, size.bytes))
+            .find(|(_, size)| self.targets.reached(*size))
             .map(|(class, _)| *class)
     }
 }
