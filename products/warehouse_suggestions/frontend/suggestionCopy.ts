@@ -15,15 +15,15 @@ const SPOKEN_UNITS: [string, number][] = [
 const MAX_SPOKEN_UNITS = 2
 const SURFACE_LABELS: Record<string, string> = {
     mcp: 'MCP',
-    endpoint: 'endpoints',
-    max_ai: 'PostHog AI',
+    posthog_ai: 'PostHog AI',
+    desktop: 'desktop app',
+    endpoints: 'endpoints',
     dashboard: 'dashboards',
     insight: 'insights',
     sql_editor: 'SQL editor',
     notebook: 'notebooks',
     api: 'API',
-    product_ui: 'other pages',
-    warehouse: 'data warehouse',
+    app: 'other pages',
     unknown: 'other',
 }
 
