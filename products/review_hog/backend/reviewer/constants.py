@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from enum import StrEnum
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from posthog.dataclasses import frozen
 
@@ -14,6 +14,9 @@ from products.tasks.backend.facade.run_config import (
     get_models_for_runtime_adapter,
     get_reasoning_effort_error,
 )
+
+if TYPE_CHECKING:
+    from openai.types.shared import ReasoningEffort as OpenAIReasoningEffort
 
 logger = logging.getLogger(__name__)
 
@@ -402,7 +405,7 @@ DEDUP_REASONING_EFFORT = ReasoningEffort.XHIGH
 # Both dedup calls of a single-agent Flash turn run as one-shot OpenAI calls on these pins, whatever
 # the candidate count, instead of the pipeline's one-shot and sandbox dedup pins.
 FLASH_DEDUP_MODEL = "gpt-6-luna"
-FLASH_DEDUP_REASONING_EFFORT: Final = "medium"
+FLASH_DEDUP_REASONING_EFFORT: Final["OpenAIReasoningEffort"] = "medium"
 
 # SANDBOX
 # Per-child-workflow fan-out width: each Temporal fan-out (review / validate) bounds its concurrent
