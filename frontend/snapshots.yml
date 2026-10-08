@@ -257,9 +257,9 @@ snapshots:
     components-account-project-switcher--default--light:
         hash: v1.k794b7964.3f8d66ba04469cdf3e92d78483c58125e84531888eedde628469fde5e9e39a08.yksh25-a4q1Q-SmXQSq_IMBe7LNW0d2waKZw_tDj0_A
     components-account-project-switcher--with-data-freshness--dark:
-        hash: v1.k794b7964.33311041a0feedba12322f5c99b05b91db51c7f26793b837fce7c0666c5ef6f5.EPYhVoP42oDcDI9m3qloUEuvND0yjchkisUylND2Y-s
+        hash: v1.k794b7964.f1b9ca351d383473e34e0f594f25cc76a8cc191f0ad84b0194b892187e40a11e.cLpDnu880XVOmUsfPlBMwUts-BROr0gixbCInmzzLoA
     components-account-project-switcher--with-data-freshness--light:
-        hash: v1.k794b7964.825e1ea3745d1f526c46a4d7b365778ce2d3307933461503fca588f68916a3a9.6Bpu71WRfMaGy8N4X06ixaXTIYkj-4jg44eVXhgWkCw
+        hash: v1.k794b7964.0ef1f69d5988e8149e576ae618199608c744fc422fb8b5e4f9e1866ee211bd97.OrGLceJME3HtbwdZvHlz53K6HIZrv_14fQNSen8Eq8M
     components-action-step-description--step-variants--dark:
         hash: v1.k794b7964.19f9bee33652dbf2425e6df03ae732ed625840c249efc00589e0a1c0457b45d4.rVZ9Ek86XyAHV2eXwI_PDDTdDVv0QnEup4nMHmBjRKk
     components-action-step-description--step-variants--light:
@@ -2937,17 +2937,21 @@ snapshots:
     data-warehouse-sourcedestinationsbanner--flag-off--light:
         hash: v1.k794b7964.48c6b225dec1945c20d154de4f18c40be7b0c4f34c4b337878243bf984816e16.-vKIJKAdSQSKB0z_IMuQYV4bY1tzFQwajwGoiiB2TGg
     data-warehouse-warehousedestinationstable--default--dark:
-        hash: v1.k794b7964.6595934174706ea9708694fdfe156d472e769213d8c3d41c59c0678447d20710.ZjAq0JuruCScBFFZXbK-MCQwdIrHPU50EmeRJGlFupY
+        hash: v1.k794b7964.017bbc5ee3725d33a34aeead66418a2bce7ddbc407fbb28d05e25cc563103465.8DKub_NldGVl5fyy8aotD9-9UKyd-n_Tm8MJAOJwCsM
     data-warehouse-warehousedestinationstable--default--light:
-        hash: v1.k794b7964.e4e6ffca03e8fffe378d47e4f9bece5e921b9c99a0ddb7c30aa662d338167582.ESF2Tu44aY4ogil5cpqgE_9cfMUBW3X3M-3EWMJCzO0
+        hash: v1.k794b7964.5b778200ea1e4ccdd8554c7485b44e9554fc6e1b903cb53d01b1b58a8ee2db08.UU8_Pa4obTCmLTwR00QqQf24aya1d2aLleGE4gvuYvQ
     data-warehouse-warehousedestinationstable--deleting--dark:
-        hash: v1.k794b7964.6595934174706ea9708694fdfe156d472e769213d8c3d41c59c0678447d20710.Z7hljuwhioxZGTL5j2ZYqPOUwvnyMKe-Zw_7H1Y-X8w
+        hash: v1.k794b7964.017bbc5ee3725d33a34aeead66418a2bce7ddbc407fbb28d05e25cc563103465.Fc5axCHhIpX7JD8liItgEVHgXX75pUHQnHArANwtOWQ
     data-warehouse-warehousedestinationstable--deleting--light:
-        hash: v1.k794b7964.e4e6ffca03e8fffe378d47e4f9bece5e921b9c99a0ddb7c30aa662d338167582.VbzYRosphyXvhu6a3itT7YIlXKV1G8OUSe9pRLPntHE
+        hash: v1.k794b7964.5b778200ea1e4ccdd8554c7485b44e9554fc6e1b903cb53d01b1b58a8ee2db08.z7zNtVL3PEbQ2oi6VJghXfTmA1Q_2PKrA8JJIaMmgHU
     data-warehouse-warehousedestinationstable--empty--dark:
         hash: v1.k794b7964.9f1bf33e217cec7392aabfd90b22f1b90d23c376fe23fd3da26da296bd2a3bed.vr1sLFpw_5xjzCc0k0Y0O4rgmSzSJt1fymgjYnzfs1M
     data-warehouse-warehousedestinationstable--empty--light:
         hash: v1.k794b7964.fbf426283f3c515b35f5b1a1d83bbd80527692b393d1b415e83070e2fb525077.kx3a5CnOGxV-4p6vGDHRT1z1wGNOdijZQKO-vQKmovo
+    data-warehouse-warehousedestinationstable--linked--dark:
+        hash: v1.k794b7964.0cc9ddc5088e4b5c7f93e29834dcd9941ce455bc77fbbeba45c18febc02fd350.ffwG1Nl3GTV6onbBl7ekXJVw0zh7mKWIiYKjAATVTwQ
+    data-warehouse-warehousedestinationstable--linked--light:
+        hash: v1.k794b7964.59f3210d57cb7af2d6008e3e72f7bad5a25b4a9e4dcad90637121ee69236e686.441rO62-RtZnwj2nrXJt8UsD7LvAL57d_opCKdlKitE
     data-warehouse-warehousedestinationstable--loading--dark:
         hash: v1.k794b7964.6822b2603856380f898ef83e31d6bb3a179ef78e97dce603804d61e536e33543.jdFqJsjhfMQIUySpfQ_Dvwca7kdb_1jRS9j5U5OmIDY
     data-warehouse-warehousedestinationstable--loading--light:
@@ -9142,10 +9146,18 @@ snapshots:
         hash: v1.k794b7964.6dfdfa963cd528d998f0fec6cad0e97b3d999d584c03513cb02aaebfac0df7b1.p1pRi00v4RXJ6t8fXTtzfgLTTMnU0-efeu_N-yFdeL8
     scenes-app-businessknowledge-knowledgesourcenamecell--user-text--light:
         hash: v1.k794b7964.fba04716b8f344e21fa3bb2ec69e627bd9836ff2161986538ac2b562973b0edc.Xl-YJ8Poqz1nofU4nIyAfnM4GbZZ1YYtbM37mIzZ4w4
+    scenes-app-customer-analytics-account-detail--churned-and-ignored--dark:
+        hash: v1.k794b7964.9c6436aba85f3a114d4a5d7cec25c188131dfb1963f637f43fa6da973d34ae6c.ofneyf9YQP_TSCsA6KbPXDKXjqEC2xyeHfljSG957Bc
+    scenes-app-customer-analytics-account-detail--churned-and-ignored--light:
+        hash: v1.k794b7964.b059230a0cef776a2ae19b0f0b116fa8598c55f87dc21f5399f93e5e540b56f1.h9vvfcf-nEYaEVSpIv0Q8Oy01Bt4G4LojokghXJ2KgA
     scenes-app-customer-analytics-account-detail--default--dark:
         hash: v1.k794b7964.4a2c8fd1f6e62fadf3a11ec937086d0ab3e97c820541fe568789683d1517124d.TDZuljsH5Uy2rQ4pSkDrrazjA-SlyfGn52R4n9Ix4ac
     scenes-app-customer-analytics-account-detail--default--light:
         hash: v1.k794b7964.3dc16f08d0f41b7d7cf6b0e84392580fb009090e3bb7fc8ad9ff8c6a4b8b5c0e.hTnJ40qtoFvmt2g1j9aw7zm4mSIulD0osQgS2SjLKI4
+    scenes-app-customer-analytics-account-detail--edit-status-dates--dark:
+        hash: v1.k794b7964.621eb2ecd55d586073ed167a2f727bf3c923ce4057c8880040e0de639ef86991.jpgBJawhros6cJyc_L1cGLCO0JWNZ4HfKRky8hX_TiY
+    scenes-app-customer-analytics-account-detail--edit-status-dates--light:
+        hash: v1.k794b7964.220e9463403db401ceaf2c4c95be892641d7bda4488a31b192b3e789a5c59756.WAPP_4Co_p5fU9n7q8VRJCmmq4OIF53Q84teairAX2g
     scenes-app-customer-analytics-account-detail--external-id--dark:
         hash: v1.k794b7964.26a93f54f5fe293e17ee0f7315163a5b14c71e1e78e1bb8adc78f09ca04412f3.4gU8PFyIaVQrS8zOPX6Al_eLweeNi9XIAQ9hfr2pzag
     scenes-app-customer-analytics-account-detail--external-id--light:
@@ -12358,6 +12370,10 @@ snapshots:
         hash: v1.k794b7964.b33c74ffb5531cf86afcd5fa718200c83a0863450ca85a5c94d026264f81dc4c.awlyXScQ759I0zP7I5rQA8PEIunmftZStWnJ90q-tpw
     scenes-app-mcp-analytics-notification-types-table--nothing-set-up--light:
         hash: v1.k794b7964.d0cb2086e12994284977aa2d895e1214c0261d2505022d9df4aef0d15c6562c6.fKwM2EVKz22cubQjamzL4YJN2CWRvtdpvYIifmijXtA
+    scenes-app-mcp-analytics-nudge-toast--default--dark:
+        hash: v1.k794b7964.1cc84f683757e63495ffa98459b9556442c3535018f4379e0e522a6bda285f4c.6ZS_Z7xaUDE5IW381cySLT26W5FmcdMyCK9qASAfATM
+    scenes-app-mcp-analytics-nudge-toast--default--light:
+        hash: v1.k794b7964.e7ac9b38fc3e2fdfdd1189c833ff16264f3807a5489fc1be778aa06be372538c.K4vqorVUJpvkp2t_j2mlWWbQwYG5wbaxGAUvetJbcrQ
     scenes-app-mcp-analytics-tool-detail--tool-detail--medium--dark:
         hash: v1.k794b7964.e58395cb8a2827fc6dc6f95a7758eee7e72d0ee902de43db257a2e53012e1b0b.zQ8oyEjDSPkbT4yXup07uT_zvITN1oMbJzAJFp-7vIA
     scenes-app-mcp-analytics-tool-detail--tool-detail--medium--light:
@@ -13483,9 +13499,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-csp-reporting--light:
         hash: v1.k794b7964.1646f3afd63d8d505447395a2c6e6529787c1838844af526160ab244cc9405cd.BIByLvztkTxYaSlgHGzrSMYnnzPDd-rJyKNb1p-ZGQI
     scenes-app-settings-environment--settings-environment-customization--dark:
-        hash: v1.k794b7964.43427c713213ef54a7974e9154773de971095371967730fd4284f28e9f50fdd9.zfzmWmtyj8lqZUf69V_DZ4Wxneb2L1fTDzfaYgRlG6I
+        hash: v1.k794b7964.bfaec3b533d535c5f19ed8f34c57394e1d5602c6a58589d5f05044af96d0cc85.UMsAbDSvRpGmKfB8HeyyBNqPTWFaD65uBpqZXkfRFoE
     scenes-app-settings-environment--settings-environment-customization--light:
-        hash: v1.k794b7964.917bcb0e98aa9f7dc76d9f010795de14e49dcef2ad67b3dfec28812eb5e6aa58.O8dzZcasi_jquDu41JupNks1NekXlW9KkMUvaQUEMCo
+        hash: v1.k794b7964.33cae70ab7a30e894962ddc156abb5477b863a5ed481e4f7caead58328d9ad94.R0aFc7cPFVvwCEOAKtTU0P6QE24uYm61vgBRKCa5blY
     scenes-app-settings-environment--settings-environment-danger-zone--dark:
         hash: v1.k794b7964.84e3a358a899bc5f13f4685cf4db1bfaa95d59cf95ec4763fbedcbff55171693.7TJPAEgua5huT0mRCjjjEgAPqeoveWSs7k3Oyq-cnPQ
     scenes-app-settings-environment--settings-environment-danger-zone--light:
@@ -13639,9 +13655,9 @@ snapshots:
     scenes-app-settings-project--settings-project-autocapture--light:
         hash: v1.k794b7964.49c898ef4846589e3d6ad1425769953f59683ead6194e12f4cc7686eed47dfbf.IVt6KRNxxhx0sPjmvtM727zulmaaNCF0TywtrSugnpc
     scenes-app-settings-project--settings-project-customization--dark:
-        hash: v1.k794b7964.43427c713213ef54a7974e9154773de971095371967730fd4284f28e9f50fdd9.krft_gw63MoTXnerjHtrm7Yp7PjNukvCkK6-JHWer-Y
+        hash: v1.k794b7964.bfaec3b533d535c5f19ed8f34c57394e1d5602c6a58589d5f05044af96d0cc85.Oj8AJe1oDUPSQplY0AURSUcbhaTRXe0wVuTmy3l6rZQ
     scenes-app-settings-project--settings-project-customization--light:
-        hash: v1.k794b7964.917bcb0e98aa9f7dc76d9f010795de14e49dcef2ad67b3dfec28812eb5e6aa58.SrRfzNI1TGyi-FNh0UVJw4_0EQeLJg7gI_4zojiwMkI
+        hash: v1.k794b7964.33cae70ab7a30e894962ddc156abb5477b863a5ed481e4f7caead58328d9ad94.xl9_xZVRAOH3B_Gvff2_8P3xUANIrRK3R83Hyog17W4
     scenes-app-settings-project--settings-project-danger-zone--dark:
         hash: v1.k794b7964.50b22c572c7cb5f542900de9d60d5b1524be7c0087fa45e439ef9a1b920ddb8a.F34aW_MO5u9SwCivXSrG1MgLv6KwU0LFM0JnrDlFjms
     scenes-app-settings-project--settings-project-danger-zone--light:
@@ -14319,9 +14335,9 @@ snapshots:
     scenes-code-review--flag-disabled-for-staff--light:
         hash: v1.k794b7964.a71251e301794f51a0a9140ab1442fada37b1cc0fb54095a5eb19499e0cb1b34.3GhhJCqNfLkY2WdBTTn0LHJifxiCqyEJ7viaHaoCoGA
     scenes-code-review--internal-features--dark:
-        hash: v1.k794b7964.d858c76e0a9e192ff22e493eb595deea73fa5fcd4096e739deaba4a905ab9028.zFXCPVvOPmfMGhTzmMJC81aHm_dAVKlwylPy0rr5o-8
+        hash: v1.k794b7964.e84a6c63912f44c738093a89d3eea936cca9b21de73d762a882aae8e256dacbb.JJa8Hduge6S_I_pzqD0Zyd9EDIHiMVSwr5QWz3jYb5g
     scenes-code-review--internal-features--light:
-        hash: v1.k794b7964.1d1d0d56f8311996c569acb2b9988e812e9ec720dfd1f0f0a1ea9587a01d95de.u2B-LAFR8NT_fiFbawgJWF6CvWF5cvqUefpF1ABrYZo
+        hash: v1.k794b7964.622b0984cc4e8829103680ae3df80d6a239417ef9a1dfd71d720aa8cdd92b9ff.TRm24CiiDu0FsAlLjbh6U4upXsXq7WUumJUFnIp_0TI
     scenes-code-review--narrow--dark:
         hash: v1.k794b7964.35849f88cd28db56cb71ca5beaf1cf0c8817abf8714f4035113a75f1aa1a7def.w8ZUBwj8pOSIMaqaxNfLstA4-2GD7_oPox7tm2lrG5o
     scenes-code-review--narrow--light:

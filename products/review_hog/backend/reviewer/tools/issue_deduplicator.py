@@ -1,5 +1,10 @@
 import json
 import logging
+from collections.abc import Sequence
+
+from temporalio.exceptions import ApplicationError
+
+from posthog.dataclasses import frozen
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
@@ -7,15 +12,35 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_ONESHOT_MAX_FINDINGS,
     DEDUP_REASONING_EFFORT,
     DEDUP_RUNTIME_ADAPTER,
+    FLASH_DEDUP_MODEL,
+    FLASH_DEDUP_REASONING_EFFORT,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
-from products.review_hog.backend.reviewer.models.issue_deduplicator import IssueDeduplication
+from products.review_hog.backend.reviewer.models.issue_deduplicator import FlashIssueDeduplication, IssueDeduplication
 from products.review_hog.backend.reviewer.models.issues_review import Issue, LineRange
-from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_review
+from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_openai_review, run_oneshot_review
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
 from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
 
 logger = logging.getLogger(__name__)
+
+
+@frozen
+class Duplicate:
+    """A finding the dedup removed."""
+
+    issue: Issue
+    # The id of what it repeats: a finding of this call, an anchor, an earlier turn's issue key, or a PR
+    # comment id. Only the Flash dedup names it.
+    duplicate_of: str | None
+
+
+@frozen
+class DedupOutcome:
+    kept: list[Issue]
+    duplicates: list[Duplicate]
+    # The Flash LLM call failed, so the positional pre-filter alone decided the duplicates.
+    fell_back: bool = False
 
 
 def _ranges_overlap(a: list[LineRange], b: list[LineRange]) -> bool:
@@ -69,11 +94,42 @@ def _select_dedup_candidates(
     return candidates, unique
 
 
-def _prior_finding_payload(finding: ReviewIssueFinding, verdict: ValidationVerdict | None) -> dict:
-    """One prior finding as prompt data: its content plus how the earlier turn's validator ruled."""
+def _positional_duplicates(
+    candidates: list[Issue],
+    pr_comments: list[PRComment],
+    prior_findings: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
+) -> dict[str, str | None]:
+    """Without the LLM, a candidate on the lines of an earlier turn's finding or a PR comment repeats it.
+
+    Findings of this turn never drop each other here: two findings on the same lines can raise different
+    problems, and only the LLM can tell. Returns each dropped id mapped to the issue key or comment id.
+    """
+    earlier = [
+        (finding.issue_key, finding.file, line_range) for finding, _ in prior_findings for line_range in finding.lines
+    ]
+    for comment in pr_comments:
+        position = _comment_range(comment)
+        if position is not None:
+            earlier.append((str(comment.id), *position))
+    named: dict[str, str | None] = {}
+    for issue in candidates:
+        for reference, path, line_range in earlier:
+            if path == issue.file and _ranges_overlap(issue.lines, [line_range]):
+                named[issue.id] = reference
+                break
+    return named
+
+
+def _prior_finding_payload(finding: ReviewIssueFinding, verdict: ValidationVerdict | None, *, with_id: bool) -> dict:
+    """One prior finding as prompt data: its content plus how the earlier turn's validator ruled.
+
+    `with_id` adds the issue key as the finding's id, for a dedup that names what each duplicate repeats.
+    """
     payload = finding.model_dump(
         mode="json", include={"title", "file", "lines", "body", "suggestion", "priority", "source_perspective"}
     )
+    if with_id:
+        payload["id"] = finding.issue_key
     if verdict is None:
         payload["prior_ruling"] = "not validated (the earlier turn did not finish judging it)"
     elif verdict.is_valid:
@@ -83,6 +139,24 @@ def _prior_finding_payload(finding: ReviewIssueFinding, verdict: ValidationVerdi
     return payload
 
 
+_ANCHOR_RULING = "raised by this turn's main review, which publishes it in this turn"
+
+
+def _anchor_payload(anchor: Issue) -> dict:
+    """One finding this turn keeps, as prompt data shaped like a prior finding."""
+    return {
+        "id": anchor.id,
+        "title": anchor.title,
+        "file": anchor.file,
+        "lines": [line_range.model_dump(mode="json") for line_range in anchor.lines],
+        "body": anchor.issue,
+        "suggestion": anchor.suggestion,
+        "priority": anchor.priority.value,
+        "source_perspective": anchor.source_perspective,
+        "prior_ruling": _ANCHOR_RULING,
+    }
+
+
 DEDUP_SYSTEM_PROMPT = """You are a senior code reviewer removing duplicate findings from a pull-request review.
 A finding is a duplicate only when it raises the same concrete problem as another finding, a prior
 inline comment, or an earlier review turn's already-ruled-on finding — not merely because it shares a
@@ -90,6 +164,43 @@ file or line. Once findings address the same concrete problem, collapse them agg
 only the single most comprehensive one.
 
 IMPORTANT: Return ONLY valid JSON output that conforms to the provided schema."""
+
+
+async def _run_pipeline_dedup(
+    *,
+    team_id: int,
+    user_id: int,
+    prompt: str,
+    candidate_count: int,
+    branch: str,
+    repository: str,
+    workflow_id_prefix: str | None,
+) -> IssueDeduplication:
+    # Gate on the candidates actually sent to the LLM — `unique` issues are already excluded from
+    # the payload, so sizing by the pre-filter total would spin up a sandbox for a tiny dedup.
+    if DEDUP_ONESHOT_MAX_FINDINGS and candidate_count <= DEDUP_ONESHOT_MAX_FINDINGS:
+        return await run_oneshot_review(
+            team_id=team_id,
+            user_id=user_id,
+            prompt=prompt,
+            system_prompt=DEDUP_SYSTEM_PROMPT,
+            model_to_validate=IssueDeduplication,
+            step_name="dedup",
+        )
+    return await run_sandbox_review(
+        team_id=team_id,
+        user_id=user_id,
+        repository=repository,
+        branch=branch,
+        prompt=prompt,
+        system_prompt=DEDUP_SYSTEM_PROMPT,
+        model_to_validate=IssueDeduplication,
+        step_name="dedup",
+        workflow_id_prefix=workflow_id_prefix,
+        runtime_adapter=DEDUP_RUNTIME_ADAPTER,
+        model=DEDUP_MODEL,
+        reasoning_effort=DEDUP_REASONING_EFFORT,
+    )
 
 
 async def deduplicate_issues(
@@ -103,79 +214,119 @@ async def deduplicate_issues(
     branch: str,
     repository: str,
     workflow_id_prefix: str | None = None,
-) -> list[Issue]:
-    """Deduplicate the in-scope issues and return the survivors (the canonical post-dedup set).
+    anchors: Sequence[Issue] = (),
+    for_flash: bool = False,
+    fall_back_on_any_error: bool = False,
+) -> DedupOutcome:
+    """Deduplicate the in-scope issues into the survivors (the canonical post-dedup set) and the duplicates.
 
-    A deterministic positional pre-filter keeps positionally-isolated findings without an LLM call;
-    only file+line colliders (vs another finding, any prior inline comment, or an earlier turn's
-    finding) reach the single LLM dedupe call. That call drops findings a prior inline comment
+    For the pipeline, a deterministic positional pre-filter keeps positionally-isolated findings without
+    an LLM call; only file+line colliders (vs another finding, any prior inline comment, or an earlier
+    turn's finding) reach the single LLM dedupe call. A Flash call sends every finding, because a lens
+    finding often states a main finding's root cause on other lines or in another file, and a missed
+    duplicate there can take a real finding's slot under the cap. That call drops findings a prior inline comment
     already raised — from any reviewer, bot or human, ReviewHog's own included — and findings the
     previous turn already found and ruled on (`prior_findings`, each with its validator verdict),
     so a still-present dismissed/below-threshold issue doesn't burn another validation turn. The
     dedupe prompt is pure text (no code context), so within the one-shot gate that call is a direct
     gateway call; only an over-limit finding set falls back to the sandbox.
+
+    `anchors` are findings this turn keeps whatever the LLM answers. They count as prior coverage, so
+    an issue that restates one is dropped, and they are never dropped or returned themselves.
+    `for_flash` runs the LLM call on the Flash dedup pins instead of the pipeline's, and asks it to name
+    what each duplicate repeats (`Duplicate.duplicate_of`). A Flash call that fails non-retryably, or
+    fails at all when `fall_back_on_any_error` says no retry follows, falls back to the positional
+    pre-filter alone (`_positional_duplicates`), because the review sessions already ran and a dedup
+    failure must not cost the turn.
     """
     if not issues:
         logger.info("No issues found to deduplicate.")
-        return []
+        return DedupOutcome(kept=[], duplicates=[])
 
-    prior_ranges = [pos for c in pr_comments if (pos := _comment_range(c)) is not None]
-    prior_ranges += [(f.file, lr) for f, _ in prior_findings for lr in f.lines]
     if pr_comments:
         authors = sorted({c.user for c in pr_comments})
         logger.info(f"Deduping against {len(pr_comments)} prior inline comment(s) from authors: {authors}")
     if prior_findings:
         logger.info(f"Deduping against {len(prior_findings)} prior-turn finding(s)")
-    candidates, unique = _select_dedup_candidates(issues, prior_ranges)
+    candidates: list[Issue] = issues
+    unique: list[Issue] = []
+    if not for_flash:
+        prior_ranges = [pos for c in pr_comments if (pos := _comment_range(c)) is not None]
+        prior_ranges += [(f.file, lr) for f, _ in prior_findings for lr in f.lines]
+        prior_ranges += [(anchor.file, lr) for anchor in anchors for lr in anchor.lines]
+        candidates, unique = _select_dedup_candidates(issues, prior_ranges)
     logger.info(
-        f"Deduplication: {len(candidates)} positional candidate(s); "
+        f"Deduplication: {len(candidates)} candidate(s); "
         f"{len(unique)} issue(s) kept without an LLM call (no positional overlap)"
     )
     if not candidates:
         logger.info("No positional duplicate candidates; kept all issues")
-        return issues
+        return DedupOutcome(kept=issues, duplicates=[])
 
     template, schema = load_template_and_schema("issue_deduplicator")
     prompt = template.render(
         CLAUDE_CODE_CONTEXT="",  # No specific code context needed for deduplication
         PR_CONTEXT=json.dumps(pr_metadata.model_dump(mode="json"), indent=2),
         PRIOR_COMMENTS_JSON=json.dumps([c.model_dump(mode="json") for c in pr_comments], indent=2),
-        PRIOR_FINDINGS_JSON=json.dumps([_prior_finding_payload(f, v) for f, v in prior_findings], indent=2),
+        PRIOR_FINDINGS_JSON=json.dumps(
+            [_prior_finding_payload(f, v, with_id=for_flash) for f, v in prior_findings]
+            + [_anchor_payload(a) for a in anchors],
+            indent=2,
+        ),
         ISSUES_JSON=json.dumps([issue.model_dump(mode="json") for issue in candidates], indent=2),
-        DEDUPLICATION_SCHEMA=schema.strip(),
+        DEDUPLICATION_SCHEMA=(
+            json.dumps(FlashIssueDeduplication.model_json_schema(), indent=2) if for_flash else schema.strip()
+        ),
+        NAMES_DUPLICATE_OF=for_flash,
     )
 
-    # Gate on the candidates actually sent to the LLM — `unique` issues are already excluded from
-    # the payload, so sizing by the pre-filter total would spin up a sandbox for a tiny dedup.
-    if DEDUP_ONESHOT_MAX_FINDINGS and len(candidates) <= DEDUP_ONESHOT_MAX_FINDINGS:
-        deduplication_result = await run_oneshot_review(
-            team_id=team_id,
-            user_id=user_id,
-            prompt=prompt,
-            system_prompt=DEDUP_SYSTEM_PROMPT,
-            model_to_validate=IssueDeduplication,
-            step_name="dedup",
-        )
+    # Each removed id, mapped to what it repeats when the dedup names it.
+    named_duplicates: dict[str, str | None]
+    fell_back = False
+    if for_flash:
+        try:
+            flash_result = await run_oneshot_openai_review(
+                team_id=team_id,
+                user_id=user_id,
+                prompt=prompt,
+                system_prompt=DEDUP_SYSTEM_PROMPT,
+                model_to_validate=FlashIssueDeduplication,
+                step_name="dedup",
+                model=FLASH_DEDUP_MODEL,
+                reasoning_effort=FLASH_DEDUP_REASONING_EFFORT,
+            )
+        except Exception as error:
+            retryable = not (isinstance(error, ApplicationError) and error.non_retryable)
+            if retryable and not fall_back_on_any_error:
+                raise
+            logger.exception("Flash dedup call failed; falling back to the positional pre-filter alone")
+            named_duplicates = _positional_duplicates(candidates, pr_comments, prior_findings)
+            fell_back = True
+        else:
+            named_duplicates = {dup.id: dup.duplicate_of for dup in flash_result.duplicates}
     else:
-        deduplication_result = await run_sandbox_review(
+        deduplication_result = await _run_pipeline_dedup(
             team_id=team_id,
             user_id=user_id,
-            repository=repository,
-            branch=branch,
             prompt=prompt,
-            system_prompt=DEDUP_SYSTEM_PROMPT,
-            model_to_validate=IssueDeduplication,
-            step_name="dedup",
+            candidate_count=len(candidates),
+            branch=branch,
+            repository=repository,
             workflow_id_prefix=workflow_id_prefix,
-            runtime_adapter=DEDUP_RUNTIME_ADAPTER,
-            model=DEDUP_MODEL,
-            reasoning_effort=DEDUP_REASONING_EFFORT,
         )
+        named_duplicates = {dup.id: None for dup in deduplication_result.duplicates}
     # `unique` issues always survive; only positional candidates can be dropped by the LLM.
-    duplicate_ids = {dup.id for dup in deduplication_result.duplicates}
-    deduplicated_issues = unique + [issue for issue in candidates if issue.id not in duplicate_ids]
+    deduplicated_issues = unique + [issue for issue in candidates if issue.id not in named_duplicates]
     logger.info(
         f"Deduplication completed: {len(issues)} -> {len(deduplicated_issues)} issues "
         f"({len(issues) - len(deduplicated_issues)} issues removed)"
     )
-    return deduplicated_issues
+    return DedupOutcome(
+        kept=deduplicated_issues,
+        duplicates=[
+            Duplicate(issue=issue, duplicate_of=named_duplicates[issue.id])
+            for issue in candidates
+            if issue.id in named_duplicates
+        ],
+        fell_back=fell_back,
+    )
