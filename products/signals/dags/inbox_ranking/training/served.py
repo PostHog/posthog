@@ -22,7 +22,7 @@ Caveats:
 
 import json
 import datetime
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Mapping
 from typing import Any
 
 import numpy as np
@@ -156,6 +156,7 @@ def served_score_rows(
     for (report_id, _), (scored_at, properties) in earliest.items():
         created_at = pd.Timestamp(pool.at[report_id, "report_created_at"])
         readable = properties.get("readable_heads")
+        role = event_model_role(properties)
         for head_name in sorted(HEADS_BY_NAME):
             score = properties.get(f"p_{head_name}")
             if score is None:
@@ -170,7 +171,7 @@ def served_score_rows(
                     "pool": POOL_NAME,
                     "model_name": properties.get("model_name"),
                     "model_version": properties.get("model_version"),
-                    "model_role": event_model_role(properties),
+                    "model_role": role,
                     # The event does not carry the feature contract version.
                     "feature_schema_version": None,
                     "head": head_name,
@@ -198,35 +199,24 @@ def _utc(value: pd.Timestamp) -> pd.Timestamp:
 def served_metadata(pool: pd.DataFrame, scores: pd.DataFrame) -> dict[str, dagster.MetadataValue]:
     """Coverage of the pool by the served model and by each model key, rows per model version, and
     the heads whose model saved no threshold."""
-    served = scores[scores["model_role"] == SERVED_ROLE] if not scores.empty else scores
-    covered = served["report_id"].nunique() if not served.empty else 0
-    versions: Sequence[tuple[Any, int]] = (
-        [(key, len(group)) for key, group in scores.groupby(["model_name", "model_version"])]
-        if not scores.empty
-        else []
-    )
-    coverage_by_model: Sequence[tuple[Any, int]] = (
-        [
-            (key, group["report_id"].nunique())
-            for key, group in scores.groupby(["model_name", "model_version", "model_role"])
-        ]
-        if not scores.empty
-        else []
-    )
-    missing = scores[scores["classification_threshold"].isna()] if not scores.empty else scores
+    covered = scores.loc[scores["model_role"] == SERVED_ROLE, "report_id"].nunique()
+    versions = scores.groupby(["model_name", "model_version"]).size()
+    coverage_by_model = scores.groupby(["model_name", "model_version", "model_role"])["report_id"].nunique()
+    missing = scores.loc[scores["classification_threshold"].isna(), "head"]
     return {
         "unseen_pool": dagster.MetadataValue.int(len(pool)),
         "served_reports": dagster.MetadataValue.int(int(covered)),
         "served_pool_coverage": dagster.MetadataValue.float(covered / len(pool) if len(pool) else 0.0),
         "pool_coverage_by_model": dagster.MetadataValue.json(
-            {f"{name}@{version}/{role}": int(count) / len(pool) for (name, version, role), count in coverage_by_model}
+            {
+                f"{name}@{version}/{role}": int(count) / len(pool)
+                for (name, version, role), count in coverage_by_model.items()
+            }
         ),
         "rows_by_model_version": dagster.MetadataValue.json(
-            {f"{name}@{version}": int(count) for (name, version), count in versions}
+            {f"{name}@{version}": int(count) for (name, version), count in versions.items()}
         ),
-        "heads_without_threshold": dagster.MetadataValue.json(
-            sorted(missing["head"].unique().tolist()) if not missing.empty else []
-        ),
+        "heads_without_threshold": dagster.MetadataValue.json(sorted(missing.unique().tolist())),
     }
 
 

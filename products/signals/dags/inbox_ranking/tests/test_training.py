@@ -24,7 +24,6 @@ from products.signals.backend.ranking.features import (
     EMBEDDING_COLUMN,
     EMBEDDING_DIMENSIONS,
     EMBEDDING_INSERTED_AT_COLUMN,
-    FEATURE_SETS,
     NO_EXTRAS,
     REPORT_EMBEDDINGS_EXTRA,
     REPORT_EMBEDDINGS_FEATURE_SET,
@@ -183,14 +182,6 @@ class _StateFeatureSet(FeatureSet):
 # A cheap set with no side input, for the label, grain, consent and cap logic every set shares.
 STATE_FEATURE_SET = _StateFeatureSet()
 STATE_MODEL_NAME = "state_xgb"
-
-
-@pytest.fixture
-def register_state_set(monkeypatch):
-    monkeypatch.setattr(
-        "products.signals.backend.ranking.features.FEATURE_SETS",
-        {**FEATURE_SETS, STATE_FEATURE_SET.name: STATE_FEATURE_SET},
-    )
 
 
 EMBEDDING_SET_IDS = [feature_set.name for feature_set in EMBEDDING_FEATURE_SETS]
