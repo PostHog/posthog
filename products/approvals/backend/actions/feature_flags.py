@@ -13,7 +13,7 @@ from posthog.exceptions import Conflict
 
 from products.approvals.backend.actions.base import BaseAction
 from products.approvals.backend.exceptions import ApplyFailed, PreconditionFailed
-from products.approvals.backend.ownership import OWNER_KIND_UNOWNED, owner_kind_changed
+from products.approvals.backend.ownership import OWNER_KIND_UNOWNED, owner_in_scope, owner_kind_changed
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, flag_version_conflict_message
 from products.feature_flags.backend.api.filters_schema import FEATURE_FLAG_OPERATOR_ALIASES
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -245,6 +245,20 @@ def _cached_owner_kind(flag: FeatureFlag) -> Optional[str]:
     return getattr(flag, _OWNER_KIND_ATTR)
 
 
+def _in_family_scope(flag: Optional[FeatureFlag], owner_scope: Optional[str], team) -> bool:
+    """Whether this action's family governs this flag, given which product owns it.
+
+    A create has no flag yet and so no owner, which leaves it with the unowned family. That is not
+    a hole: the flag a product mints is unowned for the instant it is written, because the row that
+    will own it does not exist yet.
+    """
+    return owner_in_scope(
+        owner_scope,
+        team.organization if team is not None else None,
+        lambda: _cached_owner_kind(flag) if flag is not None else None,
+    )
+
+
 def _comparable(value: Any) -> str:
     """Encode a release condition value so that values flag evaluation tells apart compare unequal.
 
@@ -376,6 +390,10 @@ class FeatureFlagActionBase(BaseAction):
     endpoint_serializer_class = FeatureFlagSerializer
     intent_fields = ["active"]
 
+    # Which product's flags this family governs, or None for the flags no product owns.
+    # `owner_in_scope` reads it; an owner-scoped subclass sets it.
+    owner_scope: Optional[str] = None
+
     # Subclasses define the target state
     target_active_state: bool
 
@@ -465,7 +483,7 @@ class FeatureFlagActionBase(BaseAction):
         if not team:
             return False
 
-        return True
+        return _in_family_scope(flag, cls.owner_scope, team)
 
     @classmethod
     def extract_intent(cls, request, view, *args, **kwargs) -> dict[str, Any]:
@@ -618,6 +636,9 @@ class UpdateFeatureFlagAction(BaseAction):
     description = "Change feature flag release conditions or rollout"
     resource_type = "feature_flag"
     endpoint_serializer_class = FeatureFlagSerializer
+
+    # Which product's flags this family governs, or None for the flags no product owns.
+    owner_scope: Optional[str] = None
 
     GATEABLE_FIELDS: dict[str, dict[str, str]] = {
         "rollout_percentage": {
@@ -773,7 +794,7 @@ class UpdateFeatureFlagAction(BaseAction):
         if not team:
             return False
 
-        return True
+        return _in_family_scope(flag, cls.owner_scope, team)
 
     @classmethod
     def extract_intent(cls, request, view, *args, **kwargs) -> dict[str, Any]:

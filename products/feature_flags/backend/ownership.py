@@ -1,4 +1,7 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, cast
+
+from django.db.models import Case, CharField, Count, Exists, Model, OuterRef, QuerySet, Value, When
+from django.db.models.fields.reverse_related import ForeignObjectRel
 
 from rest_framework import serializers
 
@@ -98,3 +101,42 @@ def assert_flag_available_for(flag: "FeatureFlag", *, product: str) -> None:
             f"The feature flag {flag.key} already belongs to {_OWNER_LABELS[owner]}. "
             f"Pick a different flag, or edit this one where it is already used."
         )
+
+
+def _owning_conditions(model: type[Model]) -> list[tuple[str, Exists]]:
+    """One EXISTS per owning relation, in the order `flag_owner_kind` checks them.
+
+    Built from `_OWNING_ACCESSORS` rather than written out, so a relation cannot be classified in
+    one place and missed in the other. The manager matters for the same reason it does there: an
+    archived product tour still holds its flag.
+    """
+    relations = {
+        relation.get_accessor_name(): relation
+        for relation in model._meta.get_fields()
+        if isinstance(relation, ForeignObjectRel)
+    }
+    conditions = []
+    for accessor, kind, manager in _OWNING_ACCESSORS:
+        relation = relations[accessor]
+        # Every accessor in `_OWNING_ACCESSORS` names a concrete reverse relation, so the related
+        # model is a model class rather than the "self" sentinel the field type allows.
+        related_model = cast(type[Model], relation.related_model)
+        objects = getattr(related_model, manager) if manager else related_model._default_manager
+        conditions.append((kind, Exists(objects.filter(**{relation.field.name: OuterRef("pk")}))))
+    return conditions
+
+
+def owner_kind_counts(flags: "QuerySet[FeatureFlag]") -> dict[Optional[str], int]:
+    """Count the flags in a queryset by the product that owns each one.
+
+    The same classification and the same precedence as `flag_owner_kind`, as one query, because
+    the populations worth counting are too large to classify row by row. A flag no product owns
+    counts under None, exactly as that function reports it.
+    """
+    whens = [When(condition, then=Value(kind)) for kind, condition in _owning_conditions(flags.model)]
+    rows = (
+        flags.annotate(owner_kind=Case(*whens, default=Value(None, output_field=CharField())))
+        .values("owner_kind")
+        .annotate(total=Count("id"))
+    )
+    return {row["owner_kind"]: row["total"] for row in rows}

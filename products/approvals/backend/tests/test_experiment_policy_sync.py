@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.db import connection
 
@@ -113,3 +114,63 @@ class TestSyncExperimentPolicies(BaseTest):
         assert not ApprovalPolicy.objects.filter(action_key="experiment.launch").exists()
         sync_experiment_policies()
         assert self._mirror("experiment.launch", None)
+
+
+class TestSyncLeavesRolledOutOrganizationsAlone(BaseTest):
+    """An organization that evaluates policies by flag owner owns its experiment policies.
+
+    The sync must not touch them after that point. Overwriting one would silently revert an edit
+    the organization just gained the right to make, and the orphan sweep would delete an
+    experiment policy it created, both without anything failing.
+    """
+
+    def _policy(self, action_key: str, **overrides) -> ApprovalPolicy:
+        return ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key=action_key,
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+            **overrides,
+        )
+
+    def _rolled_out(self):
+        return patch("products.approvals.backend.experiment_policy_sync.scope_by_owner_enabled", return_value=True)
+
+    def test_does_not_overwrite_an_edited_experiment_policy(self) -> None:
+        self._policy("feature_flag.update", approver_config={"quorum": 1, "users": [self.user.id]})
+        edited = self._policy("experiment.update", approver_config={"quorum": 3, "users": [self.user.id]})
+
+        with self._rolled_out():
+            sync_experiment_policies()
+
+        edited.refresh_from_db()
+        assert edited.approver_config["quorum"] == 3
+
+    def test_does_not_delete_an_experiment_policy_with_no_flag_policy(self) -> None:
+        own = self._policy("experiment.launch")
+
+        with self._rolled_out():
+            sync_experiment_policies()
+
+        assert ApprovalPolicy.objects.filter(id=own.id).exists()
+
+    def test_does_not_create_a_mirror(self) -> None:
+        self._policy("feature_flag.enable")
+
+        with self._rolled_out():
+            sync_experiment_policies()
+
+        assert not ApprovalPolicy.objects.filter(action_key="experiment.launch").exists()
+
+    def test_still_syncs_an_organization_that_is_not_rolled_out(self) -> None:
+        """The skip must be per organization, or one rollout would freeze everybody's mirrors."""
+        self._policy("feature_flag.enable")
+
+        with patch(
+            "products.approvals.backend.experiment_policy_sync.scope_by_owner_enabled",
+            side_effect=lambda organization: organization.id != self.organization.id,
+        ):
+            sync_experiment_policies()
+
+        assert ApprovalPolicy.objects.filter(organization=self.organization, action_key="experiment.launch").exists()
