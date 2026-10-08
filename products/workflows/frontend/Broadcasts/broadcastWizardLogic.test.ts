@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
@@ -303,6 +304,28 @@ describe('broadcastWizardLogic', () => {
 
         expect(patchedSubjects).toEqual(['Typed before Continue'])
         expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+    })
+
+    it('saves an email edit still waiting on its autosave before opening the workflow editor', async () => {
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('content')
+        releaseCreate()
+        await expectLogic(logic).toDispatchActions(['draftAutosaved', 'showSavedDraftUrl'])
+
+        logic.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, subject: 'Typed before the handoff' })
+        const capture = jest.spyOn(posthog, 'capture')
+        await expectLogic(logic, () => {
+            logic.actions.openInWorkflowEditorConfirmed()
+        })
+            .toDispatchActions(['saveBroadcastFinished'])
+            .toFinishAllListeners()
+
+        expect(patchedSubjects.at(-1)).toEqual('Typed before the handoff')
+        expect(router.values.location.pathname).toContain('/workflows/broadcast-1/workflow')
+        expect(capture).toHaveBeenCalledWith('broadcast opened in workflow editor', {
+            broadcast_id: 'broadcast-1',
+            step: 'content',
+        })
     })
 
     it('keeps an email edit made while Continue is saving and moves to the draft URL after it saves', async () => {
