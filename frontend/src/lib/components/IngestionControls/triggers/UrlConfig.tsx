@@ -93,7 +93,7 @@ export function UrlConfig({
                     <LemonInput
                         value={checkUrl}
                         onChange={setCheckUrl}
-                        placeholder="Full URL, as the browser sees it (e.g., https://example.com/checkout?step=2)"
+                        placeholder="e.g., https://example.com/checkout?step=2"
                         data-attr="url-check-input"
                         className="mb-2"
                     />
@@ -103,8 +103,8 @@ export function UrlConfig({
                                 <span className="text-success">✓ This URL matches at least one pattern</span>
                             ) : (
                                 <span className="text-danger">
-                                    ✗ This URL doesn't match any patterns. Patterns are tested against the full URL, so
-                                    a path-only pattern needs a leading <code className="inline">.*</code>
+                                    ✗ This URL doesn't match any patterns. Patterns match the full URL, so a path on its
+                                    own never matches.
                                 </span>
                             )}
                         </div>
@@ -271,18 +271,16 @@ function UrlConfigForm({
         >
             <div className="flex flex-col gap-2 w-full">
                 <LemonBanner type="info" className="text-sm">
-                    Patterns are tested against the full URL, scheme and host included, and are wrapped in{' '}
-                    <code className="inline">^</code> and <code className="inline">$</code> when added. So{' '}
-                    <code className="inline">https://example.com/</code> only matches the homepage, and a path on its
-                    own like <code className="inline">/checkout/.*</code> never matches. Start a path pattern with{' '}
-                    <code className="inline">.*</code>, or write the full URL.
+                    Patterns are wrapped in <code className="inline">^</code> and <code className="inline">$</code> and
+                    matched against the full URL, so a path on its own never matches. Write the full URL, e.g.{' '}
+                    <code className="inline">https://example.com/checkout.*</code>
                 </LemonBanner>
                 <LemonLabel className="w-full">
                     Matching regex:
                     <LemonField name="url" className="flex-1">
                         <LemonInput
                             autoFocus
-                            placeholder="e.g., .*/checkout/.*, ^https://example.com/page$"
+                            placeholder="e.g., https://example.com/checkout.*, ^https://example.com/page$"
                             data-attr="url-input"
                         />
                     </LemonField>

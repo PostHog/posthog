@@ -436,12 +436,10 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                         {isAddingUrl && (
                             <div className="border rounded p-3 bg-bg-3000 mb-2">
                                 <LemonBanner type="info" className="text-sm mb-2">
-                                    Patterns are tested against the full URL, scheme and host included, and are wrapped
-                                    in <code className="inline">^</code> and <code className="inline">$</code> when
-                                    added. So <code className="inline">https://example.com/</code> only matches the
-                                    homepage, and a path on its own like <code className="inline">/checkout/.*</code>{' '}
-                                    never matches. Start a path pattern with <code className="inline">.*</code>, or
-                                    write the full URL.
+                                    Patterns are wrapped in <code className="inline">^</code> and{' '}
+                                    <code className="inline">$</code> and matched against the full URL, so a path on its
+                                    own never matches. Write the full URL, e.g.{' '}
+                                    <code className="inline">https://example.com/checkout.*</code>
                                 </LemonBanner>
                                 <LemonLabel>Matching regex:</LemonLabel>
                                 <div className="flex gap-2 mt-1">
@@ -449,7 +447,7 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                         value={newUrl}
                                         onChange={setNewUrl}
                                         onPressEnter={() => addUrl(newUrl)}
-                                        placeholder="e.g., .*/checkout/.*, ^https://example.com/page$"
+                                        placeholder="e.g., https://example.com/checkout.*, ^https://example.com/page$"
                                         fullWidth
                                         autoFocus
                                     />
@@ -468,7 +466,7 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                         <LemonInput
                                             value={testUrl}
                                             onChange={setTestUrl}
-                                            placeholder="Full URL, as the browser sees it (e.g., https://example.com/checkout?step=2)"
+                                            placeholder="e.g., https://example.com/checkout?step=2"
                                             fullWidth
                                             size="small"
                                         />
@@ -485,9 +483,8 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                                     <span className="text-success">Matches at least one pattern</span>
                                                 ) : (
                                                     <span className="text-danger">
-                                                        Doesn't match any patterns. Patterns are tested against the full
-                                                        URL, so a path-only pattern needs a leading{' '}
-                                                        <code className="inline">.*</code>
+                                                        Doesn't match any patterns. Patterns match the full URL, so a
+                                                        path on its own never matches.
                                                     </span>
                                                 )}
                                             </div>
