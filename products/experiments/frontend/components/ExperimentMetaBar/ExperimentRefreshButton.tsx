@@ -5,6 +5,7 @@ import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { experimentLogic, previousRefreshAnalytics } from 'scenes/experiments/experimentLogic'
@@ -70,6 +71,7 @@ function RecalculationRefreshButton({ experiment }: { experiment: Experiment }):
     const { currentRefresh } = useValues(experimentLogic)
     const { reportExperimentMetricsRefreshed } = useActions(experimentLogic)
     const { refreshExperimentResults } = useAsyncActions(experimentLogic)
+    const rateLimitEnabled = useFeatureFlag('EXPERIMENTS_RECALCULATION_RATE_LIMIT')
 
     return (
         <RefreshButton
@@ -78,7 +80,7 @@ function RecalculationRefreshButton({ experiment }: { experiment: Experiment }):
             progress={recalculationProgress}
             queuedHint={queuedRerun ? 'Changes apply after the current recalculation finishes' : undefined}
             blockedReason={
-                isManualRefreshBlocked && nextAllowedManualRefresh
+                rateLimitEnabled && isManualRefreshBlocked && nextAllowedManualRefresh
                     ? `Next refresh possible ${dayjs(nextAllowedManualRefresh).fromNow()}`
                     : undefined
             }

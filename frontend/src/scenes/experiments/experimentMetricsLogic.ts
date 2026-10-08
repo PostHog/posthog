@@ -309,11 +309,7 @@ export interface experimentMetricsLogicMeta {
         totalMetricsCount: (arg: any) => number
         lastRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
         nextAllowedManualRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
-        isManualRefreshBlocked: (
-            nextAllowedManualRefresh: string | null,
-            refreshEligibilityTick: number,
-            featureFlags: FeatureFlagsSet
-        ) => boolean
+        isManualRefreshBlocked: (nextAllowedManualRefresh: string | null, refreshEligibilityTick: number) => boolean
         metricRetries: (currentRecalculation: RecalculationPayload | null) => Record<string, MetricRetryInfo>
         nextRetryAt: (metricRetries: Record<string, MetricRetryInfo>) => string | null
         recalculationDisplayState: (
@@ -474,12 +470,10 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     : null,
         ],
         isManualRefreshBlocked: [
-            (s) => [s.nextAllowedManualRefresh, s.refreshEligibilityTick, s.featureFlags],
-            // The same flag turns the window on in the backend, so the button and the 429 agree.
-            (nextAllowedManualRefresh: string | null, _tick: number, featureFlags: FeatureFlagsSet): boolean =>
-                !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_RECALCULATION_RATE_LIMIT] &&
-                !!nextAllowedManualRefresh &&
-                dayjs(nextAllowedManualRefresh).isAfter(dayjs()),
+            (s) => [s.nextAllowedManualRefresh, s.refreshEligibilityTick],
+            // State for the reload button only. The backend is the gate: it answers 429 inside the window.
+            (nextAllowedManualRefresh: string | null, _tick: number): boolean =>
+                !!nextAllowedManualRefresh && dayjs(nextAllowedManualRefresh).isAfter(dayjs()),
         ],
         metricRetries: [
             (s) => [s.currentRecalculation],
@@ -792,9 +786,6 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                  * bail if feature not enabled
                  */
                 if (!flagEnabled()) {
-                    return
-                }
-                if (trigger === 'manual' && values.isManualRefreshBlocked) {
                     return
                 }
                 /**

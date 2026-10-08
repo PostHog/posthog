@@ -141,13 +141,9 @@ describe('experimentMetricsLogic', () => {
         })
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags(
-            [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION, FEATURE_FLAGS.EXPERIMENTS_RECALCULATION_RATE_LIMIT],
-            {
-                [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
-                [FEATURE_FLAGS.EXPERIMENTS_RECALCULATION_RATE_LIMIT]: true,
-            }
-        )
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
+            [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+        })
         // Wait for the bootstrap to populate currentProjectId — the loader guards on it.
         await expectLogic(projectLogic).toMatchValues({ currentProjectId: expect.any(Number) })
     })
@@ -838,42 +834,29 @@ describe('experimentMetricsLogic', () => {
                 {
                     name: 'blocks a manual reload inside the window',
                     latest: completedRecalculation,
-                    trigger: 'manual',
                     minutesAgo: 2,
                     blocked: true,
                 },
                 {
                     name: 'allows a manual reload after the window',
                     latest: completedRecalculation,
-                    trigger: 'manual',
                     minutesAgo: 6,
                     blocked: false,
-                },
-                {
-                    name: 'lets a heal through inside the window',
-                    latest: completedRecalculation,
-                    trigger: 'heal_latest_run',
-                    minutesAgo: 2,
-                    blocked: true,
                 },
                 {
                     // The fallback is not a run: a fresh timeseries point must not block the first recalculation.
                     name: 'never blocks on a timeseries fallback',
                     latest: completeTimeseriesFallbackRecalculation,
-                    trigger: 'manual',
                     minutesAgo: 2,
                     blocked: false,
                 },
                 {
                     name: 'never blocks after a failed run',
                     latest: partialFailureRecalculation,
-                    trigger: 'manual',
                     minutesAgo: 2,
                     blocked: false,
                 },
-            ] as const)('$name', async ({ latest, trigger, minutesAgo, blocked }) => {
-                const posts = !(blocked && trigger === 'manual')
-                const createMock = jest.fn(() => [201, pendingRecalculation])
+            ] as const)('$name', async ({ latest, minutesAgo, blocked }) => {
                 useMocks({
                     get: {
                         '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
@@ -881,40 +864,10 @@ describe('experimentMetricsLogic', () => {
                             finishedMinutesAgo(latest, minutesAgo),
                         ],
                     },
-                    post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
                 })
                 mountLogic()
                 await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
                 expect(logic.values.isManualRefreshBlocked).toBe(blocked)
-
-                await expectLogic(logic, () => {
-                    logic.actions.triggerRecalculation(trigger)
-                }).toFinishAllListeners()
-                expect(createMock.mock.calls.length > 0).toBe(posts)
-            })
-
-            it('never blocks a reload when the rate limit flag is off', async () => {
-                const createMock = jest.fn(() => [201, pendingRecalculation])
-                useMocks({
-                    get: {
-                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
-                            200,
-                            finishedMinutesAgo(completedRecalculation, 2),
-                        ],
-                    },
-                    post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
-                })
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
-                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
-                })
-                mountLogic()
-                await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
-                expect(logic.values.isManualRefreshBlocked).toBe(false)
-
-                await expectLogic(logic, () => {
-                    logic.actions.triggerRecalculation('manual')
-                }).toFinishAllListeners()
-                expect(createMock).toHaveBeenCalled()
             })
 
             it('syncs the window and informs the user when the backend answers 429', async () => {
