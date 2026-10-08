@@ -172,7 +172,7 @@ Create a new compiler when the batch needs fresh control-plane placement or team
 Both managed compilation modes preserve the source query's limits and offsets in the generated SQL and diagnostic HogQL.
 They do not add an implicit row limit or cap an explicit limit at the interactive query maximum.
 For example, an unbounded query stays unbounded, and `LIMIT 75000` stays `LIMIT 75000`.
-After deploying this behavior, rerun saved-view translation for queries compiled with the implicit cap; previously stored SQL is not rewritten automatically.
+Previously stored diagnostic translations are not rewritten automatically; rerun the saved-view translation pass to refresh them. Shadow materialization compiles each run with the current compiler behavior.
 
 Pass `expansion_mode=TrinoExpansionMode.DJANGO` when a query requires actions, cohorts, saved queries, filters, variables, access-controlled warehouse discovery, or other Django-backed semantic expansion. This compatibility mode builds the full database and maps:
 
@@ -218,16 +218,17 @@ An interrupted view remains pending for an activity retry, which resumes from pe
 The result admin can retry selected failed or stale rows. A retry creates a new selected-view job linked to the source job, preserving the original job and results as an immutable audit record.
 
 The `managed-warehouse-data-modeling-shadow` flag enables shadow materialization through Trino.
-It requires a ready Trino target and a non-empty compiled result whose source hash matches the saved query's current definition.
-The shadow activity executes the most recent matching conversion's stored `trino_sql` and `trino_values`, including its mapped table references.
-It checks the source hash again when the activity runs and fails the shadow job if no current conversion exists; rerun translation after editing the saved query.
-It does not recompile the query or fall back to DuckDB on failure.
+It requires a provisioned managed warehouse and a ready Trino target.
+Each dispatched shadow activity compiles the current saved query's HogQL in Django expansion mode and executes the generated Trino SQL with bound parameters.
+Compilation uses current source bindings, saved-query dependencies, filters, and variables; endpoint queries are prepared before compilation.
+Saved translation results remain diagnostic records and are not prerequisites or execution inputs for shadow jobs.
+Compilation failures fail the modeling job, without connecting to Trino or falling back to DuckDB.
 
 Trino replaces the output table in the organization's catalog under `posthog_data_modeling_team_<team_id>`, using the sanitized model-path label or saved-query UUID.
-The compiler and materializer share this naming policy, so stored translations can read upstream model outputs directly.
+The compiler and materializer share this naming policy, so each compiled query can read upstream model outputs directly.
 The legacy Duckgres path retains `shadow_<team_id>_models` and normalized saved-query names.
 ClickHouse materialization and publication continue independently.
-The DAG waits for upstream Trino builds and skips dependent Trino builds when an upstream model fails or has no eligible translation, even if ClickHouse succeeds.
+The DAG waits for upstream Trino builds and skips dependent Trino builds when an upstream model fails or is ineligible for shadowing, even if ClickHouse succeeds.
 Skipped managed warehouse jobs record the upstream node IDs. Existing Temporal histories retain their previous dependency behavior.
 Run upstream materialized models before their dependents when selecting a subset of the DAG.
 Do not run the legacy DuckLake model-copy workflow against the same destinations while Trino owns their refreshes.
