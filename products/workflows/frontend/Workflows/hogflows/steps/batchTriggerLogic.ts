@@ -55,7 +55,7 @@ export interface BatchTriggerLogicProps {
     dedupeKey?: 'email'
     /** Whether the workflow contains an email step, which decides if the tiered audience limit applies. */
     sendsEmail?: boolean
-    /** The person properties the email steps send to. Each gets a count of the audience missing it. */
+    /** Person properties the email steps send to. Each costs one extra audience query, so pass them only where shown. */
     recipientEmailProperties?: string[]
 }
 
@@ -159,10 +159,12 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
                 loadRecipientsWithoutEmail: async (_, breakpoint) => {
                     const filters = props.filters
                     const projectId = values.currentProjectId
+                    // An unfiltered audience's size is a cached total; this count would scan every person.
                     if (
                         !projectId ||
                         !filters ||
                         filters.audience_type === 'accounts' ||
+                        !filters.properties?.length ||
                         !props.recipientEmailProperties?.length
                     ) {
                         return {}

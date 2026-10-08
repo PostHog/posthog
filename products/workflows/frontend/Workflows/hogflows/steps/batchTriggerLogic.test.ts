@@ -96,12 +96,18 @@ describe('batchTriggerLogic', () => {
         })
 
         it.each([
-            { audience_type: 'persons' as const, expected: { email: 98, $email: 0 } },
-            { audience_type: 'accounts' as const, expected: {} },
-        ])('counts each To property for a $audience_type audience', async ({ audience_type, expected }) => {
+            {
+                name: 'a filtered person',
+                audience_type: 'persons' as const,
+                properties: audience.properties,
+                expected: { email: 98, $email: 0 },
+            },
+            { name: 'an account', audience_type: 'accounts' as const, properties: audience.properties, expected: {} },
+            { name: 'an unfiltered person', audience_type: 'persons' as const, properties: [], expected: {} },
+        ])('counts each To property for $name audience', async ({ audience_type, properties, expected }) => {
             const logic = batchTriggerLogic({
-                id: `test-${audience_type}`,
-                filters: { ...audience, audience_type },
+                id: `test-${audience_type}-${properties.length}`,
+                filters: { properties, audience_type },
                 sendsEmail: true,
                 recipientEmailProperties: ['$email', 'email'],
             })

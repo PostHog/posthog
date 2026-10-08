@@ -661,7 +661,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     await breakpoint(300)
                     const key = values.recipientEmailProperty
                     cache.checkedRecipientEmailProperty = key
-                    if (!values.currentProjectId || !key) {
+                    // Checked only right before launch, and never for an unfiltered audience: its size is a
+                    // cached total, and this count would be a scan of every person in the project.
+                    if (
+                        !values.currentProjectId ||
+                        !key ||
+                        values.currentStep !== 'review' ||
+                        values.audienceProperties.length === 0
+                    ) {
                         return null
                     }
                     try {
@@ -1817,12 +1824,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         loadBlastRadius: () => {
             actions.loadRecipientsWithoutEmail(null)
         },
-        hydrateFromBroadcast: () => {
-            // Loads the missing-address count with it, so a resumed draft warns before the review step.
-            actions.loadBlastRadius()
-        },
         setEmail: () => {
-            if (values.recipientEmailProperty !== cache.checkedRecipientEmailProperty) {
+            if (
+                values.currentStep === 'review' &&
+                values.recipientEmailProperty !== cache.checkedRecipientEmailProperty
+            ) {
                 actions.loadRecipientsWithoutEmail(null)
             }
         },
