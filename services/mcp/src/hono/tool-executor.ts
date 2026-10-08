@@ -856,11 +856,10 @@ function classifyToolError(error: unknown, toolName: string): ToolErrorClassific
 }
 
 function resolveToolErrorClassification(error: unknown): ToolErrorClassification {
-    if (
-        error instanceof MissingProjectContextError ||
-        error instanceof MissingOrganizationContextError ||
-        error instanceof PinnedContextSwitchError
-    ) {
+    if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
+        return { errorType: 'missing_context' }
+    }
+    if (error instanceof PinnedContextSwitchError) {
         return { errorType: 'missing_context' }
     }
     if (error instanceof ToolInputValidationError) {
