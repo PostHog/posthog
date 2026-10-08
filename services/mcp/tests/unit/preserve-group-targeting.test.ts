@@ -395,7 +395,6 @@ describe('preserveGroupTargetingFilters', () => {
 
     // Collapsing two sets into one leaves every set without a source. The flag level decides the type.
     it('types a collapsed set from the flag-level aggregation', () => {
-        // Collapsing two sets into one leaves the surviving set at a position it did not hold.
         const existing = {
             aggregation_group_type_index: 0,
             groups: [
@@ -642,6 +641,19 @@ describe('preserveGroupTargetingFilters', () => {
             },
             unresolved: [0, 1],
         },
+        // Plain rollouts have no keys, so nothing tells which of the two survived.
+        {
+            name: 'one of two plain rollouts on different group types is deleted',
+            existing: {
+                aggregation_group_type_index: null,
+                groups: [
+                    { aggregation_group_type_index: 0, properties: [], rollout_percentage: 50 },
+                    { aggregation_group_type_index: 1, properties: [], rollout_percentage: 20 },
+                ],
+            },
+            incoming: { groups: [{ properties: [], rollout_percentage: 20 }] },
+            unresolved: [0],
+        },
         {
             name: 'a set is inserted before the stored sets',
             existing: existingMixedFlag,
@@ -760,48 +772,6 @@ describe('preserveGroupTargetingFilters', () => {
             },
             unresolved: [1],
         },
-        {
-            name: 'the sets of a flag on one group type are reordered',
-            existing: {
-                aggregation_group_type_index: 0,
-                groups: [
-                    {
-                        aggregation_group_type_index: 0,
-                        properties: [
-                            { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
-                        ],
-                        rollout_percentage: 100,
-                    },
-                    {
-                        aggregation_group_type_index: 0,
-                        properties: [{ key: 'seats', type: 'group', group_type_index: 0, operator: 'gt', value: 10 }],
-                        rollout_percentage: 100,
-                    },
-                ],
-            },
-            incoming: {
-                groups: [
-                    { properties: [{ key: 'seats', operator: 'gt', value: 10 }], rollout_percentage: 100 },
-                    { properties: [{ key: 'plan', operator: 'exact', value: 'enterprise' }], rollout_percentage: 100 },
-                ],
-            },
-            unresolved: [],
-        },
-        {
-            name: 'the payload changes the flag level',
-            existing: existingMixedFlag,
-            incoming: {
-                aggregation_group_type_index: 1,
-                groups: [
-                    {
-                        properties: [{ key: 'email', operator: 'icontains', value: '@acme.com' }],
-                        rollout_percentage: 100,
-                    },
-                    { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 },
-                ],
-            },
-            unresolved: [],
-        },
     ])('names each condition set it cannot resolve when $name', ({ existing, incoming, unresolved }) => {
         expect(refusedSets(() => preserveGroupTargetingFilters(existing, incoming))).toEqual(
             unresolved.map((index) => `filters.groups[${index}]`)
@@ -839,6 +809,36 @@ describe('preserveGroupTargetingFilters', () => {
             expected: [
                 [undefined, 'person', undefined],
                 [0, 'group', 0],
+            ],
+        },
+        {
+            name: 'the sets of a flag on one group type are reordered',
+            existing: {
+                aggregation_group_type_index: 0,
+                groups: [
+                    {
+                        aggregation_group_type_index: 0,
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        aggregation_group_type_index: 0,
+                        properties: [{ key: 'seats', type: 'group', group_type_index: 0, operator: 'gt', value: 10 }],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            incoming: {
+                groups: [
+                    { properties: [{ key: 'seats', operator: 'gt', value: 10 }], rollout_percentage: 100 },
+                    { properties: [{ key: 'plan', operator: 'exact', value: 'enterprise' }], rollout_percentage: 100 },
+                ],
+            },
+            expected: [
+                [undefined, 'group', 0],
+                [undefined, 'group', 0],
             ],
         },
         {

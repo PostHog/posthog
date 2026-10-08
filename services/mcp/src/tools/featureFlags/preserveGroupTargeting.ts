@@ -154,16 +154,15 @@ function hasSameKeySet(incoming: ReadonlyMap<string, unknown>, existing: Readonl
     return incoming.size === existing.size && [...incoming.keys()].every((key) => existing.has(key))
 }
 
-function soleItem<T>(items: T[]): T | undefined {
-    return items.length === 1 ? items[0] : undefined
-}
-
 /** A set with no index of its own aggregates on the flag level, which the API distributes on write. */
 function storedAggregation(group: FlagConditionGroup, flagLevelGroupIndex: number | undefined): number | null {
-    if (isPresentGroupIndex(group.aggregation_group_type_index)) {
-        return group.aggregation_group_type_index
-    }
-    return hasKey(group, 'aggregation_group_type_index') ? null : (flagLevelGroupIndex ?? null)
+    return (
+        resolveGroupIndex(
+            explicitlyClearsAggregation(group),
+            group.aggregation_group_type_index,
+            flagLevelGroupIndex
+        ) ?? null
+    )
 }
 
 function keepsValues(incoming: FlagConditionGroup, source: ExistingSet): boolean {
@@ -175,21 +174,9 @@ function keepsValues(incoming: FlagConditionGroup, source: ExistingSet): boolean
     )
 }
 
-function keepsKeysAt(
-    incomingGroups: FlagConditionGroup[],
-    existingSets: (ExistingSet | undefined)[],
-    index: number
-): boolean {
-    const incoming = incomingGroups[index]
+function keepsKeys(incoming: FlagConditionGroup | undefined, existingSet: ExistingSet | undefined): boolean {
     const incomingKeys = isRecord(incoming) ? indexProperties(incoming.properties) : new Map()
-    return hasSameKeySet(incomingKeys, existingSets[index]?.propsByKey ?? new Map())
-}
-
-function keepsStoredSets(incomingGroups: FlagConditionGroup[], existingSets: (ExistingSet | undefined)[]): boolean {
-    return (
-        incomingGroups.length >= existingSets.length &&
-        existingSets.every((_, index) => keepsKeysAt(incomingGroups, existingSets, index))
-    )
+    return hasSameKeySet(incomingKeys, existingSet?.propsByKey ?? new Map())
 }
 
 /** Callers fold an explicit null into `pinnedToPerson` first. `explicitIndex` cannot tell a
@@ -230,11 +217,9 @@ function mergeProperty(
     if (!isPresentType(out.type)) {
         if (isPresentGroupIndex(setGroupTypeIndex)) {
             // A source that also holds the key as a group property leaves the type ambiguous.
-            const sourceHoldsGroupProperty = sourceCandidates?.some((candidate) => candidate.type === 'group') ?? false
-            const personType = sourceHoldsGroupProperty
-                ? undefined
-                : pickPersonAggregatedCandidate(sourceCandidates, out)?.type
-            out.type = personType ?? 'group'
+            out.type = sourceCandidates?.some((candidate) => candidate.type === 'group')
+                ? 'group'
+                : (pickPersonAggregatedCandidate(sourceCandidates, out)?.type ?? 'group')
         } else {
             // Leaving the type unset makes the API report the property the agent actually
             // sent. Restoring `group` here would name fields the agent never sent.
@@ -270,7 +255,8 @@ function explicitGroupPropertyIndex(group: FlagConditionGroup): number | undefin
     const indexes = properties.flatMap((prop) =>
         prop?.type === 'group' && isPresentGroupIndex(prop.group_type_index) ? [prop.group_type_index] : []
     )
-    return soleItem([...new Set(indexes)])
+    const unique = [...new Set(indexes)]
+    return unique.length === 1 ? unique[0] : undefined
 }
 
 function mergeConditionSet(
@@ -389,30 +375,26 @@ export function preserveGroupTargetingFilters(
         )
         const mixedAggregation = new Set(aggregations.filter((aggregation) => aggregation !== undefined)).size > 1
         const incomingGroups = result.groups
-        const sharesKeysAcrossAggregations = (index: number): boolean =>
+        const sharesKeysAcrossAggregations = (existingSet: ExistingSet, index: number): boolean =>
             existingSets.some(
                 (other, otherIndex) =>
                     !!other &&
                     aggregations[otherIndex] !== aggregations[index] &&
-                    hasSameKeySet(other.propsByKey, existingSets[index]?.propsByKey ?? new Map())
+                    hasSameKeySet(other.propsByKey, existingSet.propsByKey)
             )
+        const keptKeys = existingSets.map((existingSet, index) => keepsKeys(incomingGroups[index], existingSet))
         // On a single-aggregation flag a positional source cannot carry the wrong aggregation.
-        const sourceSets = keepsStoredSets(incomingGroups, existingSets)
-            ? existingSets.map((existingSet, index) => {
-                  const group = incomingGroups[index]
-                  const ambiguous =
-                      mixedAggregation &&
-                      !!existingSet &&
-                      isRecord(group) &&
-                      sharesKeysAcrossAggregations(index) &&
-                      !keepsValues(group, existingSet)
-                  return ambiguous ? undefined : existingSet
-              })
-            : mixedAggregation
-              ? []
-              : existingSets.map((existingSet, index) =>
-                    keepsKeysAt(incomingGroups, existingSets, index) ? existingSet : undefined
-                )
+        const positionHolds =
+            !mixedAggregation || (incomingGroups.length >= existingSets.length && keptKeys.every(Boolean))
+        const sourceSets = existingSets.map((existingSet, index) => {
+            const group = incomingGroups[index]
+            const ambiguous =
+                !!existingSet &&
+                isRecord(group) &&
+                sharesKeysAcrossAggregations(existingSet, index) &&
+                !keepsValues(group, existingSet)
+            return positionHolds && keptKeys[index] && !ambiguous ? existingSet : undefined
+        })
 
         if (mixedAggregation && !payloadChangesFlagAggregation) {
             const unresolved = result.groups.flatMap((group, index) =>
