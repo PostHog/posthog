@@ -501,7 +501,7 @@ export interface broadcastWizardLogicMeta {
             integrationsLoading: boolean,
             linkAudienceRejected: boolean,
             audienceProperties: AnyPropertyFilter[],
-            audienceCohortLaunchErrors: any
+            audienceCohortLaunchErrors: string[]
         ) => Record<BroadcastWizardStep, string[]>
         currentStepHasErrors: (
             stepValidationErrors: Record<BroadcastWizardStep, string[]>,
