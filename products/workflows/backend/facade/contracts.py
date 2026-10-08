@@ -159,6 +159,10 @@ class AudiencePage:
     has_more: bool
 
 
+class PeopleImportInvalid(Exception):
+    """The upload cannot be used. The message is shown to the person who sent it."""
+
+
 @frozen
 class PeopleImportSummary:
     """What an uploaded people list kept, and how many rows it dropped and why."""
