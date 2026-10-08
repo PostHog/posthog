@@ -173,26 +173,30 @@ export interface AiTaskPromptChange {
     stagedPrompt: string
 }
 
+export function isAiTaskStep(action: HogFlowAction): boolean {
+    return action.type === 'function' && action.config.template_id === 'template-posthog-create-task'
+}
+
+export function getAiTaskPrompt(action: HogFlowAction): string {
+    return action.type === 'function' && typeof action.config.inputs?.prompt?.value === 'string'
+        ? action.config.inputs.prompt.value
+        : ''
+}
+
 /**
  * The AI task steps whose instructions the staged draft changes, for review before publish. A step the
  * draft adds, or turns into an AI task, has no live instructions, so it compares against empty ones.
  */
 export function getAiTaskPromptChanges(workflow: HogFlow): AiTaskPromptChange[] {
     const liveActionsById = new Map(workflow.actions.map((action) => [action.id, action]))
-    const isAiTaskStep = (action: HogFlowAction): boolean =>
-        action.type === 'function' && action.config.template_id === 'template-posthog-create-task'
-    const promptOf = (action: HogFlowAction): string =>
-        action.type === 'function' && typeof action.config.inputs?.prompt?.value === 'string'
-            ? action.config.inputs.prompt.value
-            : ''
 
     return (workflow.draft?.actions ?? []).flatMap((stagedAction) => {
         if (!isAiTaskStep(stagedAction)) {
             return []
         }
         const liveAction = liveActionsById.get(stagedAction.id)
-        const livePrompt = liveAction && isAiTaskStep(liveAction) ? promptOf(liveAction) : ''
-        const stagedPrompt = promptOf(stagedAction)
+        const livePrompt = liveAction && isAiTaskStep(liveAction) ? getAiTaskPrompt(liveAction) : ''
+        const stagedPrompt = getAiTaskPrompt(stagedAction)
         return livePrompt === stagedPrompt
             ? []
             : [{ actionId: stagedAction.id, stepName: stagedAction.name, livePrompt, stagedPrompt }]
