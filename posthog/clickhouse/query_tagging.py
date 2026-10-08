@@ -512,6 +512,11 @@ class QueryTags(BaseModel):
     replay_event_query_operand: Optional[Literal["AND", "OR"]] = None
     replay_event_query_range_days: Optional[float] = None
     experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
+    # Why the metric-events side is not precomputable (set on the metric read when metric_events_path is
+    # "not_applicable"): "breakdown", "cuped", "data_warehouse", "funnel_order_type", "non_event_source",
+    # "session_property_math", "group_math", "unsupported_math", "retention_window", or "metric_type"
+    # (ratio). None/absent when the metric-events side is precomputable.
+    experiment_metric_events_skip_reason: Optional[str] = None
     experiment_query_surface: Optional[str] = None  # "metric", "exposures_timeseries", "actors", "precompute_build"
     experiment_precompute_table: Optional[str] = None  # on precompute_build rows: "exposures" or "metric_events"
     # Why precompute was not used (set on the metric read). One of "override_direct", "team_disabled",
