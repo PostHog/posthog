@@ -86,8 +86,6 @@ describe('metricsSceneLogic', () => {
             expect(logic.values.activeTab).toEqual('viewer')
             expect(logic.values.metricName).toEqual('queue_depth')
             expect(logic.values.selectedMetricType).toEqual('gauge')
-            // The shared link's own aggregation survives the recommendation cascade that
-            // picking queue_depth (a gauge, recommending 'avg') triggers.
             expect(logic.values.aggregation).toEqual('p95')
             expect(logic.values.dateFrom).toEqual('-24h')
             expect(logic.values.dateTo).toEqual('2026-08-25T00:00:00.000Z')
@@ -98,17 +96,36 @@ describe('metricsSceneLogic', () => {
             expect(router.values.searchParams).toMatchObject({ metricName: 'queue_depth', aggregation: 'p95' })
         })
 
-        it('keeps the recommended aggregation for a link that has a metric but no aggregation param', async () => {
+        it('leaves a link that has a metric but no aggregation param without operations', async () => {
             await expectLogic(logic, () => {
                 router.actions.push('/metrics', { metricName: 'queue_depth' })
             }).toFinishAllListeners()
 
-            expect(logic.values.aggregation).toEqual('avg')
+            expect(logic.values.aggregation).toBeNull()
+            expect(logic.values.rangeFunction).toBeNull()
+        })
+
+        it('reads a legacy rate link as a rate range function over a sum', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { metricName: 'requests_total', aggregation: 'rate' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.rangeFunction).toEqual('rate')
+            expect(logic.values.aggregation).toEqual('sum')
+        })
+
+        it('restores a range function link without an aggregation', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { metricName: 'requests_total', rangeFunction: 'increase' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.rangeFunction).toEqual('increase')
+            expect(logic.values.aggregation).toBeNull()
         })
 
         it.each([
             ['activeTab', 'nonsense', 'activeTab', 'overview'],
-            ['aggregation', 'not-an-aggregation', 'aggregation', 'sum'],
+            ['aggregation', 'not-an-aggregation', 'aggregation', null],
             ['metricType', 'not-a-type', 'selectedMetricType', null],
         ])('falls back to the default for an invalid %s param', async (param, urlValue, valueKey, expected) => {
             await expectLogic(logic, () => {
@@ -137,7 +154,12 @@ describe('metricsSceneLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.viewerClauses).toEqual([
-                expect.objectContaining({ name: 'a', metricName: 'requests_total', aggregation: 'rate' }),
+                expect.objectContaining({
+                    name: 'a',
+                    metricName: 'requests_total',
+                    rangeFunction: 'rate',
+                    aggregation: 'sum',
+                }),
                 expect.objectContaining({
                     name: 'b',
                     metricName: 'queue_depth',
@@ -246,13 +268,8 @@ describe('metricsSceneLogic', () => {
                 logic.actions.setDateFrom('-7d')
             }).toFinishAllListeners()
 
-            // aggregation is written even when recommended ('increase' for this counter), so
-            // restoring the link never has to re-derive it.
-            expect(router.values.searchParams).toMatchObject({
-                metricName: 'requests_total',
-                aggregation: 'increase',
-                dateFrom: '-7d',
-            })
+            expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total', dateFrom: '-7d' })
+            expect(router.values.searchParams).not.toHaveProperty('aggregation')
 
             await expectLogic(logic, () => {
                 logic.actions.setDateFrom('-1h')
@@ -301,16 +318,17 @@ describe('metricsSceneLogic', () => {
         it('keeps the named clause in the URL while a blank added row is focused', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setMetricName('requests_total')
+                logic.actions.setRangeFunction('rate')
             }).toFinishAllListeners()
 
             metricsViewerLogic.actions.addClause()
             await expectLogic(logic, () => {
-                logic.actions.setAggregation('rate')
+                logic.actions.setAggregation('max')
             }).toFinishAllListeners()
 
             expect(router.values.searchParams).toMatchObject({
                 metricName: 'requests_total',
-                aggregation: 'increase',
+                rangeFunction: 'rate',
             })
         })
 

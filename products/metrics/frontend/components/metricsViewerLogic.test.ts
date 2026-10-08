@@ -94,36 +94,52 @@ describe('metricsViewerLogic', () => {
         logic?.unmount()
     })
 
-    // Regression: the viewer defaulted every metric to `sum`, so selecting a
-    // cumulative counter summed raw monotonic readings across pods and buckets —
-    // a huge meaningless total instead of the actual increase.
-    it.each([
-        ['requests_total', 'increase'],
-        ['queue_depth', 'avg'],
-        ['request_duration', 'p95'],
-    ])('selecting %s applies the type-appropriate aggregation %s', (metricName, expected) => {
-        logic.actions.setMetricName(metricName)
-        expect(logic.values.aggregation).toBe(expected)
-    })
+    // Regression: the builder used to pick an aggregation from the metric type. An unaggregated
+    // clause must stay one line per series, whatever the metric is.
+    it.each(['requests_total', 'queue_depth', 'request_duration'])(
+        'selecting %s leaves the clause without operations',
+        (metricName) => {
+            logic.actions.setMetricName(metricName)
+            expect(logic.values.aggregation).toBeNull()
+            expect(logic.values.rangeFunction).toBeNull()
+            expect(logic.values.queryPayload?.clauses?.[0]).toMatchObject({ aggregation: 'none' })
+        }
+    )
 
-    it('keeps a manual aggregation pick until the metric changes', () => {
+    it('keeps the operations when the metric changes', () => {
         logic.actions.setMetricName('requests_total')
-        logic.actions.setAggregation('rate')
-        expect(logic.values.aggregation).toBe('rate')
+        logic.actions.setRangeFunction('rate')
+        logic.actions.setAggregation('max')
         logic.actions.setMetricName('queue_depth')
-        expect(logic.values.aggregation).toBe('avg')
+        expect(logic.values.rangeFunction).toBe('rate')
+        expect(logic.values.aggregation).toBe('max')
     })
 
-    it('leaves aggregation untouched for unknown metric types', () => {
+    it('sends a range function without an aggregation as per-series rates', () => {
         logic.actions.setMetricName('requests_total')
-        logic.actions.setMetricName('mystery_metric')
-        expect(logic.values.aggregation).toBe('increase')
+        logic.actions.setRangeFunction('rate')
+        expect(logic.values.queryPayload?.clauses?.[0]).toMatchObject({ aggregation: 'none', rangeFunction: 'rate' })
+        expect(logic.values.metricsQueryNode?.clauses[0]).toEqual({
+            name: 'a',
+            metricName: 'requests_total',
+            metricType: 'sum',
+            rangeFunction: 'rate',
+        })
+    })
+
+    it('clears group-by when the aggregation is removed', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setAggregation('avg')
+        logic.actions.setGroupByKeys(['container'])
+        logic.actions.setAggregation(null)
+        expect(logic.values.groupByKeys).toEqual([])
     })
 
     // metricsQueryNode is what "Save as insight" persists: a wrong mapping here
     // silently saves insights that re-run a different query than the viewer showed.
     it('maps viewer state to a MetricsQuery node, translating p95 to quantile', () => {
         logic.actions.setMetricName('request_duration')
+        logic.actions.setAggregation('p95')
         logic.actions.setGroupByKeys(['container'])
         logic.actions.setFilterGroup(
             filterGroupWith([{ key: 'namespace', operator: PropertyOperator.Exact, value: ['posthog'] }])
@@ -264,14 +280,23 @@ describe('metricsViewerLogic', () => {
     // different query than the viewer showed.
     it('maps multiple clauses and a formula into the MetricsQuery node', () => {
         logic.actions.setMetricName('requests_total')
+        logic.actions.setRangeFunction('increase')
+        logic.actions.setAggregation('sum')
         logic.actions.addClause()
         logic.actions.setMetricName('queue_depth')
+        logic.actions.setAggregation('avg')
         logic.actions.setFormula('A / b!')
 
         expect(logic.values.metricsQueryNode).toEqual({
             kind: NodeKind.MetricsQuery,
             clauses: [
-                { name: 'a', metricName: 'requests_total', aggregation: 'increase', metricType: 'sum' },
+                {
+                    name: 'a',
+                    metricName: 'requests_total',
+                    rangeFunction: 'increase',
+                    aggregation: 'sum',
+                    metricType: 'sum',
+                },
                 { name: 'b', metricName: 'queue_depth', aggregation: 'avg', metricType: 'gauge' },
             ],
             formula: 'a / b',
@@ -284,6 +309,7 @@ describe('metricsViewerLogic', () => {
     // shows one series' samples under another series' chart line.
     it('single-clause setters and selectors follow the active clause', () => {
         logic.actions.setMetricName('requests_total')
+        logic.actions.setAggregation('sum')
         logic.actions.addClause()
         expect(logic.values.activeClauseIndex).toBe(1)
 
@@ -292,7 +318,7 @@ describe('metricsViewerLogic', () => {
 
         logic.actions.setActiveClauseIndex(0)
         expect(logic.values.metricName).toBe('requests_total')
-        expect(logic.values.aggregation).toBe('increase')
+        expect(logic.values.aggregation).toBe('sum')
     })
 
     // A formula referencing a removed clause's alias can only 400 — a routine remove
@@ -422,15 +448,13 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
     })
 
-    it('backfills the metric type and recommended aggregation when the picker loads after the metric was set', () => {
+    it('backfills the metric type when the picker loads after the metric was set', () => {
         metricNamePickerLogic.actions.loadItemsSuccess([])
         logic.actions.setMetricName('queue_depth')
         expect(logic.values.metricsQueryNode?.clauses[0]).not.toHaveProperty('metricType')
         metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
         expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
-        // A cold URL restore sets the name before the list arrives, so without the late
-        // recommendation a gauge/counter link would silently chart as a raw sum.
-        expect(logic.values.aggregation).toBe('avg')
+        expect(logic.values.aggregation).toBeNull()
     })
 
     it('the late backfill leaves an explicitly chosen aggregation alone', () => {
@@ -474,7 +498,7 @@ describe('metricsViewerLogic', () => {
         await expectLogic(logic).toDispatchActions(['openAddToDashboardModal'])
 
         logic.actions.closeAddToDashboardModal()
-        logic.actions.setAggregation('rate')
+        logic.actions.setRangeFunction('rate')
         logic.actions.addToDashboard()
         await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess', 'openAddToDashboardModal'])
         expect(insightsApi.create).toHaveBeenCalledTimes(2)
@@ -607,7 +631,7 @@ describe('metricsViewerLogic', () => {
         logic.actions.createAlert()
         await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
 
-        logic.actions.setAggregation('rate')
+        logic.actions.setRangeFunction('rate')
         logic.actions.createAlert()
         await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
         expect(insightsApi.create).toHaveBeenCalledTimes(2)
@@ -629,7 +653,7 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.pendingAlert).toBe(false)
 
         push.mockClear()
-        logic.actions.setAggregation('rate')
+        logic.actions.setRangeFunction('rate')
         logic.actions.saveAsInsight()
         await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
         expect(push).not.toHaveBeenCalled()
@@ -877,7 +901,7 @@ describe('metricsViewerLogic', () => {
                     filters: [{ key: 'namespace', op: 'eq', value: 'posthog' }],
                     groupBy: [{ key: 'container' }],
                 },
-                { name: 'b', metricName: 'requests_total', aggregation: 'rate', metricType: 'sum' },
+                { name: 'b', metricName: 'requests_total', rangeFunction: 'rate', metricType: 'sum' },
             ],
             formula: 'a / b',
             dateRange: { date_from: '-6h' },
@@ -919,6 +943,20 @@ describe('metricsViewerLogic', () => {
         })
     })
 
+    it('reads a saved query with a legacy rate aggregation as a rate range function over a sum', () => {
+        const editor = metricsViewerLogic({
+            key: 'legacy-test',
+            initialQuery: {
+                kind: NodeKind.MetricsQuery,
+                clauses: [{ name: 'a', metricName: 'requests_total', aggregation: 'rate' }],
+            },
+        })
+        editor.mount()
+        expect(editor.values.rangeFunction).toBe('rate')
+        expect(editor.values.aggregation).toBe('sum')
+        editor.unmount()
+    })
+
     it('sends the picked interval to the viewer query', () => {
         logic.actions.setMetricName('queue_depth')
         logic.actions.setInterval('minute')
@@ -936,7 +974,10 @@ describe('isBuilderCompatibleQuery', () => {
     })
 
     it.each([
-        ['a viewer aggregation', queryWith({ aggregation: 'rate' }), true],
+        ['a viewer aggregation', queryWith({ aggregation: 'max' }), true],
+        ['no aggregation', queryWith({ aggregation: undefined }), true],
+        ['a legacy rate aggregation', queryWith({ aggregation: 'rate' }), true],
+        ['a range function', queryWith({ aggregation: undefined, rangeFunction: 'rate' }), true],
         ['p95', queryWith({ aggregation: 'quantile', quantile: 0.95 }), true],
         ['another quantile', queryWith({ aggregation: 'quantile', quantile: 0.99 }), false],
         ['histogram_quantile', queryWith({ aggregation: 'histogram_quantile', quantile: 0.95 }), false],
