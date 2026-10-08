@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -21,6 +22,7 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsAttributionBreakdown,
     MarketingAnalyticsTableQuery,
+    MarketingAnalyticsSearchRow,
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
@@ -29,7 +31,17 @@ import {
     WebAnalyticsPropertyFilters,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ExternalDataSchemaStatus, ExternalDataSource, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AccessControlLevel,
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
+
+import { searchPerformanceLogic } from 'products/marketing_analytics/frontend/search/searchPerformanceLogic'
 
 import {
     MarketingAnalyticsTab,
@@ -61,6 +73,128 @@ describe('marketingAnalyticsLogic', () => {
             logic.unmount()
         }
         localStorage.clear()
+    })
+
+    it('keeps the search date range in the URL when restoring a tab', async () => {
+        router.actions.push(urls.marketingAnalyticsApp(), {
+            tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+            date_from: '-28d',
+            compare: 'true',
+        })
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.dateFilter.dateFrom).toBe('-28d')
+        expect(router.values.searchParams).toMatchObject({
+            date_from: '-28d',
+            tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+        })
+    })
+
+    it('keeps a connected Search Console integration selected after refreshing sources', async () => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setIntegrationFilter({
+            integrationSourceIds: ['organic', 'deleted'],
+            includeNonIntegrated: false,
+        })
+        await expectLogic(logic, () =>
+            logic.actions.loadSourcesSuccess({
+                count: 1,
+                next: null,
+                previous: null,
+                results: [
+                    {
+                        id: 'organic',
+                        source_id: 'example.com',
+                        connection_id: 'example-organic',
+                        source_type: 'GoogleSearchConsole',
+                        schemas: [
+                            {
+                                name: 'search_analytics_by_query_page',
+                                should_sync: true,
+                                last_synced_at: dayjs(),
+                                sync_frequency: '24hour',
+                                table: { name: 'organic_query_pages', hogql_name: 'organic_query_pages' },
+                            } as ExternalDataSourceSchema,
+                        ],
+                        status: ExternalDataJobStatus.Completed,
+                        prefix: null,
+                        description: 'example.com',
+                        created_via: 'web',
+                        latest_error: null,
+                        sync_frequency: '24hour',
+                        job_inputs: {},
+                        user_access_level: AccessControlLevel.Admin,
+                        revenue_analytics_config: { enabled: false, include_invoiceless_charges: false },
+                    },
+                ],
+            })
+        ).toFinishAllListeners()
+        expect(logic.values.integrationFilter.integrationSourceIds).toEqual(['organic'])
+        const searchLogic = searchPerformanceLogic()
+        const unmountSearch = searchLogic.mount()
+        try {
+            expect(searchLogic.values.missingSources).toEqual(['GoogleAds'])
+            logic.actions.setCompareFilter({ compare: true })
+            logic.actions.setDates('-28d', null)
+            searchLogic.actions.setChannel('paid')
+            searchLogic.actions.setQuerySearch('missing query')
+            expect(searchLogic.values.hasActiveFilters).toBe(true)
+            expect(searchLogic.values.sources).toEqual([])
+
+            searchLogic.actions.clearFilters()
+            expect(searchLogic.values.hasActiveFilters).toBe(false)
+            expect(searchLogic.values.sources.map((source) => source.id)).toEqual(['organic'])
+            expect(searchLogic.values.query.search).toBe('')
+            expect(logic.values.compareFilter).toEqual({ compare: true })
+            const organicSource = logic.values.dataWarehouseSources!.results[0]
+            await expectLogic(logic, () =>
+                logic.actions.loadSourcesSuccess({
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    results: [
+                        organicSource,
+                        {
+                            ...organicSource,
+                            id: 'organic-other',
+                            schemas: [
+                                {
+                                    ...organicSource.schemas[0],
+                                    table: {
+                                        ...organicSource.schemas[0].table!,
+                                        name: 'other_query_pages',
+                                        hogql_name: 'other_query_pages',
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                })
+            ).toFinishAllListeners()
+            logic.actions.setIntegrationFilter({ integrationSourceIds: ['organic'] })
+            searchLogic.actions.selectRow({
+                platform: 'GoogleSearchConsole',
+                keyword: 'analytics',
+                page: null,
+            } as MarketingAnalyticsSearchRow)
+            expect(searchLogic.values.detailQuery?.sources.map((source) => source.statsTable)).toEqual([
+                'organic_query_pages',
+            ])
+            searchLogic.actions.selectRow({
+                platform: 'GoogleAds',
+                keyword: 'analytics',
+                page: null,
+            } as MarketingAnalyticsSearchRow)
+            expect(searchLogic.values.detailQuery?.sources.map((source) => source.statsTable)).toEqual([
+                'organic_query_pages',
+                'other_query_pages',
+            ])
+        } finally {
+            unmountSearch()
+        }
     })
 
     it.each<{
@@ -546,10 +680,7 @@ describe('marketingAnalyticsLogic', () => {
     })
 
     it('keeps the selection and drops an unknown key from a filter saved by an older build', async () => {
-        localStorage.setItem(
-            STORAGE_KEY,
-            JSON.stringify({ integrationSourceIds: ['source-1'], includeNonIntegrated: true })
-        )
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ integrationSourceIds: ['source-1'], removedOption: true }))
 
         logic = marketingAnalyticsLogic()
         logic.mount()
@@ -606,6 +737,7 @@ describe('marketingAnalyticsLogic', () => {
         await expectLogic(logic, () => logic.actions.setDates('-30d', null)).toFinishAllListeners()
         expect(router.values.searchParams).not.toHaveProperty('view')
         expect(router.values.searchParams).not.toHaveProperty('breakdown')
+        expect(new URLSearchParams(router.values.location.search).get('date_to')).toBe('')
 
         const filters: WebAnalyticsPropertyFilters = [
             {
@@ -633,6 +765,7 @@ describe('marketingAnalyticsLogic', () => {
         logic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Channel)
         await expectLogic(logic).toFinishAllListeners()
         expect(router.values.searchParams).toMatchObject({ view: 'overview', breakdown: 'channel' })
+        expect(new URLSearchParams(router.values.location.search).get('date_to')).toBe('')
 
         await expectLogic(logic, () =>
             router.actions.push(urls.marketingAnalyticsApp(), { view: 'retention', breakdown: 'source' })
@@ -697,6 +830,24 @@ describe('marketingAnalyticsLogic', () => {
             })
         }
     )
+
+    it.each([
+        ['?date_from=-7d&date_to=', { dateFrom: '-7d', dateTo: null }],
+        ['?date_from=-7d&date_to=&tab=setup&section=sources', { dateFrom: '-7d', dateTo: null }],
+        ['?date_from=-7d&date_to=-1d', { dateFrom: '-7d', dateTo: '-1d' }],
+        ['', { dateFrom: '-30d', dateTo: '2026-08-31' }],
+    ])('hydrates the date range from "%s" over a saved range', async (search, expected) => {
+        localStorage.setItem(
+            `${MOCK_TEAM_ID}__.scenes.webAnalytics.marketingAnalyticsLogic.dateFilter`,
+            JSON.stringify({ dateFrom: '-30d', dateTo: '2026-08-31', interval: 'day' })
+        )
+        router.actions.push(`${urls.marketingAnalyticsApp()}${search}`)
+
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({ dateFilter: expect.objectContaining(expected) })
+    })
 
     it.each([
         ['AppleSearchAds', FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS],

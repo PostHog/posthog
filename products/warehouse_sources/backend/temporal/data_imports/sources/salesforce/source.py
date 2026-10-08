@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SalesforceSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth import (
+    INSTANCE_HOST_NOT_FOUND_ERROR,
     salesforce_refresh_access_token,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.salesforce import (
@@ -81,6 +82,10 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
             # above never match it. Key off the stable error_description returned by Salesforce
             # when the refresh token is expired/revoked — reconnecting is the only fix.
             "expired access/refresh token": "Your Salesforce connection has expired or been revoked. Please reconnect the source.",
+            INSTANCE_HOST_NOT_FOUND_ERROR: (
+                "Your Salesforce org's address no longer exists, so the org may be deleted or its My Domain "
+                "renamed. Reconnect your Salesforce account, then re-enable the sync."
+            ),
         }
 
     def get_schemas(

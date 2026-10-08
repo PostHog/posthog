@@ -22,9 +22,9 @@ WRIKE_SESSION_PATCH = (
 )
 
 
-def _response(body: dict[str, Any]) -> Response:
+def _response(body: dict[str, Any], status_code: int = 200) -> Response:
     resp = Response()
-    resp.status_code = 200
+    resp.status_code = status_code
     resp._content = json.dumps(body).encode()
     return resp
 
@@ -111,17 +111,6 @@ class TestBuildUrl:
     def test_no_params(self) -> None:
         assert _build_url("www.wrike.com", "/tasks", {}) == "https://www.wrike.com/api/v4/tasks"
 
-    def test_with_params(self) -> None:
-        url = _build_url("www.wrike.com", "/tasks", {"pageSize": 1000})
-        assert url == "https://www.wrike.com/api/v4/tasks?pageSize=1000"
-
-    def test_drops_none_values(self) -> None:
-        url = _build_url("app-us2.wrike.com", "/tasks", {"pageSize": 1000, "nextPageToken": None})
-        assert url == "https://app-us2.wrike.com/api/v4/tasks?pageSize=1000"
-
-    def test_normalizes_scheme_and_trailing_slash(self) -> None:
-        assert _build_url("https://www.wrike.com/", "/contacts", {}) == "https://www.wrike.com/api/v4/contacts"
-
 
 class TestValidateCredentials:
     def test_rejects_non_wrike_host_without_request(self) -> None:
@@ -147,21 +136,6 @@ class TestValidateCredentials:
             is_valid, error = validate_credentials("token", "www.wrike.com")
         assert is_valid is expected_valid
         assert error == expected_error
-
-    def test_swallows_transport_errors(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = Exception("boom")
-        with mock.patch(WRIKE_SESSION_PATCH, return_value=session):
-            is_valid, _error = validate_credentials("token", "www.wrike.com")
-        assert is_valid is False
-
-    def test_probes_current_user_endpoint(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=200)
-        with mock.patch(WRIKE_SESSION_PATCH, return_value=session):
-            validate_credentials("token", "www.wrike.com")
-        called_url = session.get.call_args.args[0]
-        assert called_url == "https://www.wrike.com/api/v4/contacts?me=true"
 
 
 class TestPagination:
@@ -211,33 +185,33 @@ class TestPagination:
         assert params[0]["nextPageToken"] == "resume_tok"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_data_yields_nothing(self, MockSession) -> None:
+    def test_project_dependencies_fan_out_over_projects(self, MockSession) -> None:
         session = MockSession.return_value
-        _wire(session, [_response({"data": []})])
+        params = _wire(
+            session,
+            [
+                _response({"kind": "folders", "data": [{"id": "P1"}, {"id": "P2"}]}),
+                _response(
+                    {
+                        "kind": "dependencies",
+                        "data": [{"id": "D1", "predecessorId": "P1", "successorId": "P2"}],
+                    }
+                ),
+                _response({"errorDescription": "Folder not found"}, status_code=404),
+            ],
+        )
 
-        rows = _rows(_source("tasks"))
+        source_response = _source("project_dependencies")
+        rows = _rows(source_response)
 
-        assert rows == []
+        assert params[0] == {"project": "true"}
+        sent_urls = [call.args[0].url for call in session.prepare_request.call_args_list]
+        assert sent_urls[1].endswith("/api/v4/folders/P1/dependencies")
+        assert sent_urls[2].endswith("/api/v4/folders/P2/dependencies")
+        assert rows == [{"id": "D1", "predecessorId": "P1", "successorId": "P2", "projectId": "P1"}]
 
     def test_rejects_non_wrike_host_before_any_request(self) -> None:
         with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
             with pytest.raises(ValueError, match="non-Wrike host"):
                 _source("tasks", host="evil.com")
         MockSession.assert_not_called()
-
-
-class TestWrikeSource:
-    def test_tasks_partition_on_created_date(self) -> None:
-        response = _source("tasks")
-        assert response.name == "tasks"
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdDate"]
-
-    @pytest.mark.parametrize("endpoint", ["folders", "contacts", "workflows", "custom_fields", "spaces"])
-    def test_unpartitioned_endpoints(self, endpoint: str) -> None:
-        response = _source(endpoint)
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None

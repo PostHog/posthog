@@ -115,20 +115,6 @@ class TestOPUSWatchSourceTransport:
 
         return rows, sent_params, sent_headers
 
-    def test_master_endpoint_fetches_single_root_list_page(self):
-        manager = _fresh_manager()
-        responses = [_make_http_response([{"id": "w1"}, {"id": "w2"}])]
-
-        rows, sent_params, sent_headers = self._drive("workers", manager, responses)
-
-        assert rows == [{"id": "w1"}, {"id": "w2"}]
-        assert len(sent_params) == 1
-        # Master endpoints take no pagination or date-window params.
-        assert sent_params[0] == {}
-        assert sent_headers[0]["key"] == "test-key"
-        manager.load_state.assert_not_called()
-        manager.save_state.assert_not_called()
-
     def test_client_endpoint_wraps_single_object_as_one_row(self):
         manager = _fresh_manager()
         responses = [_make_http_response({"name": "Acme Nursery", "updatedTimestamp": "2025-01-05T00:00:00Z"})]

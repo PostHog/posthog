@@ -2,7 +2,9 @@ import { z } from 'zod'
 
 import { mergeRecipes, RecipeNormalizer, type StoredRecipe, validateRecipeAgainstSample } from '@posthog/llm-normalizer'
 
+import { PostHogApiError, wrapError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
+import { getToolRecoveryHint } from '@/lib/tool-error-hints'
 import type { Context, ToolBase } from '@/tools/types'
 
 // Mirrors MAX_SOURCE_LENGTH on the ParserRecipe model.
@@ -88,7 +90,7 @@ export const parserRecipeCreateHandler: ToolBase<typeof schema, ParserRecipeCrea
         .execute({ queryBody: { kind: 'TraceQuery', traceId: params.trace_id, dateRange: { date_from: dateFrom } } })
     if (!traceResult.success) {
         // Infra failures are exceptions; validation failures are results.
-        throw new Error(`Failed to load trace ${params.trace_id}: ${traceResult.error.message}`)
+        throw wrapError(`Failed to load trace ${params.trace_id}: ${traceResult.error.message}`, traceResult.error)
     }
 
     const traces = (traceResult.data.results ?? []) as Trace[]
@@ -173,12 +175,19 @@ export const parserRecipeCreateHandler: ToolBase<typeof schema, ParserRecipeCrea
         // Capture before the soft return: the graceful result bypasses `handleToolError`,
         // the path that normally surfaces 5xx-class failures to observability.
         try {
-            getPostHogClient().captureException(error, undefined, { tag: 'mcp', tool: 'llma-parser-recipe-create' })
+            const apiKey = await context.stateManager.getApiKey()
+            getPostHogClient().captureException(error, undefined, {
+                tag: 'mcp',
+                tool: 'llma-parser-recipe-create',
+                suppress_analytics: apiKey.suppress_analytics === true,
+            })
         } catch {
             // Observability must never break the request.
         }
         // Only persistence failed — never make the agent rewrite a correct recipe.
-        return { valid: true, saved: false, error: error instanceof Error ? error.message : String(error) }
+        const message = error instanceof Error ? error.message : String(error)
+        const recoveryHint = error instanceof PostHogApiError ? getToolRecoveryHint(error) : undefined
+        return { valid: true, saved: false, error: [message, recoveryHint].filter(Boolean).join(' ') }
     }
 }
 

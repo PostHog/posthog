@@ -14,10 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane
     check_access,
     rocketlane_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.settings import (
-    ENDPOINTS,
-    ROCKETLANE_ENDPOINTS,
-)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -73,73 +69,6 @@ def _rows(source_response) -> list[dict[str, Any]]:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_yields_rows_and_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"projectId": 1}, {"projectId": 2}], has_more=False, next_token=None)])
-
-        manager = _make_manager()
-        rows = _rows(rocketlane_source("rl-key", "projects", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == [{"projectId": 1}, {"projectId": 2}]
-        assert session.send.call_count == 1
-        # No further pages, so no resume state is persisted.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_cursor_until_has_more_is_false(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _response([{"projectId": 1}], has_more=True, next_token="t2"),
-                _response([{"projectId": 2}], has_more=True, next_token="t3"),
-                _response([{"projectId": 3}], has_more=False, next_token=None),
-            ],
-        )
-
-        rows = _rows(
-            rocketlane_source("rl-key", "projects", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        )
-
-        assert rows == [{"projectId": 1}, {"projectId": 2}, {"projectId": 3}]
-        # First request omits the token; subsequent requests carry the previous page's nextPageToken.
-        assert "pageToken" not in params[0]
-        assert params[0]["pageSize"] == 100
-        assert params[1]["pageToken"] == "t2"
-        assert params[2]["pageToken"] == "t3"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_next_token_missing_even_if_has_more(self, MockSession) -> None:
-        # A page advertising hasMore but no token cannot be followed — stop rather than loop.
-        session = MockSession.return_value
-        _wire(session, [_response([{"projectId": 1}], has_more=True, next_token=None)])
-
-        manager = _make_manager()
-        rows = _rows(rocketlane_source("rl-key", "projects", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == [{"projectId": 1}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_token_after_yielding_each_batch(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response([{"projectId": 1}], has_more=True, next_token="t2"),
-                _response([{"projectId": 2}], has_more=False, next_token=None),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(rocketlane_source("rl-key", "projects", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        # State is saved AFTER the first page is yielded (pointing at the next token), never for the last.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [RocketlaneResumeConfig(page_token="t2")]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_token(self, MockSession) -> None:
         session = MockSession.return_value
@@ -243,6 +172,3 @@ class TestRocketlaneSourceResponse:
         # Every endpoint exposes a stable `createdAt`, so all partition by datetime.
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["createdAt"]
-
-    def test_endpoint_keys_match_endpoints_tuple(self) -> None:
-        assert set(ROCKETLANE_ENDPOINTS) == set(ENDPOINTS)

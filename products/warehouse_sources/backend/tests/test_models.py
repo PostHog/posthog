@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     mark_initial_sync_complete,
     mark_schema_running_unless_halted,
     process_incremental_value,
+    staged_handoff_resume_point,
+    staged_handoff_resume_value,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -249,6 +251,49 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
         schema.refresh_from_db()
         assert schema.sync_type_config["incremental_staged"]["last_value"] == 42
 
+    def test_a_handoff_resume_value_never_moves_the_stored_watermark(self) -> None:
+        schema = self._create(
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field_type": IncrementalFieldType.Integer,
+                "incremental_field_last_value": 10,
+            },
+        )
+        schema.stage_incremental_field_value("wfrun-1-a1", 50)
+        schema.stage_handoff_resume_value("wfrun-1-a1", 40)
+        # The next attempt displaces the first one, which must keep its value in the parked list.
+        schema.stage_handoff_resume_value("wfrun-1-a2", 40)
+        schema.stage_incremental_field_value("wfrun-1-a2", 90)
+
+        schema.refresh_from_db()
+        # The run never completed, so nothing was promoted: the next workflow run starts from 10
+        # and extracts again the rows that this run queued but did not finish loading.
+        assert schema.sync_type_config["incremental_field_last_value"] == 10
+        assert staged_handoff_resume_value(schema.sync_type_config, "wfrun-1") == 40
+        assert staged_handoff_resume_value(schema.sync_type_config, "wfrun-2") is None
+
+        assert schema.promote_staged_incremental_values("wfrun-1-a2")
+        schema.refresh_from_db()
+        assert schema.sync_type_config["incremental_field_last_value"] == 90
+
+    def test_a_resume_value_inherited_without_a_new_batch_keeps_the_earlier_owner(self) -> None:
+        # Attempt a2 inherits a1's resume value before it has queued a batch of its own: the batches
+        # the value describes still belong to a1, so a3 must finalize a1, not a2, if a2 never queues one.
+        schema = self._create(
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field_type": IncrementalFieldType.Integer},
+        )
+        schema.stage_handoff_resume_value("wfrun-1-a1", 40)
+        schema.stage_handoff_resume_value("wfrun-1-a2", 40, owner_run_uuid="wfrun-1-a1")
+
+        schema.refresh_from_db()
+        assert staged_handoff_resume_point(schema.sync_type_config, "wfrun-1") == ("wfrun-1-a1", 40)
+
+        # Once a2 queues a batch of its own, it becomes the owner for any later attempt.
+        schema.stage_handoff_resume_value("wfrun-1-a2", 55)
+        schema.refresh_from_db()
+        assert staged_handoff_resume_point(schema.sync_type_config, "wfrun-1") == ("wfrun-1-a2", 55)
+
     def test_promote_staged_incremental_values_save_skips_activity_log(self) -> None:
         schema = self._create(
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
@@ -355,6 +400,51 @@ class TestPartitionMeasurementPreservesConcurrentKeys(BaseTest):
         assert schema.sync_type_config["last_full_run_at"] == "2026-09-03T12:00:00+00:00"
         assert schema.sync_type_config["max_partition_bytes"] == 4096
         assert schema.sync_type_config["incremental_field"] == "updated_at"
+
+    def test_repartition_claims_are_ordered_and_preserve_concurrent_keys(self) -> None:
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source=self.source, name="orders", sync_type_config={"repartition_pending": {}}
+        )
+        stale = ExternalDataSchema.objects.get(id=schema.id)
+
+        update_sync_type_config_keys(
+            schema.id,
+            self.team.pk,
+            updates={
+                "repartition_claim": {"token": "newer", "claimed_at": "2026-10-05T12:01:00+00:00"},
+                "last_full_run_at": "2026-10-05T12:00:00+00:00",
+            },
+        )
+        assert not stale.set_repartition_claim({"token": "zombie", "claimed_at": "2026-10-05T11:59:00+00:00"})
+
+        schema.refresh_from_db()
+        assert schema.sync_type_config["repartition_claim"] == {
+            "token": "newer",
+            "claimed_at": "2026-10-05T12:01:00+00:00",
+        }
+        assert schema.sync_type_config["repartition_pending"] == {}
+        assert schema.sync_type_config["last_full_run_at"] == "2026-10-05T12:00:00+00:00"
+
+        assert stale.set_repartition_claim({"token": "latest", "claimed_at": "2026-10-05T12:02:00+00:00"})
+        schema.refresh_from_db()
+        assert schema.sync_type_config["repartition_claim"]["token"] == "latest"
+
+        update_sync_type_config_keys(
+            schema.id,
+            self.team.pk,
+            updates={"repartition_swap": {"state": "ready"}, "repartition_rewrite": {"rows_written": 1}},
+        )
+        assert not stale.abandon_repartition_if_claimed("newer")
+        assert not stale.abandon_repartition_if_claimed("latest")
+        schema.refresh_from_db()
+        assert schema.repartition_swap == {"state": "ready"}
+        assert schema.repartition_rewrite == {"rows_written": 1}
+
+        update_sync_type_config_keys(schema.id, self.team.pk, removes=["repartition_swap"])
+        assert stale.abandon_repartition_if_claimed("latest")
+        schema = ExternalDataSchema.objects.get(id=schema.id)
+        assert schema.repartition_rewrite is None
+        assert schema.last_repartition_at is not None
 
     @parameterized.expand(
         [
@@ -631,14 +721,12 @@ class TestUpdateSyncTypeConfigKeys(BaseTest):
         assert schema.sync_type_config == {"cdc_mode": "streaming", "cdc_last_log_position": "0/200"}
 
     def test_removes_pop_keys(self) -> None:
-        schema = self._create(
-            {"cdc_mode": "snapshot", "cdc_last_log_position": "0/100", "cdc_deferred_runs": [{"x": 1}]}
-        )
+        schema = self._create({"cdc_mode": "snapshot", "cdc_last_log_position": "0/100", "cdc_snapshot_lane": "buffer"})
         result = update_sync_type_config_keys(
             schema.id,
             self.team.pk,
             updates={"cdc_mode": "snapshot"},
-            removes=["cdc_last_log_position", "cdc_deferred_runs"],
+            removes=["cdc_last_log_position", "cdc_snapshot_lane"],
         )
         assert result == {"cdc_mode": "snapshot"}
         schema.refresh_from_db()
@@ -651,16 +739,16 @@ class TestUpdateSyncTypeConfigKeys(BaseTest):
         assert schema.sync_type_config == {"cdc_mode": "streaming"}
 
     def test_mutate_appends_inside_critical_section(self) -> None:
-        schema = self._create({"cdc_deferred_runs": [{"run_uuid": "a", "batch_results": []}]})
+        schema = self._create({"runs": [{"run_uuid": "a", "batch_results": []}]})
 
         def _mutate(config: dict) -> None:
-            for entry in config["cdc_deferred_runs"]:
+            for entry in config["runs"]:
                 if entry["run_uuid"] == "a":
                     entry["batch_results"].append({"s3_path": "s3://x"})
 
         update_sync_type_config_keys(schema.id, self.team.pk, mutate=_mutate)
         schema.refresh_from_db()
-        assert schema.sync_type_config["cdc_deferred_runs"][0]["batch_results"] == [{"s3_path": "s3://x"}]
+        assert schema.sync_type_config["runs"][0]["batch_results"] == [{"s3_path": "s3://x"}]
 
     def test_apply_order_is_updates_removes_mutate(self) -> None:
         schema = self._create({"a": 1})
@@ -724,7 +812,7 @@ class TestUpdateSyncTypeConfigKeys(BaseTest):
 
 
 class TestMarkInitialSyncComplete(BaseTest):
-    """The shared first-sync-complete transition (V2 pipelines + V3 loader post-load), whose
+    """The first-sync-complete transition (V3 loader post-load), whose
     False→True edge is what moves a CDC schema out of snapshot mode into streaming."""
 
     def setUp(self) -> None:
@@ -753,13 +841,13 @@ class TestMarkInitialSyncComplete(BaseTest):
         [
             (
                 # First completion of a CDC snapshot flips it to streaming; keys written
-                # concurrently by the CDC extract activity (deferred runs) must survive the flip.
+                # concurrently by the CDC extract activity (its last run time) must survive the flip.
                 "cdc_snapshot_flips_to_streaming_preserving_other_keys",
                 "cdc",
-                {"cdc_mode": "snapshot", "cdc_deferred_runs": [{"run_uuid": "a"}], "dwh_storage_key": "users"},
+                {"cdc_mode": "snapshot", "cdc_last_run_at": "2026-01-01T00:00:00+00:00", "dwh_storage_key": "users"},
                 False,
                 True,
-                {"cdc_mode": "streaming", "cdc_deferred_runs": [{"run_uuid": "a"}], "dwh_storage_key": "users"},
+                {"cdc_mode": "streaming", "cdc_last_run_at": "2026-01-01T00:00:00+00:00", "dwh_storage_key": "users"},
             ),
             (
                 # Already-streaming CDC schema (re-run after a reset) completes without a config rewrite.
@@ -1150,6 +1238,8 @@ def test_process_incremental_value_xid_returns_value_as_is() -> None:
         (1718377611.5, IncrementalFieldType.DateTime, 1718377611.5),
         (datetime(2024, 6, 14, 15, 33, 31), IncrementalFieldType.DateTime, datetime(2024, 6, 14, 15, 33, 31)),
         ("2024-06-14T15:33:31", IncrementalFieldType.DateTime, datetime(2024, 6, 14, 15, 33, 31)),
+        (date(2024, 6, 14), IncrementalFieldType.DateTime, datetime(2024, 6, 14)),
+        (date(2024, 6, 14), IncrementalFieldType.Timestamp, datetime(2024, 6, 14)),
         ("2024-06-14", IncrementalFieldType.Date, date(2024, 6, 14)),
         # JS `Date.prototype.toString()` cursors carry a parenthetical timezone name dateutil
         # can't parse on its own, even though the GMT offset earlier in the string is sufficient.
@@ -1175,6 +1265,12 @@ def test_process_incremental_value_xid_returns_value_as_is() -> None:
         # A genuine compact date string (YYYYMMDD) must still parse as a real date, not fall
         # back to the raw-integer path.
         ("20240115", IncrementalFieldType.Date, date(2024, 1, 15)),
+        # MySQL's zero-date sentinel for "no date set" (also emitted verbatim by some REST
+        # sources, e.g. ServiceM8's `edit_date`) must be treated as absent instead of
+        # crashing on dateutil's year-0 ParserError.
+        ("0000-00-00 00:00:00", IncrementalFieldType.DateTime, None),
+        ("0000-00-00 00:00:00", IncrementalFieldType.Timestamp, None),
+        ("0000-00-00", IncrementalFieldType.Date, None),
     ],
 )
 def test_process_incremental_value_datetime_handles_epoch_numbers(value, field_type, expected) -> None:
@@ -1746,3 +1842,62 @@ class TestDeleteTable(BaseTest):
         assert schema.status is None
         assert schema.last_synced_at is None
         assert DataWarehouseTable.objects.get(id=table_id).deleted is True
+
+
+class TestFailureStreakMarker(SimpleTestCase):
+    # These properties are read on the terminal-status write of every run, so an unparseable
+    # marker must read as "no streak" rather than fail every sync of the schema.
+    @parameterized.expand(
+        [
+            ("no_config", None, 0),
+            ("empty_config", {}, 0),
+            ("marker_absent", {"reset_pipeline": True}, 0),
+            ("marker_is_not_a_dict", {"failure_streak": "7"}, 0),
+            ("runs_missing", {"failure_streak": {}}, 0),
+            ("runs_is_not_an_int", {"failure_streak": {"runs": "7"}}, 0),
+            ("runs_is_negative", {"failure_streak": {"runs": -3}}, 0),
+            ("runs_is_a_count", {"failure_streak": {"runs": 7}}, 7),
+        ]
+    )
+    def test_failed_runs_in_a_row(self, _name: str, config: dict[str, Any] | None, expected: int) -> None:
+        assert ExternalDataSchema(sync_type_config=config).failed_runs_in_a_row == expected
+
+    @parameterized.expand(
+        [
+            ("no_marker", {}, None),
+            ("stamp_missing", {"failure_streak": {"runs": 7}}, None),
+            ("stamp_is_not_a_string", {"failure_streak": {"runs": 7, "last_failed_at": 12345}}, None),
+            ("stamp_is_unparseable", {"failure_streak": {"runs": 7, "last_failed_at": "not a date"}}, None),
+            (
+                "stamp_is_an_aware_timestamp",
+                {"failure_streak": {"runs": 7, "last_failed_at": "2026-01-02T03:04:05+00:00"}},
+                datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+            ),
+            # Read as UTC rather than left naive, so arithmetic against an aware `now` cannot raise.
+            (
+                "stamp_is_a_naive_timestamp",
+                {"failure_streak": {"runs": 7, "last_failed_at": "2026-01-02T03:04:05"}},
+                datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_failure_streak_last_failed_at(self, _name: str, config: dict[str, Any], expected: datetime | None) -> None:
+        assert ExternalDataSchema(sync_type_config=config).failure_streak_last_failed_at == expected
+
+    def test_a_failed_run_adds_to_the_streak_and_keeps_the_other_keys(self) -> None:
+        schema = ExternalDataSchema(sync_type_config={"incremental_field": "updated_at", "failure_streak": {"runs": 2}})
+
+        schema.note_failed_run(datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC))
+
+        assert schema.failed_runs_in_a_row == 3
+        assert schema.failure_streak_last_failed_at == datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+        assert schema.sync_type_config["incremental_field"] == "updated_at"
+
+    def test_clearing_the_streak_keeps_the_other_keys(self) -> None:
+        schema = ExternalDataSchema(sync_type_config={"incremental_field": "updated_at", "failure_streak": {"runs": 9}})
+
+        schema.clear_failure_streak()
+
+        assert schema.failed_runs_in_a_row == 0
+        assert schema.failure_streak_last_failed_at is None
+        assert schema.sync_type_config == {"incremental_field": "updated_at"}

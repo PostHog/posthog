@@ -252,6 +252,9 @@ pub struct FlagsCanonicalLogLine {
     /// - "empty": query succeeded, no overrides found
     /// - "found": query succeeded, overrides returned
     pub hash_key_override_status: Option<&'static str>,
+    /// The first persons DB call that the persons DB deadline stopped, such as
+    /// "fetch_properties". The flags that needed persons data returned an error.
+    pub persons_db_deadline_exceeded: Option<&'static str>,
 
     /// Which evaluation strategy was used for this request.
     /// Set to `Parallel` if any dependency level triggered parallel evaluation.
@@ -353,6 +356,7 @@ impl Default for FlagsCanonicalLogLine {
             flags_errored: 0,
             dependency_graph_errors: 0,
             hash_key_override_status: None,
+            persons_db_deadline_exceeded: None,
             evaluation_type: None,
             rate_limited: false,
             rate_limit_warned: false,
@@ -428,6 +432,7 @@ impl FlagsCanonicalLogLine {
             flags_errored = self.flags_errored,
             dependency_graph_errors = self.dependency_graph_errors,
             hash_key_override_status = self.hash_key_override_status,
+            persons_db_deadline_exceeded = self.persons_db_deadline_exceeded,
             evaluation_type = self.evaluation_type.map(|t| t.as_str()),
             rate_limited = self.rate_limited,
             rate_limit_warned = self.rate_limit_warned,

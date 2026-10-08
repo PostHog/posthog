@@ -90,7 +90,6 @@ from products.replay_vision.backend.billing import (
     projected_monthly_credits,
 )
 from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE
-from products.replay_vision.backend.feedback_themes import cached_feedback_themes
 from products.replay_vision.backend.impact import (
     DEFAULT_IMPACT_WINDOW_DAYS,
     compute_scanner_impact,
@@ -117,6 +116,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerProvider,
     ScannerType,
     apply_experiment_targeting,
+    config_experiment_scope,
 )
 from products.replay_vision.backend.prompt_questions import (
     question_fields_for_save,
@@ -146,11 +146,13 @@ from products.replay_vision.backend.scanner_access import (
     accessible_observations,
     is_experiment_accessible,
     readable_observation_scanner_ids,
+    scanner_experiment_scope_q,
 )
 from products.replay_vision.backend.scanner_config import (
     MAX_PROMPT_LENGTH,
     MAX_TAG_LENGTH,
     acting_user,
+    analytics_source_kwargs,
     scanner_config_error,
 )
 from products.replay_vision.backend.scanner_draft import DraftError, draft_scanner_from_goal, draft_scanner_from_goal_v2
@@ -316,6 +318,7 @@ def scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
     Filter *values* stay out: they can carry customer data (URLs, emails)."""
     query = scanner.query if isinstance(scanner.query, dict) else {}
     estimate = scanner.estimated_monthly_observations
+    experiment_scope = scanner.experiment_scope()
     return {
         "scanner_id": str(scanner.id),
         "scanner_type": scanner.scanner_type,
@@ -325,10 +328,10 @@ def scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
         "sampling_rate": scanner.sampling_rate,
         "sampling_mode": scanner.sampling_mode,
         "enabled": scanner.enabled,
-        # experiment_targeting narrows the population server-side, so it counts as filtered; the
+        # An experiment scope narrows the population server-side, so it counts as filtered; the
         # separate flag keeps experiment-scoped scanners countable apart from hand-filtered ones.
-        "has_filters": any(query.get(key) for key in _QUERY_FILTER_KEYS) or bool(scanner.experiment_targeting),
-        "has_experiment_targeting": bool(scanner.experiment_targeting),
+        "has_filters": any(query.get(key) for key in _QUERY_FILTER_KEYS) or bool(experiment_scope),
+        "has_experiment_targeting": bool(experiment_scope),
         # True when the prompt is a stock template's word for word, so a creation-flow experiment can
         # tell a scanner tailored to the team from a template saved with its defaults.
         "uses_template_prompt": template_question(scanner.scanner_config) is not None,
@@ -381,35 +384,6 @@ def _scanner_copy_name(team_id: int, source_name: str) -> str:
     # Unreachable given the range spans more than the collisions, but stay well-defined; the DB
     # uniqueness constraint is the final backstop.
     return source_name
-
-
-class FeedbackThemeSessionSerializer(serializers.Serializer):
-    observation_id = serializers.CharField(help_text="Observation whose feedback comment backs this theme.")
-    session_id = serializers.CharField(help_text="Session recording the feedback comment was about.")
-
-
-class FeedbackThemeSerializer(serializers.Serializer):
-    theme = serializers.CharField(
-        help_text='Short failure mode in sentence case, for example "Review page mistaken for confirmation".'
-    )
-    count = serializers.IntegerField(help_text="How many feedback comments describe this failure mode.")
-    examples = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Up to two short representative quotes from the feedback comments.",
-    )
-    sessions = FeedbackThemeSessionSerializer(
-        many=True,
-        help_text="The rated sessions whose feedback comments back this theme. Empty for summaries generated "
-        "before session tracking.",
-    )
-
-
-class FeedbackThemesSerializer(serializers.Serializer):
-    themes = FeedbackThemeSerializer(many=True, help_text="Recurring failure modes, most frequent first.")
-    feedback_count = serializers.IntegerField(
-        help_text="Number of thumbs-down feedback comments the summary was generated from."
-    )
-    generated_at = serializers.DateTimeField(help_text="When the summary was generated.")
 
 
 class ScannerExperimentTargetingSerializer(serializers.Serializer):
@@ -612,7 +586,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     credits_used_against_limit = serializers.SerializerMethodField(
         help_text=(
             "Credits counted against `credit_limit` for the current billing period: settled receipts plus "
-            "in-flight observations and running prompt tests, priced from their frozen snapshot model. This "
+            "in-flight observations, priced from their frozen snapshot model. This "
             "is what the limit gate measures, so it includes work still in progress. It is not the same as "
             "`credits_this_month`, which counts only succeeded observations."
         ),
@@ -640,23 +614,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         allow_null=True,
         help_text="User who created the scanner.",
     )
-    feedback_themes = serializers.SerializerMethodField(
-        help_text="AI summary of the team's written thumbs-down feedback into recurring failure modes. "
-        "Refreshed with prompt recommendations; null until enough feedback accumulates."
-    )
-
-    @extend_schema_field(FeedbackThemesSerializer(allow_null=True))
-    def get_feedback_themes(self, scanner: ReplayScanner) -> dict[str, Any] | None:
-        cached = cached_feedback_themes(scanner)
-        if not cached:
-            return None
-        # The staleness fingerprint is internal bookkeeping, not API surface.
-        return {
-            # Summaries cached before session tracking lack the key, so default it to keep the shape stable.
-            "themes": [{**theme, "sessions": theme.get("sessions") or []} for theme in cached.get("themes") or []],
-            "feedback_count": cached.get("feedback_count", 0),
-            "generated_at": cached.get("generated_at"),
-        }
 
     class Meta:
         model = ReplayScanner
@@ -693,7 +650,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "created_at",
             "created_by",
             "updated_at",
-            "feedback_themes",
             "user_access_level",
         ]
         read_only_fields = [
@@ -713,7 +669,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "created_at",
             "created_by",
             "updated_at",
-            "feedback_themes",
             "user_access_level",
         ]
 
@@ -803,7 +758,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             if duplicates.exists():
                 raise serializers.ValidationError({"name": "A scanner with this name already exists in this team."})
         self._reject_scanner_type_change(attrs)
+        self._restore_redacted_experiment_config(attrs)
         self._validate_scanner_config(attrs)
+        self._validate_experiment_scanner(attrs)
         self._validate_and_strip_query(attrs)
         self._drop_redacted_targeting_clear(attrs)
         scout_caller = bool(self.context.get("scout_sandbox_caller"))
@@ -831,6 +788,104 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             and not self._can_view_targeted_experiment(self.instance.experiment_targeting)
         ):
             attrs.pop("experiment_targeting")
+
+    def _restore_redacted_experiment_config(self, attrs: dict[str, Any]) -> None:
+        """Normalize an experiment scanner's config on update, where the experiment itself is fixed.
+
+        The experiment decides the population, the prompt, and the meaning of every observation,
+        so it is as identity-defining as the scanner type: retargeting is a new scanner, not an
+        edit (and per-scanner readouts would otherwise mix two populations). That also makes a
+        written-back config with no experiment_id unambiguous, so the stored id is restored.
+        """
+        if self.instance is None or self.instance.scanner_type != ScannerType.EXPERIMENT:
+            return
+        config = attrs.get("scanner_config")
+        if not isinstance(config, dict):
+            return
+        stored = self.instance.scanner_config if isinstance(self.instance.scanner_config, dict) else {}
+        if stored.get("experiment_id") is None:
+            return
+        if not self._can_view_targeted_experiment({"experiment_id": stored["experiment_id"]}):
+            # A caller denied the experiment can't write this config at all. The scan injects the
+            # experiment's own description into the prompt (see resolve_experiment_variant), so a
+            # prompt they wrote could instruct the model to copy that private text into output that
+            # lands on the team-visible $recording_observed event. One uniform answer for every
+            # write also keeps the hidden id and variants from being enumerated by probing PATCHes.
+            raise serializers.ValidationError({"scanner_config": "Experiment not found in this project."})
+        if config.get("experiment_id") is not None and config["experiment_id"] != stored["experiment_id"]:
+            raise serializers.ValidationError(
+                {
+                    "scanner_config": (
+                        "The experiment is fixed after creation. Create a new scanner to watch a different experiment."
+                    )
+                }
+            )
+        attrs["scanner_config"] = {**config, "experiment_id": stored["experiment_id"]}
+
+    def _validate_experiment_scanner(self, attrs: dict[str, Any]) -> None:
+        """The experiment-type checks that need a viewer or the experiments product, which the
+        pydantic config validation has no access to: experiment access, and a resolvable exposed
+        population (launched, person-aggregated, variants exist). A draft experiment passes only
+        for a scanner saved off with `start_on_launch`, which `experiment_launch` turns on."""
+        scanner_type = attrs.get("scanner_type", getattr(self.instance, "scanner_type", None))
+        if scanner_type != ScannerType.EXPERIMENT:
+            return
+        if attrs.get("experiment_targeting"):
+            raise serializers.ValidationError(
+                {"experiment_targeting": "An experiment scanner keeps its experiment in scanner_config."}
+            )
+        # Deferred: the experiments replay facade pulls in the recordings query modules, which
+        # circle back into this package's importers.
+        from products.experiments.backend.facade.replay import (  # noqa: PLC0415
+            experiment_status,
+            resolve_exposure_linkage,
+            validate_draft_experiment_scope,
+        )
+
+        team = self.context["get_team"]()
+        config = attrs.get("scanner_config", getattr(self.instance, "scanner_config", None)) or {}
+        enabled = attrs.get("enabled", self.instance.enabled if self.instance is not None else True)
+        if self.instance is not None and config_experiment_scope(config) == self.instance.experiment_scope():
+            # Unchanged scope (the restore already required experiment access on updates): the
+            # linkage was checked when the scope was written. Only the launch can have moved since.
+            experiment_id = config.get("experiment_id")
+            turning_on = enabled and not self.instance.enabled
+            writes_marker = "start_on_launch" in config and "scanner_config" in attrs
+            if isinstance(experiment_id, int) and (turning_on or writes_marker):
+                status = experiment_status(team, experiment_id=experiment_id)
+                if turning_on and status is not None and status.start_date is None:
+                    raise serializers.ValidationError(
+                        {"enabled": "This experiment hasn't launched. Turn the scanner on after launch."}
+                    )
+                launched = status is not None and status.start_date is not None
+                if "start_on_launch" in config and (turning_on or (writes_marker and launched)):
+                    # A stale form can send the marker back after the launch consumed it, and the
+                    # reconciler's launch catch-up would then turn the scanner on.
+                    attrs["scanner_config"] = {k: v for k, v in config.items() if k != "start_on_launch"}
+            return
+        experiment_id = config.get("experiment_id")
+        if not isinstance(experiment_id, int):
+            # scanner_config_error already rejected this shape; kept as the type narrow.
+            raise serializers.ValidationError({"scanner_config": "Experiment is required."})
+        # Filtered by the caller's experiment access (not just the team), mirroring
+        # validate_experiment_targeting: a denied or cross-team id reads as not-found.
+        if not self._can_view_targeted_experiment({"experiment_id": experiment_id}):
+            raise serializers.ValidationError({"scanner_config": "Experiment not found in this project."})
+        status = experiment_status(team, experiment_id=experiment_id)
+        waits_for_launch = (
+            status is not None and status.start_date is None and not enabled and config.get("start_on_launch") is True
+        )
+        try:
+            if waits_for_launch:
+                validate_draft_experiment_scope(team, experiment_id=experiment_id, variants=config.get("variants"))
+            else:
+                resolve_exposure_linkage(team, experiment_id=experiment_id, variants=config.get("variants"))
+        except serializers.ValidationError as exc:
+            raise serializers.ValidationError({"scanner_config": exc.detail}) from exc
+        if not waits_for_launch and "start_on_launch" in config and "scanner_config" in attrs:
+            # Only a draft has a launch to wait for. A stale key would turn the scanner on at a
+            # later relaunch.
+            attrs["scanner_config"] = {k: v for k, v in config.items() if k != "start_on_launch"}
 
     def validate_experiment_targeting(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
         # The field already validated the blob's shape; this adds the access check, which needs the
@@ -907,6 +962,18 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # check in validate_experiment_targeting — a caller without experiment access sees null.
         if data.get("experiment_targeting") and not self._can_view_targeted_experiment(data["experiment_targeting"]):
             data["experiment_targeting"] = None
+        # The experiment type keeps its scope in scanner_config; hide only the experiment keys from
+        # a denied caller, so the rest of the config (prompt, length) stays readable. Writes are a
+        # separate question: `_restore_redacted_experiment_config` refuses every config write from a
+        # denied caller.
+        if instance.scanner_type == ScannerType.EXPERIMENT and isinstance(data.get("scanner_config"), dict):
+            experiment_id = data["scanner_config"].get("experiment_id")
+            if experiment_id is not None and not self._can_view_targeted_experiment({"experiment_id": experiment_id}):
+                data["scanner_config"] = {
+                    key: value
+                    for key, value in data["scanner_config"].items()
+                    if key not in ("experiment_id", "variants")
+                }
         return data
 
     def _can_view_targeted_experiment(self, targeting: dict[str, Any]) -> bool:
@@ -962,7 +1029,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 "creation_method": _reported_creation_method(self.context, creation_method),
             },
             team=team,
-            request=self.context.get("request"),
+            **analytics_source_kwargs(self.context),
         )
         return scanner
 
@@ -1014,7 +1081,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         changed_fields = sorted(field for field, value in before.items() if getattr(scanner, field) != value)
         if tags_changed:
             changed_fields = sorted([*changed_fields, "tags"])
-        request = self.context.get("request")
+        source_kwargs = analytics_source_kwargs(self.context)
         user = acting_user(self.context)
         team = self.context["get_team"]()
         if scanner.enabled != was_enabled:
@@ -1023,7 +1090,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 "replay_vision_scanner_enabled" if scanner.enabled else "replay_vision_scanner_disabled",
                 scanner_lifecycle_properties(scanner),
                 team=team,
-                request=request,
+                **source_kwargs,
             )
         # A pure enable/disable toggle is not a config edit. A save that also flips enabled fires both events.
         if any(field != "enabled" for field in changed_fields):
@@ -1037,7 +1104,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                     "edit_source": "manual",
                 },
                 team=team,
-                request=request,
+                **source_kwargs,
             )
         return scanner
 
@@ -1186,7 +1253,7 @@ class ReplayScannerFilter(django_filters.FilterSet):
         view = self.request.parser_context.get("view") if self.request else None
         if view is None or not is_experiment_accessible(view.user_access_control, view.team_id, experiment_id):
             return queryset.none()
-        return queryset.filter(experiment_targeting__experiment_id=experiment_id)
+        return queryset.filter(scanner_experiment_scope_q(experiment_ids=[experiment_id]))
 
     @staticmethod
     def _filter_search(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
@@ -1343,6 +1410,13 @@ class InlineScanRequestSerializer(serializers.Serializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         config = attrs["scanner_config"]
+        if attrs["scanner_type"] == ScannerType.EXPERIMENT:
+            # Inline scans skip the saved-scanner path that access-checks the experiment and, for
+            # now, the workflow step that attributes a session's variant. Until those run for
+            # inline scans, the type would scan without its experiment context.
+            raise serializers.ValidationError(
+                {"scanner_type": "Experiment scanners can't run as inline scans. Create the scanner instead."}
+            )
         if not isinstance(config, dict):
             raise serializers.ValidationError({"scanner_config": "Scanner configuration must be a JSON object."})
         if "prompt" in config:
@@ -1366,6 +1440,18 @@ class InlineScanResponseSerializer(BulkObserveResponseSerializer):
             "model, so asking the same question again returns the same id. Null when nothing was started "
             "and nothing existed to read, which happens when the quota is already used up."
         ),
+    )
+
+
+class EstimateExperimentScopeSerializer(serializers.Serializer):
+    experiment_id = serializers.IntegerField(min_value=1, help_text="The experiment an experiment scanner watches.")
+    variants = serializers.ListField(
+        child=serializers.CharField(max_length=400),
+        required=False,
+        allow_null=True,
+        default=None,
+        min_length=1,
+        help_text="The variant keys it watches. Null or omitted means every variant.",
     )
 
 
@@ -1422,6 +1508,21 @@ class EstimateRequestSerializer(serializers.Serializer):
             "way a saved scanner derives it. The estimate then runs as the requesting user."
         ),
     )
+    experiment = EstimateExperimentScopeSerializer(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "For an experiment scanner: the `experiment_id` and `variants` it will keep in its config, merged "
+            "into the query as its exposure filter so the estimate counts only exposed sessions. Not "
+            "combined with `experiment_targeting`."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("experiment") and attrs.get("experiment_targeting"):
+            raise serializers.ValidationError({"experiment": "Pass `experiment` or `experiment_targeting`, not both."})
+        return attrs
 
     def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -1446,6 +1547,7 @@ class ScannerStatsByTypeSerializer(serializers.Serializer):
     classifier = ScannerTypeStatsSerializer()
     scorer = ScannerTypeStatsSerializer()
     summarizer = ScannerTypeStatsSerializer()
+    experiment = ScannerTypeStatsSerializer()
 
 
 class ScannerStatsResponseSerializer(serializers.Serializer):
@@ -1454,7 +1556,7 @@ class ScannerStatsResponseSerializer(serializers.Serializer):
     total = serializers.IntegerField(help_text="Total scanners on the team.")
     enabled = serializers.IntegerField(help_text="Number of enabled scanners on the team.")
     by_type = ScannerStatsByTypeSerializer(
-        help_text="Per-scanner-type breakdown (monitor / classifier / scorer / summarizer)."
+        help_text="Per-scanner-type breakdown (monitor / classifier / scorer / summarizer / experiment)."
     )
 
 
@@ -1665,6 +1767,14 @@ class WatchFeedResponseSerializer(serializers.Serializer):
             "reason it ranked. Every observation that carries a finding is returned; observations that carry "
             "none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, "
             "so a quiet window answers with a handful of rows rather than a full page of newest clips."
+        ),
+    )
+    ranker = serializers.ChoiceField(
+        choices=["weighted-score", "jev"],
+        help_text=(
+            "Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, "
+            "`weighted-score` on the deterministic blend. The arm is decided server-side per team, so "
+            "clients read it from here rather than evaluating the flag themselves."
         ),
     )
 
@@ -2192,6 +2302,14 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 self.user_access_control, self.team_id, experiment_id
             ):
                 experiment_targeting = None
+        if source.scanner_type == ScannerType.EXPERIMENT:
+            scope_experiment_id = (source.experiment_scope() or {}).get("experiment_id")
+            if scope_experiment_id is None or not is_experiment_accessible(
+                self.user_access_control, self.team_id, scope_experiment_id
+            ):
+                # The experiment type can't exist without its experiment, so there is no
+                # targeting-stripped copy to fall back to the way the legacy types have.
+                raise serializers.ValidationError("Duplicating this scanner requires access to its experiment.")
         # One transaction so a failed tag write can't leave an untagged copy behind. Side effects stay outside.
         with transaction.atomic():
             try:
@@ -2205,6 +2323,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     # Same prompt, so the source's question still describes it.
                     prompt_question=source.prompt_question,
                     prompt_question_source=source.prompt_question_source,
+                    prompt_valence=source.prompt_valence,
                     query=source.query,
                     sampling_rate=source.sampling_rate,
                     sampling_mode=source.sampling_mode,
@@ -2357,8 +2476,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         )
         # The flag selects one of two independent rankers; nothing is blended between them. Shadow
         # teams rank on the weighted score too, because only the `jev` arm reads the probabilities
-        # the hourly sweep cached. Neither arm makes a model call here.
-        if watch_feed_ranker(self.team_id) == "jev":
+        # the hourly sweep cached. Neither arm makes a model call here. The response names the
+        # ranker that ordered it, so the shadow arm reads as weighted-score to the client.
+        ranker = "jev" if watch_feed_ranker(self.team_id) == "jev" else "weighted-score"
+        if ranker == "jev":
             probabilities = load_watch_ranks(self.team_id, allowed_ids)
             jev_rows = list(candidate_rows)
             # The recency slice above holds only each scanner's newest rows, which on a high-volume
@@ -2414,7 +2535,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             for entry in ranked
             if entry.observation_id in rows
         ]
-        return Response({"results": results})
+        return Response({"results": results, "ranker": ranker})
 
     @extend_schema(
         request=ObserveRequestSerializer,
@@ -2855,11 +2976,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # A denied experiment must read the same as a nonexistent one, mirroring
         # validate_experiment_targeting: the query runner's own access check answers with a 403,
         # which would confirm to a scanner-editor that a hidden experiment id exists.
-        targeting = body.validated_data.get("experiment_targeting")
+        scope_field = "experiment" if body.validated_data.get("experiment") else "experiment_targeting"
+        targeting = body.validated_data.get(scope_field)
         if targeting is not None and not is_experiment_accessible(
             self.user_access_control, self.team_id, targeting["experiment_id"]
         ):
-            raise serializers.ValidationError({"experiment_targeting": "Experiment not found in this project."})
+            raise serializers.ValidationError({scope_field: "Experiment not found in this project."})
 
         # validate_query already validated this; the empty-dict default needs `kind` to parse.
         query_dict: dict[str, Any] = dict(body.validated_data.get("query") or {})
@@ -2964,7 +3086,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             503: OpenApiResponse(response=ReplayVisionErrorSerializer, description="The draft couldn't be generated."),
         },
     )
-    # Each call is an inline LLM request, so it gets the shared AI rate limits like prompt suggestions.
+    # Each call is an inline LLM request, so it gets the shared AI rate limits like the other inline AI endpoints.
     @action(
         detail=False,
         methods=["post"],

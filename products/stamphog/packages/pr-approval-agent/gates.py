@@ -498,6 +498,11 @@ def _is_exempt_path(category: str, path: str) -> bool:
     return path.lower().startswith(DENY_EXEMPT_PATH_PREFIXES.get(category, ()))
 
 
+DENY_EXEMPT_AUTHOR_TEAMS: dict[str, tuple[str, ...]] = {
+    category: cat.exempt_author_teams for category, cat in POLICY.deny.items() if cat.exempt_author_teams
+}
+
+
 def category_fully_exempt(category: str, files: list[str]) -> bool:
     """True when every changed file is exempt for this category.
 
