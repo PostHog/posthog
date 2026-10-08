@@ -163,6 +163,11 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     source_skills_from_suggested_reviewer_artefacts,
 )
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
+from products.signals.backend.report_location import (
+    ReportLocationQuerySerializer,
+    ReportLocationResponseSerializer,
+    locate_report_team_id,
+)
 from products.signals.backend.report_merge import (
     MAX_MERGE_REASON_LENGTH,
     MAX_MERGE_SOURCE_REPORTS,
@@ -2463,6 +2468,29 @@ class SignalReportViewSet(
 
         with tracer.start_as_current_span("signals.reports.list.serialize"):
             return serializer.data
+
+    @validated_request(
+        query_serializer=ReportLocationQuerySerializer,
+        responses={200: OpenApiResponse(response=ReportLocationResponseSerializer)},
+        summary="Find the project that owns a report",
+        description=(
+            "Find which of the caller's projects owns a report id. The inbox calls this when a report "
+            "link opens under a project that does not own the report, so it can send the person to the "
+            "right project. Returns null when the caller can't read the report in any project. Only "
+            "browser-session requests get an answer; a call with any other credential returns null."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="locate", required_scopes=["task:read"])
+    def locate(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        # A scoped token must not learn about reports outside its teams, so only a browser session looks across projects.
+        team_id = (
+            locate_report_team_id(
+                user=cast(User, request.user), report_id=str(request.validated_query_data["report_id"])
+            )
+            if isinstance(request.successful_authenticator, SessionAuthentication)
+            else None
+        )
+        return Response(ReportLocationResponseSerializer({"team_id": team_id}).data)
 
     @validated_request(
         query_serializer=SignalReportsForYouQuerySerializer,

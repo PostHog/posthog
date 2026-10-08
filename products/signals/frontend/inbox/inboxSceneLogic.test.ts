@@ -235,6 +235,50 @@ describe('inboxSceneLogic routing', () => {
         expect(opened(logic.values)).toBe(true)
     })
 
+    // A report link only resolves in the URL's project, so a link opened under another project 404s.
+    it.each<[string, number | null, string | null, boolean]>([
+        ['sends the person to the project that owns the report', 2001, 'redirected', true],
+        ['shows not found when no project the person can read owns it', null, 'not_accessible', false],
+    ])('a 404 on a report link %s', async (_name, owningTeamId, outcome, redirects) => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/locate/': { team_id: owningTeamId },
+                '/api/projects/:team_id/signals/reports/:id/': () => [404, { detail: 'Not found.' }],
+            },
+        })
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        mountWithRedesign(true)
+        await expectLogic(logic).toFinishAllListeners()
+        const originalLocation = window.location
+        const pathname = `/project/${MOCK_DEFAULT_TEAM.id}${urls.inboxReport('reports', 'r-missing')}`
+        Object.defineProperty(window, 'location', {
+            configurable: true,
+            writable: true,
+            value: { ...originalLocation, pathname, search: '?view=all', hash: '', href: originalLocation.href },
+        })
+        try {
+            await expectLogic(logic, () => logic.actions.setSelectedReportId('r-missing'))
+                .toDispatchActions(['loadSelectedReportSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.selectedReport).toBeNull()
+            expect(logic.values.selectedReportLoading).toBe(redirects)
+            expect(window.location.href).toBe(
+                redirects
+                    ? `/project/${owningTeamId}${urls.inboxReport('reports', 'r-missing')}?view=all`
+                    : originalLocation.href
+            )
+            expect(captureSpy).toHaveBeenCalledWith(
+                'Inbox report not found',
+                expect.objectContaining({ report_id: 'r-missing', outcome }),
+                undefined
+            )
+        } finally {
+            Object.defineProperty(window, 'location', { configurable: true, writable: true, value: originalLocation })
+            captureSpy.mockRestore()
+        }
+    })
+
     // The scout page's tabs live in the URL, so a link to a scout's runs has to survive a reload.
     // Selecting a scout resets the tab, so the URL's tab had to be applied after that reset.
     describe('the scout page tab in the URL', () => {
