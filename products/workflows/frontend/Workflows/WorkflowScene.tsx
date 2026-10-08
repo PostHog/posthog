@@ -38,6 +38,7 @@ import {
     isEditingEmailAction,
 } from './workflowAgentContext'
 import { WorkflowAssets } from './WorkflowAssets'
+import { DISTRIBUTION_CONTEXT_PARAM } from './workflowDistributionLogic'
 import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { WorkflowInvocations } from './WorkflowInvocations'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
@@ -73,6 +74,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         templateId,
         editTemplateId,
         triggerPrefill,
+        distributionContextKey: searchParams[DISTRIBUTION_CONTEXT_PARAM] as string | undefined,
     }
 
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })

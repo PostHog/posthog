@@ -131,6 +131,81 @@ def _email_step(step_id: str, name: str, **email_value: Any) -> dict[str, Any]:
 
 
 class TestHogFlowAPI(APIBaseTest):
+    @patch("products.workflows.backend.presentation.views.hog_flow.report_user_action")
+    def test_lifecycle_capture_identifies_new_workflow_outcomes(self, capture: MagicMock) -> None:
+        payload, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com/notify"}}}
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", {**payload, "status": "draft", "origin_product": "broadcasts"}
+        )
+        assert response.status_code == 201, response.json()
+        workflow = response.json()
+        event = next(call for call in capture.call_args_list if call.args[1] == "hog_flow_created")
+        assert event.args[2] == {
+            "workflow_id": workflow["id"],
+            "workflow_name": workflow["name"],
+            "team_id": str(self.team.id),
+            "organization_id": str(self.organization.id),
+            "project_uuid": str(self.team.uuid),
+            "status": "draft",
+            "origin_product": "broadcasts",
+            "created_at": datetime.fromisoformat(workflow["created_at"]).isoformat(),
+            "edges_count": 0,
+            "actions_count": 2,
+        }
+
+    @parameterized.expand([("draft", None), ("archived", "broadcasts")])
+    @patch("products.workflows.backend.presentation.views.hog_flow.report_user_action")
+    def test_lifecycle_capture_observes_activation_by_another_member(
+        self, initial_status: str, origin_product: str | None, capture: MagicMock
+    ) -> None:
+        payload, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com/notify"}}}
+        )
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {**payload, "status": initial_status, "origin_product": origin_product},
+        )
+        assert created.status_code == 201, created.json()
+        workflow = created.json()
+        member = self._create_user("workflow-editor@example.com")
+        self.client.force_login(member)
+        for target_status in ("active", "active", "archived", "active"):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{workflow['id']}", {"status": target_status}
+            )
+            assert response.status_code == 200, response.json()
+        activations = [call for call in capture.call_args_list if call.args[1] == "hog_flow_activated"]
+        assert len(activations) == 2
+        for event in activations:
+            assert event.args[0] == member
+            assert event.args[2]["workflow_id"] == workflow["id"]
+            assert event.args[2]["status"] == "active"
+            assert event.args[2]["origin_product"] == origin_product
+            assert datetime.fromisoformat(event.args[2]["created_at"]) == datetime.fromisoformat(workflow["created_at"])
+
+    @patch("products.workflows.backend.presentation.views.hog_flow.report_user_action")
+    def test_lifecycle_capture_counts_active_creation_and_preserves_writes_on_capture_failure(
+        self, capture: MagicMock
+    ) -> None:
+        payload, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com/notify"}}}
+        )
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**payload, "status": "active"})
+        assert response.status_code == 201, response.json()
+        event = next(call for call in capture.call_args_list if call.args[1] == "hog_flow_created")
+        assert event.args[2]["status"] == "active"
+        assert event.args[2]["workflow_id"] == response.json()["id"]
+        capture.side_effect = RuntimeError("Capture unavailable")
+        draft = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**payload, "status": "draft"})
+        assert draft.status_code == 201, draft.json()
+        activated = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{draft.json()['id']}", {"status": "active"}
+        )
+        assert activated.status_code == 200, activated.json()
+        assert activated.json()["status"] == "active"
+
     def setUp(self):
         super().setUp()
         # Create slack template in DB

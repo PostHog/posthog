@@ -4672,13 +4672,17 @@ class HogFlowViewSet(
                     "workflow_name": instance.name,
                     "team_id": str(self.team_id),
                     "organization_id": str(self.organization.id),
+                    "project_uuid": str(self.team.uuid),
+                    "status": instance.status,
+                    "origin_product": instance.origin_product,
+                    "created_at": instance.created_at.isoformat(),
                     **(extra_properties or {}),
                 },
                 team=self.team,
                 request=self.request,
             )
         except Exception as e:
-            logger.warning("Failed to capture workflow usage event", event=event, error=str(e))
+            logger.warning("Failed to capture workflow usage event", usage_event=event, error=str(e))
 
     def perform_create(self, serializer):
         if self._is_mcp_request(self.request) and serializer.validated_data.get("status") == HogFlow.State.ACTIVE:
@@ -4835,10 +4839,9 @@ class HogFlowViewSet(
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, previous=before_update)
         self._emit_resource_edited(serializer.instance)
 
-        # PostHog capture for hog_flow activated (draft -> active)
         if (
             before_update
-            and before_update.status == HogFlow.State.DRAFT
+            and before_update.status != HogFlow.State.ACTIVE
             and serializer.instance.status == HogFlow.State.ACTIVE
         ):
             self._report_workflow_action(
