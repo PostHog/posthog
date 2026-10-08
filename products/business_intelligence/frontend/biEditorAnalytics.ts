@@ -35,6 +35,8 @@ function getBIEditorConfigProperties(config: BIConfig): Record<string, unknown> 
         config.filters.filter((filter) => filter.operator === 'custom').length
 
     return {
+        local_group_count: config.localFields?.filter((field) => field.localDefinition?.kind === 'groups').length ?? 0,
+        local_bin_count: config.localFields?.filter((field) => field.localDefinition?.kind === 'bins').length ?? 0,
         result_filter_count: config.resultFilters?.length ?? 0,
         row_filter_group_count: filterGroupCount(config.rowFilterGroup),
         result_filter_group_count: filterGroupCount(config.resultFilterGroup),
@@ -84,6 +86,10 @@ function getBIEditorConfigProperties(config: BIConfig): Record<string, unknown> 
 }
 
 export type BIWorksheetAction =
+    | 'starter_selected'
+    | 'filter_values_searched'
+    | 'filter_values_page_loaded'
+    | 'local_field_saved'
     | 'undo'
     | 'redo'
     | 'copied'
@@ -111,6 +117,7 @@ export function captureBIWorksheetAction(
         hierarchy_axis?: 'rows' | 'columns'
         hierarchy_depth?: number
         expanded?: boolean
+        starter_kind?: 'events'
     } = {}
 ): void {
     posthog.capture(BI_EDITOR_EVENTS.WORKSHEET_ACTION, {

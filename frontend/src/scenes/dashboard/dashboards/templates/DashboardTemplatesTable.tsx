@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { IconBuilding, IconChevronDown, IconGlobe, IconPeople, IconThumbsUpFilled } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonMenu, LemonTag } from '@posthog/lemon-ui'
+import { IconBuilding, IconChevronDown, IconGlobe, IconLock, IconPeople, IconThumbsUpFilled } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonMenu, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -12,7 +12,6 @@ import type { Sorting } from 'lib/lemon-ui/LemonTable'
 import { atColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
@@ -20,9 +19,10 @@ import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplate
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlLevel, AccessControlResourceType, DashboardTemplateType } from '~/types'
+import { DashboardTemplateType } from '~/types'
 
 import { dashboardTemplateModalLogic } from './dashboardTemplateModalLogic'
+import { DashboardTemplatesEmptyState } from './DashboardTemplatesEmptyState'
 
 const templatesTableLogic = dashboardTemplatesLogic({ scope: 'default', templatesTabList: true })
 
@@ -66,9 +66,23 @@ function countTemplateInsightTiles(tiles: DashboardTemplateType['tiles'] | undef
 }
 
 export const DashboardTemplatesTable = (): JSX.Element | null => {
-    const { allTemplates, allTemplatesLoading, templateFilter, templateNameOrdering, templatesTabVisibility } =
-        useValues(templatesTableLogic)
-    const { setTemplateFilter, setTemplateNameOrdering, setTemplatesTabVisibility } = useActions(templatesTableLogic)
+    const {
+        allTemplates,
+        allTemplatesLoading,
+        allTemplatesLoadFailed,
+        templateFilter,
+        templateNameOrdering,
+        templatesTabVisibility,
+        isStaffViewer,
+        searchText,
+        hasActiveFilters,
+        canEditTemplates,
+        canManageTemplate,
+        isManagedInAnotherProject,
+        currentTeamId,
+    } = useValues(templatesTableLogic)
+    const { setTemplateFilter, setTemplateNameOrdering, setTemplatesTabVisibility, clearFilters, getAllTemplates } =
+        useActions(templatesTableLogic)
 
     const tableSorting: Sorting | null = useMemo(() => {
         if (!templateNameOrdering) {
@@ -94,22 +108,10 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
     const { openEdit: openDashboardTemplateModalEdit } = useActions(dashboardTemplateModalLogic)
 
     const { user } = useValues(userLogic)
-    /** Django `is_staff` (not org role). Prefer loaded API user; until then use SSR/bootstrap context so row actions are not blank. */
-    const isDjangoStaffForTemplateUi =
-        user != null ? Boolean(user.is_staff) : Boolean(getAppContext()?.current_user?.is_staff)
-    /** Team-scoped template row actions for non–Django-staff. `dashboard_template` inherits `dashboard` in RBAC (#54694). */
-    const canCustomerManageTeamTemplates =
-        !isDjangoStaffForTemplateUi && userHasAccess(AccessControlResourceType.Dashboard, AccessControlLevel.Editor)
-
-    const currentTeamId = user?.team?.id ?? getAppContext()?.current_team?.id ?? null
     const organizationTeams = user?.organization?.teams ?? getAppContext()?.current_user?.organization?.teams ?? []
 
-    const eligibleDestinationTeamsCount = useMemo(() => {
-        if (currentTeamId == null) {
-            return 0
-        }
-        return organizationTeams.filter((t) => t.id !== currentTeamId).length
-    }, [organizationTeams, currentTeamId])
+    const eligibleDestinationTeamsCount =
+        currentTeamId == null ? 0 : organizationTeams.filter((t) => t.id !== currentTeamId).length
 
     const copyTemplateToProjectMenuSection = (
         templateId: string | undefined,
@@ -171,13 +173,17 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
             fullWidth
             data-attr="dashboard-template-toggle-organization-visibility"
         >
-            {record.scope === 'organization' ? 'Make visible to this team only' : 'Make visible to whole organization'}
+            {record.scope === 'organization'
+                ? 'Make visible to this project only'
+                : 'Make visible to whole organization'}
         </LemonButton>
     )
 
     const columns: LemonTableColumns<DashboardTemplateType> = [
         {
             key: 'featured',
+            // Only staff see official templates here, and only official templates can be featured.
+            isHidden: !isStaffViewer,
             width: '2rem',
             align: 'center',
             className: 'align-middle',
@@ -194,19 +200,29 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         {
             title: 'Name',
             dataIndex: 'template_name',
-            className: 'min-w-[220px]',
+            className: 'min-w-40',
             sorter: true,
-            render: (_, { template_name }) => {
-                return <>{template_name}</>
+            render: (_, record) => {
+                if (!canManageTemplate(record)) {
+                    return <span className="font-semibold">{record.template_name}</span>
+                }
+                return (
+                    <Link
+                        subtle
+                        className="font-semibold"
+                        onClick={() => openDashboardTemplateModalEdit(record)}
+                        data-attr="dashboard-template-name-edit"
+                    >
+                        {record.template_name}
+                    </Link>
+                )
             },
         },
         {
             title: 'Description',
             dataIndex: 'dashboard_description',
-            className: 'min-w-[400px] align-top',
-            render: (_, { dashboard_description }) => (
-                <div className="max-w-3xl break-words">{dashboard_description}</div>
-            ),
+            className: 'min-w-60',
+            render: (_, { dashboard_description }) => <div className="break-words">{dashboard_description}</div>,
         },
         {
             title: 'Tags',
@@ -250,7 +266,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
             title: 'Type',
             dataIndex: 'team_id',
             render: (_, { scope }) =>
-                scope === 'global' ? 'Official' : scope === 'organization' ? 'Organization' : 'Team',
+                scope === 'global' ? 'Official' : scope === 'organization' ? 'Organization' : 'Project',
         },
         {
             title: 'Created by',
@@ -268,7 +284,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                 }
                 const { created_by } = record
                 return (
-                    <div className="flex flex-row flex-nowrap items-center">
+                    <div className="flex max-w-40 flex-row flex-nowrap items-center [&_.profile-name]:truncate [&_.profile-package]:max-w-full">
                         {created_by ? (
                             <ProfilePicture user={created_by} size="md" showName />
                         ) : (
@@ -290,23 +306,40 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                 const { id, scope } = record
                 const builtInOfficial = isBuiltInOfficialTemplate(record)
 
-                if (isDjangoStaffForTemplateUi) {
+                if (!canManageTemplate(record)) {
+                    const lockReason = isManagedInAnotherProject(record)
+                        ? `Managed in ${organizationTeams.find((t) => t.id === record.team_id)?.name ?? 'another project'}`
+                        : !canEditTemplates
+                          ? 'You need editor access to dashboards to manage templates'
+                          : null
+                    if (!lockReason) {
+                        return null
+                    }
+                    return (
+                        <Tooltip title={lockReason}>
+                            <span
+                                className="flex size-7 items-center justify-center text-secondary"
+                                role="img"
+                                aria-label={lockReason}
+                            >
+                                <IconLock className="size-4" />
+                            </span>
+                        </Tooltip>
+                    )
+                }
+
+                const editButton = (
+                    <LemonButton onClick={() => openDashboardTemplateModalEdit(record)} fullWidth>
+                        Edit
+                    </LemonButton>
+                )
+
+                if (isStaffViewer) {
                     return (
                         <More
                             overlay={
                                 <>
-                                    <LemonButton
-                                        onClick={() => {
-                                            if (id === undefined) {
-                                                console.error('Dashboard template id not defined')
-                                                return
-                                            }
-                                            openDashboardTemplateModalEdit(record)
-                                        }}
-                                        fullWidth
-                                    >
-                                        Edit
-                                    </LemonButton>
+                                    {editButton}
                                     <LemonButton
                                         onClick={() => {
                                             if (id === undefined) {
@@ -322,7 +355,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                         }}
                                         fullWidth
                                     >
-                                        Make visible to {scope === 'global' ? 'this team only' : 'everyone'}
+                                        Make visible to {scope === 'global' ? 'this project only' : 'everyone'}
                                     </LemonButton>
 
                                     {scope === 'team' || scope === 'organization'
@@ -345,11 +378,11 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                             scope === 'global'
                                                 ? builtInOfficial
                                                     ? 'Built-in official templates cannot be deleted'
-                                                    : 'Cannot delete a global template until it is team-only'
+                                                    : 'Make this template visible to this project only before deleting it'
                                                 : undefined
                                         }
                                     >
-                                        Delete dashboard
+                                        Delete template
                                     </LemonButton>
                                 </>
                             }
@@ -357,64 +390,41 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                     )
                 }
 
-                // Org-scoped templates are readable org-wide but only their owning project may edit/delete/demote
-                // them (see CustomerDashboardTemplateWritePermission). Team templates listed here are always owned.
-                const ownedByCurrentTeam =
-                    scope === 'team' || (record.team_id != null && record.team_id === currentTeamId)
-
-                if (
-                    canCustomerManageTeamTemplates &&
-                    (scope === 'team' || scope === 'organization') &&
-                    ownedByCurrentTeam
-                ) {
-                    return (
-                        <More
-                            overlay={
-                                <>
-                                    <LemonButton
-                                        onClick={() => {
-                                            if (id === undefined) {
-                                                console.error('Dashboard template id not defined')
-                                                return
-                                            }
-                                            openDashboardTemplateModalEdit(record)
-                                        }}
-                                        fullWidth
-                                    >
-                                        Edit
-                                    </LemonButton>
-                                    {organizationVisibilityToggleButton(record)}
-                                    {scope === 'team'
-                                        ? copyTemplateToProjectMenuSection(
-                                              id,
-                                              'dashboard-template-copy-to-project-customer'
-                                          )
-                                        : null}
-                                    <LemonDivider />
-                                    <LemonButton
-                                        onClick={() => confirmDeleteTemplate(record)}
-                                        fullWidth
-                                        status="danger"
-                                    >
-                                        Delete
-                                    </LemonButton>
-                                </>
-                            }
-                        />
-                    )
-                }
-
-                return null
+                return (
+                    <More
+                        overlay={
+                            <>
+                                {editButton}
+                                {organizationVisibilityToggleButton(record)}
+                                {scope === 'team'
+                                    ? copyTemplateToProjectMenuSection(
+                                          id,
+                                          'dashboard-template-copy-to-project-customer'
+                                      )
+                                    : null}
+                                <LemonDivider />
+                                <LemonButton onClick={() => confirmDeleteTemplate(record)} fullWidth status="danger">
+                                    Delete template
+                                </LemonButton>
+                            </>
+                        }
+                    />
+                )
             },
         },
     ]
 
     return (
         <>
+            <p className="mt-0 mb-4 text-secondary">
+                {isStaffViewer
+                    ? "Templates saved for this project and shared across your organization, plus PostHog's official templates."
+                    : 'Templates saved for this project and shared across your organization.'}
+            </p>
             <div className="flex justify-between gap-2 flex-wrap mb-4">
                 <LemonInput
                     type="search"
-                    placeholder="Search dashboard templates (min. 3 characters)"
+                    placeholder="Search templates"
                     onChange={setTemplateFilter}
                     value={templateFilter}
                     data-attr="dashboard-templates-search"
@@ -422,18 +432,22 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                 <div className="flex items-center gap-2 flex-wrap">
                     <span>Filter to:</span>
                     <div className="flex items-center gap-2">
-                        <LemonButton
-                            active={templatesTabVisibility === 'official'}
-                            type="secondary"
-                            size="small"
-                            icon={<IconGlobe />}
-                            onClick={() =>
-                                setTemplatesTabVisibility(templatesTabVisibility === 'official' ? 'all' : 'official')
-                            }
-                            data-attr="dashboard-templates-filter-official"
-                        >
-                            Official
-                        </LemonButton>
+                        {isStaffViewer ? (
+                            <LemonButton
+                                active={templatesTabVisibility === 'official'}
+                                type="secondary"
+                                size="small"
+                                icon={<IconGlobe />}
+                                onClick={() =>
+                                    setTemplatesTabVisibility(
+                                        templatesTabVisibility === 'official' ? 'all' : 'official'
+                                    )
+                                }
+                                data-attr="dashboard-templates-filter-official"
+                            >
+                                Official
+                            </LemonButton>
+                        ) : null}
                         <LemonButton
                             active={templatesTabVisibility === 'project'}
                             type="secondary"
@@ -442,9 +456,10 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                             onClick={() =>
                                 setTemplatesTabVisibility(templatesTabVisibility === 'project' ? 'all' : 'project')
                             }
+                            // Pinned analytics value: it keeps the old "team" name because insights match on it.
                             data-attr="dashboard-templates-filter-team"
                         >
-                            Team
+                            Project
                         </LemonButton>
                         <LemonButton
                             active={templatesTabVisibility === 'organization'}
@@ -467,7 +482,9 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                 id="dashboard-templates"
                 data-attr="dashboards-template-table"
                 pagination={{ pageSize: 25 }}
-                dataSource={Object.values(allTemplates)}
+                // A failed request keeps the rows of the previous load, which do not match the current filter.
+                // Hide them so that the empty state shows the load error and its retry button.
+                dataSource={allTemplatesLoadFailed ? [] : Object.values(allTemplates)}
                 columns={columns}
                 loading={allTemplatesLoading}
                 sorting={tableSorting}
@@ -484,7 +501,16 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                     }
                 }}
                 useURLForSorting={false}
-                emptyState={<>There are no dashboard templates.</>}
+                emptyState={
+                    <DashboardTemplatesEmptyState
+                        isStaff={isStaffViewer}
+                        searchText={searchText}
+                        hasActiveFilters={hasActiveFilters}
+                        loadFailed={allTemplatesLoadFailed}
+                        onClearFilters={clearFilters}
+                        onRetry={() => getAllTemplates()}
+                    />
+                }
                 nouns={['template', 'templates']}
             />
         </>

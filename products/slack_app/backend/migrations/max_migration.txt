@@ -1,1 +1,1 @@
-0019_slacksettings_channel_welcome_mode
+0020_slacksettings_auto_model_choice

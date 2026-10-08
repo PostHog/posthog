@@ -225,6 +225,10 @@ class ReplaceFilters(CloningVisitor):
         return node
 
     def visit_placeholder(self, node):
+        if node.chain in (["filters", "previous", "dateRange", "from"], ["filters", "previous", "dateRange", "to"]):
+            return self._comparison_visitor().visit_placeholder(
+                ast.Placeholder(expr=ast.Field(chain=["filters", "dateRange", node.chain[-1]]))
+            )
         if node.chain == ["filters", "previous"]:
             return self._comparison_visitor().visit_placeholder(ast.Placeholder(expr=ast.Field(chain=["filters"])))
         # The column-bound form {filters(expr AS key, ...)}: the query author maps each filter key
