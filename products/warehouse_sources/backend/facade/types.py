@@ -1443,6 +1443,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     ARCADE = "Arcade", "Arcade"
     NEO4J = "Neo4j", "Neo4j"
     TESTDINO = "TestDino", "TestDino"
+    CHESSCOM = "ChessCom", "ChessCom"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:
