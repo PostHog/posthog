@@ -136,6 +136,15 @@ export class PushCaptureService {
     }
 }
 
+/** Answers like a capture that accepted the event, and sends nothing. A deployment that receives a
+ * copy of traffic Django already stores runs with this, so the copy writes and bills nothing twice. */
+export class DryRunPushCaptureService {
+    public capture(_event: PushCaptureEvent): Promise<void> {
+        captureCounter.inc({ outcome: 'dry_run' })
+        return Promise.resolve()
+    }
+}
+
 /** Django's session retries these statuses and connection errors three times, backing off 0, 200 and
  * 400ms (urllib3 `Retry(total=3, backoff_factor=0.1)`). */
 const TRANSPORT_RETRY_STATUSES = new Set([500, 502, 503, 504])

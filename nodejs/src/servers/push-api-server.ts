@@ -6,7 +6,7 @@ import { PostgresRouter, PostgresRouterConfig } from '~/common/utils/db/postgres
 import { isProdEnv, isTestEnv } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
 import { ProjectTokenLookup } from '~/messaging/push-subscriptions/project-token-lookup'
-import { PushCaptureService } from '~/messaging/push-subscriptions/push-capture'
+import { DryRunPushCaptureService, PushCaptureService } from '~/messaging/push-subscriptions/push-capture'
 import { createPushSubscriptionsHandler } from '~/messaging/push-subscriptions/push-subscriptions-http'
 import { PushSubscriptionsService } from '~/messaging/push-subscriptions/push-subscriptions.service'
 
@@ -21,6 +21,9 @@ export type PushApiConfig = {
      * fingerprint the same in both services' logs while both serve the endpoint. The key also stops a
      * secret API key submitted in the wrong field from being confirmable out of the log. */
     SECRET_KEY: string
+    /** Skips the person update and still answers as if it was stored. Set while the deployment only
+     * receives mirrored traffic that Django also serves. */
+    PUSH_API_DRY_RUN: boolean
 }
 
 export function getDefaultPushApiConfig(): PushApiConfig {
@@ -28,6 +31,7 @@ export function getDefaultPushApiConfig(): PushApiConfig {
         PUSH_API_PORT: 6750,
         PUSH_API_HOST: '0.0.0.0',
         SECRET_KEY: '',
+        PUSH_API_DRY_RUN: false,
     }
 }
 
@@ -86,11 +90,17 @@ export class PushApiServer implements NodeServer {
         this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE ?? undefined)
         logger.info('👍', 'Postgres Router ready')
 
+        if (this.config.PUSH_API_DRY_RUN) {
+            logger.warn('push-api is in dry-run mode: registrations are answered but not stored')
+        }
+
         const service = new PushSubscriptionsService(
             new ProjectTokenLookup(this.postgres),
             this.postgres,
             new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS),
-            new PushCaptureService(this.config.CAPTURE_INTERNAL_URL),
+            this.config.PUSH_API_DRY_RUN
+                ? new DryRunPushCaptureService()
+                : new PushCaptureService(this.config.CAPTURE_INTERNAL_URL),
             this.config.SECRET_KEY
         )
 

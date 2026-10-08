@@ -84,7 +84,7 @@ export class PushSubscriptionsService {
         private projectTokens: Pick<ProjectTokenLookup, 'getTeamByToken'>,
         private postgres: PostgresRouter,
         private encryptedFields: EncryptedFields,
-        private capture: PushCaptureService,
+        private capture: Pick<PushCaptureService, 'capture'>,
         private secretKey: string
     ) {
         this.invalidTokens = new LRUCache({ max: INVALID_TOKEN_CACHE_SIZE, ttl: INVALID_TOKEN_CACHE_TTL_MS })
