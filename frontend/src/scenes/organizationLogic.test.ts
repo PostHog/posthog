@@ -1,15 +1,46 @@
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { AppContext, OrganizationType } from '../types'
+import { AppContext, AvailableFeature, OrganizationType, PreflightStatus } from '../types'
 import { organizationLogic } from './organizationLogic'
 
 describe('organizationLogic', () => {
     let logic: ReturnType<typeof organizationLogic.build>
+
+    test.each([
+        ['hobby at its single-project limit', false, [1], null, true],
+        ['hobby before its first project', false, [], null, false],
+        ['licensed self-hosted below its limit', false, [1], 2, false],
+        ['licensed self-hosted with two environments in one project', false, [1, 1], 2, false],
+        ['licensed self-hosted at its limit', false, [1, 2], 2, true],
+        ['cloud without a project entitlement', true, [1], null, false],
+    ])('%s', (_name, cloud, projectIds, limit, blocked) => {
+        const organization: OrganizationType = {
+            ...MOCK_DEFAULT_ORGANIZATION,
+            teams: projectIds.map((projectId, index) => ({
+                ...MOCK_DEFAULT_TEAM,
+                id: index + 1,
+                project_id: projectId,
+            })),
+            available_product_features:
+                limit === null ? [] : [{ key: AvailableFeature.ORGANIZATIONS_PROJECTS, name: 'Projects', limit }],
+        }
+        window.POSTHOG_APP_CONTEXT = { current_user: { organization } } as unknown as AppContext
+        initKeaTests()
+        preflightLogic.actions.loadPreflightSuccess({ cloud } as PreflightStatus)
+        logic = organizationLogic()
+
+        expect(Boolean(logic.values.projectCreationForbiddenReason)).toBe(blocked)
+        if (blocked) {
+            expect(logic.values.projectCreationForbiddenReason).toContain('plan')
+        }
+    })
 
     describe('if POSTHOG_APP_CONTEXT available', () => {
         beforeEach(() => {
