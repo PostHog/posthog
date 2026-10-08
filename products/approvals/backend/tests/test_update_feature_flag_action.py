@@ -1091,11 +1091,13 @@ class TestReleaseConditionGating(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("someone_else_changed_targeting", 1, "a", "a", "b", [], "b"),
-            ("caller_changed_targeting_nobody_else_did", 1, "a", "c", "a", ["feature_flag.update"], "a"),
-            ("both_changed_targeting", 1, "a", "c", "b", [], "b"),
-            ("stale_caller_claims_the_edit_was_loaded", 1, "c", "c", "a", [], "a"),
-            ("current_caller_claims_the_edit_was_loaded", 2, "c", "c", "a", ["feature_flag.update"], "a"),
+            ("someone_else_changed_targeting", 1, "a", "a", "b", {}, [], "b"),
+            ("caller_changed_targeting_nobody_else_did", 1, "a", "c", "a", {}, ["feature_flag.update"], "a"),
+            ("both_changed_targeting", 1, "a", "c", "b", {}, [], "b"),
+            ("stale_caller_claims_the_edit_was_loaded", 1, "c", "c", "a", {}, [], "a"),
+            ("current_caller_claims_the_edit_was_loaded", 2, "c", "c", "a", {}, ["feature_flag.update"], "a"),
+            ("stale_claim_while_enabling", 1, "c", "c", "a", {"active": True}, [], "a"),
+            ("stale_claim_while_changing_rollout", 1, "c", "c", "a", {"rollout": 60}, ["feature_flag.update"], "a"),
         ]
     )
     def test_stale_save_gates_only_the_targeting_the_serializer_would_write(
@@ -1106,31 +1108,35 @@ class TestReleaseConditionGating(APIBaseTest):
         loaded: str,
         submitted: str,
         stored: str,
+        also: dict[str, Any],
         expected_change_requests: list[str],
         expected_stored: str,
     ):
-        def filters(email: str) -> dict[str, Any]:
+        def filters(email: str, rollout: int = 100) -> dict[str, Any]:
             prop = {**self.EMAIL_FILTER, "value": [f"{email}@example.com"]}
-            return {"groups": [{"properties": [prop], "rollout_percentage": 100}]}
+            return {"groups": [{"properties": [prop], "rollout_percentage": rollout}]}
 
+        enabling = also.get("active") is True
         flag = FeatureFlag.objects.create(
-            team=self.team, key="stale-flag", filters=filters("a"), version=1, created_by=self.user
+            team=self.team, key="stale-flag", filters=filters("a"), version=1, active=not enabling, created_by=self.user
         )
         FeatureFlag.objects.filter(pk=flag.pk).update(filters=filters(stored), version=2)
-        self._create_policies([("feature_flag.update", {})])
+        self._create_policies([("feature_flag.update", {}), *([("feature_flag.enable", {})] if enabling else [])])
+        body: dict[str, Any] = {
+            "name": "renamed",
+            "filters": filters(submitted, also.get("rollout", 100)),
+            "version": caller_version,
+            "original_flag": {"name": "", "filters": filters(loaded)},
+        }
+        if enabling:
+            body["active"] = True
 
-        self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
-            {
-                "name": "renamed",
-                "filters": filters(submitted),
-                "version": caller_version,
-                "original_flag": {"name": "", "filters": filters(loaded)},
-            },
-            format="json",
-        )
+        self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", body, format="json")
 
         assert self._change_request_keys() == expected_change_requests
+        for change_request in ChangeRequest.objects.filter(team=self.team, action_key="feature_flag.update"):
+            # Any request this write opens must show the targeting it would write.
+            assert "release_conditions" in change_request.intent["gated_changes"]
         flag.refresh_from_db()
         assert flag.filters["groups"][0]["properties"][0]["value"] == [f"{expected_stored}@example.com"]
 

@@ -713,18 +713,29 @@ class UpdateFeatureFlagAction(BaseAction):
 
     @classmethod
     def _new_release_conditions(
-        cls, request, flag: FeatureFlag, change: dict[str, Any], new_filters: dict[str, Any]
+        cls,
+        request,
+        flag: FeatureFlag,
+        change: dict[str, Any],
+        new_filters: dict[str, Any],
+        *,
+        other_gated_change: bool,
     ) -> list[dict[str, Any]]:
         """Return the release conditions the flag gets from this write.
 
         For a stale caller this keeps each stored field that FeatureFlagSerializer.update would not
         write: one the caller did not change from what they loaded, or one somebody else changed
         since. The serializer drops the first and refuses the second as a conflict, field by field.
+
+        That holds only when the write reaches the serializer directly. When the same write also
+        changes `active` or a rollout, it can open a change request, and the approved request replays
+        the whole payload without the stale-write checks. So the stored conditions are the baseline
+        then, and the request shows every release condition it would write.
         """
         release_filters = new_filters
         release_bucketing = change.get("bucketing_identifier", flag.bucketing_identifier)
 
-        original_flag = _stale_caller_original_flag(request, flag)
+        original_flag = None if other_gated_change else _stale_caller_original_flag(request, flag)
         if original_flag is not None and "filters" in original_flag:
             original_filters = original_flag["filters"]
             caller_changed = not isinstance(original_filters, dict) or bool(
@@ -761,8 +772,13 @@ class UpdateFeatureFlagAction(BaseAction):
         if flag is None:
             return _GatedValues(before=before, after=after)
 
+        other_gated_change = bool(cls._changed_paths(before["rollout_percentage"], after["rollout_percentage"])) or (
+            change.get("active", flag.active) != flag.active
+        )
         old_release = _release_conditions(old_filters, flag.bucketing_identifier)
-        new_release = cls._new_release_conditions(request, flag, change, new_filters)
+        new_release = cls._new_release_conditions(
+            request, flag, change, new_filters, other_gated_change=other_gated_change
+        )
         # The owner lookup runs queries, so it runs only after the cheap comparison found a change.
         if cls._changed_paths(old_release, new_release) and flag_owner_kind(flag) is None:
             before["release_conditions"] = old_release
