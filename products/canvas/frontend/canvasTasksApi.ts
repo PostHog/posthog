@@ -9,7 +9,7 @@ import {
 } from 'products/tasks/frontend/generated/api'
 import type { ChannelDTOApi, TaskDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
-export type CanvasSpace = Pick<ChannelDTOApi, 'id' | 'name' | 'system_role'>
+export type CanvasSpace = Pick<ChannelDTOApi, 'id' | 'name' | 'system_role' | 'channel_type'>
 export type CanvasTaskRun = Pick<NonNullable<TaskDetailDTOApi['latest_run']>, 'id' | 'status'> &
     Partial<Pick<NonNullable<TaskDetailDTOApi['latest_run']>, 'error_message'>>
 export type CanvasGenerationTask = Pick<TaskDetailDTOApi, 'id' | 'title'> & {
@@ -42,6 +42,7 @@ function toSpaces(response: unknown): CanvasSpace[] {
         id: String(row.id),
         name: String(row.name ?? ''),
         system_role: row.system_role === 'personal' || row.system_role === 'general' ? row.system_role : null,
+        channel_type: String(row.channel_type ?? ''),
     }))
 }
 

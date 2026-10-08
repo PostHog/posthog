@@ -35,8 +35,10 @@ describe('canvasNewLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/task_channels/': [
-                    { id: 'space-me', name: 'me', system_role: 'personal' },
-                    { id: 'space-growth', name: 'growth', system_role: null },
+                    { id: 'space-me', name: 'me', system_role: 'personal', channel_type: 'personal' },
+                    { id: 'space-growth', name: 'growth', system_role: 'general', channel_type: 'public' },
+                    { id: 'space-design', name: 'design', system_role: null, channel_type: 'public' },
+                    { id: 'space-perf', name: 'perf', system_role: null, channel_type: 'private' },
                 ],
                 '/api/projects/:team_id/canvases/:id/view/': () => [
                     200,
@@ -52,7 +54,12 @@ describe('canvasNewLogic', () => {
                 ],
                 '/api/projects/:team_id/tasks/:id/': { id: 'task-1', title: 'Daily signups', latest_run: null },
                 '/api/projects/:team_id/canvases/:id/builds/': { builds: [], published_build_id: null },
-                '/api/projects/:team_id/task_channels/:id/': { id: 'space-growth', name: 'growth', system_role: null },
+                '/api/projects/:team_id/task_channels/:id/': {
+                    id: 'space-growth',
+                    name: 'growth',
+                    system_role: 'general',
+                    channel_type: 'public',
+                },
                 '/api/projects/:team_id/canvases/:id/source/': () => [
                     200,
                     {
@@ -114,6 +121,23 @@ describe('canvasNewLogic', () => {
         })
         initKeaTests()
     })
+
+    test.each([
+        ['the team space', 'space-growth', 'space-growth'],
+        ['an older public space', 'space-design', 'space-growth'],
+        ['an older private space', 'space-perf', 'space-me'],
+        ['no space', undefined, 'space-me'],
+    ])(
+        'starts a canvas opened from %s in the space with the same visibility',
+        async (_, requestedSpaceId, expectedSpaceId) => {
+            const logic = canvasNewLogic()
+            logic.mount()
+            router.actions.push(urls.canvasNew(requestedSpaceId))
+            await expectLogic(logic).toDispatchActions(['loadSpacesSuccess'])
+
+            expect(logic.values.selectedSpaceId).toEqual(expectedSpaceId)
+        }
+    )
 
     test.each([
         ['the build starts', 201, 200, ''],

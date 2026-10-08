@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
 
@@ -28,7 +30,11 @@ const canvas: CanvasApi = {
     current_version_id: null,
     published_build_id: null,
     component_meta: null,
-    created_by: { id: 1, uuid: 'user-uuid', email: 'someone@example.com' } as CanvasApi['created_by'],
+    created_by: {
+        id: MOCK_DEFAULT_USER.id,
+        uuid: MOCK_DEFAULT_USER.uuid,
+        email: MOCK_DEFAULT_USER.email,
+    } as CanvasApi['created_by'],
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     url: `https://app.example.com/canvases/${CANVAS_ID}`,
@@ -119,9 +125,12 @@ const comments = [
     ),
 ]
 
+const PERSONAL_SPACE = { id: SPACE_ID, name: 'me', system_role: 'personal', channel_type: 'personal' }
+
 function mocks(
     view: CanvasViewResponseApi,
-    threadComments: Record<string, unknown>[] = []
+    threadComments: Record<string, unknown>[] = [],
+    space: Record<string, unknown> = PERSONAL_SPACE
 ): ReturnType<typeof mswDecorator> {
     const built = !!view.published_build
     return mswDecorator({
@@ -132,7 +141,7 @@ function mocks(
                 current_version_id: view.current_version_id,
                 builds: built ? [liveBuild] : [],
             },
-            '/api/projects/:team_id/task_channels/:id/': { id: SPACE_ID, name: 'me', system_role: 'personal' },
+            '/api/projects/:team_id/task_channels/:id/': space,
             '/api/projects/:team_id/canvases/:id/versions/': {
                 count: built ? versions.length : 0,
                 next: null,
@@ -195,6 +204,31 @@ export const Built: Story = {
     ],
 }
 
+export const BuiltPublicByTeammate: Story = {
+    decorators: [
+        mocks(
+            {
+                ...viewResponse({
+                    name: 'Weekly active users',
+                    generation_task_id: TASK_ID,
+                    current_version_id: 'version-2',
+                    published_build_id: liveBuild.id,
+                    created_by: {
+                        id: 1,
+                        uuid: 'teammate-uuid',
+                        first_name: 'Sam',
+                        email: 'sam@example.com',
+                    } as CanvasApi['created_by'],
+                }),
+                published_build: liveBuild,
+                current_version_id: 'version-2',
+            },
+            [],
+            { id: SPACE_ID, name: 'general', system_role: 'general', channel_type: 'public' }
+        ),
+    ],
+}
+
 export const BuiltWithTimeline: Story = {
     ...Built,
     parameters: { pageUrl: `${urls.canvasDetail(CANVAS_ID)}#panel=canvas-timeline` },
@@ -206,8 +240,8 @@ export const NewCanvas: Story = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/task_channels/': [
-                    { id: 'space-personal', name: 'me', system_role: 'personal' },
-                    { id: SPACE_ID, name: 'growth', system_role: null },
+                    { id: 'space-personal', name: 'me', system_role: 'personal', channel_type: 'personal' },
+                    { id: SPACE_ID, name: 'general', system_role: 'general', channel_type: 'public' },
                 ],
             },
         }),

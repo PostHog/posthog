@@ -9,11 +9,19 @@ const CANVAS_ID = 'canvas-1'
 
 describe('canvasSceneLogic', () => {
     let releaseTaskRequest: () => void = () => {}
+    let patchStatus = 200
+    let patchedBody: Record<string, unknown> | null = null
 
     beforeEach(() => {
         const taskRequestReleased = new Promise<void>((resolve) => {
             releaseTaskRequest = resolve
         })
+        patchStatus = 200
+        patchedBody = null
+        const spaces = {
+            'space-1': { id: 'space-1', name: 'me', system_role: 'personal', channel_type: 'personal' },
+            'space-team': { id: 'space-team', name: 'general', system_role: 'general', channel_type: 'public' },
+        }
         useMocks({
             get: {
                 '/api/projects/:team_id/canvases/:id/view/': {
@@ -34,7 +42,27 @@ describe('canvasSceneLogic', () => {
                     sandbox_document_url: null,
                 },
                 '/api/projects/:team_id/canvases/:id/builds/': { builds: [], published_build_id: null },
-                '/api/projects/:team_id/task_channels/:id/': { id: 'space-1', name: 'me', system_role: 'personal' },
+                '/api/projects/:team_id/task_channels/': Object.values(spaces),
+                '/api/projects/:team_id/task_channels/:id/': (req) => [
+                    200,
+                    spaces[req.params.id as keyof typeof spaces],
+                ],
+            },
+            patch: {
+                '/api/projects/:team_id/canvases/:id/': async ({ request }) => {
+                    patchedBody = (await request.json()) as Record<string, unknown>
+                    return patchStatus === 200
+                        ? [
+                              200,
+                              {
+                                  id: CANVAS_ID,
+                                  name: 'Untitled canvas',
+                                  kind: 'freeform',
+                                  channel: patchedBody.channel_id,
+                              },
+                          ]
+                        : [patchStatus, { detail: 'Only the canvas creator can rename, move, pin, or describe it.' }]
+                },
             },
             post: {
                 '/api/projects/:team_id/tasks/:id/run/': [
@@ -48,6 +76,27 @@ describe('canvasSceneLogic', () => {
             },
         })
         initKeaTests()
+    })
+
+    it.each([
+        ['moves the canvas to the team space', 200, 'public'],
+        ['keeps the canvas where it was when the move fails', 403, 'private'],
+    ])('Make public %s', async (_, status, visibility) => {
+        patchStatus = status
+        const logic = canvasSceneLogic({ id: CANVAS_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadViewSuccess', 'loadSpaceSuccess'])
+        expect(logic.values.visibility).toEqual('private')
+
+        logic.actions.openMakePublic()
+        logic.actions.setCanvasVisibility('public')
+        await expectLogic(logic).toDispatchActions(['canvasVisibilityChanged'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(patchedBody).toEqual({ channel_id: 'space-team' })
+        expect(logic.values.visibility).toEqual(visibility)
+        expect(logic.values.visibilityChanging).toBe(false)
+        expect(logic.values.makePublicOpen).toBe(false)
     })
 
     it('keeps the composer on screen while a run starts and after it fails to start', async () => {
