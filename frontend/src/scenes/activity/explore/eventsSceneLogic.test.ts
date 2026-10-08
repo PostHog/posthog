@@ -233,18 +233,22 @@ describe('eventsSceneLogic', () => {
                 source: { ...(lookup.source as EventsQuery), after, before, ...sourceOverrides },
             }
 
-            if (arrival === 'link' || arrival === 'link, then edit') {
-                router.actions.push(combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url)
-            }
-            if (arrival === 'link, then edit') {
-                logic.actions.setQuery({ ...query, source: { ...(query.source as EventsQuery), after: '-7d' } })
-            }
-            if (arrival === 'edit') {
-                logic.actions.setQuery(query)
-            }
-            if (arrival === 'restore') {
-                tabUiStateLogic.actions.setSavedQueryForTab(undefined, 'events', query)
-                router.actions.push(urls.activity(ActivityTab.ExploreEvents))
+            const linkUrl = combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url
+            switch (arrival) {
+                case 'link':
+                    router.actions.push(linkUrl)
+                    break
+                case 'link, then edit':
+                    router.actions.push(linkUrl)
+                    logic.actions.setQuery({ ...query, source: { ...(query.source as EventsQuery), after: '-7d' } })
+                    break
+                case 'edit':
+                    logic.actions.setQuery(query)
+                    break
+                case 'restore':
+                    tabUiStateLogic.actions.setSavedQueryForTab(undefined, 'events', query)
+                    router.actions.push(urls.activity(ActivityTab.ExploreEvents))
+                    break
             }
             await expectLogic(logic).toFinishAllListeners()
 

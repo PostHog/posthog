@@ -122,7 +122,12 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
         actions: [tabUiStateLogic, ['setSavedQueryForTab']],
     })),
 
-    actions({ setQuery: (query: Node) => ({ query }), nameFlagCallLookup: (query: Node) => ({ query }) }),
+    actions({
+        // The URL holds the query as JSON, which drops keys set to undefined. A date edit writes before: undefined.
+        // The scene stores the query in its JSON form, so that the scene's own URL update matches the stored query.
+        setQuery: (query: Node) => ({ query: JSON.parse(JSON.stringify(query)) as Node }),
+        nameFlagCallLookup: (query: Node) => ({ query }),
+    }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
     listeners(({ actions, values }) => ({
         setQuery: ({ query }) => {
@@ -224,9 +229,7 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
 
     urlToAction(({ actions, values }) => {
         const eventsQueryHandler: UrlToActionPayload[keyof UrlToActionPayload] = (_, __, { q: queryParam }): void => {
-            // The URL holds the query as JSON, which drops keys set to undefined.
-            // Compare the query in that form, so that the scene's own URL update does not count as a new link.
-            if (!equal(queryParam, JSON.parse(JSON.stringify(values.query)))) {
+            if (!equal(queryParam, values.query)) {
                 // nothing in the URL
                 if (!queryParam) {
                     // restore from the persisted query if present, else fall back to default
