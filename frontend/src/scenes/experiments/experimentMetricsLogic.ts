@@ -318,7 +318,7 @@ export interface experimentMetricsLogicMeta {
         isManualRefreshBlocked: (
             nextAllowedManualRefresh: string | null,
             refreshEligibilityTick: number,
-            isDev: any
+            isDev: boolean | undefined
         ) => boolean
         metricRetries: (currentRecalculation: RecalculationPayload | null) => Record<string, MetricRetryInfo>
         nextRetryAt: (metricRetries: Record<string, MetricRetryInfo>) => string | null
