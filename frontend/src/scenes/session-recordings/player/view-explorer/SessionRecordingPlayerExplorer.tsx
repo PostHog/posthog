@@ -6,6 +6,7 @@ import { SettingsBar, SettingsButton } from 'lib/components/PanelSettings/PanelS
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Timestamp } from 'scenes/session-recordings/player/controller/PlayerControllerTime'
+import { ReplaySnapshotFrame } from 'scenes/session-recordings/player/ReplaySnapshotFrame'
 
 export type SessionRecordingPlayerExplorerProps = {
     html: string
@@ -58,16 +59,14 @@ export function SessionRecordingPlayerExplorer({
                 className="flex-1 p-0.5 overflow-hidden bg-text-3000 border SessionRecordingPlayerExplorer__wrapper"
                 ref={elementRef}
             >
-                <iframe
+                <ReplaySnapshotFrame
                     key={iframeKey}
-                    srcDoc={html}
+                    html={html}
                     title="Session recording DOM explorer"
-                    sandbox=""
-                    width={width}
-                    height={height}
+                    // The app writes the snapshot into this frame, so it must be same-origin. Nothing runs in it.
+                    sandbox="allow-same-origin"
                     className="origin-top-left ph-no-capture"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ transform: `scale(${scale})` }}
+                    style={{ width, height, transform: `scale(${scale})` }}
                 />
             </div>
             {!noticeHidden && (
