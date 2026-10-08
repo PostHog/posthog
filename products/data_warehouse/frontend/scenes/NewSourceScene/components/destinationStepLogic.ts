@@ -105,8 +105,6 @@ export const destinationStepLogic = kea<destinationStepLogicType>([
         selectDefault: () => {
             actions.setWizardDestinationIds(defaultDestinationIds(values.destinations, values.wizardDestinationIds))
         },
-        // The Import button lives in the wizard, so it reads how many destinations there are from
-        // there rather than from this step's own loader.
         loadDestinationsSuccess: ({ destinations }: { destinations: ExternalDataDestinationApi[] }) => {
             actions.setWizardAvailableDestinationCount(destinations.length)
         },
