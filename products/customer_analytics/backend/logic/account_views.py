@@ -13,6 +13,7 @@ from products.notebooks.backend.facade import content as notebook_content
 from products.notebooks.backend.facade.contracts import NotebookMarkdownContentInvalid
 
 ACCOUNT_VIEW_COMPONENT_LABELS = {
+    "Properties": "Properties",
     "Notes": "Notes",
     "Tasks": "Tasks",
     "Users": "Users",
@@ -39,6 +40,16 @@ ACCOUNT_VIEW_IDENTITY_PROPS = {
     "team_id",
 }
 ACCOUNT_VIEW_NODE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$")
+ACCOUNT_VIEW_NATIVE_PROPERTY_KEYS = {
+    "website_domain",
+    "billing_id",
+    "slack_channel_id",
+    "sfdc_id",
+    "stripe_customer_id",
+    "email_domains",
+    "known_emails",
+}
+ACCOUNT_VIEW_MAX_PROPERTIES = 50
 
 
 class InvalidAccountViewContent(ValueError):
@@ -76,6 +87,47 @@ def list_account_views(*, team_id: int, user_id: int) -> QuerySet[AccountView]:
 
 def get_account_view(*, team_id: int, user_id: int, view_id: UUID) -> AccountView | None:
     return list_account_views(team_id=team_id, user_id=user_id).filter(id=view_id).first()
+
+
+def validate_properties_widget_config(config: dict[str, Any]) -> list[str]:
+    if set(config).difference({"properties"}):
+        return ["Properties config has unsupported fields."]
+    references = config.get("properties", [])
+    if not isinstance(references, list) or len(references) > ACCOUNT_VIEW_MAX_PROPERTIES:
+        return ["Properties config must contain a list of up to 50 properties."]
+    seen: set[tuple[str, str]] = set()
+    for reference in references:
+        if not isinstance(reference, dict):
+            return ["Properties config contains an invalid property reference."]
+        kind = reference.get("kind")
+        if kind == "account":
+            native_key = reference.get("key")
+            if (
+                set(reference) != {"kind", "key"}
+                or not isinstance(native_key, str)
+                or native_key not in ACCOUNT_VIEW_NATIVE_PROPERTY_KEYS
+            ):
+                return ["Properties config contains an unsupported account property."]
+            key = (kind, native_key)
+        elif kind in ("custom_property", "relationship"):
+            definition_id = reference.get("id")
+            if set(reference) != {"kind", "id"} or not isinstance(definition_id, str):
+                return ["Properties config contains an invalid definition reference."]
+            try:
+                definition_uuid = UUID(definition_id)
+                if definition_id.lower() != str(definition_uuid) or (
+                    definition_uuid.version not in range(1, 9) and definition_uuid.int not in (0, (1 << 128) - 1)
+                ):
+                    return ["Properties config definition IDs must use the standard UUID format."]
+                key = (kind, str(definition_uuid))
+            except ValueError:
+                return ["Properties config definition IDs must be UUIDs."]
+        else:
+            return ["Properties config contains an unsupported property source."]
+        if key in seen:
+            return ["Properties config cannot contain duplicate properties."]
+        seen.add(key)
+    return []
 
 
 def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, Any], str]:
@@ -133,6 +185,8 @@ def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, An
                 )
             elif len(json.dumps(config, separators=(",", ":")).encode()) > ACCOUNT_VIEW_CONFIG_MAX_BYTES:
                 errors.append(f"Component {index} config is too large.")
+            elif component.tag_name == "Properties":
+                errors.extend(f"Component {index}: {error}" for error in validate_properties_widget_config(config))
 
     if errors:
         raise InvalidAccountViewContent(errors)

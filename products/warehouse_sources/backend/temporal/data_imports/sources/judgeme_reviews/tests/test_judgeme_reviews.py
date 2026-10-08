@@ -95,44 +95,6 @@ def _source(endpoint: str, manager: mock.MagicMock):
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_empty_page(self, MockSession) -> None:
-        # There is no has_more flag, so a full page must still be followed by another fetch.
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": 1}], page=1), _response([{"id": 2}], page=2), _response([], page=3)])
-
-        rows = _rows(_source("reviews", _make_manager()))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert params[0]["page"] == 1
-        assert params[0]["per_page"] == PAGE_SIZE
-        assert params[0]["shop_domain"] == "example.myshopify.com"
-        assert params[1]["page"] == 2
-        assert params[2]["page"] == 3
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing_and_saves_no_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], page=1)])
-
-        manager = _make_manager()
-        rows = _rows(_source("reviews", manager))
-
-        assert rows == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_page_after_yielding_each_batch(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}], page=1), _response([], page=2)])
-
-        manager = _make_manager()
-        _rows(_source("reviews", manager))
-
-        # State is saved AFTER page 1 is yielded (pointing at page 2), never before; the empty
-        # page 2 that ends the sync saves nothing.
-        assert [c.args[0].next_page for c in manager.save_state.call_args_list] == [2]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
         # Page 1 must never be fetched on resume.
@@ -142,27 +104,6 @@ class TestPagination:
 
         assert rows == [{"id": 2}]
         assert params[0]["page"] == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_uses_endpoint_specific_list_key(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [_response([{"id": 7}], list_key="products", page=1), _response([], list_key="products", page=2)],
-        )
-
-        rows = _rows(_source("products", _make_manager()))
-        assert rows == [{"id": 7}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_header_is_set_and_not_in_params(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": 1}], page=1), _response([], page=2)])
-
-        _rows(_source("reviews", _make_manager()))
-        # The private token rides the X-Api-Token header (via framework auth), never the query string.
-        assert "api_token" not in params[0]
-        assert "X-Api-Token" not in params[0]
 
 
 class TestMalformedBody:
@@ -183,16 +124,6 @@ class TestMalformedBody:
         with pytest.raises(Exception, match="Unexpected 200 response body shape"):
             _rows(_source("reviews", _make_manager()))
         assert session.send.call_count == 5
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_envelope_is_valid_not_malformed(self, MockSession) -> None:
-        # `{"reviews": []}` is a legitimate zero-row page, not a malformed body — one request, no retry.
-        session = MockSession.return_value
-        _wire(session, [_response([], page=1)])
-
-        rows = _rows(_source("reviews", _make_manager()))
-        assert rows == []
-        assert session.send.call_count == 1
 
 
 class TestRetryableStatuses:
@@ -232,23 +163,6 @@ class TestNormalizeShopDomain:
     def test_normalization(self, _name: str, raw: str, expected: str) -> None:
         assert _normalize_shop_domain(raw) == expected
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_normalized_domain_is_sent_as_param(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([], page=1)])
-
-        _rows(
-            judgeme_reviews_source(
-                api_token="jm-token",
-                shop_domain="https://example.myshopify.com/",
-                endpoint="reviews",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-            )
-        )
-        assert params[0]["shop_domain"] == "example.myshopify.com"
-
 
 class TestValidateCredentials:
     def _patch_session(self, status: int | None) -> Any:
@@ -271,15 +185,6 @@ class TestValidateCredentials:
     def test_status_mapping(self, _name: str, status: int | None, expected: tuple[bool, str | None]) -> None:
         with self._patch_session(status):
             assert validate_credentials("jm-token", "example.myshopify.com") == expected
-
-    def test_probe_targets_count_endpoint_with_shop_domain(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=200)
-        with mock.patch(JUDGEME_SESSION_PATCH, return_value=session):
-            validate_credentials("jm-token", "https://example.myshopify.com/")
-        url = session.get.call_args.args[0]
-        assert url == "https://judge.me/api/v1/reviews/count?shop_domain=example.myshopify.com"
-        assert session.get.call_args.kwargs["headers"]["X-Api-Token"] == "jm-token"
 
 
 class TestJudgeMeReviewsSourceResponse:

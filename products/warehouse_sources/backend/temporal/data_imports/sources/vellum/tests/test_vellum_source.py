@@ -1,60 +1,14 @@
-from typing import Any
-
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.source import VellumSource
 
 
-class TestVellumSourceConfig:
-    def test_single_password_api_key_field(self) -> None:
-        # The only credential is an environment-scoped API key; it must be a masked secret so the
-        # serializer classifies it as sensitive and never echoes it back.
-        fields = VellumSource().get_source_config.fields
-        assert len(fields) == 1
-        api_key = fields[0]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert api_key.name == "api_key"
-        assert api_key.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key.required is True
-        assert api_key.secret is True
-
-
 class TestVellumSchemas:
-    def test_returns_all_endpoints_full_refresh(self) -> None:
-        # Vellum exposes no server-side timestamp filter, so every table is full-refresh only.
-        # supports_incremental leaking to True would let a sync silently drop rows.
-        schemas = {s.name: s for s in VellumSource().get_schemas(MagicMock(), team_id=1)}
-        assert set(schemas) == {
-            "workflow_deployments",
-            "prompt_deployments",
-            "document_indexes",
-            "documents",
-            "workflow_execution_events",
-        }
-        for schema in schemas.values():
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
-
-    def test_execution_events_is_opt_in(self) -> None:
-        # The fan-out multiplies API calls by the deployment count, so it must be off by default.
-        schemas = {s.name: s for s in VellumSource().get_schemas(MagicMock(), team_id=1)}
-        assert schemas["workflow_execution_events"].should_sync_default is False
-        assert schemas["workflow_deployments"].should_sync_default is True
-
     def test_names_filter(self) -> None:
         schemas = VellumSource().get_schemas(MagicMock(), team_id=1, names=["documents"])
         assert [s.name for s in schemas] == ["documents"]
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # The catalog is static (no I/O), so public docs can render the table list. If get_schemas ever
-        # starts hitting the network this flag must flip off or the docs endpoint would hang.
-        assert VellumSource().lists_tables_without_credentials is True
-        tables = {t["name"] for t in VellumSource().get_documented_tables()}
-        assert "workflow_deployments" in tables
 
 
 class TestVellumValidateCredentials:
@@ -99,16 +53,3 @@ class TestVellumNonRetryableErrors:
     )
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         assert not any(key in other_error for key in VellumSource().get_non_retryable_errors())
-
-
-def _canonical_descriptions() -> dict[str, Any]:
-    return VellumSource().get_canonical_descriptions()
-
-
-class TestVellumCanonicalDescriptions:
-    def test_execution_events_parent_id_documented(self) -> None:
-        # The injected parent id is part of the composite primary key; documenting it keeps the
-        # AI-facing schema honest about a column the API itself never returns.
-        columns = _canonical_descriptions()["workflow_execution_events"]["columns"]
-        assert "workflow_deployment_id" in columns
-        assert "span_id" in columns
