@@ -121,6 +121,21 @@ class TestDirectBigQueryQuery(APIBaseTest):
             with self.assertRaisesRegex(ExposedHogQLError, "Add a LIMIT clause"):
                 self._patched_execute(executor, client)
 
+    def test_raw_query_rejected_when_flag_off(self):
+        # The flag is the kill switch: turning it off must stop queries on already-created
+        # connections, not just block new ones. It is off by default in tests.
+        source = self._create_source()
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM `acme-project.analytics.orders`",
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        with self.assertRaisesRegex(ExposedHogQLError, "not enabled"):
+            executor.execute()
+
     def test_hogql_query_against_raw_only_connection_is_rejected(self):
         # Without this guard a HogQL query on a BigQuery connection would be printed in the
         # postgres dialect and shipped to BigQuery.

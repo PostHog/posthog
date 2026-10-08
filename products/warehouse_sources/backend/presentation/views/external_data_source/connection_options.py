@@ -12,7 +12,7 @@ from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.hogql.direct_sql.capability import direct_capable_source_types
+from posthog.hogql.direct_sql.capability import bigquery_direct_query_enabled, direct_capable_source_types
 
 from posthog.api.utils import action
 from posthog.models.user import User
@@ -241,6 +241,8 @@ class ExternalDataSourceConnectionOptionsMixin(base.ExternalDataSourceViewSetBas
         surface so the picker never drifts from the engines we actually support."""
         with tracer.start_as_current_span("warehouse_sources.direct_connection_options.catalog"):
             direct_types = direct_capable_source_types()
+            if not bigquery_direct_query_enabled(self.team):
+                direct_types = direct_types - {ExternalDataSourceType.BIGQUERY}
             configs = build_source_configs(include_tables=False)
         options = [
             {

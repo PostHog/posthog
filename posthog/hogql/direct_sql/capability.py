@@ -1,5 +1,31 @@
+from typing import TYPE_CHECKING
+
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE, ExternalDataSourceAccessMethod
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
+# Gates BigQuery direct query while it is tested internally. It exists for warehouse-native
+# experiment metrics, not as a general warehouse feature, so teams outside the rollout must not
+# be able to connect or query BigQuery directly.
+BIGQUERY_DIRECT_QUERY_FLAG = "bigquery-direct-query"
+
+
+def bigquery_direct_query_enabled(team: "Team") -> bool:
+    # Function-local: keeps the analytics client off the django.setup() path.
+    from posthog.ph_client import feature_enabled_or_false  # noqa: PLC0415
+
+    return feature_enabled_or_false(
+        BIGQUERY_DIRECT_QUERY_FLAG,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+        send_feature_flag_events=False,
+    )
 
 
 def direct_capable_source_types() -> frozenset[str]:

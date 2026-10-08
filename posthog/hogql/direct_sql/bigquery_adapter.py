@@ -10,7 +10,7 @@ from sqlparse import tokens as sqlparse_tokens
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
-from posthog.hogql.direct_sql.capability import is_direct_capable
+from posthog.hogql.direct_sql.capability import bigquery_direct_query_enabled, is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
@@ -146,6 +146,11 @@ class BigQueryAdapter:
         # Capability, not access_method: a synced source with the direct-query toggle on is valid too.
         if not (is_direct_capable(source) and source.direct_engine == self.engine):
             raise ExposedHogQLError("Invalid direct BigQuery connection.")
+
+        # The flag is also checked where connections are created; checking here too makes
+        # turning it off stop queries on already-created connections.
+        if not bigquery_direct_query_enabled(team):
+            raise ExposedHogQLError("BigQuery direct queries are not enabled for this project.")
 
         bigquery_source = cast(BigQuerySource, SourceRegistry.get_source(ExternalDataSourceType.BIGQUERY))
         config = parse_direct_source_config(bigquery_source, source)
