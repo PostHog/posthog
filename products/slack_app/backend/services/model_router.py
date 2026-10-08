@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from posthog.llm.system_one import JsonValue
 
 from products.slack_app.backend.services.model_catalogue import (
+    CAPABILITY_LADDER_BY_RUNTIME_ADAPTER,
     COST_BASELINE_MODEL,
     REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
@@ -30,11 +31,20 @@ from products.slack_app.backend.services.model_catalogue import (
     label_for,
     offered_model_choices,
 )
-from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
+from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL, find_model_choice
 
 PERSONAL_DEFAULT_NOTE = "This is the user's personal default."
 PROJECT_DEFAULT_NOTE = "This is the project default."
 SLACK_DEFAULT_NOTE = "This is the default for Slack tasks in this project."
+
+_LUNA_NOTE = (
+    "A light and very cheap model. Good for short answers, lookups, summaries and very small edits. "
+    "Not good for changes across many files."
+)
+_SOL_NOTE = (
+    "A general coding model. Good for most code changes and debugging. "
+    "It becomes stronger as the reasoning effort goes up."
+)
 
 # Keyed by id prefix, so a new version of a family gets its note without an edit. A model on
 # the capability ladder must match one, or the router picks it blind.
@@ -54,32 +64,12 @@ _MODEL_NOTES: tuple[tuple[str, str], ...] = (
         "across many systems or a subtle data or concurrency bug.",
     ),
     ("gpt-6-astra", "The most capable OpenAI model. Good only for the hardest problems."),
-    (
-        "gpt-6-luna",
-        "A light and very cheap model. Good for short answers, lookups, summaries and very small edits. "
-        "Not good for changes across many files.",
-    ),
-    (
-        "gpt-5.6-luna",
-        "A light and very cheap model. Good for short answers, lookups, summaries and very small edits. "
-        "Not good for changes across many files.",
-    ),
+    ("gpt-6-luna", _LUNA_NOTE),
+    ("gpt-5.6-luna", _LUNA_NOTE),
     ("gpt-5.6-terra", "A mid-size model. Good for normal code changes with a clear goal."),
-    (
-        "gpt-6-sol",
-        "A general coding model. Good for most code changes and debugging. "
-        "It becomes stronger as the reasoning effort goes up.",
-    ),
-    (
-        "gpt-6.1-sol",
-        "A general coding model. Good for most code changes and debugging. "
-        "It becomes stronger as the reasoning effort goes up.",
-    ),
-    (
-        "gpt-5.6-sol",
-        "A general coding model. Good for most code changes and debugging. "
-        "It becomes stronger as the reasoning effort goes up.",
-    ),
+    ("gpt-6-sol", _SOL_NOTE),
+    ("gpt-6.1-sol", _SOL_NOTE),
+    ("gpt-5.6-sol", _SOL_NOTE),
 )
 
 _EFFORT_NOTES: dict[str, str] = {
@@ -153,10 +143,6 @@ class _Candidate:
     notes: tuple[str, ...] = ()
 
 
-def _find(model: str | None, choices: tuple[ModelChoice, ...]) -> ModelChoice | None:
-    return next((c for c in choices if c.model == model), None) if model else None
-
-
 def _stored_default(
     preferences: dict[str, str], choices: tuple[ModelChoice, ...]
 ) -> tuple[ModelChoice, str | None] | None:
@@ -166,7 +152,7 @@ def _stored_default(
     """
     if preferences.get("runtime") not in (None, "", "acp"):
         return None
-    choice = _find(preferences.get("model"), choices)
+    choice = find_model_choice(preferences.get("model"), choices)
     if choice is None:
         return None
     return choice, filter_unsupported_effort(choice.runtime_adapter, choice.model, preferences.get("reasoning_effort"))
@@ -212,9 +198,6 @@ def model_router_options(
     from products.tasks.backend.facade import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
         ai_run_defaults,
     )
-    from products.tasks.backend.facade.model_catalogue import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
-        CAPABILITY_LADDER_BY_RUNTIME_ADAPTER,
-    )
     from products.tasks.backend.facade.run_config import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
         get_model_access_error,
     )
@@ -245,13 +228,13 @@ def model_router_options(
     if project is not None:
         add(*project, note=PROJECT_DEFAULT_NOTE)
     # Without a stored default the run falls to Slack's own, and the tie-break needs to see it.
-    if not candidates and (slack_default := _find(SLACK_DEFAULT_MODEL, catalog)) is not None:
+    if not candidates and (slack_default := find_model_choice(SLACK_DEFAULT_MODEL, catalog)) is not None:
         add(slack_default, None, note=SLACK_DEFAULT_NOTE)
 
     for runtime_adapter, ladder in CAPABILITY_LADDER_BY_RUNTIME_ADAPTER.items():
         runtime_label = label_for(runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)
         for index, notch in enumerate(ladder, start=1):
-            choice = _find(notch.model, offered)
+            choice = find_model_choice(notch.model, offered)
             if choice is None:
                 continue
             effort = filter_unsupported_effort(choice.runtime_adapter, choice.model, notch.effort)
@@ -261,10 +244,16 @@ def model_router_options(
                 ladder_note=f"Step {index} of {len(ladder)} on the {runtime_label} scale from fastest to smartest.",
             )
 
+    # The check can be a network call per model, and the ladder repeats models across efforts.
+    allowed = {
+        model
+        for model in {c.choice.model for c in candidates.values()}
+        if get_model_access_error(model, distinct_id=distinct_id) is None
+    }
     return tuple(
         ModelRouterOption(model=c.choice.model, reasoning_effort=c.reasoning_effort, description=_describe(c))
         for c in candidates.values()
-        if get_model_access_error(c.choice.model, distinct_id=distinct_id) is None
+        if c.choice.model in allowed
     )
 
 
