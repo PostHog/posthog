@@ -10,6 +10,7 @@ const STEP_ORDER: MarketingOnboardingStep[] = ['welcome', 'add-source', 'convers
 export interface marketingOnboardingLogicValues {
     currentStep: MarketingOnboardingStep
     isLastStep: boolean
+    manualSourceSearch: string
     showOnboarding: boolean
 }
 
@@ -23,6 +24,9 @@ export interface marketingOnboardingLogicActions {
     }
     resetOnboarding: () => {
         value: true
+    }
+    setManualSourceSearch: (search: string) => {
+        search: string
     }
     setShowOnboarding: (show: boolean) => {
         show: boolean
@@ -50,6 +54,7 @@ export const marketingOnboardingLogic = kea<marketingOnboardingLogicType>([
     path(['scenes', 'marketing-analytics', 'Onboarding', 'marketingOnboardingLogic']),
 
     actions({
+        setManualSourceSearch: (search: string) => ({ search }),
         setStep: (step: MarketingOnboardingStep) => ({ step }),
         goToNextStep: true,
         completeOnboarding: true,
@@ -58,6 +63,7 @@ export const marketingOnboardingLogic = kea<marketingOnboardingLogicType>([
     }),
 
     reducers({
+        manualSourceSearch: ['', { setManualSourceSearch: (_, { search }) => search, resetOnboarding: () => '' }],
         currentStep: [
             (localStorage.getItem(MARKETING_ONBOARDING_STORAGE_KEYS.STEP) as MarketingOnboardingStep) || 'welcome',
             {

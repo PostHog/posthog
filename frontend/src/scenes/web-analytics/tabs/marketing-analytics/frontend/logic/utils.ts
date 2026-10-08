@@ -55,6 +55,31 @@ export function getEnabledNativeMarketingSources(
     })
 }
 
+export function getEnabledNativeMarketingSourcesInDisplayOrder(
+    featureFlags: Partial<Record<FeatureFlagKey, boolean | string>>
+): readonly NativeMarketingSource[] {
+    const sourceOrder: NativeMarketingSource[] = [
+        'GoogleAds',
+        'MetaAds',
+        'BingAds',
+        'LinkedinAds',
+        'TikTokAds',
+        'RedditAds',
+        'PinterestAds',
+        'SnapchatAds',
+        'OpenAIAds',
+        'AppleSearchAds',
+        'AmazonAds',
+        'RoktAds',
+        'TwitterAds',
+    ]
+    return [...getEnabledNativeMarketingSources(featureFlags)].sort(
+        (left, right) =>
+            (sourceOrder.includes(left) ? sourceOrder.indexOf(left) : sourceOrder.length) -
+            (sourceOrder.includes(right) ? sourceOrder.indexOf(right) : sourceOrder.length)
+    )
+}
+
 export const MAX_ITEMS_TO_SHOW = 3
 
 // Derive table names from centralized config
