@@ -12,20 +12,29 @@ export type SendMessage = (
   artifactIds: string[],
 ) => Promise<void>;
 
-const PLAN_RUN: Record<Exclude<CloudHarness, "pi">, object> = {
-  claude: { adapter: "claude", claudeModelAccess: "own-subscription" },
-  codex: { adapter: "codex", codexModelAccess: "own-subscription" },
+type ModelAccess = "posthog-gateway" | "own-subscription";
+
+// A continued run keeps the agent and the payer of the run before it; desktop records both on the run.
+const continuation = (task: Task): CloudHarness | null => {
+  if (task.runtime === "pi") return "pi";
+  if (task.runtime !== "acp") return null;
+  const run = task.latest_run;
+  return run?.runtime_adapter ?? "claude";
 };
 
-const runOptions = (harness: CloudHarness): object =>
-  harness === "pi" ? { piRuntime: true } : PLAN_RUN[harness];
-
-const harnessOf = (task: Task): CloudHarness | null => {
-  if (task.runtime === "pi") return "pi";
-  const adapter = (task as { runtime_adapter?: string | null }).runtime_adapter;
-  return task.runtime === "acp" && (adapter === "claude" || adapter === "codex")
-    ? adapter
-    : null;
+const runOptions = (
+  harness: CloudHarness,
+  run?: Task["latest_run"],
+): object => {
+  if (harness === "pi") return { piRuntime: true };
+  const state = run?.state as
+    | Partial<Record<`${CloudHarness}_model_access`, ModelAccess>>
+    | undefined;
+  const access = run ? state?.[`${harness}_model_access`] : "own-subscription";
+  return {
+    adapter: harness,
+    ...(access === "own-subscription" && { [`${harness}ModelAccess`]: access }),
+  };
 };
 
 // Uploads images for a cloud run, as the desktop app does: to the task for a run still to start, or to a live run.
@@ -227,7 +236,7 @@ export class PiChats {
     images: SentImage[] = [],
     onReopen?: (resumed?: Task) => void,
   ): Promise<Task> {
-    const harness = harnessOf(task);
+    const harness = continuation(task);
     if (!harness) {
       throw new Error("This chat's agent cannot be continued here");
     }
@@ -273,7 +282,7 @@ export class PiChats {
         ? await this.uploads.toTask(task.id, filesOf(images))
         : [];
     return this.api.runTaskInCloud(task.id, null, {
-      ...runOptions(harness),
+      ...runOptions(harness, run),
       resumeFromRunId: run.id,
       pendingUserMessage: prompt,
       ...pendingArtifacts(artifactIds),
