@@ -18,7 +18,7 @@ METRIC_UPDATE_TOOL = "data-catalog-metric-update"
 APPROVED_BADGE_CODE_POINT = "\U0001f6e1"
 PROPOSED_BADGE_ICON = "\U0001f4dd"
 
-# Deliberately tighter than the server cap (validation.MAX_DESCRIPTION_LENGTH = 1000): the eval
+# Deliberately tighter than the server cap (validation.MAX_DESCRIPTION_LENGTH = 300): the eval
 # catches verbosity the hard cap would still admit.
 EVAL_DESCRIPTION_CHAR_LIMIT = 200
 

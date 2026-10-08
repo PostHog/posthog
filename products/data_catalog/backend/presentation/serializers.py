@@ -13,7 +13,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.schema_enums import IntervalType
 
 from ..facade import api
-from ..facade.api import MAX_DESCRIPTION_LENGTH, METRIC_NAME_MAX_LENGTH
+from ..facade.api import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH, METRIC_NAME_MAX_LENGTH
 from ..facade.enums import CreatedSource
 from ..facade.models import Metric, RelationshipProposal, TableCertification
 
@@ -188,6 +188,7 @@ class MetricSerializer(serializers.ModelSerializer):
                 "column lists, and comparisons with other metrics. Never narrate the query - the definition carries "
                 "the mechanics; put rationale for query choices in 'reasoning'.",
                 "max_length": MAX_DESCRIPTION_LENGTH,
+                "error_messages": {"max_length": DESCRIPTION_TOO_LONG_MESSAGE},
             },
             "unit": {"help_text": "Unit of the result, e.g. usd, percent, cents."},
             "ai_model": {"help_text": "Model that generated the metric, if AI-authored."},
