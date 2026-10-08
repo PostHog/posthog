@@ -314,6 +314,11 @@ def _fanout_resource(
     return resources[endpoint].add_map(_rename_parent_key)
 
 
+# Cloudflare answers 6003 when it can't parse the Authorization header at all, which happens with a
+# Global API Key or a token pasted with extra characters, never with a revoked or expired token.
+_MALFORMED_TOKEN_ERROR_CODE = 6003
+
+
 def _transient_status(status: int | None) -> bool:
     """Cloudflare was unreachable or busy rather than refusing the token."""
     return status is None or status == 429 or status >= 500
@@ -330,10 +335,15 @@ class TokenCheck:
     is_valid: bool
     status: int | None
     reason: str | None = None
+    code: int | None = None
 
     @property
     def is_transient(self) -> bool:
         return not self.is_valid and _transient_status(self.status)
+
+    @property
+    def is_malformed(self) -> bool:
+        return not self.is_valid and self.code == _MALFORMED_TOKEN_ERROR_CODE
 
 
 def _cloudflare_error(response: Response) -> str | None:
@@ -355,6 +365,17 @@ def _cloudflare_error(response: Response) -> str | None:
             return f"{message} (code {code})"
         if message:
             return message
+    return None
+
+
+def _cloudflare_error_code(response: Response) -> int | None:
+    try:
+        errors = response.json().get("errors") or []
+    except Exception:
+        return None
+    for error in errors:
+        if isinstance(error, dict) and isinstance(error.get("code"), int):
+            return error["code"]
     return None
 
 
@@ -414,7 +435,9 @@ def validate_credentials(api_token: str) -> TokenCheck:
         return TokenCheck(is_valid=False, status=transient[0])
 
     assert verify is not None  # a None verify is transient, handled above
-    return TokenCheck(is_valid=False, status=status, reason=_cloudflare_error(verify))
+    return TokenCheck(
+        is_valid=False, status=status, reason=_cloudflare_error(verify), code=_cloudflare_error_code(verify)
+    )
 
 
 def cloudflare_source(
