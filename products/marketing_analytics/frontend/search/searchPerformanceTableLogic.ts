@@ -161,9 +161,11 @@ export const searchPerformanceTableLogic: LogicWrapper<searchPerformanceTableLog
         })),
         propsChanged(({ props }, oldProps) => {
             if (JSON.stringify(props.query) !== JSON.stringify(oldProps.query)) {
-                dataNodeLogic.findMounted({ key: `${props.queryKey}-posthog-conversions` })?.actions.clearResponse()
-                dataNodeLogic(dataProps(props, true))
+                const conversions = dataNodeLogic.findMounted({ key: `${props.queryKey}-posthog-conversions` })
+                conversions?.actions.abortAnyRunningQuery()
+                conversions?.actions.clearResponse()
                 dataNodeLogic(dataProps(props, false))
+                dataNodeLogic(dataProps(props, true))
             }
         }),
     ])

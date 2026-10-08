@@ -723,7 +723,7 @@ function conversionLoadingMock(state: 'loading' | 'error'): MockSignature {
             if (state === 'loading') {
                 return new Promise(() => {})
             }
-            return [500, { detail: 'Could not calculate conversions', query_id: 'example-posthog-conversion-query' }]
+            return [500, { detail: 'Could not calculate conversions' }]
         }
         const resolver = MOCKS.post!['/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/']
         return typeof resolver === 'function' ? resolver(info) : resolver
@@ -792,6 +792,6 @@ export const PostHogConversionsError: Story = {
         await expect(
             within(canvasElement).findByText('Could not load PostHog conversions. Your search data is still available.')
         ).resolves.toBeVisible()
-        await expect(within(canvasElement).findByText('example-posthog-conversion-query')).resolves.toBeVisible()
+        await expect(within(canvasElement).findByText('00000000-0000-4000-8000-000000000000')).resolves.toBeVisible()
     },
 }
