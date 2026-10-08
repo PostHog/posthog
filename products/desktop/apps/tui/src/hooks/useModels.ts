@@ -341,6 +341,12 @@ export function useModels({
     synced.current.add(key);
     const live = control(taskId, runId);
     const { model, effort } = held(paneId);
+    // A Claude Code chat already started on its picks, and cannot switch them.
+    if (localSessions.get(taskId)?.runtime === "acp") {
+      if (model) setHeldModels((models) => without(models, paneId));
+      if (effort) setHeldEfforts((efforts) => without(efforts, paneId));
+      return;
+    }
     const applyHeld = async (): Promise<void> => {
       try {
         // The model goes first, because switching it can move the effort.
