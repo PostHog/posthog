@@ -1701,6 +1701,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     cache.disposables.dispose('dashboardStream')
                     cache.dashboardStreamActive = true
 
+                    // nosemgrep: prefer-codegen-api-namespaced-dashboards -- The generated void client cannot handle SSE messages, retries, and cancellation.
                     const disposeStream = await api.dashboards.streamTiles(
                         props.id,
                         {

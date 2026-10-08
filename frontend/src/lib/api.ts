@@ -3483,7 +3483,8 @@ const api = {
                             onMessage(data)
                         }
                     } catch (error) {
-                        onError(error, true)
+                        abortController.abort()
+                        onError(error)
                     }
                 },
                 onerror: (error) => {

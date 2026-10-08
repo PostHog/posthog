@@ -156,6 +156,19 @@ describe('API helper', () => {
             apiStatusLogicSpy.mockRestore()
         })
 
+        it('ends a stream with an unreadable message so a new load can recover', async () => {
+            const fetchEventSourceSpy = jest
+                .spyOn(fetchEventSourceModule, 'fetchEventSource')
+                .mockReturnValueOnce(new Promise<void>(() => {}))
+            const onError = jest.fn()
+            await api.dashboards.streamTiles(5, {}, jest.fn(), jest.fn(), onError)
+            const options = fetchEventSourceSpy.mock.calls[0][1]
+            options.onmessage?.({ data: 'invalid json', event: '', id: '' })
+            expect(onError).toHaveBeenCalledWith(expect.any(SyntaxError))
+            expect(options.signal?.aborted).toBe(true)
+            fetchEventSourceSpy.mockRestore()
+        })
+
         it('reports a stream that closes before completion', async () => {
             const fetchEventSourceSpy = jest.spyOn(fetchEventSourceModule, 'fetchEventSource').mockResolvedValueOnce()
             const onError = jest.fn()
