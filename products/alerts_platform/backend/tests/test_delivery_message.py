@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
@@ -67,6 +68,13 @@ def _build(
 
 
 class TestAlertMessage:
+    @pytest.fixture(autouse=True)
+    def _platform_wording_only(self) -> Iterator[None]:
+        # Sources register describers at startup. These tests state the platform's own wording, and
+        # the describer tests register theirs on top of this.
+        with patch.dict(describers._describers, {}, clear=True):
+            yield
+
     @pytest.mark.parametrize(
         "source,expected_headline",
         [
