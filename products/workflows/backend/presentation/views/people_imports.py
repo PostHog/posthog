@@ -41,8 +41,9 @@ class PeopleImportSerializer(serializers.Serializer):
 
 
 class WorkflowPeopleImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    # The import creates a cohort, so it needs the same access as creating one.
+    # The import creates a cohort and sets person properties, so it needs both write scopes.
     scope_object = "cohort"
+    required_scopes = ["cohort:write", "person:write"]
     serializer_class = PeopleImportCreateSerializer
 
     @extend_schema(

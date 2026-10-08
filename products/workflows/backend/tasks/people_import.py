@@ -3,7 +3,7 @@ import uuid
 from django.db.models import F
 from django.utils import timezone
 
-from celery import shared_task
+from celery import Task, shared_task
 from structlog import get_logger
 
 from posthog.api.capture import capture_batch_internal
@@ -43,9 +43,14 @@ def capture_people_import(self, *, team_id: int, cohort_id: int, storage_key: st
         }
         for person in people
     ]
-    result = capture_batch_internal(
-        events=events, token=team.api_token, event_source=EVENT_SOURCE, process_person_profile=True
-    )
+    try:
+        result = capture_batch_internal(
+            events=events, token=team.api_token, event_source=EVENT_SOURCE, process_person_profile=True
+        )
+    except Exception as error:
+        logger.warning("people_import_capture_failed", team_id=team_id, cohort_id=cohort_id, error=str(error))
+        _retry_or_fail(self, team_id, cohort_id, storage_key)
+        return
     if not result.succeeded():
         logger.warning(
             "people_import_capture_partial",
@@ -56,9 +61,7 @@ def capture_people_import(self, *, team_id: int, cohort_id: int, storage_key: st
             unaccounted=len(result.unaccounted),
             error=result.error,
         )
-        if self.request.retries < CAPTURE_MAX_RETRIES:
-            raise self.retry(countdown=30 * (self.request.retries + 1))
-        _fail_import(team_id, cohort_id, storage_key)
+        _retry_or_fail(self, team_id, cohort_id, storage_key)
         return
     fill_people_import_cohort.apply_async(
         kwargs={"team_id": team_id, "cohort_id": cohort_id, "storage_key": storage_key, "attempt": 0},
@@ -90,6 +93,12 @@ def _missing_distinct_ids(team_id: int, distinct_ids: list[str]) -> list[str]:
     for start in range(0, len(distinct_ids), PERSON_LOOKUP_CHUNK_SIZE):
         found.update(get_persons_mapped_by_distinct_id(team_id, distinct_ids[start : start + PERSON_LOOKUP_CHUNK_SIZE]))
     return [distinct_id for distinct_id in distinct_ids if distinct_id not in found]
+
+
+def _retry_or_fail(task: Task, team_id: int, cohort_id: int, storage_key: str) -> None:
+    if task.request.retries < CAPTURE_MAX_RETRIES:
+        raise task.retry(countdown=30 * (task.request.retries + 1))
+    _fail_import(team_id, cohort_id, storage_key)
 
 
 def _fail_import(team_id: int, cohort_id: int, storage_key: str) -> None:

@@ -3,6 +3,7 @@
 import re
 import json
 import uuid
+from typing import TypedDict
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
@@ -13,11 +14,14 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
+from posthog.models import PropertyDefinition
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.storage import object_storage
 
+from products.access_control.backend.property_access_control import get_non_writable_property_names
 from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.facade.contracts import PeopleImportSummary
 
@@ -37,24 +41,42 @@ class PeopleImportInvalid(Exception):
     """The upload cannot be used. The message is shown to the person who sent it."""
 
 
+class StagedPerson(TypedDict):
+    """One person as the import stores it for the capture task."""
+
+    distinct_id: str
+    properties: dict[str, str]
+
+
+@frozen
+class _CleanedRows:
+    rows: list[dict[str, str]]
+    columns: list[str]
+    dropped_invalid_email: int
+    dropped_duplicate_email: int
+    dropped_too_large: int
+
+
 def start_people_import(*, team: Team, user: User | None, name: str, rows: list[dict[str, str]]) -> PeopleImportSummary:
     if len(rows) > MAX_PEOPLE_IMPORT_ROWS:
         raise PeopleImportInvalid(
             f"This file has {len(rows):,} rows. A file can have up to {MAX_PEOPLE_IMPORT_ROWS:,}."
         )
 
-    kept, summary_counts, columns = _clean_rows(rows)
-    if not kept:
+    cleaned = _clean_rows(rows)
+    if not cleaned.rows:
         raise PeopleImportInvalid("No row has a valid email address.")
+    _check_writable_columns(team, user, cleaned.columns)
 
-    distinct_ids = _resolve_distinct_ids(team, kept)
-    people = []
+    distinct_ids = _resolve_distinct_ids(team, cleaned.rows)
+    people: list[StagedPerson] = []
     seen_distinct_ids: set[str] = set()
-    for row, distinct_id in zip(kept, distinct_ids):
+    dropped_duplicate_distinct_id = 0
+    for row, distinct_id in zip(cleaned.rows, distinct_ids):
         # A row with no person yet becomes one, keyed by the CSV's distinct_id or else its email.
         resolved = distinct_id or row["email"]
         if resolved in seen_distinct_ids:
-            summary_counts["dropped_duplicate_email"] += 1
+            dropped_duplicate_distinct_id += 1
             continue
         seen_distinct_ids.add(resolved)
         people.append({"distinct_id": resolved, "properties": row})
@@ -73,12 +95,14 @@ def start_people_import(*, team: Team, user: User | None, name: str, rows: list[
         cohort_id=cohort.pk,
         row_count=len(people),
         new_people=sum(1 for person in people if person["distinct_id"] not in existing),
-        columns=list(columns),
-        **summary_counts,
+        columns=cleaned.columns,
+        dropped_invalid_email=cleaned.dropped_invalid_email,
+        dropped_duplicate_email=cleaned.dropped_duplicate_email + dropped_duplicate_distinct_id,
+        dropped_too_large=cleaned.dropped_too_large,
     )
 
 
-def read_people(storage_key: str) -> list[dict]:
+def read_people(storage_key: str) -> list[StagedPerson]:
     content = object_storage.read(storage_key, missing_ok=True)
     return json.loads(content) if content else []
 
@@ -87,21 +111,23 @@ def delete_people(storage_key: str) -> None:
     object_storage.delete(storage_key)
 
 
-def _clean_rows(rows: list[dict[str, str]]) -> tuple[list[dict[str, str]], dict[str, int], dict[str, None]]:
+def _clean_rows(rows: list[dict[str, str]]) -> _CleanedRows:
     kept: list[dict[str, str]] = []
     columns: dict[str, None] = {}
     seen_emails: set[str] = set()
     has_email_column = False
-    counts = {"dropped_invalid_email": 0, "dropped_duplicate_email": 0, "dropped_too_large": 0}
+    dropped_invalid_email = dropped_duplicate_email = dropped_too_large = 0
     for raw in rows:
         row: dict[str, str] = {}
         for header, value in raw.items():
             key = _normalize_header(header)
+            # Skipping a column that holds data would lose that data without saying so.
             if not key and str(header).strip():
-                # Skipping it would lose the column's data without saying so.
                 raise PeopleImportInvalid(
                     f'The column "{header}" needs a name with letters or numbers in it. Rename it and try again.'
                 )
+            if not key and str(value).strip():
+                raise PeopleImportInvalid("A column with data in it has no name. Name it and try again.")
             if key in row:
                 # Keeping either value would set the wrong property without saying so.
                 raise PeopleImportInvalid(f'Two columns are both named "{key}". Rename one and try again.')
@@ -112,20 +138,37 @@ def _clean_rows(rows: list[dict[str, str]]) -> tuple[list[dict[str, str]], dict[
         try:
             validate_email(email)
         except DjangoValidationError:
-            counts["dropped_invalid_email"] += 1
+            dropped_invalid_email += 1
             continue
         if email.lower() in seen_emails:
-            counts["dropped_duplicate_email"] += 1
+            dropped_duplicate_email += 1
             continue
         if len(json.dumps(row).encode()) > MAX_PEOPLE_IMPORT_ROW_BYTES:
-            counts["dropped_too_large"] += 1
+            dropped_too_large += 1
             continue
         seen_emails.add(email.lower())
         columns.update(dict.fromkeys(key for key in row if key != "distinct_id"))
         kept.append(row)
     if not has_email_column:
         raise PeopleImportInvalid('Add a column named "email" with each person\'s address.')
-    return kept, counts, columns
+    return _CleanedRows(
+        rows=kept,
+        columns=list(columns),
+        dropped_invalid_email=dropped_invalid_email,
+        dropped_duplicate_email=dropped_duplicate_email,
+        dropped_too_large=dropped_too_large,
+    )
+
+
+def _check_writable_columns(team: Team, user: User | None, columns: list[str]) -> None:
+    non_writable = get_non_writable_property_names(
+        team_id=team.id, user=user, property_type=PropertyDefinition.Type.PERSON
+    )
+    blocked = sorted(set(columns) & non_writable)
+    if blocked:
+        raise PeopleImportInvalid(
+            f"You can't change these person properties: {', '.join(blocked)}. Remove those columns and try again."
+        )
 
 
 def _resolve_distinct_ids(team: Team, rows: list[dict[str, str]]) -> list[str | None]:
