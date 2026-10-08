@@ -12370,6 +12370,10 @@ snapshots:
         hash: v1.k794b7964.b33c74ffb5531cf86afcd5fa718200c83a0863450ca85a5c94d026264f81dc4c.awlyXScQ759I0zP7I5rQA8PEIunmftZStWnJ90q-tpw
     scenes-app-mcp-analytics-notification-types-table--nothing-set-up--light:
         hash: v1.k794b7964.d0cb2086e12994284977aa2d895e1214c0261d2505022d9df4aef0d15c6562c6.fKwM2EVKz22cubQjamzL4YJN2CWRvtdpvYIifmijXtA
+    scenes-app-mcp-analytics-nudge-toast--default--dark:
+        hash: v1.k794b7964.1cc84f683757e63495ffa98459b9556442c3535018f4379e0e522a6bda285f4c.6ZS_Z7xaUDE5IW381cySLT26W5FmcdMyCK9qASAfATM
+    scenes-app-mcp-analytics-nudge-toast--default--light:
+        hash: v1.k794b7964.e7ac9b38fc3e2fdfdd1189c833ff16264f3807a5489fc1be778aa06be372538c.K4vqorVUJpvkp2t_j2mlWWbQwYG5wbaxGAUvetJbcrQ
     scenes-app-mcp-analytics-tool-detail--tool-detail--medium--dark:
         hash: v1.k794b7964.e58395cb8a2827fc6dc6f95a7758eee7e72d0ee902de43db257a2e53012e1b0b.zQ8oyEjDSPkbT4yXup07uT_zvITN1oMbJzAJFp-7vIA
     scenes-app-mcp-analytics-tool-detail--tool-detail--medium--light:
