@@ -547,17 +547,28 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     @parameterized.expand(
         [
-            ("typed_array", "$exception_types", ["a", '"b"', "https://example.com/path"]),
-            ("dynamic_array", "custom_array", ["a", '"b"', "https://example.com/path"]),
-            (
-                "object",
-                "custom_object",
-                {"empty": "", "escaped": '\u0001"\\\t', "url": "https://example.com/path", "number": 2**63},
-            ),
+            (name, property_name, value, escape_forward_slashes)
+            for name, property_name, value in [
+                ("typed_array", "$exception_types", ["a", '"b"', "https://example.com/path", r"a\/b", r"a\\/b"]),
+                ("dynamic_array", "custom_array", ["a", '"b"', "https://example.com/path", r"a\/b", r"a\\/b"]),
+                (
+                    "object",
+                    "custom_object",
+                    {
+                        "empty": "",
+                        "escaped": '\u0001"\\\t',
+                        "url": "https://example.com/path",
+                        "number": 2**63,
+                        "path": r"a\/b",
+                        "double_backslash": r"a\\/b",
+                    },
+                ),
+            ]
+            for escape_forward_slashes in (0, 1)
         ]
     )
     def test_raw_property_helper_reads_only_one_json_subcolumn(
-        self, _name: str, property_name: str, value: list[str] | dict[str, str | int]
+        self, _name: str, property_name: str, value: list[str] | dict[str, str | int], escape_forward_slashes: int
     ) -> None:
         expression, _ = get_property_string_expr(
             "events",
@@ -578,9 +589,10 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
                 "documents": [json.dumps({property_name: item}) for item in [value, [], None]],
             },
+            settings={"output_format_json_escape_forward_slashes": escape_forward_slashes},
         )
         assert json.loads(rows[0][0]) == value
-        assert "\\/" not in rows[0][0]
+        assert "https://example.com/path" in rows[0][0]
         assert rows[1:] == [("",), ("",)]
 
     @parameterized.expand(

@@ -164,6 +164,7 @@ On the native JSON events table, HogQL compares non-empty string constants direc
 This keeps equality and membership predicates visible to the JSON skip index without failing on mixed scalar types.
 Constants starting with `[` or `{` keep the full property read because arrays and objects serialize differently from scalars.
 Single-property reads serialize sub-objects with ClickHouse's JSON formatter; whole-document reads still remove declared defaults.
+Raw SQL property readers preserve backslashes before forward slashes whether ClickHouse's `output_format_json_escape_forward_slashes` setting is enabled or disabled.
 Native queries disable forward-slash escaping so object and array text retains `/`.
 
 Add new tables and fields as needed! Just make sure each table has a `team_id` column.
