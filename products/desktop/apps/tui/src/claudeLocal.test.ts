@@ -74,7 +74,7 @@ describe("ClaudeLocalSession", () => {
       async () => false,
     );
     await expect(session.start()).rejects.toThrow(
-      "Log in to Claude Code for the TUI first: run `CLAUDE_CONFIG_DIR=~/.claude claude auth login` in a terminal",
+      "Log in to Claude Code first: run `claude auth login` in a terminal",
     );
   });
 

@@ -2,7 +2,10 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { machineClaudeAuth } from "@posthog/agent/adapters/claude/machine-auth";
+import {
+  keepUserClaudeConfigDir,
+  machineClaudeAuth,
+} from "@posthog/agent/adapters/claude/machine-auth";
 import { hasClaudeLogin } from "@posthog/agent/adapters/claude/subscription-login";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import type { AuthService } from "@posthog/core/auth/auth";
@@ -102,7 +105,9 @@ const noAnalytics: IAnalytics = {
 };
 
 // MCP apps render inside the desktop app; the terminal has nowhere to show them.
-// The user's own Claude Code, the one `claude auth login` signed in.
+// The user's own Claude Code and its own login: the desktop app keeps a separate config dir and login, the TUI does not.
+keepUserClaudeConfigDir();
+
 function claudeBinary(): string {
   try {
     return execFileSync("which", ["claude"], { encoding: "utf8" }).trim();
