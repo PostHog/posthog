@@ -235,6 +235,10 @@ def hog_flow_deleted(sender, instance: HogFlow, **kwargs):
     transaction.on_commit(lambda: reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[hog_flow_id]))
 
 
+# The two receivers below listen to senders the product does not own, on purpose. Core has no
+# save hook a product can register with (register_team_extension_signal only creates extension
+# rows), and cdp keeps the same pair in hog_function.py. They stay in backend/models/, which is a
+# contract-check input, so a change to them still runs the full suite.
 @receiver(post_save, sender=Action)
 def action_saved_for_hog_flows(sender, instance: Action, created, **kwargs):
     from products.workflows.backend.tasks.hog_flows import refresh_affected_hog_flows  # noqa: PLC0415
