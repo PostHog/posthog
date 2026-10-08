@@ -785,6 +785,7 @@ the row lists both.
 | stack_overflow_for_teams         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | statuscake                       | HTTP                        | requests                                                        | ✅                          |
 | statuspage                       | HTTP                        | requests                                                        | ✅                          |
+| steam                            | HTTP                        | requests                                                        | ✅                          |
 | stigg                            | HTTP                        | requests                                                        | ✅                          |
 | stockdata                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | streamelements                   | HTTP                        | requests                                                        | ✅                          |

@@ -65,7 +65,15 @@ class TestChessCom:
     def test_usernames_are_split_lowercased_and_deduplicated(self) -> None:
         assert parse_usernames(" Ada,\ngrace ada\n") == ["ada", "grace"]
 
-    @parameterized.expand([("ab",), ("ada lovelace!",), ("https://www.chess.com/member/ada",), ("",)])
+    @parameterized.expand(
+        [
+            ("ab",),
+            ("ada lovelace!",),
+            ("https://www.chess.com/member/ada",),
+            ("",),
+            (", ".join(f"player{n}" for n in range(51)),),
+        ]
+    )
     def test_anything_but_a_username_is_rejected(self, raw: str) -> None:
         with pytest.raises(ValueError):
             parse_usernames(raw)

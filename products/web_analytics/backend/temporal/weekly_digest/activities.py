@@ -455,7 +455,8 @@ def _send_test_digest(email: str, team_id: int | None = None) -> None:
             user=user,
             org=team.organization,
             membership=membership,
-            team_digest_data={team.id: weekly_digest.build_team_digest(team)},
+            # No user runs these queries. `_send_digest_for_user` drops the teams that the recipient cannot access.
+            team_digest_data={team.id: weekly_digest.build_team_digest(team, bypass_warehouse_access_control=True)},
             date_suffix=date_suffix,
             test=True,
         )
@@ -481,7 +482,10 @@ def _send_test_digest(email: str, team_id: int | None = None) -> None:
         org_teams = list(Team.objects.filter(organization_id=org.id))
         if not org_teams:
             continue
-        team_digest_data = {t.id: weekly_digest.build_team_digest(t) for t in org_teams}
+        # No user runs these queries. `_send_digest_for_user` drops the teams that the recipient cannot access.
+        team_digest_data = {
+            t.id: weekly_digest.build_team_digest(t, bypass_warehouse_access_control=True) for t in org_teams
+        }
         outcome = _send_digest_for_user(
             user=user,
             org=org,

@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.chess_com.
     chess_com_source,
     parse_usernames,
     probe_username,
-    split_usernames,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.chess_com.settings import (
     ENDPOINTS,
@@ -85,6 +84,8 @@ class ChessComSource(SimpleSource[ChessComSourceConfig]):
         return {
             "403 Client Error": "Chess.com refused the request. Wait a while, then sync again.",
             "410 Client Error": "Chess.com no longer serves this data.",
+            "Not a Chess.com username": "One of the usernames is not valid. Fix the list, then sync again.",
+            "Add at most": "The list has too many usernames. Shorten it, then sync again.",
         }
 
     def get_schemas(
@@ -123,8 +124,7 @@ class ChessComSource(SimpleSource[ChessComSourceConfig]):
         last_value = inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
         return chess_com_source(
             team_id=inputs.team_id,
-            # The credentials check validates the usernames. Chess.com returns a 404 for one that does not exist.
-            usernames=split_usernames(config.usernames),
+            usernames=parse_usernames(config.usernames),
             endpoint=inputs.schema_name,
             since=last_value if isinstance(last_value, datetime) else None,
             logger=inputs.logger,

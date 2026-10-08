@@ -17,6 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 
 CHESS_COM_API_URL = "https://api.chess.com/pub"
 REQUEST_TIMEOUT_SECONDS = 30
+# Every username costs one request per month of history, sent one at a time.
+MAX_USERNAMES = 50
 # Chess.com asks every client to identify itself, and blocks clients that do not.
 HEADERS = {"User-Agent": "PostHog data warehouse (https://posthog.com)"}
 
@@ -38,6 +40,8 @@ def parse_usernames(raw: str) -> list[str]:
         raise ValueError(f"Not a Chess.com username: {', '.join(invalid)}")
     if not usernames:
         raise ValueError("Add at least one username.")
+    if len(usernames) > MAX_USERNAMES:
+        raise ValueError(f"Add at most {MAX_USERNAMES} usernames. The list has {len(usernames)}.")
     return usernames
 
 
