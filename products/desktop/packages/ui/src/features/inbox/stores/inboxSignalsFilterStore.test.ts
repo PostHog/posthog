@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   hasActiveInboxFilters,
+  hasActiveReportsListFilters,
   useInboxSignalsFilterStore,
 } from "./inboxSignalsFilterStore";
 
@@ -224,6 +225,23 @@ describe("inboxSignalsFilterStore", () => {
       }),
     ).toBe(false);
   });
+
+  it.each([
+    [true, true],
+    [false, false],
+  ])(
+    "counts a stored created-in window as a list filter only while its flag is on (flag %s)",
+    (timeWindowAvailable, expected) => {
+      useInboxSignalsFilterStore.getState().setCreatedWindow("7d");
+
+      expect(
+        hasActiveReportsListFilters(
+          useInboxSignalsFilterStore.getState(),
+          timeWindowAvailable,
+        ),
+      ).toBe(expected);
+    },
+  );
 
   it("migrates old localStorage by dropping dead slots and adding report states", () => {
     localStorage.setItem(

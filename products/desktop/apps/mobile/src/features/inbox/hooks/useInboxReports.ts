@@ -7,6 +7,8 @@ import {
   INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
   INBOX_DISMISSED_STATUS_FILTER,
   INBOX_REFETCH_INTERVAL_MS,
+  type InboxReportsQueryParams,
+  toSignalReportsRequest,
 } from "@posthog/core/inbox/reportFiltering";
 import { isRestorableReport } from "@posthog/core/inbox/reportMembership";
 import type { DismissalReasonOptionValue } from "@posthog/shared";
@@ -34,10 +36,11 @@ import { useMemo } from "react";
 import { useAuthStore } from "@/features/auth";
 import { getPostHogApiClient } from "@/lib/posthogApiClient";
 import { useInboxFilterStore } from "../stores/inboxFilterStore";
+import { useInboxActiveSort } from "./useInboxActiveSort";
 
 export const inboxKeys = {
   all: ["inbox", "signal-reports"] as const,
-  list: (params?: SignalReportsQueryParams) =>
+  list: (params?: InboxReportsQueryParams) =>
     [...inboxKeys.all, "list", params ?? {}] as const,
   archived: (params?: SignalReportsQueryParams) =>
     [...inboxKeys.all, "archived", params ?? {}] as const,
@@ -63,8 +66,7 @@ export function getReportsNextPageParam(
 
 export function useInboxReports(options?: { enabled?: boolean }) {
   const { projectId, oauthAccessToken } = useAuthStore();
-  const sortField = useInboxFilterStore((s) => s.sortField);
-  const sortDirection = useInboxFilterStore((s) => s.sortDirection);
+  const { sortField, sortDirection, createdWindow } = useInboxActiveSort();
   const statusFilter = useInboxFilterStore((s) => s.statusFilter);
   const sourceProductFilter = useInboxFilterStore((s) => s.sourceProductFilter);
   const suggestedReviewerFilter = useInboxFilterStore(
@@ -72,7 +74,7 @@ export function useInboxReports(options?: { enabled?: boolean }) {
   );
   const priorityFilter = useInboxFilterStore((s) => s.priorityFilter);
 
-  const params: SignalReportsQueryParams = {
+  const params: InboxReportsQueryParams = {
     status: buildStatusFilterParam(statusFilter),
     ordering: buildSignalReportListOrdering(sortField, sortDirection),
     actionability: INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
@@ -85,13 +87,14 @@ export function useInboxReports(options?: { enabled?: boolean }) {
         ? buildSuggestedReviewerFilterParam(suggestedReviewerFilter)
         : undefined,
     priority: buildPriorityFilterParam(priorityFilter),
+    created_window: createdWindow ?? undefined,
   };
 
   const query = useInfiniteQuery({
     queryKey: inboxKeys.list(params),
     queryFn: ({ pageParam }) =>
       getPostHogApiClient().getSignalReports({
-        ...params,
+        ...toSignalReportsRequest(params),
         limit: REPORTS_PAGE_SIZE,
         offset: pageParam,
       }),

@@ -1,5 +1,5 @@
 import type { SignalReport, SignalReportPriority } from "@posthog/shared/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildArchiveListOrdering,
   buildPriorityFilterParam,
@@ -9,7 +9,9 @@ import {
   INBOX_PIPELINE_STATUS_FILTER,
   INBOX_PIPELINE_STATUSES,
   INBOX_REFETCH_INTERVAL_MS,
+  resolveInboxSort,
   sortInboxReports,
+  toSignalReportsRequest,
 } from "./reportFiltering";
 
 describe("inbox pipeline statuses", () => {
@@ -128,6 +130,12 @@ describe("buildSignalReportListOrdering", () => {
     },
   );
 
+  it("leads with the score for a model sort, as web does", () => {
+    expect(buildSignalReportListOrdering("ranking_pr_merged", "desc")).toBe(
+      "-ranking_pr_merged,status,-updated_at",
+    );
+  });
+
   it.each([
     ["priority", "asc", "status,priority,-created_at"],
     ["priority", "desc", "status,-priority,-created_at"],
@@ -174,6 +182,85 @@ describe("sortInboxReports", () => {
         (report) => report.id,
       ),
     ).toEqual(["newest", "middle", "older"]);
+  });
+
+  it("orders a model sort by the head's score and puts unscored reports last", () => {
+    const scored = (id: string, merge: number) =>
+      makeReport({
+        id,
+        ranking: {
+          served_key: "model@2026-09-01",
+          scored_at: "2026-09-30T00:00:00Z",
+          scores: { pr_merged: merge, open: 1 - merge },
+        },
+      });
+    const reports = [
+      makeReport({ id: "unscored", ranking: null }),
+      scored("low", 0.1),
+      scored("high", 0.9),
+    ];
+
+    expect(
+      sortInboxReports(reports, "ranking_pr_merged", "desc").map(
+        (report) => report.id,
+      ),
+    ).toEqual(["high", "low", "unscored"]);
+  });
+});
+
+describe("resolveInboxSort", () => {
+  const fallback = { field: "created_at", direction: "desc" } as const;
+
+  it.each([
+    {
+      name: "keeps a model sort while it is available",
+      sort: { field: "ranking_action", direction: "desc" },
+      available: true,
+      expected: { field: "ranking_action", direction: "desc" },
+    },
+    {
+      name: "falls back from a model sort once it is not available",
+      sort: { field: "ranking_action", direction: "desc" },
+      available: false,
+      expected: fallback,
+    },
+    {
+      name: "keeps a basic sort when model sorts are not available",
+      sort: { field: "priority", direction: "asc" },
+      available: false,
+      expected: { field: "priority", direction: "asc" },
+    },
+  ] as const)("$name", ({ sort, available, expected }) => {
+    expect(resolveInboxSort(sort, available, fallback)).toEqual(expected);
+  });
+});
+
+describe("toSignalReportsRequest", () => {
+  it.each([
+    {
+      name: "turns a created window into a created_after bound",
+      window: "3d",
+      expected: "2026-09-27T12:00:00.000Z",
+    },
+    {
+      name: "sends no bound without a window",
+      window: undefined,
+      expected: undefined,
+    },
+  ] as const)("$name", ({ window, expected }) => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-09-30T12:00:00Z"));
+      expect(
+        toSignalReportsRequest({ status: "ready", created_window: window }),
+      ).toEqual(
+        expected
+          ? { status: "ready", created_after: expected }
+          : { status: "ready" },
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

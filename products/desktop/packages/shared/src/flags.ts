@@ -66,6 +66,10 @@ export const TASK_COST_VISIBLE_FLAG = featureFlagKeys.TASK_COST_VISIBLE_FLAG;
 export const ANNOUNCEMENTS_FLAG = featureFlagKeys.ANNOUNCEMENTS_FLAG;
 /** Gates the PR-refund action in the inbox (matches the web SIGNALS_PR_REFUNDS flag). */
 export const SIGNALS_PR_REFUNDS_FLAG = featureFlagKeys.SIGNALS_PR_REFUNDS_FLAG;
+/** Gates the staff-only ranking model sorts in the inbox (matches the web INBOX_MODEL_SORT flag). */
+export const INBOX_MODEL_SORT_FLAG = featureFlagKeys.INBOX_MODEL_SORT_FLAG;
+/** Gates the created-in window filter in the inbox (matches the web INBOX_TIME_WINDOW flag). */
+export const INBOX_TIME_WINDOW_FLAG = featureFlagKeys.INBOX_TIME_WINDOW_FLAG;
 /**
  * Gates reports living in the channels sidebar: the per-space Reports tab and its
  * report detail route, plus report entries in the feed. Requires project-bluebird.

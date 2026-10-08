@@ -111,6 +111,10 @@ export function buildBulkActionEvents(
 interface InboxViewedFilterStateBase {
   sourceProductFilter: string[];
   priorityFilter: string[];
+  /** The sort and created-in window the list requested, after their gates. */
+  sortField: string;
+  sortDirection: string;
+  createdWindow: string | null;
 }
 
 interface DesktopInboxViewedFilterState extends InboxViewedFilterStateBase {
@@ -215,6 +219,7 @@ export function buildInboxViewedProperties(
   const hasActiveFilters =
     filters.sourceProductFilter.length > 0 ||
     filters.priorityFilter.length > 0 ||
+    filters.createdWindow !== null ||
     (filters.surface === "desktop" && filters.searchQuery.trim().length > 0) ||
     statusFiltered ||
     (filters.surface === "mobile" &&
@@ -232,6 +237,9 @@ export function buildInboxViewedProperties(
         ? filters.statusFilter.length
         : filters.reportStateFilter.length,
     is_empty: totalCount === 0,
+    sort_field: filters.sortField,
+    sort_direction: filters.sortDirection,
+    created_window: filters.createdWindow,
     priority_p0_count: priorityCounts.P0,
     priority_p1_count: priorityCounts.P1,
     priority_p2_count: priorityCounts.P2,

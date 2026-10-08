@@ -808,6 +808,17 @@ export interface SignalReport {
   refund_ineligibility_reason?: string | null;
   /** The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value. */
   channel_id?: string | null;
+  /** The served ranking model's score. Staff only: null for other users and for unscored reports. */
+  ranking?: SignalReportRanking | null;
+}
+
+export interface SignalReportRanking {
+  /** Key of the served model in the scoring pass, as `<model_name>@<model_version>`. */
+  served_key: string;
+  /** When the scoring sweep scored the report. */
+  scored_at: string;
+  /** Outcome head name to its calibrated probability. Empty when the served model skipped the report. */
+  scores: Record<string, number>;
 }
 
 export type SignalReportRefundReason =
@@ -1195,8 +1206,11 @@ export interface SignalReportArtefactsResponse {
     | "request_failed";
 }
 
-import type { SignalReportOrderingField } from "./signal-types";
-export type { SignalReportOrderingField };
+import type {
+  SignalReportOrderingField,
+  SignalReportRankingOrderingField,
+} from "./signal-types";
+export type { SignalReportOrderingField, SignalReportRankingOrderingField };
 
 export interface SignalReportsQueryParams {
   unread?: boolean;
@@ -1218,6 +1232,8 @@ export interface SignalReportsQueryParams {
   priority?: string;
   /** Comma-separated actionability choices. Only returns reports with one of these latest judgments. */
   actionability?: string;
+  /** ISO 8601 datetime. Only returns reports created at or after this time. */
+  created_after?: string;
   /** Return the filtered total without fetching or enriching report rows. */
   count_only?: boolean;
   /**

@@ -3,11 +3,9 @@ import { InboxFilterMenu } from "@posthog/ui/features/inbox/components/InboxFilt
 import { InboxPanePresentation } from "@posthog/ui/features/inbox/components/InboxPanePresentation";
 import { InboxPaneRow } from "@posthog/ui/features/inbox/components/InboxPaneRow";
 import { InboxTriageButton } from "@posthog/ui/features/inbox/components/InboxTriageButton";
+import { useHasActiveReportsListFilters } from "@posthog/ui/features/inbox/hooks/useHasActiveReportsListFilters";
 import { useInboxSectionedReports } from "@posthog/ui/features/inbox/hooks/useInboxSectionedReports";
-import {
-  hasActiveReportsListFilters,
-  useInboxSignalsFilterStore,
-} from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
+import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import { reportIdFromHref } from "@posthog/ui/router/reportNavigation";
 import { useRouterState } from "@tanstack/react-router";
 import { type ReactElement, useMemo, useState } from "react";
@@ -19,9 +17,7 @@ import { type ReactElement, useMemo, useState } from "react";
 export function InboxPane({ className }: { className?: string }): ReactElement {
   const inbox = useInboxSectionedReports();
   const [query, setQuery] = useState("");
-  const hasActiveFilters = useInboxSignalsFilterStore(
-    hasActiveReportsListFilters,
-  );
+  const hasActiveFilters = useHasActiveReportsListFilters();
   const resetFilters = useInboxSignalsFilterStore(
     (state) => state.resetFilters,
   );

@@ -12,22 +12,32 @@ import {
   SelectValue,
 } from "@posthog/quill";
 import {
+  INBOX_ANY_CREATED_WINDOW,
+  INBOX_CREATED_WINDOW_MENU_OPTIONS,
   INBOX_PRIORITY_OPTIONS,
   INBOX_REPORT_STATE_OPTIONS,
-  INBOX_SORT_OPTIONS,
+  inboxCreatedWindowFromMenuValue,
   inboxPriorityFilterLabel,
   inboxReportStateFilterLabel,
   inboxSortOptionFromKey,
   inboxSortOptionKey,
+  inboxSortOptions,
 } from "@posthog/ui/features/inbox/filterOptions";
+import { useInboxActiveSort } from "@posthog/ui/features/inbox/hooks/useInboxActiveSort";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 
 export function InboxReportFilters(): React.JSX.Element {
-  const sortField = useInboxSignalsFilterStore((state) => state.sortField);
-  const sortDirection = useInboxSignalsFilterStore(
-    (state) => state.sortDirection,
+  const {
+    sortField,
+    sortDirection,
+    createdWindow,
+    modelSortAvailable,
+    timeWindowAvailable,
+    selectSort,
+  } = useInboxActiveSort();
+  const setCreatedWindow = useInboxSignalsFilterStore(
+    (state) => state.setCreatedWindow,
   );
-  const setSort = useInboxSignalsFilterStore((state) => state.setSort);
   const priorityFilter = useInboxSignalsFilterStore(
     (state) => state.priorityFilter,
   );
@@ -42,6 +52,7 @@ export function InboxReportFilters(): React.JSX.Element {
   );
 
   const activeSortKey = inboxSortOptionKey(sortField, sortDirection);
+  const sortOptions = inboxSortOptions(modelSortAvailable);
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -110,15 +121,37 @@ export function InboxReportFilters(): React.JSX.Element {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {timeWindowAvailable && (
+        <Select
+          value={createdWindow ?? INBOX_ANY_CREATED_WINDOW}
+          items={INBOX_CREATED_WINDOW_MENU_OPTIONS}
+          onValueChange={(value) =>
+            setCreatedWindow(inboxCreatedWindowFromMenuValue(value ?? ""))
+          }
+        >
+          <SelectTrigger size="default" data-attr="inbox-created-window">
+            <span>Created:</span>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="start" side="bottom" sideOffset={6}>
+            {INBOX_CREATED_WINDOW_MENU_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+
       <Select
         value={activeSortKey}
-        items={INBOX_SORT_OPTIONS.map((option) => ({
+        items={sortOptions.map((option) => ({
           value: inboxSortOptionKey(option.field, option.direction),
           label: option.label,
         }))}
         onValueChange={(key) => {
           const option = inboxSortOptionFromKey(key ?? "");
-          if (option) setSort(option.field, option.direction);
+          if (option) selectSort(option.field, option.direction);
         }}
       >
         <SelectTrigger size="default" data-attr="inbox-sort">
@@ -130,7 +163,7 @@ export function InboxReportFilters(): React.JSX.Element {
           </SelectValue>
         </SelectTrigger>
         <SelectContent align="start" side="bottom" sideOffset={6}>
-          {INBOX_SORT_OPTIONS.map((option) => (
+          {sortOptions.map((option) => (
             <SelectItem
               key={inboxSortOptionKey(option.field, option.direction)}
               value={inboxSortOptionKey(option.field, option.direction)}

@@ -18,6 +18,8 @@
   "DISCOVERY_RUN_FLAG": "posthog-code-discovery-run",
   "EXPERIMENT_SUGGESTIONS_FLAG": "posthog-code-experiment-suggestions",
   "FAST_MODE_FLAG": "posthog-desktop-fast-mode",
+  "INBOX_MODEL_SORT_FLAG": "inbox-model-sort",
+  "INBOX_TIME_WINDOW_FLAG": "inbox-time-window",
   "LOCAL_MCP_IMPORT_FLAG": "posthog-code-local-mcp-import",
   "LOOPS_FLAG": "loops",
   "LOOPS_HOG_FLOWS_FLAG": "loops-hog-flows",

@@ -864,6 +864,10 @@ export interface InboxViewedProperties {
   source_product_filter: string[];
   status_filter_count: number;
   is_empty: boolean;
+  /** The sort and created-in window the list requested, so model-ordered views can be told apart. */
+  sort_field: string;
+  sort_direction: string;
+  created_window: string | null;
   /** Breakdown of the visible report_count by priority (P0–P4, or "unknown"). */
   priority_p0_count: number;
   priority_p1_count: number;

@@ -5758,6 +5758,9 @@ export class PostHogAPIClient {
     if (params?.actionability) {
       url.searchParams.set("actionability", params.actionability);
     }
+    if (params?.created_after) {
+      url.searchParams.set("created_after", params.created_after);
+    }
     if (params?.count_only != null) {
       url.searchParams.set("count_only", String(params.count_only));
     }

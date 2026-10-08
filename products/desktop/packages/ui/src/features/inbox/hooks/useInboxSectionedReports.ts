@@ -15,6 +15,7 @@ import type {
   SignalReportStatus,
   SourceProduct,
 } from "@posthog/shared/types";
+import { useInboxActiveSort } from "@posthog/ui/features/inbox/hooks/useInboxActiveSort";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { useReportImplementationStates } from "@posthog/ui/features/inbox/hooks/useReportImplementationStates";
 import {
@@ -91,13 +92,10 @@ export function useInboxSectionedReports(options?: {
   const reportStateFilter = useInboxSignalsFilterStore(
     (state) => state.reportStateFilter,
   );
-  // Straight from the store, where the type is already the set
-  // `sortInboxReports` accepts. The query hook widens it for its own archive
-  // mode, which this list never asks for.
-  const sortField = useInboxSignalsFilterStore((state) => state.sortField);
-  const sortDirection = useInboxSignalsFilterStore(
-    (state) => state.sortDirection,
-  );
+  // The section queries request the same sort, so their merged rows sort with
+  // it too. The query hook widens the field for its own archive mode, which
+  // this list never asks for.
+  const { sortField, sortDirection } = useInboxActiveSort();
 
   const showAllStates = reportStateFilter.length === 0;
   const showReviewAndMerge =

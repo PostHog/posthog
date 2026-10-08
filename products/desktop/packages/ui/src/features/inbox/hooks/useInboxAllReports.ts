@@ -15,6 +15,7 @@ import {
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { DESKTOP_INBOX_REFETCH_INTERVAL_MS } from "@posthog/ui/features/inbox/hooks/inboxPolling";
+import { useInboxActiveSort } from "@posthog/ui/features/inbox/hooks/useInboxActiveSort";
 import {
   useInboxReports,
   useInboxReportsInfinite,
@@ -85,12 +86,12 @@ export function useInboxAllReports(options?: {
   const searchQuery = useInboxSignalsFilterStore((s) =>
     ignoreFilters || !applySearchFilter ? "" : s.searchQuery,
   );
-  const sortField = useInboxSignalsFilterStore((s) =>
-    ignoreFilters ? "updated_at" : s.sortField,
-  );
-  const sortDirection = useInboxSignalsFilterStore((s) =>
-    ignoreFilters ? "desc" : s.sortDirection,
-  );
+  const activeSort = useInboxActiveSort();
+  const sortField = ignoreFilters ? "updated_at" : activeSort.sortField;
+  const sortDirection = ignoreFilters ? "desc" : activeSort.sortDirection;
+  const createdWindow = ignoreFilters
+    ? undefined
+    : (activeSort.createdWindow ?? undefined);
   const sourceProductFilter = useInboxSignalsFilterStore((s) =>
     ignoreFilters || !applySourceFilter
       ? EMPTY_FILTER_ARRAY
@@ -131,6 +132,7 @@ export function useInboxAllReports(options?: {
           ? sourceProductFilter.join(",")
           : undefined,
       priority: buildPriorityFilterParam(priorityFilter),
+      created_window: createdWindow,
       suggested_reviewers: reviewerUuid
         ? buildSuggestedReviewerFilterParam([reviewerUuid])
         : undefined,
@@ -163,6 +165,7 @@ export function useInboxAllReports(options?: {
           ? sourceProductFilter.join(",")
           : undefined,
       priority: buildPriorityFilterParam(priorityFilter),
+      created_window: createdWindow,
       suggested_reviewers: reviewerUuid
         ? buildSuggestedReviewerFilterParam([reviewerUuid])
         : undefined,
@@ -191,6 +194,7 @@ export function useInboxAllReports(options?: {
           ? sourceProductFilter.join(",")
           : undefined,
       priority: buildPriorityFilterParam(priorityFilter),
+      created_window: createdWindow,
       suggested_reviewers: reviewerUuid
         ? buildSuggestedReviewerFilterParam([reviewerUuid])
         : undefined,
