@@ -11,7 +11,8 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.actor import ActivityActor
+from posthog.models.activity_logging.snapshot import ActivitySnapshot, log_activity_change
 from posthog.models.user import User
 from posthog.storage import object_storage
 
@@ -298,9 +299,7 @@ def get_app(team_id: int, short_id: str) -> contracts.AppContract:
     return _app_to_contract(_get_app(team_id, short_id))
 
 
-def create_app(
-    team_id: int, user: User, data: contracts.CreateAppInput, was_impersonated: bool
-) -> contracts.AppContract:
+def create_app(team_id: int, user: User, data: contracts.CreateAppInput, actor: ActivityActor) -> contracts.AppContract:
     _validate_resource_bounds(data.cpu_cores, data.memory_gb)
 
     app = StreamlitApp.objects.for_team(team_id).create(
@@ -312,25 +311,24 @@ def create_app(
         memory_gb=data.memory_gb,
     )
 
-    log_activity(
-        organization_id=user.current_organization_id,
-        team_id=team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=str(app.id),
+    log_activity_change(
+        actor=actor,
         scope="StreamlitApp",
+        item_id=str(app.id),
         activity="created",
-        detail=Detail(name=app.name),
+        name=app.name,
+        before=None,
+        after=None,
     )
 
     return _app_to_contract(app)
 
 
 def update_app(
-    team_id: int, short_id: str, user: User, data: contracts.UpdateAppInput, was_impersonated: bool
+    team_id: int, short_id: str, data: contracts.UpdateAppInput, actor: ActivityActor
 ) -> contracts.AppContract:
     app = _get_app(team_id, short_id)
-    before_update = StreamlitApp.objects.for_team(team_id).get(pk=app.pk)
+    before = ActivitySnapshot.of("StreamlitApp", app)
 
     _validate_resource_bounds(data.cpu_cores, data.memory_gb)
 
@@ -344,23 +342,20 @@ def update_app(
         app.memory_gb = data.memory_gb
     app.save()
 
-    changes = changes_between("StreamlitApp", previous=before_update, current=app)
-    if changes:
-        log_activity(
-            organization_id=user.current_organization_id,
-            team_id=team_id,
-            user=user,
-            was_impersonated=was_impersonated,
-            item_id=str(app.id),
-            scope="StreamlitApp",
-            activity="updated",
-            detail=Detail(changes=changes, name=app.name),
-        )
+    log_activity_change(
+        actor=actor,
+        scope="StreamlitApp",
+        item_id=str(app.id),
+        activity="updated",
+        name=app.name,
+        before=before,
+        after=ActivitySnapshot.of("StreamlitApp", app),
+    )
 
     return _app_to_contract(app)
 
 
-def delete_app(team_id: int, short_id: str, user: User, was_impersonated: bool) -> None:
+def delete_app(team_id: int, short_id: str, actor: ActivityActor) -> None:
     app = _get_app(team_id, short_id)
 
     try:
@@ -372,15 +367,14 @@ def delete_app(team_id: int, short_id: str, user: User, was_impersonated: bool) 
     app.deleted_at = timezone.now()
     app.save(update_fields=["deleted", "deleted_at", "updated_at"])
 
-    log_activity(
-        organization_id=user.current_organization_id,
-        team_id=team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=str(app.id),
+    log_activity_change(
+        actor=actor,
         scope="StreamlitApp",
+        item_id=str(app.id),
         activity="deleted",
-        detail=Detail(name=app.name),
+        name=app.name,
+        before=None,
+        after=None,
     )
 
 
@@ -399,11 +393,11 @@ def upload_version(
     user: User,
     file_content: bytes,
     declared_size: int | None,
-    was_impersonated: bool,
+    actor: ActivityActor,
 ) -> contracts.AppVersionContract:
     app = _get_app(team_id, short_id)
     check_zip_size(declared_size)
-    return _store_version(app, user, file_content, was_impersonated)
+    return _store_version(app, user, file_content, actor)
 
 
 def _active_version_number(app: StreamlitApp) -> int:
@@ -420,7 +414,7 @@ def _store_version(
     app: StreamlitApp,
     user: User,
     file_content: bytes,
-    was_impersonated: bool,
+    actor: ActivityActor,
     expected_active_version_id: uuid.UUID | None = None,
 ) -> contracts.AppVersionContract:
     """Validate, store, and activate a version zip.
@@ -483,15 +477,14 @@ def _store_version(
 
     _get_sandbox_and_stop_if_live(app)
 
-    log_activity(
-        organization_id=user.current_organization_id,
-        team_id=app.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=str(app.id),
+    log_activity_change(
+        actor=actor,
         scope="StreamlitApp",
+        item_id=str(app.id),
         activity="uploaded_version",
-        detail=Detail(name=f"{app.name} v{next_version_number}"),
+        name=f"{app.name} v{next_version_number}",
+        before=None,
+        after=None,
     )
 
     return _version_to_contract(version)
@@ -502,7 +495,7 @@ def create_version_from_source(
     short_id: str,
     user: User,
     data: contracts.CreateVersionFromSourceInput,
-    was_impersonated: bool,
+    actor: ActivityActor,
 ) -> contracts.AppVersionContract:
     """Create and activate a version from free-text source plus optional extra files.
 
@@ -518,7 +511,7 @@ def create_version_from_source(
         user=user,
         file_content=file_content,
         declared_size=len(file_content),
-        was_impersonated=was_impersonated,
+        actor=actor,
     )
 
 
@@ -553,7 +546,7 @@ def edit_version_source(
     short_id: str,
     user: User,
     data: contracts.EditVersionSourceInput,
-    was_impersonated: bool,
+    actor: ActivityActor,
 ) -> contracts.AppVersionContract:
     """Create and activate a version from exact edits against ``data.base_version``.
 
@@ -576,11 +569,11 @@ def edit_version_source(
         delete_files=data.delete_files,
     )
     check_zip_size(len(file_content))
-    return _store_version(app, user, file_content, was_impersonated, expected_active_version_id=base.id)
+    return _store_version(app, user, file_content, actor, expected_active_version_id=base.id)
 
 
 def activate_version(
-    team_id: int, short_id: str, user: User, version_number: int, was_impersonated: bool
+    team_id: int, short_id: str, version_number: int, actor: ActivityActor
 ) -> contracts.AppVersionContract:
     app = _get_app(team_id, short_id)
     try:
@@ -593,15 +586,14 @@ def activate_version(
 
     _get_sandbox_and_stop_if_live(app)
 
-    log_activity(
-        organization_id=user.current_organization_id,
-        team_id=team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=str(app.id),
+    log_activity_change(
+        actor=actor,
         scope="StreamlitApp",
+        item_id=str(app.id),
         activity="activated_version",
-        detail=Detail(name=f"{app.name} v{version_number}"),
+        name=f"{app.name} v{version_number}",
+        before=None,
+        after=None,
     )
 
     return _version_to_contract(version)

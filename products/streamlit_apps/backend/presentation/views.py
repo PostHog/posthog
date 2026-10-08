@@ -4,7 +4,6 @@ from django.core.cache import cache
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from loginas.utils import is_impersonated_session
 from rest_framework import status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -12,6 +11,7 @@ from rest_framework.response import Response
 from posthog.api.mixins import TypedRequest, ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.models.activity_logging.actor import ActivityActor
 from posthog.models.user import User
 from posthog.rate_limit import ClickHouseBurstRateThrottle
 
@@ -109,7 +109,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 team_id=self.team_id,
                 user=cast(User, request.user),
                 data=request.validated_data,
-                was_impersonated=is_impersonated_session(request),
+                actor=ActivityActor.from_request(request, self.team),
             )
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -128,9 +128,8 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             app = api.update_app(
                 team_id=self.team_id,
                 short_id=short_id,
-                user=cast(User, request.user),
                 data=request.validated_data,
-                was_impersonated=is_impersonated_session(request),
+                actor=ActivityActor.from_request(request, self.team),
             )
         except api.AppNotFoundError:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -160,8 +159,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             api.delete_app(
                 team_id=self.team_id,
                 short_id=short_id,
-                user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                actor=ActivityActor.from_request(request, self.team),
             )
         except api.AppNotFoundError:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -206,7 +204,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 user=cast(User, request.user),
                 file_content=file_content,
                 declared_size=zip_file.size,
-                was_impersonated=is_impersonated_session(request),
+                actor=ActivityActor.from_request(request, self.team),
             )
         except api.AppNotFoundError:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -239,7 +237,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 short_id=short_id,
                 user=cast(User, request.user),
                 data=request.validated_data,
-                was_impersonated=is_impersonated_session(request),
+                actor=ActivityActor.from_request(request, self.team),
             )
         except api.AppNotFoundError:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -300,7 +298,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 short_id=short_id,
                 user=cast(User, request.user),
                 data=request.validated_data,
-                was_impersonated=is_impersonated_session(request),
+                actor=ActivityActor.from_request(request, self.team),
             )
         except api.AppNotFoundError:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -340,9 +338,8 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             version = api.activate_version(
                 team_id=self.team_id,
                 short_id=short_id,
-                user=cast(User, request.user),
                 version_number=version_number,
-                was_impersonated=is_impersonated_session(request),
+                actor=ActivityActor.from_request(request, self.team),
             )
         except api.AppNotFoundError:
             return Response(status=status.HTTP_404_NOT_FOUND)

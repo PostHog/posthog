@@ -14,6 +14,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import Organization
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 
 from products.streamlit_apps.backend.facade.api import MAX_FILE_COUNT
@@ -197,12 +199,25 @@ class TestStreamlitAppAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_update_app(self):
+        other_org = Organization.objects.create(name="Other Org")
+        self.user.join(organization=other_org)
+        self.user.current_organization = other_org
+        self.user.save()
         app = self._create_app(name="Old Name")
         response = self.client.patch(self._url(f"{app.short_id}/"), data={"name": "New Name"})
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "New Name"
         app.refresh_from_db()
         assert app.name == "New Name"
+
+        log = ActivityLog.objects.get(scope="StreamlitApp", item_id=str(app.id), activity="updated")
+        assert log.organization_id == self.team.organization_id
+        assert log.team_id == self.team.id
+        assert log.user == self.user
+        assert log.detail is not None
+        assert log.detail["changes"] == [
+            {"type": "StreamlitApp", "field": "name", "action": "changed", "before": "Old Name", "after": "New Name"}
+        ]
 
     def test_update_cannot_change_short_id(self):
         app = self._create_app()
