@@ -4919,7 +4919,6 @@ def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request
             reevaluate_autostart=False,
         )
 
-        # A human reviewer correction is routing evidence scouts read back, so log it like any other.
         log_activity(
             organization_id=None,
             team_id=team.id,
@@ -4952,8 +4951,8 @@ def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request
                 scoped_team_ids=scoped_team_id_tuple,
             )
         )
-        # on_commit so a rolled-back edit emits and steers nothing. Nobody is notified, because a
-        # removal adds no reviewer and assigns no pull request.
+        # on_commit so a rolled-back edit steers nothing. No notification: a removal adds no
+        # reviewer and assigns no pull request.
         transaction.on_commit(
             partial(
                 _record_reviewer_edit,

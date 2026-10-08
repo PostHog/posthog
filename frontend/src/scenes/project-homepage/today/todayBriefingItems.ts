@@ -53,7 +53,6 @@ export function itemStateLabel(item: Pick<BriefingItemApi, 'state'>): string | n
 }
 
 // The briefing reasons a report gets when it names the person, the reports the for_you count covers.
-// Both require them to be a suggested reviewer, so both are reports they can step off.
 const NAMES_PERSON_REASONS: ReadonlySet<TodayItemReasonEnumApi> = new Set(['waiting_for_you', 'suggested_reviewer'])
 
 export function itemNamesPerson(item: Pick<BriefingItemApi, 'reason'>): boolean {

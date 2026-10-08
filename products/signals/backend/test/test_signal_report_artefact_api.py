@@ -1085,8 +1085,6 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert not self._reviewer_filter_matches(report, self.user)
 
     def test_leave_reviewers_keeps_an_entry_whose_login_was_reassigned(self):
-        # GitHub reassigns logins. An entry that names someone by uuid is theirs, whoever holds the
-        # login now, so stepping off must not take them with it.
         _attach_github_login(self.user, "CallerCase")
         teammate = self._create_org_member("teammate@example.com", github_login=None)
         report = self._create_report()
@@ -1104,8 +1102,8 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
 
     def test_leave_reviewers_does_not_reevaluate_autostart(self):
-        # Auto-start runs the task as the user the row is attributed to, so a removal that
-        # re-evaluated it could start a billable run as the person who just stepped off.
+        # Auto-start runs the task as the user the row is attributed to, so this would start a
+        # billable run as the person who just stepped off.
         teammate = self._create_org_member("teammate@example.com", github_login="teammate")
         report = self._create_report()
         self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}, {"user_uuid": str(teammate.uuid)}])
@@ -1125,7 +1123,6 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             assert scheduled.call_count == 1
 
     def test_leave_reviewers_keeps_a_reviewer_who_left_the_organization(self):
-        # A stored entry outlives org membership, and re-resolving it would reject this write.
         former = self._create_org_member("former@example.com", github_login="former")
         report = self._create_report()
         self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}, {"user_uuid": str(former.uuid)}])

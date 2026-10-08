@@ -110,8 +110,8 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
         <div className="flex flex-col" data-attr="today-report-hover-card">
             <Item size="xs" className="items-start">
                 <ItemContent className="min-w-0 gap-0.5">
-                    {/* The badge shares a row with the title alone, so it narrows the title rather than
-                        the line below, which has to hold the priority, the reason and the mark on one line. */}
+                    {/* The badge shares a row with the title alone, so it narrows the title and not the
+                        line below, which has to stay on one line. */}
                     <div className="flex items-start justify-between gap-2">
                         {/* `wrap-anywhere`: the title sizes to its content, so a long title would widen the card. */}
                         <ItemTitle className="min-w-0 wrap-anywhere">
@@ -123,8 +123,7 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                             </ItemActions>
                         )}
                     </div>
-                    {/* One line: the lead gives up room to the mark, which is short and must stay whole.
-                        The mark carries its own icon, so the gap alone separates the two. */}
+                    {/* The lead gives up room to the mark, which is short and must stay whole. */}
                     {(lead || card.pullRequestUrl) && (
                         <ItemDescription className="flex flex-nowrap items-center gap-x-2">
                             {lead && <span className="truncate">{lead}</span>}

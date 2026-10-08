@@ -216,7 +216,6 @@ def _live_states(reports: dict[str, signals.BriefingReportDetails]) -> dict[str,
     return {key: _REPORT_STATES[detail.status] for key, detail in reports.items() if detail.status in _REPORT_STATES}
 
 
-# Both reasons require the person to be a suggested reviewer, so both stop holding once they step off.
 _NAMES_PERSON_REASONS = frozenset({ItemReason.WAITING_FOR_YOU, ItemReason.SUGGESTED_REVIEWER})
 
 
