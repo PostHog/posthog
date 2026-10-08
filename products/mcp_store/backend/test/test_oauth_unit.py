@@ -6,6 +6,7 @@ import requests
 from parameterized import parameterized
 
 from products.mcp_store.backend.oauth import (
+    OAuthMetadataValidationError,
     SSRFBlockedError,
     _resolve_issuer,
     _validate_endpoints_bound_to_issuer,
@@ -438,7 +439,7 @@ class TestValidateEndpointsBoundToIssuer(SimpleTestCase):
         ]
     )
     def test_rejects_mismatched_endpoints(self, _name, metadata, offending_field):
-        with self.assertRaises(ValueError) as ctx:
+        with self.assertRaises(OAuthMetadataValidationError) as ctx:
             _validate_endpoints_bound_to_issuer(metadata)
         self.assertIn(offending_field, str(ctx.exception))
 

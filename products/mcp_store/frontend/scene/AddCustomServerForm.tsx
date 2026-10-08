@@ -3,14 +3,13 @@ import { Form } from 'kea-forms'
 
 import { LemonButton, LemonCollapse, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import type { McpInstallationScope } from '../mcpStoreLogic'
 import { mcpStoreLogic } from '../mcpStoreLogic'
+import { OAuthRedirectUri } from '../OAuthRedirectUri'
 
 const AUTH_TYPE_OPTIONS = [
     { value: 'api_key', label: 'API key' },
@@ -26,8 +25,6 @@ export function AddCustomServerForm(): JSX.Element {
     const { addCustomServerModalVisible, customServerForm, isCustomServerFormSubmitting, customServerFormPrefilled } =
         useValues(mcpStoreLogic)
     const { setCustomServerFormValue, closeAddCustomServerModal } = useActions(mcpStoreLogic)
-    const { preflight } = useValues(preflightLogic)
-    const oauthRedirectUri = `${preflight?.site_url || window.location.origin}/api/mcp_store/oauth_redirect/`
 
     // Shared servers expose the installer's credential to every project member and all
     // autonomous agents, so creating one is admin-only (enforced again on the backend).
@@ -126,18 +123,7 @@ export function AddCustomServerForm(): JSX.Element {
                                 header: 'Advanced — bring your own OAuth client',
                                 content: (
                                     <div className="deprecated-space-y-3">
-                                        <div>
-                                            <div className="font-semibold">Redirect URI</div>
-                                            <p className="text-secondary mb-1">
-                                                Add this URI to your OAuth client at the provider.
-                                            </p>
-                                            <CopyToClipboardInline
-                                                description="redirect URI"
-                                                className="font-mono break-all"
-                                            >
-                                                {oauthRedirectUri}
-                                            </CopyToClipboardInline>
-                                        </div>
+                                        <OAuthRedirectUri />
                                         <LemonField
                                             name="client_id"
                                             label="OAuth client ID"

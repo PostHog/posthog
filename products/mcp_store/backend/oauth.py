@@ -260,6 +260,20 @@ _TRUSTED_ISSUER_ENDPOINT_DOMAINS: dict[str, frozenset[str]] = {
 }
 
 
+_GOOGLE_ISSUER = "https://accounts.google.com"
+# Google returns a refresh token only for an offline grant, and only when the user sees the consent screen.
+_GOOGLE_AUTHORIZE_PARAMS = {"access_type": "offline", "prompt": "consent"}
+
+
+def provider_authorize_params(metadata: dict) -> dict[str, str]:
+    """Return extra authorize parameters for a verified provider, or an empty dict for any other issuer."""
+    issuer = (metadata.get("issuer") or "").rstrip("/")
+    endpoint = urlparse(metadata.get("authorization_endpoint") or "")
+    if issuer == _GOOGLE_ISSUER and endpoint.scheme == "https" and endpoint.hostname == "accounts.google.com":
+        return dict(_GOOGLE_AUTHORIZE_PARAMS)
+    return {}
+
+
 def _validate_endpoints_bound_to_issuer(metadata: dict) -> None:
     """Reject metadata where OAuth endpoints live on an unrelated registrable domain from the issuer.
 

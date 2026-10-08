@@ -1,9 +1,10 @@
 import hashlib
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlparse, urlsplit
 
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache
@@ -40,11 +41,7 @@ from products.mcp_store.backend.models import (
     MCPToolPolicy,
     TeamMCPGatewayConfig,
 )
-from products.mcp_store.backend.oauth import (
-    DcrClientRegistration,
-    DCRRegistrationRejectedError,
-    OAuthMetadataValidationError,
-)
+from products.mcp_store.backend.oauth import DcrClientRegistration, DCRRegistrationRejectedError
 from products.mcp_store.backend.presentation.gateway_views import (
     MAX_TOOL_POLICIES_PER_REQUEST,
     GatewayPoliciesUpsertSerializer,
@@ -54,6 +51,7 @@ from products.mcp_store.backend.presentation.views import (
     MCPServerInstallationViewSet,
     _is_valid_posthog_code_callback_url,
 )
+from products.mcp_store.backend.proxy import validate_installation_auth
 
 ALLOWED_VERDICT = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())
 ALLOW_URL = patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
@@ -3541,26 +3539,10 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         defaults.update(overrides)
         return MCPServerTemplate.objects.create(**defaults)
 
-    @parameterized.expand(
-        [
-            (
-                "unexpected_error_stays_generic",
-                ValueError("Issuer mismatch at https://internal.example.com"),
-                "OAuth discovery failed.",
-            ),
-            (
-                "validation_error_names_the_failed_check",
-                OAuthMetadataValidationError("OAuth endpoint 'token_endpoint' is on an unrelated domain from issuer"),
-                "OAuth discovery failed. OAuth endpoint 'token_endpoint' is on an unrelated domain from issuer",
-            ),
-        ]
-    )
     @ALLOW_URL
     @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
-    def test_spoofed_issuer_fails_and_no_state_persisted(
-        self, _name, discovery_error, expected_detail, mock_discover, _allow
-    ):
-        mock_discover.side_effect = discovery_error
+    def test_spoofed_issuer_fails_and_no_state_persisted(self, mock_discover, _allow):
+        mock_discover.side_effect = ValueError("Issuer mismatch at https://internal.example.com")
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -3569,8 +3551,122 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == expected_detail
+        assert response.json()["detail"] == "OAuth discovery failed."
         assert not MCPServerInstallation.objects.filter(url="https://evil.com/mcp").exists()
+
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_discovery_reports_the_failed_metadata_check(self, mock_get, _allow_oauth, _allow):
+        metadata = {
+            "issuer": "https://evil.com",
+            "authorization_endpoint": "https://evil.com/authorize",
+            "token_endpoint": "https://attacker.example.net/token",
+        }
+
+        def respond(url: str, **_kwargs) -> MagicMock:
+            response = MagicMock()
+            response.status_code = 200 if url == "https://evil.com/.well-known/oauth-authorization-server" else 404
+            response.ok = response.status_code == 200
+            response.json.return_value = metadata
+            return response
+
+        mock_get.side_effect = respond
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "Evil", "url": "https://evil.com/mcp", "auth_type": "oauth"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            "OAuth discovery failed. OAuth endpoint 'token_endpoint' is on an unrelated domain from issuer"
+        )
+        assert not MCPServerInstallation.objects.filter(url="https://evil.com/mcp").exists()
+
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
+    def test_google_install_gets_a_refresh_token_that_survives_the_refresh_threshold(
+        self, mock_discover, mock_post, _allow_oauth, _allow
+    ):
+        mock_discover.return_value = {
+            "issuer": "https://accounts.google.com",
+            "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+            "token_endpoint": "https://oauth2.googleapis.com/token",
+            "code_challenge_methods_supported": ["S256"],
+            "resource": "https://gmail.example.com/mcp",
+            "resource_scopes_supported": ["https://www.googleapis.com/auth/gmail.readonly"],
+        }
+
+        def token_response(data: dict) -> MagicMock:
+            response = MagicMock()
+            response.status_code = 200
+            response.json.return_value = data
+            return response
+
+        mock_post.side_effect = [
+            token_response({"access_token": "first-access", "refresh_token": "google-refresh", "expires_in": 3599}),
+            token_response({"access_token": "second-access", "expires_in": 3599}),
+        ]
+        start = datetime.now(UTC)
+
+        with time_machine.travel(start, tick=False):
+            install_response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+                data={
+                    "name": "Gmail",
+                    "url": "https://gmail.example.com/mcp",
+                    "auth_type": "oauth",
+                    "client_id": "google-client-id",
+                    "client_secret": "google-client-secret",
+                },
+                format="json",
+            )
+            assert install_response.status_code == status.HTTP_200_OK, install_response.content
+            install_url = urlparse(install_response.json()["redirect_url"])
+            install_params = parse_qs(install_url.query)
+            assert install_url.netloc == "accounts.google.com"
+            assert install_params["access_type"] == ["offline"]
+            assert install_params["prompt"] == ["consent"]
+            assert install_params["code_challenge_method"] == ["S256"]
+            assert install_params["redirect_uri"] == [f"{settings.SITE_URL}/api/mcp_store/oauth_redirect/"]
+
+            callback = self.client.get(
+                "/api/mcp_store/oauth_redirect/",
+                {"state": install_params["state"][0], "code": "google-auth-code"},
+            )
+            assert callback.status_code == status.HTTP_302_FOUND
+
+        installation = MCPServerInstallation.objects.get(url="https://gmail.example.com/mcp", user=self.user)
+        assert installation.sensitive_configuration["refresh_token"] == "google-refresh"
+
+        with time_machine.travel(start + timedelta(seconds=1800), tick=False):
+            ok, error_response = validate_installation_auth(installation)
+
+        assert ok, error_response
+        refresh_call = mock_post.call_args_list[1]
+        assert refresh_call.args[0] == "https://oauth2.googleapis.com/token"
+        assert refresh_call.kwargs["data"]["grant_type"] == "refresh_token"
+        assert refresh_call.kwargs["data"]["refresh_token"] == "google-refresh"
+        installation.refresh_from_db()
+        sensitive = installation.sensitive_configuration
+        assert sensitive["access_token"] == "second-access"
+        assert sensitive["refresh_token"] == "google-refresh"
+        assert "needs_reauth" not in sensitive
+
+        reconnect = self.client.get(
+            f"/api/environments/{self.team.id}/mcp_server_installations/authorize/",
+            {"installation_id": str(installation.id)},
+        )
+        assert reconnect.status_code == status.HTTP_302_FOUND
+        reconnect_params = parse_qs(urlparse(reconnect["Location"]).query)
+        assert reconnect_params["access_type"] == ["offline"]
+        assert reconnect_params["prompt"] == ["consent"]
+        assert reconnect_params["client_id"] == ["google-client-id"]
+        mock_discover.assert_called_once()
 
     @ALLOW_URL
     @patch("products.mcp_store.backend.presentation.views.register_dcr_client")
@@ -3842,6 +3938,8 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         assert params["client_id"][0] == "existing-client-id"
         assert params["resource"][0] == "https://mcp.example.com/"
         assert params["scope"][0] == "read"
+        assert "access_type" not in params
+        assert "prompt" not in params
 
     @ALLOW_URL
     def test_authorize_uses_opaque_state_token(self, _allow):
@@ -3942,6 +4040,46 @@ class TestBuildAuthorizeUrlFromMetadata(SimpleTestCase):
         assert params["code_challenge_method"] == ["S256"]
         # PostHog's PRM resource must win over the AS-baked issuer resource
         assert params["resource"] == ["https://mcp.railway.com"]
+
+    @parameterized.expand(
+        [
+            (
+                "verified_google_issuer",
+                "https://accounts.google.com",
+                "https://accounts.google.com/o/oauth2/v2/auth",
+                {"access_type": ["offline"], "prompt": ["consent"]},
+            ),
+            ("other_issuer", "https://auth.example.com", "https://auth.example.com/authorize", {}),
+            (
+                "google_issuer_claim_with_foreign_authorize_endpoint",
+                "https://accounts.google.com",
+                "https://attacker.example.net/authorize",
+                {},
+            ),
+            (
+                "google_authorize_endpoint_under_other_issuer",
+                "https://auth.example.com",
+                "https://accounts.google.com/o/oauth2/v2/auth",
+                {},
+            ),
+        ]
+    )
+    def test_adds_offline_consent_params_only_for_google(
+        self, _name: str, issuer: str, authorization_endpoint: str, expected: dict[str, list[str]]
+    ) -> None:
+        view = MCPServerInstallationViewSet()
+        authorize_url = view._build_authorize_url_from_metadata(
+            metadata={"issuer": issuer, "authorization_endpoint": authorization_endpoint},
+            client_id="test-client",
+            redirect_uri="https://us.posthog.com/api/mcp_store/oauth_redirect/",
+            state_token="test-state",
+            code_challenge="test-challenge",
+        )
+
+        params = parse_qs(urlsplit(authorize_url).query)
+        assert {key: params[key] for key in ("access_type", "prompt") if key in params} == expected
+        assert params["code_challenge"] == ["test-challenge"]
+        assert params["code_challenge_method"] == ["S256"]
 
     def test_keeps_repeated_endpoint_query_params(self) -> None:
         view = MCPServerInstallationViewSet()

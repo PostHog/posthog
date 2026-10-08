@@ -74,6 +74,7 @@ from ..oauth import (
     exchange_oauth_token,
     generate_pkce,
     oauth_resource,
+    provider_authorize_params,
     register_dcr_client,
     requested_oauth_scopes,
     resolve_template_oauth_credentials,
@@ -1056,6 +1057,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             "state": state_token,
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
+            **provider_authorize_params(metadata),
         }
         try:
             scopes = requested_oauth_scopes(metadata, scope_allowlist)
