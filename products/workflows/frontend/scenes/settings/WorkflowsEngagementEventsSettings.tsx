@@ -2,27 +2,26 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSwitch } from '@posthog/lemon-ui'
 
-import { teamLogic } from 'scenes/teamLogic'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
+
+import { engagementEventsLogic } from '../../engagementEventsLogic'
 
 export function WorkflowsEngagementEventsSettings(): JSX.Element {
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
-
-    const enabled = !!currentTeam?.workflows_config?.capture_workflows_engagement_events
+    const { engagementEventsCaptured, currentTeamLoading } = useValues(engagementEventsLogic)
+    const { setEngagementEventsCapture } = useActions(engagementEventsLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
         <LemonSwitch
             id="workflows-capture-engagement-events"
-            onChange={(checked) => {
-                updateCurrentTeam({
-                    workflows_config: {
-                        ...currentTeam?.workflows_config,
-                        capture_workflows_engagement_events: checked,
-                    },
-                })
-            }}
-            checked={enabled}
-            disabled={currentTeamLoading}
+            onChange={setEngagementEventsCapture}
+            checked={engagementEventsCaptured}
+            loading={currentTeamLoading}
+            disabledReason={restrictedReason}
             label="Capture email engagement events"
             bordered
         />

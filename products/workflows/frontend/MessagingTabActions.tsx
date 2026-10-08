@@ -14,7 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { MessagingNavTabKey } from './messagingTabs'
-import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
+import { NewCategoryButton } from './OptOuts/NewCategoryButton'
 import { newTemplateAgentLogic } from './TemplateLibrary/newTemplateAgentLogic'
 
 /** The scene-header action for a shared messaging tab, the same on every surface that shows the tab. */
@@ -125,21 +125,5 @@ function NewChannelButton({ channelsUrl }: { channelsUrl: string }): JSX.Element
                 New channel
             </LemonButton>
         </LemonMenu>
-    )
-}
-
-function NewCategoryButton(): JSX.Element {
-    const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
-
-    return (
-        <LemonButton
-            data-attr="new-optout-category"
-            icon={<IconPlusSmall />}
-            size="small"
-            type="primary"
-            onClick={() => openNewCategoryModal()}
-        >
-            New category
-        </LemonButton>
     )
 }

@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -67,7 +68,11 @@ export const optOutSceneLogic = kea<optOutSceneLogicType>([
                         lemonToast.error('Failed to generate workflows preferences link')
                         return null
                     }
-                    window.open(response.preferences_url, '_blank')
+                    const preferencesPage = window.open(response.preferences_url, '_blank')
+                    if (preferencesPage) {
+                        // pinned: analytics event name
+                        posthog.capture('messaging preferences page opened')
+                    }
                     return response.preferences_url
                 } catch {
                     lemonToast.error('Failed to generate workflows preferences link')

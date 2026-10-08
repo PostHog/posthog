@@ -67,6 +67,7 @@ const descriptions: Record<string, string> = {
 export const SIDEBAR_PRODUCTS_WITHOUT_DOCS = new Set<string>([
     'AI gateway',
     'Apps',
+    'Audience',
     'Autoresearch',
     'Broadcasts',
     'Business intelligence',
