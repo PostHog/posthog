@@ -65,10 +65,21 @@ rules:
                                 - pattern: '($FIRST, ...)'
                                 - pattern: list(...)
                                 - pattern: tuple(...)
+                                - pattern: sorted(...)
                                 # The values of a typing.Literal.
                                 - pattern: typing.get_args(...)
                           - pattern-not: list($CLASS.choices)
                           - pattern-not: tuple($CLASS.choices)
+          # A class passed bare to a DRF field: DRF reads its members without the labels, so no name derives.
+          - patterns:
+                - pattern-either:
+                      - pattern: rest_framework.serializers.ChoiceField(..., choices=$CHOICES, ...)
+                      - pattern: rest_framework.serializers.MultipleChoiceField(..., choices=$CHOICES, ...)
+                      - pattern: rest_framework.fields.ChoiceField(..., choices=$CHOICES, ...)
+                      - pattern: rest_framework.fields.MultipleChoiceField(..., choices=$CHOICES, ...)
+                - metavariable-regex:
+                      metavariable: $CHOICES
+                      regex: ^[A-Z][a-z][A-Za-z0-9]*$
           # A name that the same file binds to one of the forms above.
           - patterns:
                 - pattern-inside: |

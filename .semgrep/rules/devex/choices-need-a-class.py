@@ -63,6 +63,12 @@ class ExampleSerializer(serializers.Serializer):
     # ruleid: choices-need-a-class
     from_constant = serializers.ChoiceField(choices=CADENCE_CHOICES)
 
+    # ruleid: choices-need-a-class
+    sorted_values = serializers.ChoiceField(choices=sorted({"b", "a"}))
+
+    # ruleid: choices-need-a-class
+    bare_class = serializers.ChoiceField(choices=PinKind)
+
     # ok: choices-need-a-class
     stage = serializers.ChoiceField(choices=Stage.choices)
 
@@ -85,6 +91,9 @@ class ExampleModel(models.Model):
 
     # ok: choices-need-a-class
     stage = models.CharField(max_length=10, choices=Stage.choices)
+
+    # ok: choices-need-a-class
+    bare_stage = models.CharField(max_length=10, choices=Stage)
 
     # ok: choices-need-a-class
     name = models.CharField(max_length=10)
