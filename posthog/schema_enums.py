@@ -635,6 +635,11 @@ class Operator1(StrEnum):
     OR_ = "OR"
 
 
+class ComparisonPeriod(Enum):
+    PREVIOUS = "previous"
+    NONE_TYPE_NONE = None
+
+
 class MissingDates(StrEnum):
     GAP = "gap"
     ZERO = "zero"
