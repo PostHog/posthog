@@ -407,27 +407,26 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # One event each with a missing, zero, and half-set viewport: all three
         # must fold into a single (None, None) row rather than erroring or
         # minting bogus pairs.
-        unusable_viewports = [
+        unusable_viewports: list[dict[str, int | None]] = [
             {"$viewport_width": None, "$viewport_height": None},
             {"$viewport_width": 0, "$viewport_height": 0},
             {"$viewport_width": 1280, "$viewport_height": None},
         ]
         for i, overrides in enumerate(unusable_viewports):
             _create_person(team_id=self.team.pk, distinct_ids=[f"vp{i}"], properties={"name": f"vp{i}"})
+            props: dict[str, str | int | None] = {
+                "$session_id": str(uuid7("2024-01-05")),
+                "$host": "example.com",
+                "$current_url": "https://example.com/a",
+                "$pathname": "/a",
+                **overrides,
+            }
             _create_event(
                 team=self.team,
                 event="$pageview",
                 distinct_id=f"vp{i}",
                 timestamp="2024-01-05T10:00:00Z",
-                properties=self._props(
-                    **{
-                        "$session_id": str(uuid7("2024-01-05")),
-                        "$host": "example.com",
-                        "$current_url": "https://example.com/a",
-                        "$pathname": "/a",
-                        **overrides,
-                    }
-                ),
+                properties=self._props(**props),
             )
         with self._enable_lazy():
             response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.VIEWPORT))
