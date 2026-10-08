@@ -796,7 +796,7 @@ class TestBackfillsApi(APIBaseTest):
         resume = self.client.post(f"{self.base_url}/{paused.id}/resume/")
 
         assert (create.status_code, resume.status_code) == (400, 400), (create.json(), resume.json())
-        assert create.json()["code"] == "ai_data_processing_not_approved"
+        assert create.json()["code"] == resume.json()["code"] == "ai_data_processing_not_approved"
         paused.refresh_from_db()
         assert paused.status == BackfillStatus.PAUSED_QUOTA
         assert ReplayScannerBackfill.objects.for_team(self.team.id).filter(scanner=self.scanner).count() == 1
