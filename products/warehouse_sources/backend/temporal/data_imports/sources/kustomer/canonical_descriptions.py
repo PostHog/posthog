@@ -100,4 +100,41 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             domains="Domains associated with the brand.",
         ),
     },
+    "companies": {
+        "description": "A company (business account) that customers can be associated with, used for account-level reporting.",
+        "docs_url": "https://developer.kustomer.com/kustomer-api-docs/reference/getcompanies",
+        "columns": _columns(
+            name="The company's name.",
+            externalId="Your own external identifier for the company, if set.",
+            tags="Tags applied to the company.",
+            modifiedAt="Time at which the company was last modified by a user.",
+        ),
+    },
+    "sub_statuses": {
+        "description": "A conversation sub-status, a finer-grained state nested under a conversation status.",
+        "docs_url": "https://developer.kustomer.com/kustomer-api-docs/reference/getsubstatuses",
+        "columns": _columns(
+            label="The sub-status's display label.",
+            description="Description of what the sub-status means.",
+            parentStatus="The conversation status this sub-status belongs to (e.g. open, snoozed, done).",
+            resourceType="Resource type the sub-status applies to (always 'conversation' for this table).",
+            default="Whether this is the default sub-status for its parent status.",
+        ),
+    },
+    "satisfaction_forms": {
+        "description": "A satisfaction (CSAT) survey form, defining when and how customers are asked to rate a conversation.",
+        "docs_url": "https://developer.kustomer.com/kustomer-api-docs/reference/getsatisfaction",
+        "columns": _columns(
+            name="The form's name.",
+            formType="Type of survey form (e.g. csat).",
+            enabled="Whether the form is currently sent to customers.",
+            channel="Channel the survey is sent on (e.g. email, chat).",
+            description="Description of the form.",
+            delayTime="Delay before the survey is sent.",
+            scale="Rating scale settings, such as the number of options and the low and high labels.",
+            ratingPrompt="The rating question shown to the customer.",
+            questions="Follow-up questions on the form.",
+            criteria="Conditions a conversation must meet for the survey to be sent.",
+        ),
+    },
 }

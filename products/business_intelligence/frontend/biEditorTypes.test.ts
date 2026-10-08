@@ -96,6 +96,9 @@ describe('BI editor query generation', () => {
         expect(result.query).toContain('ORDER BY bi_comparison_sort DESC, bi_row_timestamp ASC')
         expect(result.node.chartSettings?.seriesBreakdownColumn).toBe('bi_comparison')
         expect(parseBIEditorState(BIEditorView.BI, config)?.config.compareFilter).toEqual(config.compareFilter)
+        expect(
+            parseBIEditorState(BIEditorView.BI, { ...config, comparisonPeriod: null })?.config.compareFilter
+        ).toEqual(config.compareFilter)
         expect(buildBIQuery({ ...config, dateRange: { date_from: 'all' } })?.query).not.toContain('UNION ALL')
     })
 
@@ -246,7 +249,7 @@ describe('BI editor query generation', () => {
             kind: NodeKind.HogQLQuery,
             connectionId: source.connectionId,
             filters: { dateRange: { date_from: 'all' } },
-            query: "SELECT DISTINCT toString(event) AS value\nFROM orders\nWHERE ({filters((null) AS 'timestamp', (event) AS 'event', (properties.revenue) AS 'revenue')}) AND (event IS NOT NULL) AND ((properties.revenue >= 10 AND properties.revenue <= 100))\nLIMIT 100",
+            query: "SELECT DISTINCT toString(event) AS value\nFROM orders\nWHERE ({filters((null) AS 'timestamp', (event) AS 'event', (properties.revenue) AS 'revenue')}) AND (event IS NOT NULL) AND ((properties.revenue >= 10 AND properties.revenue <= 100))",
         })
         config.filters.push({
             field: { ...eventField, expression: '', name: '', source },

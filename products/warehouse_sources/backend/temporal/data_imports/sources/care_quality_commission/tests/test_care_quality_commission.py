@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.care_quali
 from products.warehouse_sources.backend.temporal.data_imports.sources.care_quality_commission.settings import (
     CQC_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import boundary_checkpoint
 
 
 class _FakeResumableManager:
@@ -127,6 +128,7 @@ class TestGetRowsFanOut:
             f"{CQC_BASE_URL}/providers/1-B?partnerCode=PC": {"providerId": "1-B"},
         }
         manager = _FakeResumableManager()
+        monkeypatch.setattr(boundary_checkpoint, "PARTIAL_FLUSH_INTERVAL_SECONDS", 0)
         rows = _collect(manager, monkeypatch, pages)
         assert rows == [{"providerId": "1-A"}, {"providerId": "1-B"}]
         # The bookmark advances to page 2 after page 1 completes so a crash resumes mid-stream.
