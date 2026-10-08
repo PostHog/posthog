@@ -43,7 +43,12 @@ export function BatchExportTimestampTimezoneSelect(): JSX.Element {
     return (
         <LemonField.Pure
             label="Query timezone"
-            info="Sets the timezone for timestamps in the export and for date functions in the query."
+            info={
+                <>
+                    Sets the timezone for timestamps in the export and for date functions in the query. A timezone set
+                    in the query, such as with <code>toTimeZone(timestamp, 'UTC')</code>, takes precedence.
+                </>
+            }
             help={help}
             error={configurationErrors.hogql_modifiers}
         >
