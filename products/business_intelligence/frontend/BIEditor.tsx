@@ -21,6 +21,7 @@ import { BIShowMe } from 'products/business_intelligence/frontend/components/BIS
 import { BIToolbar } from 'products/business_intelligence/frontend/components/BIToolbar'
 
 import { BIAnalysisControls } from './BIAnalysisControls'
+import { BILocalFieldModal } from './BILocalFieldModal'
 import { BIMeasureSettingsModal } from './BIMeasureSettingsModal'
 import { BIResultFiltersCard } from './components/BIResultFiltersCard'
 
@@ -71,6 +72,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
             >
                 <BIToolbar />
                 <BICalculatedMeasureModal />
+                <BILocalFieldModal />
                 <BIMeasureSettingsModal />
                 <div className="flex min-h-0 flex-1">
                     <div
