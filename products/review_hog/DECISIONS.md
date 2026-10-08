@@ -245,7 +245,8 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
 - **Telemetry.** Lens cost lands under `ai_stage=flash-lens-<lens>-c<part>`, dedup under `dedup`. The fingerprint hashes
   the lens prompt files, `lens_priority.md`, the Flash dedup pins, and the Flash limits.
 - **Known gaps.** Storage folds P0 and P1 into `must_fix`, so across sessions a lens P0 ties a main P1 and the main
-  finding wins; within one session P0 still ranks first. The cap holds per turn, so a later push can post more.
+  finding wins; within one session P0 still ranks first. `reported_priority` on the finding content (`Issue` and
+  `ReviewIssueFinding`) keeps the reviewer's P0-P3, so a later analysis can still tell P0 from P1. The cap holds per turn, so a later push can post more.
   The contracts skill has no severity guide, so `lens_priority.md`'s mapping only shapes the performance lens, as
   measured. The Python LLM gateway's `review_hog` product does not list `gpt-6-luna`, so check that the gateway
   serving ReviewHog allows it before rollout.

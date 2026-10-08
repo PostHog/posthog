@@ -542,7 +542,8 @@ class TestPersistResults(BaseTest):
     def test_load_run_issues_round_trips_persisted_findings_by_id(self, change: str, reuses_verdict: bool) -> None:
         # Validate + body-build reload issues from the finding rows by id (only ids cross Temporal
         # payloads): a drift between _to_finding/_from_finding, or a broken id reconstruction from
-        # issue_key, would silently feed validation wrong or missing issues.
+        # issue_key, would silently feed validation wrong or missing issues. A dropped
+        # reported_priority would make a stored P0 indistinguishable from a P1.
         a = _issue(
             "1-2-1",
             file="x.py",
@@ -551,6 +552,7 @@ class TestPersistResults(BaseTest):
             issue="problem A",
             suggestion="fix A",
             is_directly_related_to_changes=True,
+            reported_priority="P0",
         )
         b = _issue(
             "1000-2-1",

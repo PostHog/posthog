@@ -18,7 +18,12 @@ from typing import Any, Literal, cast
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
-from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, IssuesReview, LineRange
+from products.review_hog.backend.reviewer.models.issues_review import (
+    IssuePriority,
+    IssuesReview,
+    LineRange,
+    ReportedPriority,
+)
 from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk
 from products.signals.backend.artefact_schemas import (
@@ -69,6 +74,10 @@ class ReviewIssueFinding(BaseModel):
         default=None, description="Replacement code for the finding's line range, posted as a GitHub suggestion."
     )
     priority: IssuePriority = Field(description="Priority level of the finding.")
+    reported_priority: ReportedPriority | None = Field(
+        default=None,
+        description="The single-agent reviewer's own P0-P3 priority, which tells P0 and P1 apart. Null for the pipeline.",
+    )
     source_perspective: str | None = Field(default=None, description="Which review perspective produced this finding.")
     is_directly_related_to_changes: bool = Field(
         default=False, description="Whether the finding is caused by the PR's changes, not just the same file."

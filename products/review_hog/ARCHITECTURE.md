@@ -290,7 +290,8 @@ the same plus the main findings as anchors, so a lens finding can lose to a main
 anything persists. Every must-fix (P0/P1) finding is kept outside the cap, up to `FLASH_MUST_FIX_CAP_MULTIPLIER` (2)
 times the cap, and P2 and then P3 findings fill the slots left under the cap, `flash_max_findings(parts)` (4 plus 2 per
 lens part past the first, up to 10). No validator runs, so dedup writes an
-accept-as-found verdict per survivor. P0/P1 store as `must_fix`, P2 as `should_fix`, P3 as `consider`. Findings publish
+accept-as-found verdict per survivor. P0/P1 store as `must_fix`, P2 as `should_fix`, P3 as `consider`, and the
+finding's `reported_priority` keeps the reviewer's P0-P3, so P0 and P1 stay apart for analysis. Findings publish
 inline; an
 optional `suggestion_code` posts as a GitHub suggestion block only when the inline comment covers exactly the finding's
 range. A PR past the lens part cap gets one line in the status comment that says the review ran in larger parts

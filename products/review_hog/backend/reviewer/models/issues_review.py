@@ -1,5 +1,6 @@
 import logging
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 from pydantic.json_schema import SkipJsonSchema
@@ -14,6 +15,10 @@ class IssuePriority(Enum):
     MUST_FIX = "must_fix"  # Critical issues that should block merge
     SHOULD_FIX = "should_fix"  # Significant improvements needed
     CONSIDER = "consider"  # Nice-to-have improvements
+
+
+# The single-agent reviewer's own scale. Storage folds P0 and P1 into `IssuePriority.MUST_FIX`.
+ReportedPriority = Literal["P0", "P1", "P2", "P3"]
 
 
 class LineRange(BaseModel):
@@ -58,6 +63,13 @@ class Issue(BaseModel):
     # left out of dumps so the issue JSON the pipeline sends to dedup and validation stays the same.
     suggestion_code: SkipJsonSchema[str | None] = Field(
         description="Replacement code for the finding's line range, posted as a GitHub suggestion",
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    # Single-agent only, like `suggestion_code`: the reviewer's P0-P3, so P0 and P1 stay apart after
+    # `priority` folds them into one level.
+    reported_priority: SkipJsonSchema[ReportedPriority | None] = Field(
+        description="The reviewer's own P0-P3 priority",
         default=None,
         exclude_if=lambda value: value is None,
     )

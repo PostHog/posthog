@@ -939,6 +939,7 @@ def _to_finding(issue: Issue, run_index: int, *, validation_context: str | None 
         suggestion=issue.suggestion,
         suggestion_code=issue.suggestion_code,
         priority=issue.priority,
+        reported_priority=issue.reported_priority,
         source_perspective=issue.source_perspective,
         is_directly_related_to_changes=issue.is_directly_related_to_changes,
     )
@@ -955,6 +956,7 @@ def _from_finding(finding: ReviewIssueFinding) -> Issue:
         suggestion=finding.suggestion,
         suggestion_code=finding.suggestion_code,
         priority=finding.priority,
+        reported_priority=finding.reported_priority,
         source_perspective=finding.source_perspective,
         is_directly_related_to_changes=finding.is_directly_related_to_changes,
     )

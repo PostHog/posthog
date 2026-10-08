@@ -177,7 +177,8 @@ def issues_from_review(review: SingleAgentReview, *, pass_number: int, chunk_id:
     """Map one session's findings onto the pipeline's `Issue`, which dedup and publish consume.
 
     Findings go highest priority first. Storage folds P0 and P1 into `must_fix`, so this order is the
-    only place a P0 still ranks above a P1 of the same session.
+    only place a P0 still ranks above a P1 of the same session. `reported_priority` keeps the P level
+    for later analysis.
     """
     issues = []
     ranked = sorted(review.findings, key=lambda finding: finding.priority)
@@ -194,6 +195,7 @@ def issues_from_review(review: SingleAgentReview, *, pass_number: int, chunk_id:
                 suggestion="",
                 suggestion_code=finding.suggestion_code or None,
                 priority=_STORED_PRIORITY[finding.priority],
+                reported_priority=finding.priority,
                 is_directly_related_to_changes=True,
                 source_perspective=source,
             )
