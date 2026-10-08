@@ -1,8 +1,7 @@
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
@@ -19,10 +18,6 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.parser import parse_expr
-
-if TYPE_CHECKING:
-    from posthog.hogql.ast import SelectQuery
-    from posthog.hogql.context import HogQLContext
 
 
 class IngestionWarningsTable(Table):
@@ -297,7 +292,7 @@ endpoints: PostgresTable = PostgresTable(
 def _join_endpoint_versions_to_endpoints(
     join_to_add: LazyJoinToAdd,
     context: HogQLContext,
-    node: SelectQuery,
+    node: ast.SelectQuery,
 ):
     join_expr = ast.JoinExpr(table=ast.Field(chain=["system", "data_modeling_endpoints"]))
     join_expr.join_type = "INNER JOIN"
