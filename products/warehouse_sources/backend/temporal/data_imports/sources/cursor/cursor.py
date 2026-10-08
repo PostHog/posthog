@@ -144,6 +144,11 @@ KEY_FORBIDDEN_MESSAGE = (
     "Your Cursor Admin API key does not have access to this data. Admin API keys must be created "
     "by a team admin, and some endpoints require an Enterprise plan."
 )
+ANALYTICS_PLAN_MESSAGE = (
+    "This table reads Cursor's Analytics API, which needs a Cursor Enterprise plan. AI code tables also need "
+    "AI code tracking turned on. Your Admin API key still syncs the other Cursor tables. Turn this table off, "
+    "or turn it back on after your team moves to Enterprise."
+)
 # `validate_via_probe` reports a transport failure as a `None` status, so anything Cursor did not
 # answer itself leaves the key unjudged. Calling it invalid sends someone off to mint a replacement
 # that fails the same way.

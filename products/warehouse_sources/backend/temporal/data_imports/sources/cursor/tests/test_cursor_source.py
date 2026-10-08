@@ -2,9 +2,23 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.cursor import KEY_REJECTED_MESSAGE
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.cursor import (
+    ANALYTICS_PLAN_MESSAGE,
+    CURSOR_BASE_URL,
+    KEY_REJECTED_MESSAGE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.source import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cursor import CursorSourceConfig
+
+
+def _resolve_friendly_error(error_message: str) -> str | None:
+    errors = {**Any_Source_Errors, **CursorSource().get_non_retryable_errors()}
+    return next(
+        (friendly for key, friendly in errors.items() if error_message_matches(error_message, [key])),
+        None,
+    )
 
 
 class TestCursorSource:
@@ -55,3 +69,27 @@ class TestCursorSource:
             return_value=probe_result,
         ):
             assert self.source.validate_credentials(self.config, self.team_id) == probe_result
+
+    @parameterized.expand(
+        [
+            (
+                "analytics_401",
+                f"401 Client Error: Unauthorized for url: {CURSOR_BASE_URL}/analytics/team/dau"
+                "?startDate=2026-01-01&endDate=2026-01-07",
+                ANALYTICS_PLAN_MESSAGE,
+            ),
+            (
+                "teams_401",
+                f"401 Client Error: Unauthorized for url: {CURSOR_BASE_URL}/teams/members",
+                KEY_REJECTED_MESSAGE,
+            ),
+            (
+                "ai_code_403",
+                f"403 Client Error: Forbidden for url: {CURSOR_BASE_URL}/analytics/ai-code/commits"
+                "?startDate=2026-01-01&endDate=2026-01-07&page=1&pageSize=100",
+                ANALYTICS_PLAN_MESSAGE,
+            ),
+        ]
+    )
+    def test_rejected_request_resolves_to_the_message_for_its_api(self, _name, raised, expected):
+        assert _resolve_friendly_error(raised) == expected
