@@ -113,33 +113,33 @@ struct Claim {
 
 #[derive(Default)]
 struct KeyState {
-    queue: VecDeque<Segment>,
+    segments: VecDeque<Segment>,
     claim: Option<Claim>,
     retry_at: Option<Instant>,
 }
 
 impl KeyState {
     fn is_ready(&self) -> bool {
-        self.claim.is_none() && self.retry_at.is_none() && !self.queue.is_empty()
+        self.claim.is_none() && self.retry_at.is_none() && !self.segments.is_empty()
     }
 
     fn is_idle(&self) -> bool {
-        self.claim.is_none() && self.retry_at.is_none() && self.queue.is_empty()
+        self.claim.is_none() && self.retry_at.is_none() && self.segments.is_empty()
     }
 
     fn ready_size(&self) -> Option<(RequestClass, ReadySize)> {
         if !self.is_ready() {
             return None;
         }
-        let front = self.queue.front()?;
+        let front = self.segments.front()?;
         Some((front.class, front.size()))
     }
 
     fn claim_front(&mut self) -> Segment {
-        let segment = self.queue.pop_front().expect("a ready key has messages");
+        let segment = self.segments.pop_front().expect("a ready key has messages");
         // Pushes merge into the back segment, so the front one is the whole run.
         debug_assert!(self
-            .queue
+            .segments
             .front()
             .is_none_or(|next| next.class != segment.class));
         self.claim = Some(Claim {
@@ -204,8 +204,8 @@ pub struct KeyQueues {
     /// Seeded per map, because routing keys are customer-chosen.
     keys: HashMap<Arc<str>, KeyState, ahash::RandomState>,
     /// Can hold stale keys; `take_runs` skips them.
-    ready: VecDeque<Arc<str>>,
-    waiting: BTreeSet<(Instant, Arc<str>)>,
+    ready_keys: VecDeque<Arc<str>>,
+    waiting_keys: BTreeSet<(Instant, Arc<str>)>,
     ready_sizes: ReadySizes,
     queued_messages: usize,
     queued_bytes: usize,
@@ -234,11 +234,11 @@ impl KeyQueues {
     }
 
     pub fn waiting_keys(&self) -> usize {
-        self.waiting.len()
+        self.waiting_keys.len()
     }
 
     pub fn next_retry_at(&self) -> Option<Instant> {
-        self.waiting.first().map(|(at, _)| *at)
+        self.waiting_keys.first().map(|(at, _)| *at)
     }
 
     pub fn has_ready(&self) -> bool {
@@ -250,7 +250,7 @@ impl KeyQueues {
     }
 
     pub fn oldest_ready_class(&self) -> Option<RequestClass> {
-        self.ready.iter().find_map(|key| {
+        self.ready_keys.iter().find_map(|key| {
             self.keys
                 .get(key)
                 .and_then(KeyState::ready_size)
@@ -281,12 +281,12 @@ impl KeyQueues {
         };
         let was_ready = state.is_ready();
         let before = state.ready_size();
-        match state.queue.back_mut() {
+        match state.segments.back_mut() {
             Some(back) if back.class == class => {
                 back.bytes += bytes;
                 back.messages.extend(messages);
             }
-            _ => state.queue.push_back(Segment {
+            _ => state.segments.push_back(Segment {
                 class,
                 queued_at: now,
                 bytes,
@@ -295,22 +295,22 @@ impl KeyQueues {
         }
         self.ready_sizes.replace(before, state.ready_size());
         if !was_ready && state.is_ready() {
-            self.ready.push_back(routing_key);
+            self.ready_keys.push_back(routing_key);
         }
     }
 
     pub fn promote_due(&mut self, now: Instant) {
-        while let Some((at, _)) = self.waiting.first() {
+        while let Some((at, _)) = self.waiting_keys.first() {
             if *at > now {
                 break;
             }
-            let (_, key) = self.waiting.pop_first().expect("checked non-empty");
+            let (_, key) = self.waiting_keys.pop_first().expect("checked non-empty");
             if let Some(state) = self.keys.get_mut(&key) {
                 let before = state.ready_size();
                 state.retry_at = None;
                 self.ready_sizes.replace(before, state.ready_size());
                 if state.is_ready() {
-                    self.ready.push_back(key);
+                    self.ready_keys.push_back(key);
                 }
             }
         }
@@ -335,13 +335,13 @@ impl KeyQueues {
             runs.push(run);
         }
         for key in skipped.into_iter().rev() {
-            self.ready.push_front(key);
+            self.ready_keys.push_front(key);
         }
         runs
     }
 
     fn next_ready(&mut self, class: RequestClass, skipped: &mut Vec<Arc<str>>) -> Option<Arc<str>> {
-        while let Some(key) = self.ready.pop_front() {
+        while let Some(key) = self.ready_keys.pop_front() {
             match self.keys.get(&key).and_then(KeyState::ready_size) {
                 Some((next, _)) if next == class => return Some(key),
                 Some(_) => skipped.push(key),
@@ -405,7 +405,7 @@ impl KeyQueues {
             self.queued_bytes += bytes;
             // Ahead of later arrivals and under the run's epoch, so the replay
             // keeps offset order.
-            state.queue.push_front(Segment {
+            state.segments.push_front(Segment {
                 class: RequestClass {
                     assignment_epoch: claim.assignment_epoch,
                     replay: true,
@@ -416,7 +416,7 @@ impl KeyQueues {
             });
             if let Some(at) = retry_at.filter(|at| *at > now) {
                 state.retry_at = Some(at);
-                self.waiting.insert((at, Arc::clone(routing_key)));
+                self.waiting_keys.insert((at, Arc::clone(routing_key)));
             }
         }
 
@@ -426,7 +426,7 @@ impl KeyQueues {
             return Ok(true);
         }
         if state.is_ready() {
-            self.ready.push_back(Arc::clone(routing_key));
+            self.ready_keys.push_back(Arc::clone(routing_key));
         }
         Ok(false)
     }
@@ -447,7 +447,7 @@ impl KeyQueues {
                     }
                 }
             }
-            for segment in state.queue.iter_mut() {
+            for segment in state.segments.iter_mut() {
                 let before = segment.messages.len();
                 segment.messages.retain(|message| {
                     let keep = !revoked_set.contains(&(&*message.topic, message.partition));
@@ -459,13 +459,15 @@ impl KeyQueues {
                 });
                 purged += before - segment.messages.len();
             }
-            state.queue.retain(|segment| !segment.messages.is_empty());
+            state
+                .segments
+                .retain(|segment| !segment.messages.is_empty());
             // The wait was for the requeued messages the revoke just dropped.
-            if !state.queue.iter().any(|segment| segment.class.replay) {
+            if !state.segments.iter().any(|segment| segment.class.replay) {
                 if let Some(at) = state.retry_at.take() {
-                    self.waiting.remove(&(at, key.clone()));
+                    self.waiting_keys.remove(&(at, key.clone()));
                     if state.is_ready() {
-                        self.ready.push_back(key.clone());
+                        self.ready_keys.push_back(key.clone());
                     }
                 }
             }
@@ -484,7 +486,7 @@ impl KeyQueues {
             self.keys.remove(key);
         }
         let keys = &self.keys;
-        self.ready
+        self.ready_keys
             .retain(|key| keys.get(key).is_some_and(KeyState::is_ready));
         evicted_keys
     }
@@ -724,7 +726,7 @@ mod tests {
         let mut queues = KeyQueues::new();
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
         queues.push(key("a"), 0, vec![message("a", 0, 2)], now);
-        assert_eq!(queues.keys[&key("a")].queue.len(), 1);
+        assert_eq!(queues.keys[&key("a")].segments.len(), 1);
         assert_eq!(
             claimed(&take_all(&mut queues, now)),
             vec![("a", vec![1, 2], false)]
