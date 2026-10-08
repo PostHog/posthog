@@ -253,8 +253,11 @@ class HealthCheck:
     # deny scoped to one object's `resource_id` is not consulted, so a member
     # barred from a single source or view still sees its issues. Set
     # `access_controlled_object_key` as well to close that. And only the Health
-    # API reads these fields: the Signals inbox emitter does not, so a check that
-    # also overrides `render_signal` still publishes its payload there.
+    # API reads these fields. The alert emitter does not, so every issue still
+    # reaches `$health_check_issue_firing` with its payload, where any member who
+    # can create a destination can subscribe to it. The Signals inbox emitter does
+    # not either, so a check that also overrides `render_signal` still publishes
+    # its payload there.
     access_controlled_resource: APIScopeObject | None = None
 
     # The payload key that holds the id of the one object an issue describes, for
