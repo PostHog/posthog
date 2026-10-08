@@ -26,6 +26,7 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.dataclasses import frozen
 from posthog.helpers.dashboard_templates import create_data_ops_dashboard
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -148,6 +149,12 @@ def _managed_warehouse_monitoring_error_response(upstream_response: Response) ->
 # to billing.
 JOB_STATS_CACHE_TTL_SECONDS = 60
 TOTAL_ROWS_STATS_CACHE_TTL_SECONDS = 300
+
+
+@frozen
+class _RowsBySource:
+    all_rows: dict[str, int]
+    billable_rows: dict[str, int]
 
 
 def _pipeline_stats_cache_key(name: str, team_id: int, *parts: object) -> str:
@@ -365,9 +372,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         cached = cache.get(cache_key)
         if cached is not None:
             payload = dict(cached)
-            payload["breakdown_of_rows_by_source"], payload["billable_rows_by_source"] = (
-                self._breakdown_of_rows_by_source(cached["billing_period_start"], cached["billing_period_end"])
-            )
+            rows_by_source = self._rows_by_source(cached["billing_period_start"], cached["billing_period_end"])
+            payload["breakdown_of_rows_by_source"] = rows_by_source.all_rows
+            payload["billable_rows_by_source"] = rows_by_source.billable_rows
             return Response(status=status.HTTP_200_OK, data=payload)
 
         billing_interval = ""
@@ -414,9 +421,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
                 materialized_rows = data_modeling_jobs.aggregate(total=Sum("rows_materialized"))["total"] or 0
 
-                breakdown_of_rows_by_source, billable_rows_by_source = self._breakdown_of_rows_by_source(
-                    billing_period_start, billing_period_end
-                )
+                rows_by_source = self._rows_by_source(billing_period_start, billing_period_end)
+                breakdown_of_rows_by_source = rows_by_source.all_rows
+                billable_rows_by_source = rows_by_source.billable_rows
 
             else:
                 logger.info("No billing period information available, using defaults")
@@ -450,9 +457,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             cache.set(cache_key, cacheable_payload, TOTAL_ROWS_STATS_CACHE_TTL_SECONDS)
         return Response(status=status.HTTP_200_OK, data=payload)
 
-    def _breakdown_of_rows_by_source(
-        self, billing_period_start: datetime, billing_period_end: datetime
-    ) -> tuple[dict[str, int], dict[str, int]]:
+    def _rows_by_source(self, billing_period_start: datetime, billing_period_end: datetime) -> _RowsBySource:
         # Computed fresh on every request (never cached) because it is scoped to the caller's own
         # readable sources, which differ from one caller to the next on the same team.
         source_ids = list(self._readable_sources().filter(deleted=False).values_list("id", flat=True))
@@ -471,7 +476,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         for row in totals:
             breakdown[str(row["pipeline_id"])] = row["total"] or 0
             billable[str(row["pipeline_id"])] = row["billable_total"] or 0
-        return breakdown, billable
+        return _RowsBySource(all_rows=breakdown, billable_rows=billable)
 
     @extend_schema(
         parameters=[RunningActivityQuerySerializer],
