@@ -216,8 +216,8 @@ jobs:
         if: needs.changes.outputs.python == 'true' && github.event_name != 'push'
         timeout-minutes: 30
 
-        name: Python code quality (depot-ubuntu-24.04)
-        runs-on: depot-ubuntu-24.04
+        name: Python code quality (depot-ubuntu-24.04-4)
+        runs-on: depot-ubuntu-24.04-4
         # Read by shell guards on the pytest steps below. Those steps sit in a
         # `parallel:` block, where step-level `if:` is untested in this repo.
         env:
@@ -310,6 +310,9 @@ jobs:
             - name: Check static typing
               shell: bash -e {0}
               env:
+                  # Each mypy worker holds its own copy of the modules it checks, so memory
+                  # grows with the worker count. A run with no cache and one worker per vCPU
+                  # needs more memory than this runner has.
                   MYPY_NUM_WORKERS: 2
               run: mypy --version && mypy --cache-fine-grained .
 
