@@ -85,6 +85,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         [theme]
     )
 
+    const reliabilityUnavailable = reliabilityFailed || reliabilityRows.length === 0
     const harnessErrorRows = useMemo(() => harnessErrorRateRows(harnessRows), [harnessRows])
     const errorRateLines = useMemo(
         () => [{ key: 'error-rate', label: 'Error rate', data: reliabilitySeries.errorRatePct }],
@@ -248,7 +249,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         labels={reliabilitySeries.labels}
                         lines={errorRateLines}
                         loading={reliabilityRowsLoading}
-                        isEmpty={reliabilityRows.length === 0}
+                        isEmpty={reliabilityUnavailable}
                         failed={reliabilityFailed}
                         theme={theme}
                         timezone={timezone}
@@ -260,7 +261,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         labels={reliabilitySeries.labels}
                         lines={latencyLines}
                         loading={reliabilityRowsLoading}
-                        isEmpty={reliabilityRows.length === 0}
+                        isEmpty={reliabilityUnavailable}
                         failed={reliabilityFailed}
                         theme={theme}
                         timezone={timezone}
