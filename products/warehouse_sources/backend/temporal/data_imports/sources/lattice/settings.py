@@ -18,7 +18,7 @@ REVIEW_CYCLE_FANOUT = DependentEndpointConfig(
 )
 
 
-@dataclass
+@dataclass(frozen=False)
 class LatticeEndpointConfig:
     name: str
     path: str

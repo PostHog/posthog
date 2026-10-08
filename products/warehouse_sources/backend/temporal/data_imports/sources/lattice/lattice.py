@@ -28,7 +28,7 @@ LATTICE_HOSTS = {
 }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class LatticeResumeConfig:
     # Lattice cursor pagination: pass the previous page's endingCursor as
     # startingAfter; static params are rebuilt deterministically on resume.
