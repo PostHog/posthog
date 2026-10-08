@@ -4,6 +4,11 @@
         "id": {
             "description": "A UUID string identifying this data warehouse saved query.",
             "type": "string"
+        },
+        "include_last_read": {
+            "default": false,
+            "description": "Fill last_read_at. Costs one extra ClickHouse query, so leave it off unless you show the value.",
+            "type": "boolean"
         }
     },
     "required": ["id"],
