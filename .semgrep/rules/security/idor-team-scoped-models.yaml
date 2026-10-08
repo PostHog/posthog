@@ -15,7 +15,8 @@ rules:
           IDOR: User input flows to team-scoped model lookup without team filter.
           Fix: Add team_id=team_id to the query.
           Use team__project_id=team.project_id only for project-level models (RootTeamMixin,
-          TeamScopedRootMixin, ProductTeamModel), whose rows live on the project's root team.
+          TeamScopedRootMixin), whose rows live on the project's root team. ProductTeamModel has
+          no team relation: filter it by its canonical team_id.
       pattern-sources:
           - patterns:
                 - pattern-either:
@@ -918,7 +919,8 @@ rules:
           IDOR risk: Lookup on team-scoped model without team filter.
           Fix: Add team_id=team_id to the query.
           Use team__project_id=team.project_id only for project-level models (RootTeamMixin,
-          TeamScopedRootMixin, ProductTeamModel), whose rows live on the project's root team.
+          TeamScopedRootMixin), whose rows live on the project's root team. ProductTeamModel has
+          no team relation: filter it by its canonical team_id.
       languages: [python]
       severity: WARNING
       metadata:
