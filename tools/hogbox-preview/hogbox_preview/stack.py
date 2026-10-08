@@ -216,6 +216,7 @@ class PostHogPreviewStack:
     TELEMETRY_SERVICES = ["capture-logs", "ingestion-logs", "ingestion-traces", "ingestion-metrics", "otel-collector"]
     CELERY_SERVICES = ["worker"]
     CELERY_CONCURRENCY = 2
+    FLAGS_REDIS_URL = "redis://redis7:6379/1"
     REPO_DIR = "/home/hog/posthog"
     COMPOSE = "docker-compose.dev-full.yml"
     OVERRIDE = "docker-compose.preview.yml"
@@ -335,6 +336,10 @@ class PostHogPreviewStack:
                 self.generate_demo_data()
             except Exception as e:  # noqa: BLE001
                 sys.stderr.write(f"[hogbox-preview] demo-data seeding skipped (preview still usable): {e}\n")
+        try:
+            self.warm_flag_caches()
+        except Exception as e:  # noqa: BLE001
+            sys.stderr.write(f"[hogbox-preview] flag cache warm skipped (preview still usable): {e}\n")
         if self.frontend_dist_tar:
             # Serve the PR's frontend (else it's the golden's :master SPA). Must
             # run before up_web so the fresh web container reads the new index
@@ -545,6 +550,7 @@ class PostHogPreviewStack:
             "      - ADMIN_PORTAL_ENABLED=1",
             "      - SELF_CAPTURE=1",
             "      - SELF_CAPTURE_HOST=http://static-proxy:8000",
+            f"      - FLAGS_REDIS_URL={self.FLAGS_REDIS_URL}",
             "      - OTEL_SERVICE_NAME=posthog-web",
             *_OTEL_ENV,
         ]
@@ -697,6 +703,7 @@ class PostHogPreviewStack:
             # doesn't start. Values mirror the bake.
             "      - TEMPORAL_HEALTH_PORT=7999",
             "      - TEMPORAL_HEALTH_MAX_IDLE_SECONDS=86400",
+            f"      - FLAGS_REDIS_URL={self.FLAGS_REDIS_URL}",
             "      - OTEL_SERVICE_NAME=posthog-temporal-worker",
             "      - TEMPORAL_OTEL_PLUGIN_ENABLED=true",
             *_OTEL_ENV,
@@ -723,12 +730,20 @@ class PostHogPreviewStack:
             "      - SELF_CAPTURE=1",
             "      - SELF_CAPTURE_HOST=http://static-proxy:8000",
             f"      - WEB_CONCURRENCY={self.CELERY_CONCURRENCY}",
+            f"      - FLAGS_REDIS_URL={self.FLAGS_REDIS_URL}",
             "      - OTEL_SERVICE_NAME=posthog-celery-worker",
             *_OTEL_ENV,
         ]
 
     def _self_capture_services(self) -> list[str]:
         return [
+            "  feature-flags:",
+            "    environment:",
+            f"      - FLAGS_REDIS_URL={self.FLAGS_REDIS_URL}",
+            "      - REDIS_COMPRESSION_ENABLED=true",
+            "      - OBJECT_STORAGE_ENDPOINT=http://objectstorage:19000",
+            "      - AWS_ACCESS_KEY_ID=object_storage_root_user",
+            "      - AWS_SECRET_ACCESS_KEY=object_storage_root_password",
             "  ingestion-general:",
             "    extends:",
             "      file: docker-compose.base.yml",
@@ -974,6 +989,15 @@ class PostHogPreviewStack:
         self.backend.run_long(
             self._compose("run --rm -T web python manage.py sync_feature_flags"),
             name="sync-flags",
+            timeout=600,
+        )
+
+    def warm_flag_caches(self) -> None:
+        timing.stage("warm team and flag caches")
+        commands = ("warm_team_metadata_cache", "warm_flags_cache")
+        self.backend.run_long(
+            " && ".join(self._compose(f"run --rm -T web python manage.py {command}") for command in commands),
+            name="warm-flag-caches",
             timeout=600,
         )
 
