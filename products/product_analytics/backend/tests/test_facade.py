@@ -156,7 +156,7 @@ class TestRunCachedTrendsQuery(BaseTest):
                 return_value=response,
             ),
             patch("posthog.hogql_queries.query_runner.get_api_team_rate_limiter") as api_limiter,
-            patch("posthog.hogql_queries.query_runner.get_app_org_rate_limiter") as org_limiter,
+            patch("posthog.clickhouse.client.limit.get_app_org_rate_limiter") as org_limiter,
             patch(
                 "products.product_analytics.backend.hogql_queries.trends.trends_query_runner.TrendsQueryRunner._enforce_api_queries_budget"
             ) as enforce_budget,

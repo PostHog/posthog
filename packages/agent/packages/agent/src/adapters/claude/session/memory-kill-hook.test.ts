@@ -151,9 +151,31 @@ describe("createMemoryKillNoticeHook", () => {
     }
   });
 
-  it.each(["pnpm test", "cd /tmp/project && pnpm test"])(
+  it.each([
+    ["pnpm test", "pnpm test tests/small.test.ts"],
+    [
+      "cd /tmp/project && pnpm test",
+      "cd /tmp/project && pnpm test tests/small.test.ts",
+    ],
+    ["timeout 1m pnpm test", "timeout 1m pnpm test tests/small.test.ts"],
+    ["npx tsgo --noEmit", "npx tsgo --noEmit -p tsconfig.small.json"],
+    ["hogli test tests", "hogli test tests/unit"],
+    ['out="$(pnpm test)"', 'out="$(pnpm test tests/small.test.ts)"'],
+    [
+      "timeout 1m \\\n pnpm backend:test",
+      "timeout 1m \\\n pnpm backend:test tests/unit",
+    ],
+    [
+      "cat <<'EOF'\nliteral\nEOF\npnpm test",
+      "cat <<'EOF'\nliteral\nEOF\npnpm test tests/unit",
+    ],
+    [
+      'flox activate -- bash -c "pnpm test"',
+      'flox activate -- bash -c "pnpm test tests/small.test.ts"',
+    ],
+  ])(
     "serializes %s and scopes retry limits to its directory",
-    async (command) => {
+    async (command, smallerCommand) => {
       await writeFile(path, "");
       const hook = createMemoryKillNoticeHook(new Logger({ debug: false }), {
         reader: new MemoryWatchdogKillReader(path),
@@ -178,7 +200,7 @@ describe("createMemoryKillNoticeHook", () => {
         );
         const failure = {
           ...shellInput("PostToolUseFailure", "Bash", "Exit code 144"),
-          tool_input: pre.tool_input,
+          tool_input: { command: `${VALIDATION_LOCK_PREFIX}${command}` },
         };
         await hook(failure, `toolu_${pid}`, opts);
         if (pid === 8) {
@@ -202,14 +224,14 @@ describe("createMemoryKillNoticeHook", () => {
       });
       expect(
         await hook(
-          { ...pre, tool_input: { command: `${command} tests/small.test.ts` } },
+          { ...pre, tool_input: { command: smallerCommand } },
           "toolu_4",
           opts,
         ),
       ).toMatchObject({
         hookSpecificOutput: {
           updatedInput: {
-            command: `${VALIDATION_LOCK_PREFIX}${command} tests/small.test.ts`,
+            command: `${VALIDATION_LOCK_PREFIX}${smallerCommand}`,
           },
         },
       });

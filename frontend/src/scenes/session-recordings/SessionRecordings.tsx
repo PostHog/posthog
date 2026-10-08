@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useState } from 'react'
@@ -41,20 +41,20 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './playlist/sessionRecordingsPlaylistLogic'
-import { sessionRecordingEventUsageLogic } from './sessionRecordingEventUsageLogic'
 import { sessionReplaySceneLogic } from './sessionReplaySceneLogic'
 
 function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
-    const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
     const [loading, setLoading] = useState(false)
     const handleNewPlaylist = async (): Promise<void> => {
         setLoading(true)
         try {
-            await createPlaylist({ _create_in_folder: 'Unfiled/Replay playlists', type: 'collection' }, true)
-            reportRecordingPlaylistCreated('new')
+            await createPlaylist(
+                { _create_in_folder: 'Unfiled/Replay playlists', type: 'collection', creation_method: 'new' },
+                true
+            )
         } catch (error: any) {
             if (isAccessDeniedError(error)) {
                 lemonToast.error('You do not have access to create collections.')

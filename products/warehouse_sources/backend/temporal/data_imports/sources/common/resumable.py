@@ -27,6 +27,7 @@ class ResumableSourceManager(Generic[ResumableData]):
     _data_class: type[ResumableData]
     _logger: FilteringBoundLogger
     _namespace: str | None
+    _pending: dict[str, str]
     _staged: dict[str, str]
 
     def __init__(
@@ -34,12 +35,16 @@ class ResumableSourceManager(Generic[ResumableData]):
         inputs: SourceInputs,
         data_class: type[ResumableData],
         namespace: str | None = None,
+        pending: dict[str, str] | None = None,
         staged: dict[str, str] | None = None,
     ):
         self._inputs = inputs
         self._data_class = data_class
         self._logger = inputs.logger
         self._namespace = namespace
+        # A cursor from save_state() waits here until confirm(). A source can save a cursor and still
+        # hold rows that the cursor covers, so the source alone cannot make a cursor ready to commit.
+        self._pending = pending if pending is not None else {}
         # Cursors wait here until commit(). Siblings from with_namespace() share the dict, so the
         # one commit the pipeline issues after a write covers every namespace a source touched.
         self._staged = staged if staged is not None else {}
@@ -52,7 +57,9 @@ class ResumableSourceManager(Generic[ResumableData]):
         state in separate slots. Without it a retry that switches endpoints could load a
         cursor the other endpoint wrote and replay it against an API that can't parse it.
         """
-        return ResumableSourceManager(self._inputs, self._data_class, namespace=namespace, staged=self._staged)
+        return ResumableSourceManager(
+            self._inputs, self._data_class, namespace=namespace, pending=self._pending, staged=self._staged
+        )
 
     @contextmanager
     def _get_redis(self):
@@ -116,20 +123,37 @@ class ResumableSourceManager(Generic[ResumableData]):
             write()
 
     def save_state(self, data: ResumableData) -> None:
-        """Stage `data` as the cursor to resume from once every row yielded so far is written.
+        """Save `data` as the cursor to resume from once every row it covers is written.
 
-        Nothing reaches Redis until commit(), which the pipeline calls right after a write lands.
-        A source with nothing outstanding stages inside committing(), which commits at block end.
+        The cursor is only pending here. It becomes ready to commit at confirm(), which the pipeline
+        calls when the source hands it an item or reaches a safe point. A cursor saved after the last
+        yield therefore does not persist when the source raises. Nothing reaches Redis until commit(),
+        which the pipeline calls right after a write lands. A source with nothing outstanding saves
+        inside committing(), which commits at block end.
         """
-        # No log here: a source can stage on every row, and commit() logs each cursor that persists.
-        self._staged[self._key] = self._dump_json(data)
+        # No log here: a source can save on every row, and commit() logs each cursor that persists.
+        self._pending[self._key] = self._dump_json(data)
 
     def has_staged_state(self) -> bool:
         """Whether the next `commit` will write anything."""
         return bool(self._staged)
 
+    def confirm(self) -> None:
+        """Make every pending cursor ready for the next commit(), across namespaces.
+
+        Call it only when the source holds no fetched row that a pending cursor skips: the source is
+        suspended at a `yield`, has ended, or has reached a safe point.
+        """
+        # One item at a time, so a cursor that another thread saves during the loop is not dropped.
+        while self._pending:
+            try:
+                key, json_data = self._pending.popitem()
+            except KeyError:
+                break
+            self._staged[key] = json_data
+
     def commit(self) -> None:
-        """Persist every staged cursor, across namespaces."""
+        """Persist every confirmed cursor, across namespaces."""
         if not self._staged:
             return
         with self._get_redis() as redis_client:
@@ -151,6 +175,7 @@ class ResumableSourceManager(Generic[ResumableData]):
         try:
             yield
         finally:
+            self.confirm()
             self.commit()
 
     def safe_point(self) -> None:
@@ -170,6 +195,7 @@ class ResumableSourceManager(Generic[ResumableData]):
         Called once a source has walked its data to completion: leaving the final checkpoint in
         place would let a later attempt resume mid-stream instead of restarting cleanly.
         """
+        self._pending.pop(self._key, None)
         self._staged.pop(self._key, None)
         with self._get_redis() as redis_client:
             self._logger.debug(f"Clearing resumable source state. key={self._key}")

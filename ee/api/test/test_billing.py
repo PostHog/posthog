@@ -1348,7 +1348,7 @@ class TestPartnerBillingLockCoverage(SimpleTestCase):
         assert unlocked == self.READ_ONLY_ACTIONS | self.UNLOCKED_WRITE_ACTIONS
 
 
-class TestBillingUsageRequestSerializer(TestCase):
+class TestBillingUsageRequestSerializer(SimpleTestCase):
     def test_valid_dates(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "2025-01-01", "end_date": "2025-01-31"})
         self.assertTrue(serializer.is_valid(), serializer.errors)
@@ -1423,11 +1423,30 @@ class TestBillingUsageRequestSerializer(TestCase):
         serializer = BillingUsageRequestSerializer(data={"breakdowns": value})
         self.assertTrue(serializer.is_valid(), serializer.errors)
 
-    def test_empty_and_null_dates_are_valid(self):
-        serializer = BillingUsageRequestSerializer(data={"start_date": "", "end_date": None})
+    @parameterized.expand(
+        [
+            ("missing", {}),
+            ("empty", {"start_date": "", "end_date": ""}),
+            ("null", {"start_date": None, "end_date": None}),
+            ("empty_start", {"start_date": ""}),
+            ("null_end", {"end_date": None}),
+        ]
+    )
+    @time_machine.travel("2025-02-15T00:30:00+14:00", tick=False)
+    def test_missing_empty_and_null_dates_default_to_last_30_complete_utc_days(
+        self, _case_name: str, data: dict[str, str | None]
+    ) -> None:
+        serializer = BillingUsageRequestSerializer(data=data)
         self.assertTrue(serializer.is_valid(), serializer.errors)
-        self.assertIsNone(serializer.validated_data.get("start_date"))
-        self.assertIsNone(serializer.validated_data.get("end_date"))
+        self.assertEqual(serializer.validated_data["start_date"], "2025-01-15")
+        self.assertEqual(serializer.validated_data["end_date"], "2025-02-13")
+
+    @time_machine.travel("2025-02-15", tick=False)
+    def test_end_date_without_start_date_is_preserved(self) -> None:
+        serializer = BillingUsageRequestSerializer(data={"end_date": "2025-02-14"})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertNotIn("start_date", serializer.validated_data)
+        self.assertEqual(serializer.validated_data["end_date"], "2025-02-14")
 
 
 class TestBillingUpstreamValidationErrors(SimpleTestCase):
@@ -1616,6 +1635,21 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(passed_params["team_ids"], f"[{str(self.team.pk)}]")
         # No teams_map: names are put into the response on the way out.
         self.assertNotIn("teams_map", passed_params)
+
+    @parameterized.expand([("usage",), ("spend",)])
+    @time_machine.travel("2025-02-15T00:30:00+14:00", tick=False)
+    def test_usage_and_spend_default_date_range_is_sent_to_billing(self, endpoint: str) -> None:
+        manager_method = f"ee.billing.billing_manager.BillingManager.get_{endpoint}_data"
+        mock_data = self.MOCK_USAGE_DATA if endpoint == "usage" else self.MOCK_SPEND_DATA
+
+        with patch(manager_method, return_value=mock_data) as mock_fetch:
+            response = self.client.get(f"/api/billing/{endpoint}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_fetch.assert_called_once()
+        passed_params = mock_fetch.call_args[0][1]
+        self.assertEqual(passed_params["start_date"], "2025-01-15")
+        self.assertEqual(passed_params["end_date"], "2025-02-13")
 
     @staticmethod
     def _billing_refusal(upstream_status: int, body: object) -> Exception:

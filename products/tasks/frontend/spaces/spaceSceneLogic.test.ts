@@ -6,7 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import { urls } from 'scenes/urls'
 
 import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
-import { spaceNewSessionUrl, todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
+import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -599,23 +599,6 @@ describe('spaceSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(writeText).toHaveBeenCalledWith('https://app.example.com/code/canvas/space-a/c-0')
-    })
-
-    it('focuses the composer once when a new session is requested for this space', async () => {
-        const logic = spaceSceneLogic({ id: 'space-a' })
-        const other = spaceSceneLogic({ id: 'space-b' })
-        logic.mount()
-        other.mount()
-
-        router.actions.push(spaceNewSessionUrl('space-a'))
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.composerFocusRequest).toBe(1)
-        expect(router.values.searchParams).toEqual({})
-
-        router.actions.push(urls.taskSpaceSettings('space-a'))
-        router.actions.push(urls.taskSpace('space-a'))
-        expect(logic.values.composerFocusRequest).toBe(1)
-        expect(other.values.composerFocusRequest).toBe(0)
     })
 
     it('fills this space’s composer with a suggestion without sending it', async () => {

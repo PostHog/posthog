@@ -227,6 +227,7 @@ class MeetingView:
 
     id: UUID
     title: str
+    is_recurring: bool
     gong_url: str | None
     start_time: datetime
     end_time: datetime | None
@@ -1369,6 +1370,8 @@ class AnnouncementView:
     short_id: str = ""
     message: str = ""
     status: str = ""
+    send_as: str = "bot"
+    sender_display_name: str = ""
     total_channels: int = 0
     sent_count: int = 0
     failed_count: int = 0
@@ -1388,6 +1391,10 @@ class CustomerTaskAssigneeInvalid(Exception):
 
 
 class CustomerTaskAssigneeCannotViewAccount(Exception):
+    pass
+
+
+class CustomerTaskRoleNotFound(Exception):
     pass
 
 
@@ -1460,6 +1467,7 @@ class CustomerTaskListFilters:
     search: str | None = None
     account_id: UUID | None = None
     assigned_to: str | None = None
+    assigned_role_id: UUID | None = None
     statuses: tuple[str, ...] = ()
     archive_state: str = "active"
     due_after: datetime | None = None

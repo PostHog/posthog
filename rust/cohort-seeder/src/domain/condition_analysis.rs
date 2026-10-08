@@ -22,14 +22,15 @@ use std::sync::Arc;
 
 use cohort_core::filters::TeamFilters;
 use cohort_core::hogvm::analysis::{
-    analyze_condition_within, event_row_filter, AnalysisBudget, ConditionAnalysis, EvaluationClass,
-    EventRowFilter, FullColumnsReason, Projection, ReadPath,
+    analyze_condition_within, event_equalities, AnalysisBudget, ColumnExactness, ConditionAnalysis,
+    EvaluationClass, EventEqualities, Exactness, FullColumnsReason, GlobalRoot, Projection,
+    ReadPath,
 };
 
 use super::condition::{EventNameSet, PinnedCondition};
 use super::ids::ConditionHash;
 use super::plan::ActiveConditions;
-use super::projection::ChunkProjection;
+use super::projection::{ChunkProjection, ColumnExactKeys};
 use super::row_filter::ScanRowFilter;
 
 /// What one condition turned out to need. Ordered so a census renders the same way every time.
@@ -120,7 +121,7 @@ const CENSUS_WORST_CASE_CONDITIONS: usize = 8;
 pub struct ConditionAnalyses {
     by_hash: HashMap<ConditionHash, ConditionAnalysis>,
     /// Not budgeted, because matching is linear in the program.
-    row_filters: HashMap<ConditionHash, EventRowFilter>,
+    equalities: HashMap<ConditionHash, EventEqualities>,
 }
 
 impl ConditionAnalyses {
@@ -132,7 +133,7 @@ impl ConditionAnalyses {
     pub fn build(conditions: &[PinnedCondition], filters: &TeamFilters) -> Self {
         let mut budget = AnalysisBudget::for_conditions(CENSUS_WORST_CASE_CONDITIONS);
         let mut by_hash = HashMap::new();
-        let mut row_filters = HashMap::new();
+        let mut equalities = HashMap::new();
         for condition in conditions {
             if by_hash.contains_key(&condition.hash) {
                 continue;
@@ -147,13 +148,11 @@ impl ConditionAnalyses {
                 condition.hash,
                 analyze_condition_within(program.tokens(), &mut budget),
             );
-            if let Some(row_filter) = event_row_filter(program.tokens()) {
-                row_filters.insert(condition.hash, row_filter);
-            }
+            equalities.insert(condition.hash, event_equalities(program.tokens()));
         }
         Self {
             by_hash,
-            row_filters,
+            equalities,
         }
     }
 
@@ -163,11 +162,46 @@ impl ConditionAnalyses {
         filters: &TeamFilters,
         active: &ActiveConditions,
     ) -> ScanRowFilter {
-        ScanRowFilter::derive(event_names, filters, active, &self.row_filters)
+        ScanRowFilter::derive(event_names, filters, active, &self.equalities)
     }
 
     pub fn row_filtered_conditions(&self) -> usize {
-        self.row_filters.len()
+        self.equalities
+            .values()
+            .filter(|equalities| equalities.row_filter.is_some())
+            .count()
+    }
+
+    /// One inexact read by any active condition keeps a key on the blob.
+    pub fn column_exact_keys(&self, active: &ActiveConditions) -> ColumnExactKeys {
+        active
+            .iter()
+            .map(|hash| self.column_exactness(hash))
+            .collect::<Option<ColumnExactness>>()
+            .map(ColumnExactKeys::new)
+            .unwrap_or_default()
+    }
+
+    /// `None` when the condition's reads are unknown.
+    fn column_exactness(&self, hash: &ConditionHash) -> Option<ColumnExactness> {
+        let Projection::Reads(paths) = &self.by_hash.get(hash)?.projection else {
+            return None;
+        };
+        let decided = self
+            .equalities
+            .get(hash)
+            .and_then(|equalities| equalities.column_exactness.as_ref());
+        paths
+            .iter()
+            .filter(|path| path.root == GlobalRoot::Properties)
+            .map(|path| {
+                let key = path.segments.first()?;
+                let exactness = decided
+                    .and_then(|keys| keys.get(key))
+                    .unwrap_or(Exactness::Inexact);
+                Some((key.as_str(), exactness))
+            })
+            .collect()
     }
 
     /// What a scan over the conditions active on one chunk has to select.
@@ -423,7 +457,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::domain::{BlobSource, Lookback};
+    use crate::domain::{BlobSource, Lookback, PropertiesSource};
 
     fn hash(value: &str) -> ConditionHash {
         ConditionHash::parse(value).expect("test hashes are 16 ASCII bytes")
@@ -478,6 +512,32 @@ mod tests {
             "paid",
             32,
             "plan",
+            32,
+            "properties",
+            1,
+            2,
+            11,
+            32,
+            "purchase",
+            32,
+            "event",
+            1,
+            1,
+            11,
+            3,
+            2
+        ])
+    }
+
+    /// `properties.<key> == <literal> AND event == 'purchase'`.
+    fn property_equality(key: &str, literal: &str) -> serde_json::Value {
+        json!([
+            "_H",
+            1,
+            32,
+            literal,
+            32,
+            key,
             32,
             "properties",
             1,
@@ -747,12 +807,68 @@ mod tests {
             panic!("the narrow condition alone must project");
         };
         match &plan.properties {
-            BlobSource::Keys(keys) => assert_eq!(keys.iter().collect::<Vec<_>>(), ["plan"]),
+            PropertiesSource::Blob(BlobSource::Keys(keys)) => {
+                assert_eq!(keys.iter().collect::<Vec<_>>(), ["plan"]);
+            }
             other => panic!("expected key-filtered properties, got {other:?}"),
         }
 
         let both = ActiveConditions::new([hash("narrow0000000000"), hash("wide000000000000")]);
         assert_eq!(analyses.projection(&both), ChunkProjection::FullColumns);
+    }
+
+    #[test]
+    fn a_key_is_column_exact_only_when_every_active_condition_reading_it_is() {
+        let conditions = [
+            condition("exactplan0000000", "purchase"),
+            condition("inexactplan00000", "purchase"),
+            condition("exacturl00000000", "purchase"),
+            condition("wide000000000000", "checkout"),
+        ];
+        let catalog = filters(&[
+            (
+                "exactplan0000000",
+                "purchase",
+                property_equality("plan", "paid"),
+            ),
+            (
+                "inexactplan00000",
+                "purchase",
+                property_equality("plan", "TRUE"),
+            ),
+            (
+                "exacturl00000000",
+                "purchase",
+                property_equality("$current_url", "https://example.com/"),
+            ),
+            ("wide000000000000", "checkout", bare_properties()),
+        ]);
+        let analyses = ConditionAnalyses::build(&conditions, &catalog);
+        let exact_on = |active: &[&str]| {
+            analyses.column_exact_keys(&ActiveConditions::new(
+                active.iter().map(|value| hash(value)),
+            ))
+        };
+        let exact_keys = |active: &[&str]| {
+            exact_on(active)
+                .exact_keys()
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            exact_keys(&["exactplan0000000", "inexactplan00000", "exacturl00000000"]),
+            ["$current_url"]
+        );
+        assert_eq!(
+            exact_keys(&["exactplan0000000", "exacturl00000000"]),
+            ["$current_url", "plan"]
+        );
+        assert_eq!(
+            exact_keys(&["exacturl00000000", "wide000000000000"]),
+            Vec::<String>::new(),
+            "a condition reading the whole object keeps every key on the blob"
+        );
     }
 
     /// An active hash the frozen catalog carried no bytecode for never reached the analyzer, so its

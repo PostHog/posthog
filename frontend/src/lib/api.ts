@@ -17,7 +17,7 @@ import {
 } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { apiStatusLogic, awaitReauthentication } from 'lib/logic/apiStatusLogic'
+import { apiStatusLogic, awaitReauthentication, isUserActionInProgress } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
@@ -27,7 +27,7 @@ import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagem
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
+import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
@@ -148,7 +148,6 @@ import {
     IntegrationType,
     JiraProjectType,
     LinearTeamType,
-    LinkType,
     LinkedInAdsAccountType,
     LinkedInAdsConversionRuleType,
     ListOrganizationMembersParams,
@@ -204,7 +203,6 @@ import {
     TeamType,
     TwilioPhoneNumberType,
     UserBasicType,
-    UserInterviewType,
     UserType,
     WarehouseTableFileUpload,
     WebAnalyticsFilterPresetType,
@@ -734,15 +732,6 @@ export class ApiRequest {
         return this.hogFunctionTemplates(teamId).addPathComponent(id)
     }
 
-    // # Links
-    public links(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('links')
-    }
-
-    public link(id: LinkType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.links(teamId).addPathComponent(id)
-    }
-
     // # Actions
     public actions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('actions')
@@ -1201,15 +1190,6 @@ export class ApiRequest {
 
     public earlyAccessFeature(id: EarlyAccessFeatureType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.earlyAccessFeatures(teamId).addPathComponent(id)
-    }
-
-    // # User interviews
-    public userInterviews(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('user_interviews')
-    }
-
-    public userInterview(id: UserInterviewType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.userInterviews(teamId).addPathComponent(id)
     }
 
     // # Users
@@ -2831,6 +2811,8 @@ const api = {
                 after?: string
                 offset?: number
                 prefetchSpans?: number
+                // true (default) only selects traces with a root span.
+                rootSpans?: boolean
                 // false (default) groups by trace_id and returns root spans; true returns every
                 // matching span (root and child) flat. See products/tracing/backend logic.py.
                 flatSpans?: boolean
@@ -4019,32 +4001,6 @@ const api = {
         },
     },
 
-    links: {
-        async list(
-            args: {
-                limit?: number
-                offset?: number
-                search?: string
-            } = {
-                limit: LINK_PAGE_SIZE,
-            }
-        ): Promise<CountedPaginatedResponse<LinkType>> {
-            return await new ApiRequest().links().withQueryString(args).get()
-        },
-        async get(id: LinkType['id']): Promise<LinkType> {
-            return await new ApiRequest().link(id).get()
-        },
-        async create(data: Partial<LinkType>): Promise<LinkType> {
-            return await new ApiRequest().links().create({ data })
-        },
-        async update(id: LinkType['id'], data: Partial<LinkType>): Promise<LinkType> {
-            return await new ApiRequest().link(id).update({ data })
-        },
-        async delete(id: LinkType['id']): Promise<void> {
-            await new ApiRequest().link(id).delete()
-        },
-    },
-
     annotations: {
         async get(annotationId: RawAnnotationType['id']): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).get()
@@ -4780,6 +4736,7 @@ const api = {
                 stdout?: string
                 stderr?: string
                 media?: { mime_type: string; data: string }[]
+                result_text?: string
             } | null
             error: string | null
             // Direct (no-sandbox) runs only: the full capped row set for client-side paging,
@@ -4973,21 +4930,6 @@ const api = {
         },
         async list(): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
             return await new ApiRequest().earlyAccessFeatures().get()
-        },
-    },
-
-    userInterviews: {
-        async list(): Promise<PaginatedResponse<UserInterviewType>> {
-            return await new ApiRequest().userInterviews().get()
-        },
-        async get(id: UserInterviewType['id']): Promise<UserInterviewType> {
-            return await new ApiRequest().userInterview(id).get()
-        },
-        async update(
-            id: UserInterviewType['id'],
-            data: Pick<UserInterviewType, 'summary'>
-        ): Promise<UserInterviewType> {
-            return await new ApiRequest().userInterview(id).update({ data })
         },
     },
 
@@ -7324,7 +7266,8 @@ async function handleFetch(
     url: string,
     method: string,
     fetcher: () => Promise<Response>,
-    isRetry = false
+    isRetry = false,
+    startedByUserAction = isUserActionInProgress()
 ): Promise<Response> {
     const startTime = new Date().getTime()
 
@@ -7336,7 +7279,7 @@ async function handleFetch(
         error = e
     }
 
-    apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)
+    apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error, startedByUserAction)
 
     if (error || !response) {
         if (error && (error as any).name === 'AbortError') {
@@ -7375,13 +7318,13 @@ async function handleFetch(
     if (response.status === 401 && isOAuthMode() && !isRetry) {
         const refreshed = await refreshAccessToken()
         if (refreshed) {
-            return await handleFetch(url, method, fetcher, true)
+            return await handleFetch(url, method, fetcher, true, startedByUserAction)
         }
     }
 
     if (response.status === 403 && !isRetry && (await isStaleSessionResponse(response))) {
         if (await awaitReauthentication()) {
-            return await handleFetch(url, method, fetcher, true)
+            return await handleFetch(url, method, fetcher, true, startedByUserAction)
         }
     }
 

@@ -1850,6 +1850,10 @@ export type CanvasesListParams = {
      */
     offset?: number
     /**
+     * Sort order. -created_at (default) puts the newest canvases first. -updated_at puts the most recently changed canvases first.
+     */
+    ordering?: CanvasesListOrdering
+    /**
      * Only return canvases whose name or description contains this text (case-insensitive).
      */
     search?: string
@@ -1861,6 +1865,13 @@ export const CanvasesListKind = {
     Component: 'component',
     Freeform: 'freeform',
     Grid: 'grid',
+} as const
+
+export type CanvasesListOrdering = (typeof CanvasesListOrdering)[keyof typeof CanvasesListOrdering]
+
+export const CanvasesListOrdering = {
+    CreatedAt: '-created_at',
+    UpdatedAt: '-updated_at',
 } as const
 
 export type CanvasesBuildsRetrieveParams = {

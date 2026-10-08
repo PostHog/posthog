@@ -20,13 +20,16 @@ import math
 import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from posthog.hogql.errors import BaseHogQLError
 
 from products.signals.backend.report_charts import validate_report_query
+
+if TYPE_CHECKING:
+    from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +200,15 @@ def _validate_live_metric_formula(formula: object, series_count: int) -> None:
         raise ValueError(f"a live metric formula must be executable arithmetic over the series: {error}") from None
 
 
+def _validate_live_metric_hogql(expression: str) -> None:
+    from posthog.hogql.parser import parse_expr  # noqa: PLC0415 — keeps the query parser off startup
+
+    try:
+        parse_expr(expression)
+    except (BaseHogQLError, SyntaxError, RecursionError) as error:
+        raise ValueError(f"a live metric math_hogql must be a valid HogQL expression: {error}") from None
+
+
 def validate_metric_id(value: str) -> str:
     """Normalize a metric id and refuse one nothing can reference.
 
@@ -259,6 +271,9 @@ def validate_live_metric_query(value: dict[str, Any]) -> dict[str, Any]:
             action_id = item.get("id")
             if not isinstance(action_id, int) or isinstance(action_id, bool) or action_id <= 0:
                 raise ValueError("a live metric action series needs a positive integer action id")
+        expression = item.get("math_hogql")
+        if item.get("math") == "hogql" and expression is not None:
+            _validate_live_metric_hogql(expression)
     if source.get("breakdownFilter") or source.get("breakdown"):
         raise ValueError("a live metric query must not use a breakdown because it represents one measurement")
     sampling_factor = source.get("samplingFactor")
@@ -701,3 +716,42 @@ def metric_batch_error(metrics: Sequence[ReportMetric]) -> str | None:
     if affected_users_count > 1:
         return "a report accepts at most one affected_users metric"
     return None
+
+
+class ReportMetricSnapshot(BaseModel):
+    """The saved figure of one report metric, with its live query as stored.
+
+    Reading a snapshot this way skips the query validation `ReportMetric` runs. The query was
+    validated when the metric was saved, and the reader runs it through the regular query endpoint.
+    """
+
+    model_config = {"frozen": True, "extra": "ignore"}
+
+    metric_id: str
+    title: str
+    kind: ReportMetricKind
+    role: ReportMetricRole = "supporting"
+    value: float
+    series: list[float] | None = None
+    value_format: ReportMetricValueFormat = "number"
+    unit: str | None = None
+    query: dict[str, Any] = Field(default_factory=dict)
+
+
+def saved_metric_snapshots(raw_metrics: object, metric_access: ReportMetricAccessPolicy) -> list[ReportMetricSnapshot]:
+    """The metrics in a report's stored `metrics` list that have a saved value the viewer may read.
+
+    Malformed entries are skipped. A snapshot the viewer may not read is left out entirely, because it
+    carries both the userless value and the query definition the Inbox redacts for that viewer.
+    """
+    if not isinstance(raw_metrics, list):
+        return []
+    snapshots: list[ReportMetricSnapshot] = []
+    for raw in raw_metrics:
+        if not isinstance(raw, dict) or raw.get("value") is None or not metric_access.may_read_snapshot(raw):
+            continue
+        try:
+            snapshots.append(ReportMetricSnapshot.model_validate(raw))
+        except ValidationError:
+            continue
+    return snapshots

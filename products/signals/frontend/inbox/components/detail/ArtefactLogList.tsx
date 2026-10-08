@@ -40,6 +40,8 @@ import { PRIORITY_TAG_TYPE } from '../../filterOptions'
 import { SignalCard } from '../../SignalCard'
 import { EnrichedReviewer, SignalReportActionability, SignalReportPriority, SignalReportArtefact } from '../../types'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
+import { formatRankingLift, formatRankingProbability } from '../cards/rankingFormat'
+import { RankingLiftBar } from '../cards/RankingLiftBar'
 import { SignalCardDisclosureProvider } from '../signalCards/SignalCardShell'
 import { ArtefactCommit } from './ArtefactCommit'
 import { ArtefactPullRequest } from './ArtefactPullRequest'
@@ -383,6 +385,7 @@ const CHECK_OUTCOME: Record<NonNullable<CheckResultContent['outcome']>, { label:
     passed: { label: 'Still holds', type: 'success' },
     failed: { label: 'No longer holds', type: 'danger' },
     errored: { label: "Couldn't measure", type: 'warning' },
+    inconclusive: { label: 'Inconclusive', type: 'warning' },
 }
 
 function CheckResultBody({ content }: { content: CheckResultContent }): JSX.Element | null {
@@ -476,25 +479,21 @@ function CodeReviewBody({ content }: { content: CodeReviewContent }): JSX.Elemen
 
 function RankingHeadRows({ heads }: { heads: RankingHead[] }): JSX.Element {
     return (
-        <div className="grid grid-cols-[minmax(0,max-content)_minmax(2rem,10rem)_auto] items-center justify-start gap-x-2 gap-y-1">
+        <div className="grid grid-cols-[minmax(0,max-content)_minmax(2rem,10rem)_auto_auto] items-center justify-start gap-x-2 gap-y-1">
             {heads.map((head) => {
-                const percent = Math.round(head.probability * 100)
+                const tone = head.readable ? 'text-default' : 'text-tertiary'
                 return (
                     <Fragment key={head.name}>
-                        <span className={`truncate ${head.readable ? 'text-default' : 'text-tertiary'}`}>
-                            {prettify(head.name)}
+                        <span className={`truncate ${tone}`}>{prettify(head.name)}</span>
+                        <RankingLiftBar
+                            lift={head.lift}
+                            className={head.readable ? 'bg-primary-3000' : 'bg-border-bold'}
+                        />
+                        <span className={`text-right tabular-nums ${tone}`}>
+                            {head.lift !== null ? formatRankingLift(head.lift) : null}
                         </span>
-                        <div className="h-1.5 overflow-hidden rounded-full bg-border-light">
-                            <div
-                                className={`h-full rounded-full ${head.readable ? 'bg-primary-3000' : 'bg-border-bold'}`}
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ width: `${percent}%` }}
-                            />
-                        </div>
-                        <span
-                            className={`inline-flex items-center justify-end gap-1 tabular-nums ${head.readable ? 'text-default' : 'text-tertiary'}`}
-                        >
-                            {percent}%
+                        <span className="inline-flex items-center justify-end gap-1 tabular-nums text-tertiary">
+                            {formatRankingProbability(head.probability)}
                             {head.readable ? (
                                 <span className="size-3" aria-hidden />
                             ) : (

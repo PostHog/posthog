@@ -260,7 +260,7 @@ Both review modes instruct the agent to fetch pinned review and validation skill
 The agent can fetch referenced bundled files with `skill-file-get`.
 On the configured internal project, choose **Review in Flash mode** from the review menu to run it for one turn without changing the PR's full-review configuration.
 Flash requests preserve an existing report's review tier, including when they join a running review.
-Flash labels its GitHub messages with `FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review` and never starts comment resolution.
+Flash marks its status comment header as `PostHog Review (flash)`, skips the clean-review media, and never starts comment resolution.
 
 **Review all your PRs in Flash mode** is off by default and shown only on the configured internal project.
 Turn it on in Code review to review PRs you author in `PostHog/posthog` when they open or receive new commits, including drafts.
@@ -343,6 +343,11 @@ Cloud Claude sessions deliver each watchdog warning separately to subagents and 
 
 Common build, test, and typecheck commands share a sandbox-wide lock, including commands started in the background. When another validation command holds the lock, the shell returns exit code 75 and asks the agent to wait. After the same validation command fails twice during observed watchdog interventions, the session rejects another unchanged attempt. Reduce the command's scope or concurrency, or report the validation limit. This guard is best-effort command recognition, not a resource limit for arbitrary shell programs.
 
+The guard recognizes validation through `timeout`, `npx`, `hogli`, `.codex/with-flox`, and `flox activate -- bash -c '…'`.
+It preserves the command's directory, arguments, and inline shell body when identifying retries.
+Script names such as `backend:test` and `build-storybook`, shell continuations, and command substitutions are recognized. Heredoc bodies are skipped before scanning subsequent commands.
+It does not inspect script files: invoke validation directly or through a supported wrapper instead of hiding it in `bash script.sh`.
+
 ### Local agent packages
 
 Cloud tasks use the published `@posthog/agent` package by default. Set `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` only when you need to test local agent changes.
@@ -396,10 +401,16 @@ in a production app. A new app name has to be a class attribute for that to keep
 ### Sandbox templates
 
 Staff can inspect the agent release pipeline at `/admin/tasks/task/infrastructure/` in each region.
+Release reads use the configured GitHub App installation for `PostHog/posthog`, with a temporary token restricted to Contents and Actions reads on that repository. No integration record or installation ID setting is needed. Deployments without GitHub App credentials use `GITHUB_TOKEN` when set.
 The read-only page compares the published package, master version pin, registry platforms, custom-image bases, and the last recorded dev-stack bake.
 Release evidence separates workflow status from image build and base promotion results, including skipped builds.
 Select a custom image to inspect its latest Temporal execution. A failed refresh can leave a ready image on an older base.
 Missing or stale sources remain unverified. This view does not measure versions inside running sandboxes or reconstruct historical rollout completion.
+The Data sources tab lists each source's status and last successful read in UTC. Registry coverage remains unverified when the release source is unavailable or stale.
+Graph release badges compare observed versions with npm latest; cached observations say "Last seen". Select an image for its separate version-pin and base-lineage assessment.
+Source failures include a safe diagnostic; a rejected GitHub credential requires checking the server's App configuration or shared token. Build-history failures leave a successfully read version pin available and show a separate warning.
+Individual job-read failures retain run links and other build results. If the workflow list cannot be read, previous runs remain visible with their original read timestamp. Retained source values are identified as the last successful read, and shared GitHub request-budget limits have a separate diagnostic.
+The dev-stack graph and details share a base-adoption status. "Awaiting refresh" means the last successful bake uses a different digest from the current VM image; the details show both references. A fresh source read does not establish that a bake has finished.
 
 Each sandbox is created from a template that determines its base image and capabilities.
 

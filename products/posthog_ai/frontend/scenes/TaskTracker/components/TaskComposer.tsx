@@ -6,8 +6,8 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
+import { Composer } from 'products/posthog_ai/frontend/api/composer'
 import {
-    Composer,
     DEFAULT_SUGGESTIONS_DATA,
     type SuggestionItem,
     Suggestions,
@@ -59,8 +59,14 @@ export interface TaskComposerProps {
 
 export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = true }: TaskComposerProps): JSX.Element {
     const inline = variant === 'inline'
-    const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion, clearConsentBlock } =
-        useActions(taskTrackerSceneLogic)
+    const {
+        submitNewTask,
+        setNewTaskData,
+        pickPermissionMode,
+        setActiveSuggestionGroup,
+        applySuggestion,
+        clearConsentBlock,
+    } = useActions(taskTrackerSceneLogic)
     const {
         newTaskData,
         isSubmittingTask,
@@ -125,7 +131,7 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
         <ComposerModePicker
             modes={getModesForRuntimeAdapter(composerAdapter)}
             selectedMode={newTaskData.permissionMode}
-            onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}
+            onModeChange={pickPermissionMode}
         />
     )
     const codexBillingEnabled = useFeatureFlag('POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD')
@@ -206,11 +212,7 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
                             />
                         )}
                         <ComposerModeShortcut
-                            onCycle={() =>
-                                setNewTaskData({
-                                    permissionMode: cycleMode(composerAdapter, newTaskData.permissionMode),
-                                })
-                            }
+                            onCycle={() => pickPermissionMode(cycleMode(composerAdapter, newTaskData.permissionMode))}
                         />
                         <Composer.Root
                             value={draft.value}

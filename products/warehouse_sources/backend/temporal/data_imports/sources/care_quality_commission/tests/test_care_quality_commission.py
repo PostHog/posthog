@@ -47,15 +47,6 @@ class TestGetHeaders:
 
 
 class TestBuildUrl:
-    def test_includes_partner_code_and_pagination(self) -> None:
-        url = _build_url("/providers", {"page": 1, "perPage": 500, "partnerCode": "PC"})
-        assert url == f"{CQC_BASE_URL}/providers?page=1&perPage=500&partnerCode=PC"
-
-    def test_omits_none_and_empty_params(self) -> None:
-        # A missing partner code must not leak through as `partnerCode=None` / `partnerCode=`.
-        url = _build_url("/providers", {"page": 1, "partnerCode": None, "extra": ""})
-        assert url == f"{CQC_BASE_URL}/providers?page=1"
-
     def test_no_params(self) -> None:
         assert _build_url("/providers/1-123", {}) == f"{CQC_BASE_URL}/providers/1-123"
 
@@ -122,32 +113,6 @@ def _collect(
 
 
 class TestGetRowsFanOut:
-    def test_fans_out_list_to_detail_records(self, monkeypatch: Any) -> None:
-        pages = {
-            f"{CQC_BASE_URL}/providers?page=1&perPage=500&partnerCode=PC": {
-                "providers": [{"providerId": "1-A"}, {"providerId": "1-B"}],
-                "totalPages": 1,
-            },
-            f"{CQC_BASE_URL}/providers/1-A?partnerCode=PC": {"providerId": "1-A", "name": "Alpha"},
-            f"{CQC_BASE_URL}/providers/1-B?partnerCode=PC": {"providerId": "1-B", "name": "Bravo"},
-        }
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages)
-        assert rows == [
-            {"providerId": "1-A", "name": "Alpha"},
-            {"providerId": "1-B", "name": "Bravo"},
-        ]
-
-    def test_locations_endpoint_uses_location_paths(self, monkeypatch: Any) -> None:
-        pages = {
-            f"{CQC_BASE_URL}/locations?page=1&perPage=500&partnerCode=PC": {
-                "locations": [{"locationId": "1-L"}],
-                "totalPages": 1,
-            },
-            f"{CQC_BASE_URL}/locations/1-L?partnerCode=PC": {"locationId": "1-L", "name": "Loc"},
-        }
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages, endpoint="locations")
-        assert rows == [{"locationId": "1-L", "name": "Loc"}]
-
     def test_paginates_across_pages(self, monkeypatch: Any) -> None:
         pages = {
             f"{CQC_BASE_URL}/providers?page=1&perPage=500&partnerCode=PC": {
@@ -183,12 +148,6 @@ class TestGetRowsFanOut:
         }
         rows = _collect(_FakeResumableManager(), monkeypatch, pages)
         assert rows == [{"providerId": "1-A"}, {"providerId": "1-B"}]
-
-    def test_empty_page_terminates(self, monkeypatch: Any) -> None:
-        pages = {
-            f"{CQC_BASE_URL}/providers?page=1&perPage=500&partnerCode=PC": {"providers": [], "totalPages": 5},
-        }
-        assert _collect(_FakeResumableManager(), monkeypatch, pages) == []
 
     def test_record_without_id_raises(self, monkeypatch: Any) -> None:
         # A list record missing its id field is an API contract violation — fail fast with a

@@ -6,9 +6,6 @@ import { IconArrowLeft, IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -18,6 +15,9 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { autoresearchNewLogic, hasTarget } from './autoresearchNewLogic'
+import { AdvancedSettings } from './newModel/AdvancedSettings'
+import { DefinitionSentence } from './newModel/DefinitionSentence'
+import { TemplateChips } from './newModel/TemplateChips'
 
 export const scene: SceneExport = {
     component: AutoresearchNewScene,
@@ -39,8 +39,12 @@ function formatNumber(value: number | null | undefined): string {
 }
 
 function ValidationPanel(): JSX.Element {
-    const { validation, validationLoading, validationFailed, newPipeline } = useValues(autoresearchNewLogic)
+    const { validation, validationLoading, validationFailed, newPipeline, newPipelineValidationErrors } =
+        useValues(autoresearchNewLogic)
     const { runValidate } = useActions(autoresearchNewLogic)
+    // The form hides field errors until the first submit, and the validate loader skips invalid day values.
+    // So this panel is the only place that says why no estimate appears.
+    const dayError = newPipelineValidationErrors.training_lookback_days ?? newPipelineValidationErrors.horizon_days
 
     if (validationFailed && !validationLoading) {
         return (
@@ -54,6 +58,14 @@ function ValidationPanel(): JSX.Element {
             >
                 Couldn't check this model definition. Retry, or change a field to check again.
             </LemonBanner>
+        )
+    }
+
+    if (dayError) {
+        return (
+            <div className="border rounded p-4 bg-bg-light text-muted text-sm">
+                {dayError}. Fix it to see live training estimates.
+            </div>
         )
     }
 
@@ -147,8 +159,8 @@ function ValidationPanel(): JSX.Element {
 
 export function AutoresearchNewScene(): JSX.Element {
     const isEnabled = useFeatureFlag('AUTORESEARCH')
-    const { validation, isNewPipelineSubmitting, newPipeline, newPipelineErrors } = useValues(autoresearchNewLogic)
-    const { submitNewPipeline, setNewPipelineValues } = useActions(autoresearchNewLogic)
+    const { validation, isNewPipelineSubmitting, resolvedTemplateLoading } = useValues(autoresearchNewLogic)
+    const { submitNewPipeline } = useActions(autoresearchNewLogic)
 
     if (!isEnabled) {
         return <NotFound object="Autoresearch" caption="This feature is not enabled for your project." />
@@ -165,7 +177,7 @@ export function AutoresearchNewScene(): JSX.Element {
             </div>
             <SceneTitleSection
                 name="New model"
-                description="Define a target event or action, horizon, and population. Autoresearch will train models to predict it."
+                description="Pick a template or describe who to predict, what they will do, and when. Autoresearch trains models to predict it."
                 resourceType={{ type: 'experiment' }}
             />
 
@@ -175,114 +187,15 @@ export function AutoresearchNewScene(): JSX.Element {
                     formKey="newPipeline"
                     className="flex flex-col gap-4 border rounded p-4"
                 >
+                    <TemplateChips />
+
+                    <DefinitionSentence />
+
                     <LemonField name="name" label="Name">
-                        <LemonInput placeholder="e.g. File sharing prediction" autoFocus />
+                        <LemonInput placeholder="e.g. File sharing prediction" />
                     </LemonField>
 
-                    <LemonField.Pure
-                        label="Target"
-                        info="The event or action to predict. Pick an event for a single signal, or an action to predict a multi-step / property / autocapture matcher. Everything else flows from this pick."
-                    >
-                        <TaxonomicPopover
-                            groupType={TaxonomicFilterGroupType.Events}
-                            groupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-                            value={
-                                newPipeline.target_type === 'action'
-                                    ? newPipeline.target_action_id
-                                    : newPipeline.target_event
-                            }
-                            onChange={(picked, groupType, item) => {
-                                if (groupType === TaxonomicFilterGroupType.Actions) {
-                                    setNewPipelineValues({
-                                        target_type: 'action',
-                                        target_action_id: typeof picked === 'number' ? picked : Number(picked),
-                                        target_event: item?.name ?? `action ${picked}`,
-                                    })
-                                } else {
-                                    setNewPipelineValues({
-                                        target_type: 'event',
-                                        target_event: String(picked ?? ''),
-                                        target_action_id: null,
-                                    })
-                                }
-                            }}
-                            renderValue={() => <>{newPipeline.target_event || 'Search events or actions…'}</>}
-                            placeholder="Search events or actions…"
-                            allowClear
-                            data-attr="autoresearch-new-target"
-                        />
-                        {(newPipelineErrors.target_event || newPipelineErrors.target_action_id) && (
-                            <div className="text-danger text-xs mt-1">
-                                {newPipelineErrors.target_event ?? newPipelineErrors.target_action_id}
-                            </div>
-                        )}
-                    </LemonField.Pure>
-
-                    <div className="flex flex-col gap-3 border-t pt-4">
-                        <div>
-                            <h3 className="text-base font-semibold mb-1">Training</h3>
-                            <p className="text-xs text-muted mb-0">What the model learns from.</p>
-                        </div>
-                        <LemonField
-                            name="training_lookback_days"
-                            label="Training lookback (days)"
-                            info="How far back to pull training examples from. Larger windows give more data but may include stale behavior. Default: 180 days."
-                        >
-                            <LemonInput type="number" min={7} max={730} />
-                        </LemonField>
-                        <LemonField
-                            name="training_population"
-                            label="Training population"
-                            info="Who the model learns from. Leave empty to include all identified users. Often this is users with enough history to be informative (e.g. signed up, has activity)."
-                        >
-                            {({ value, onChange }) => (
-                                <PropertyFilters
-                                    pageKey="autoresearch-new-training-population"
-                                    propertyFilters={value ?? []}
-                                    onChange={(filters) => onChange(filters)}
-                                    taxonomicGroupTypes={[
-                                        TaxonomicFilterGroupType.PersonProperties,
-                                        TaxonomicFilterGroupType.EventProperties,
-                                        TaxonomicFilterGroupType.Cohorts,
-                                    ]}
-                                    buttonText="Add filter"
-                                />
-                            )}
-                        </LemonField>
-                    </div>
-
-                    <div className="flex flex-col gap-3 border-t pt-4">
-                        <div>
-                            <h3 className="text-base font-semibold mb-1">Prediction</h3>
-                            <p className="text-xs text-muted mb-0">What the model predicts, and who it scores.</p>
-                        </div>
-                        <LemonField
-                            name="horizon_days"
-                            label="Prediction horizon (days)"
-                            info="We will predict whether a user does the target event within this many days. Shorter horizons train and validate faster; longer ones capture slower-moving behaviors."
-                        >
-                            <LemonInput type="number" min={1} max={365} />
-                        </LemonField>
-                        <LemonField
-                            name="inference_population"
-                            label="Prediction population"
-                            info="Who the model scores on a schedule. Often a different group from training, e.g. train on signed-up users with history, predict on brand new users. Leave empty to use the training population."
-                        >
-                            {({ value, onChange }) => (
-                                <PropertyFilters
-                                    pageKey="autoresearch-new-inference-population"
-                                    propertyFilters={value ?? []}
-                                    onChange={(filters) => onChange(filters)}
-                                    taxonomicGroupTypes={[
-                                        TaxonomicFilterGroupType.PersonProperties,
-                                        TaxonomicFilterGroupType.EventProperties,
-                                        TaxonomicFilterGroupType.Cohorts,
-                                    ]}
-                                    buttonText="Add filter"
-                                />
-                            )}
-                        </LemonField>
-                    </div>
+                    <AdvancedSettings />
 
                     <div className="flex justify-end gap-2 mt-2">
                         <LemonButton
@@ -295,7 +208,13 @@ export function AutoresearchNewScene(): JSX.Element {
                         <LemonButton
                             type="primary"
                             loading={isNewPipelineSubmitting}
-                            disabledReason={blockingError ? 'Resolve blocking warnings before creating' : undefined}
+                            disabledReason={
+                                blockingError
+                                    ? 'Resolve blocking warnings before creating'
+                                    : resolvedTemplateLoading
+                                      ? 'Wait for the template to load'
+                                      : undefined
+                            }
                             onClick={() => submitNewPipeline()}
                             data-attr="autoresearch-new-create"
                         >

@@ -1,14 +1,17 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
+from typing import TYPE_CHECKING, Any, Final, Literal, NotRequired, Protocol, TypedDict
 from uuid import UUID
 
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.enums import (
     HogFlowBatchJobState,
+    HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
+    WorkflowProposalStatus,
 )
 
 if TYPE_CHECKING:
@@ -65,6 +68,39 @@ class WorkflowBatchJob:
     created_by: "User | None"
 
 
+class WorkflowBatchJobNotFound(Exception):
+    pass
+
+
+@frozen
+class WorkflowSchedule:
+    """One recurring schedule of a workflow."""
+
+    id: UUID
+    hog_flow_id: UUID
+    rrule: str
+    starts_at: datetime
+    timezone: str
+    variables: dict[str, Any]
+    status: HogFlowScheduleStatus
+    next_run_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkflowScheduleNotFound(Exception):
+    pass
+
+
+@frozen
+class ProcessedSchedules:
+    """The schedule ids one scheduler pass fired, initialized, or failed on."""
+
+    processed: list[str]
+    initialized: list[str]
+    failed: list[str]
+
+
 @dataclass(frozen=True)
 class HogFlowReference:
     id: str
@@ -103,6 +139,24 @@ class AccountAudienceProvider(Protocol):
     ) -> list[str]: ...
 
     def get_account_group_type_name(self, team: "Team") -> str | None: ...
+
+
+@frozen
+class AudienceSize:
+    """How many recipients a batch audience matches, and the most a batch trigger may send to."""
+
+    affected: int
+    total: int
+    limit: int
+    dedupe_key: str | None
+
+
+@frozen
+class AudiencePage:
+    """One cursor-paginated page of a batch audience: person, group or account ids."""
+
+    ids: list[str]
+    has_more: bool
 
 
 @frozen
@@ -151,6 +205,54 @@ class EmailSendingSuspensionChange:
 
 
 @frozen
+class EmailSendingAllowance:
+    """A project's sending tier, what it allows, and how much of that it has used."""
+
+    tier: int
+    max_tier: int
+    emails_per_hour: int
+    emails_per_day: int
+    max_batch_audience: int
+    emails_sent_last_hour: int
+    emails_sent_last_day: int
+    enforced: bool
+
+
+class StaffPausedError(Exception):
+    """A customer tried to resume a pause only staff may clear."""
+
+
+# The app metric names the deliverability signals are read from. A Complaint (the recipient's
+# "report spam" relayed through the provider's feedback loop) is recorded as `email_blocked`, and
+# only permanent bounces count as `email_bounced_hard`, matching how AWS counts its bounce rate.
+# See the SES webhook handler in nodejs/src/cdp/services/messaging/helpers/ses.ts.
+SENT_METRIC: Final[str] = "email_sent"
+HARD_BOUNCE_METRIC: Final[str] = "email_bounced_hard"
+COMPLAINT_METRIC: Final[str] = "email_blocked"
+EMAIL_HEALTH_METRIC_NAMES: Final[list[str]] = [SENT_METRIC, HARD_BOUNCE_METRIC, COMPLAINT_METRIC]
+
+
+@frozen
+class EmailSendingCounts:
+    sent: int = 0
+    bounced_hard: int = 0
+    complained: int = 0
+
+    def plus(self, counts: Mapping[str, int]) -> "EmailSendingCounts":
+        return EmailSendingCounts(
+            sent=self.sent + counts.get(SENT_METRIC, 0),
+            bounced_hard=self.bounced_hard + counts.get(HARD_BOUNCE_METRIC, 0),
+            complained=self.complained + counts.get(COMPLAINT_METRIC, 0),
+        )
+
+
+@frozen
+class FlowEmailTotals:
+    counts_by_flow: dict[str, EmailSendingCounts]
+    names_by_flow_id: dict[str, str]
+
+
+@frozen
 class WorkflowTemplate:
     """A workflow template stored in the database, owned by one team.
 
@@ -179,6 +281,14 @@ class WorkflowTemplate:
     actions: list[dict[str, Any]] | dict[str, Any]
     abort_action: str | None
     variables: list[dict[str, Any]] | None
+
+
+@frozen
+class FunctionTemplateSchema:
+    """The parts of a cdp function template that a workflow step validates its inputs against."""
+
+    type: str
+    inputs_schema: list[dict[str, Any]] | None
 
 
 # The provider payloads below are TypedDicts, not frozen dataclasses: the email-verify endpoint
@@ -215,3 +325,99 @@ class TwilioAccount(TypedDict, total=False):
     """Empty when the Twilio request fails."""
 
     sid: str
+
+
+@frozen
+class MessageAsset:
+    invocation_id: str
+    action_id: str
+    function_id: str
+    parent_run_id: str
+    kind: str
+    distinct_id: str
+    person_id: str
+    recipient: str
+    subject: str
+    status: str
+    sent_at: datetime
+    # Human-readable workflow name; enriched by the endpoint before serialization.
+    # Left blank when the workflow no longer exists so the frontend falls back to function_id.
+    function_name: str = ""
+
+
+@frozen
+class WorkflowRevisionSummary:
+    """One entry of a workflow's version history, without the content snapshot."""
+
+    version: int
+    created_at: datetime
+    created_by: "User | None"
+
+
+@frozen
+class WorkflowRevision:
+    version: int
+    created_at: datetime
+    created_by: "User | None"
+    content: dict[str, Any]
+
+
+class WorkflowRevisionNotFound(Exception):
+    pass
+
+
+class WorkflowDraftExists(Exception):
+    """A draft is staged and the caller did not ask to overwrite it."""
+
+
+class WorkflowDraftChanged(Exception):
+    """The staged draft changed since the caller confirmed the overwrite."""
+
+
+@frozen
+class ProposalChanges:
+    """What approving a suggestion would stage. `conflicts` names the steps or fields someone else
+    changed since it was written; approval is refused while there are any."""
+
+    changes: dict
+    conflicts: list[str]
+
+
+@frozen
+class WorkflowProposalRecord:
+    """A change to a workflow that an agent proposed, and how a human resolved it."""
+
+    id: UUID
+    title: str
+    rationale: str
+    content: dict[str, Any]
+    evidence: dict[str, Any]
+    step_id: str | None
+    base_version: int
+    status: WorkflowProposalStatus
+    source_id: str | None
+    created_at: datetime
+    resolved_at: datetime | None
+    resolved_by: "User | None"
+    applied_version: int | None
+
+
+@frozen
+class CreatedWorkflowProposal:
+    proposal: WorkflowProposalRecord
+    # False when a retry with the same source_id returned the proposal it already made.
+    created: bool
+
+
+@frozen
+class EditedEmailDesign:
+    design: dict[str, Any]
+    warnings: tuple[str, ...]
+
+
+class EmailDesignRenderingNotConfigured(Exception):
+    pass
+
+
+class EmailDesignRenderFailed(Exception):
+    pass

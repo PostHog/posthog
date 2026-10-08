@@ -24,6 +24,7 @@ import requests
 import structlog
 from slack_sdk.errors import SlackApiError
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ph_client import ph_scoped_capture
 from posthog.slack.channels import MAX_BUTTON_URL_CHARS, SlackButton, section_block
@@ -377,12 +378,25 @@ def open_task_artifact(artifact: TaskArtifact) -> str | None:
     return _adapter_for_existing_artifact(artifact).open(artifact)
 
 
-def read_living_artifact_version(artifact: TaskArtifact, version: int) -> LivingArtifactVersionContent | None:
-    """Return the content of one version, or None when the version is unknown or keeps no content.
+# The app streams a preview through a web worker, so a larger stored version only downloads.
+# Keep in step with LIVING_PREVIEW_MAX_BYTES in the TaskTracker frontend.
+LIVING_VERSION_PREVIEW_MAX_BYTES = 25 * 1024 * 1024
 
-    A Slack file version keeps its bytes in object storage. A canvas or message version keeps its
-    text in the version record. Storage read errors propagate to the caller.
-    """
+
+class LivingArtifactVersionTooLarge(Exception):
+    pass
+
+
+@frozen
+class LivingVersionLocation:
+    record: dict[str, Any]
+    content_type: str
+    # Empty when the version keeps its content as text in the record.
+    storage_path: str
+
+
+def resolve_living_artifact_version(artifact: TaskArtifact, version: int) -> LivingVersionLocation | None:
+    """Find one version and where it keeps its content, or None when the version is unknown or its path is foreign."""
     record = next(
         (
             candidate
@@ -398,20 +412,47 @@ def read_living_artifact_version(artifact: TaskArtifact, version: int) -> Living
     content_type = str(record.get("content_type") or location.get("content_type") or "") or _guess_content_type(
         artifact.name
     )
-
     storage_path = str(location.get("storage_path") or "")
-    if storage_path:
-        # Every living artifact object sits under its task's prefix. A path outside it is not this artifact's object.
-        if not storage_path.startswith(_task_artifact_s3_prefix(artifact)):
-            return None
-        payload = object_storage.read_bytes(storage_path, missing_ok=True)
+    # Every living artifact object sits under its task's prefix. A path outside it is not this artifact's object.
+    if storage_path and not storage_path.startswith(_task_artifact_s3_prefix(artifact)):
+        return None
+    return LivingVersionLocation(record=record, content_type=content_type, storage_path=storage_path)
+
+
+def _stored_version_size(resolved: LivingVersionLocation) -> int | None:
+    size = resolved.record.get("size")
+    if isinstance(size, int):
+        return size
+    head = object_storage.head_object(resolved.storage_path)
+    length = head.get("ContentLength") if head else None
+    return length if isinstance(length, int) else None
+
+
+def read_living_artifact_version(artifact: TaskArtifact, version: int) -> LivingArtifactVersionContent | None:
+    """Return the content of one version, or None when the version is unknown or keeps no content.
+
+    A Slack file version keeps its bytes in object storage. A canvas or message version keeps its
+    text in the version record. A stored version above the preview limit raises
+    LivingArtifactVersionTooLarge. Storage read errors propagate to the caller.
+    """
+    resolved = resolve_living_artifact_version(artifact, version)
+    if resolved is None:
+        return None
+
+    if resolved.storage_path:
+        size = _stored_version_size(resolved)
+        if size is not None and size > LIVING_VERSION_PREVIEW_MAX_BYTES:
+            raise LivingArtifactVersionTooLarge()
+        payload = object_storage.read_bytes(resolved.storage_path, missing_ok=True)
         if payload is None:
             return None
-        return LivingArtifactVersionContent(name=artifact.name, content_type=content_type, content=payload)
+        return LivingArtifactVersionContent(name=artifact.name, content_type=resolved.content_type, content=payload)
 
-    text = record.get("content")
+    text = resolved.record.get("content")
     if isinstance(text, str):
-        return LivingArtifactVersionContent(name=artifact.name, content_type=content_type, content=text.encode("utf-8"))
+        return LivingArtifactVersionContent(
+            name=artifact.name, content_type=resolved.content_type, content=text.encode("utf-8")
+        )
     return None
 
 

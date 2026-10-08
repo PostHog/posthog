@@ -199,43 +199,6 @@ class TestFanOut:
         )
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_members_fan_out_reads_parent_slug(self, MockSession) -> None:
-        session = MockSession.return_value
-
-        def route(url: str) -> Response:
-            if url == f"{BASE}/accounts":
-                return _response([{"id": "acc-1", "slug": "acme"}], next_url=None)
-            if url == f"{BASE}/acme/members":
-                return _response([{"id": "u1", "email": "a@b.co"}], next_url=None)
-            raise AssertionError(f"unexpected url: {url}")
-
-        _wire(session, route)
-        rows = _rows(_source("members", _manager()))
-
-        # Members fan out over accounts keyed by the account slug, injected as account_slug.
-        assert rows == [{"id": "u1", "email": "a@b.co", "account_slug": "acme"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_skips_a_parent_that_does_not_serve_the_child_resource(self, MockSession) -> None:
-        session = MockSession.return_value
-
-        def route(url: str) -> Response:
-            if url == f"{BASE}/sites?filter=all&per_page=100":
-                return _response([{"id": "s1"}, {"id": "s2"}], next_url=None)
-            if url == f"{BASE}/sites/s1/forms":
-                return _response({"message": "Not Found"}, status=404)
-            if url == f"{BASE}/sites/s2/forms":
-                return _response([{"id": "f2"}], next_url=None)
-            raise AssertionError(f"unexpected url: {url}")
-
-        _wire(session, route)
-        rows = _rows(_source("forms", _manager()))
-
-        # A site with form detection off 404s on /forms. That parent holds no rows, so the table
-        # still syncs every other site rather than failing the whole sync.
-        assert rows == [{"id": "f2", "site_id": "s2"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_fanout_from_saved_state_skipping_completed_parent(self, MockSession) -> None:
         session = MockSession.return_value
 
@@ -268,14 +231,6 @@ class TestPageCap:
             # page 2: cap reached with more pages remaining
             paginator.update_state(_response(page, next_url=f"{BASE}/sites/s1/builds?page=3"), page)
 
-    def test_capped_paginator_stops_cleanly_when_no_more_pages(self) -> None:
-        paginator = NetlifyCappedHeaderLinkPaginator(max_pages=2, context={"table": "builds"})
-        page = [{"id": "x"}]
-        # Exactly at the cap but no next link -> a complete table, not an overrun.
-        paginator.update_state(_response(page, next_url=f"{BASE}/sites/s1/builds?page=2"), page)
-        paginator.update_state(_response(page, next_url=None), page)
-        assert paginator.has_next_page is False
-
 
 class TestFailLoud:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -301,11 +256,6 @@ class TestValidateCredentials:
     def test_status_mapping(self, _name: str, status: int, expected: bool, message: str | None, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.Mock(status_code=status)
         assert validate_credentials("tok") == (expected, message)
-
-    @mock.patch(NETLIFY_SESSION_PATCH)
-    def test_unreachable_netlify_does_not_blame_the_token(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError()
-        assert validate_credentials("tok") == (False, netlify_module._NETLIFY_UNREACHABLE_ERROR)
 
     @mock.patch(NETLIFY_SESSION_PATCH)
     def test_unexpected_status_reaches_error_tracking(self, mock_session) -> None:

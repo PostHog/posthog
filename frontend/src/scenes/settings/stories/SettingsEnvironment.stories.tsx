@@ -141,7 +141,6 @@ export const SettingsEnvironmentMarketingAnalytics: Story = {
 export const SettingsEnvironmentWebAnalytics: Story = { args: { sectionId: 'environment-web-analytics' } }
 
 const EXPERIMENTS_CONFIG_MOCK = {
-    experiment_recalculation_time: '02:00:00',
     experiment_recalculation_times: ['02:00:00'],
     default_experiment_confidence_level: null,
     default_experiment_stats_method: null,

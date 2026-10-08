@@ -3583,6 +3583,19 @@ describe('maxThreadLogic', () => {
             })
         })
 
+        it('setConversation falls back to the default mode for a retired agent mode', async () => {
+            const conversationWithRetiredMode: Conversation = {
+                ...MOCK_CONVERSATION,
+                agent_mode: AgentMode.UserInterview,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setConversation(conversationWithRetiredMode)
+            }).toMatchValues({
+                agentMode: AgentMode.ProductAnalytics,
+            })
+        })
+
         it('setConversation does not sync agent mode when locked by user', async () => {
             logic.actions.setAgentMode(AgentMode.SQL)
             expect(logic.values.agentModeLockedByUser).toBe(true)

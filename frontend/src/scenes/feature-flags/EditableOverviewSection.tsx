@@ -7,6 +7,8 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+
 import { featureFlagLogic } from './featureFlagLogic'
 
 interface EditableOverviewSectionProps {
@@ -27,7 +29,7 @@ export function EditableOverviewSection({
     const { featureFlag } = useValues(featureFlagLogic)
     const { editFeatureFlag } = useActions(featureFlagLogic)
 
-    const canShowEditButton = !featureFlag.deleted
+    const canShowEditButton = !featureFlag.deleted && isV1FeatureFlagConfig(featureFlag.filters)
 
     return (
         <div className={`relative rounded border p-4 bg-bg-light ${className ?? ''}`}>

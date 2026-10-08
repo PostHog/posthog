@@ -12,10 +12,14 @@ from django.utils import timezone
 from parameterized import parameterized
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import status
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory, force_authenticate
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition, Team
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -34,14 +38,17 @@ from products.signals.backend.report_check_agent import (
     CHECK_DISPATCH_DEFER_AFTER,
     FALLBACK_CHECK_SKILL_NAME,
     build_check_run_note,
+    reactivate_checks_errored_by_scout_pause,
     resolve_check_skill_name,
     run_agent_check,
 )
 from products.signals.backend.report_check_authoring import (
     CheckCreationError,
     arm_pending_checks,
+    cancel_check,
     create_check,
     create_checks_from_specs,
+    replace_metric_check,
 )
 from products.signals.backend.report_check_execution import (
     CHECK_ERROR_RETRY_AFTER,
@@ -54,6 +61,7 @@ from products.signals.backend.report_check_execution import (
     resolve_check_query,
     run_due_report_checks,
 )
+from products.signals.backend.report_check_research import check_versions
 from products.signals.backend.report_check_timing import metric_check_ready_at, metric_check_window_start
 from products.signals.backend.report_checks import (
     AWAITING_DATA_RETRY_WAITS,
@@ -78,6 +86,8 @@ from products.signals.backend.report_checks import (
     parse_check_config,
     validate_metric_check_for_write,
 )
+from products.signals.backend.report_merge import merge_reports
+from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metric_refresh import MetricMeasurement
 from products.signals.backend.scout_harness.tools.checks import (
     InvalidCheckResultError,
@@ -149,6 +159,8 @@ class TestCheckComparison(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("null_unit", _threshold_config(unit="m\x00s")),
+            ("surrogate_unit", _threshold_config(unit="m\ud800s")),
             ("neither_source", {"comparison": {"operator": "lte", "value": 1}}),
             ("empty_metric_id", {"metric_id": "", "comparison": {"operator": "lte", "value": 1}}),
             (
@@ -568,6 +580,7 @@ class TestReportCheckExecution(APIBaseTest):
         self._check()
         with (
             patch(_CAPTURE) as capture,
+            patch(_ASYNC_CONNECT, return_value=AsyncMock()),
             patch(_MEASURE, return_value=MetricMeasurement(value=42.0, measured_at=timezone.now(), series=None)),
         ):
             with self.captureOnCommitCallbacks(execute=True):
@@ -932,10 +945,15 @@ class TestReportCheckAPI(APIBaseTest):
         assert not SignalReportCheck.objects.for_team(self.team.id).exists()
 
     def test_list_then_cancel(self) -> None:
-        check_id = str(self._create().id)
+        check = self._create()
+        check_id = str(check.id)
+        finished = self._create()
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=finished.id).update(
+            status=SignalReportCheck.Status.PASSED, created_at=check.created_at + timedelta(minutes=1)
+        )
 
         listed = self.client.get(self.url)
-        assert [row["id"] for row in listed.json()["results"]] == [check_id]
+        assert [row["id"] for row in listed.json()["results"]] == [check_id, str(finished.id)]
         assert listed.json()["results"][0]["config"]["query"] == _PAGEVIEWS
 
         cancelled = self.client.delete(f"{self.url}{check_id}/")
@@ -944,6 +962,210 @@ class TestReportCheckAPI(APIBaseTest):
 
         already_cancelled = self.client.delete(f"{self.url}{check_id}/")
         assert already_cancelled.status_code == status.HTTP_400_BAD_REQUEST
+        assert self.client.post(f"{self.url}{check_id}/approve/").status_code == status.HTTP_400_BAD_REQUEST
+        check.refresh_from_db()
+        assert check.approved_at is None
+
+    def test_approval_is_idempotent_and_does_not_change_the_schedule(self) -> None:
+        check = self._create()
+        approved_at = check.updated_at + timedelta(minutes=1)
+        with time_machine.travel(approved_at, tick=False):
+            first = self.client.post(f"{self.url}{check.id}/approve/")
+        with time_machine.travel(approved_at + timedelta(minutes=1), tick=False):
+            second = self.client.post(f"{self.url}{check.id}/approve/")
+
+        assert first.status_code == status.HTTP_200_OK
+        assert second.status_code == status.HTTP_200_OK
+        check.refresh_from_db()
+        assert check.approved_by_id == self.user.id
+        assert check.approved_at == check.updated_at == approved_at
+        assert datetime.fromisoformat(first.json()["updated_at"]) == approved_at
+        assert first.json()["updated_at"] == second.json()["updated_at"]
+        assert first.json()["next_run_at"] == second.json()["next_run_at"]
+        assert check.status == SignalReportCheck.Status.ACTIVE
+
+    @parameterized.expand(
+        [
+            ("missing_config", {}),
+            ("fractional_count", _threshold_config(value_format="count", comparison={"operator": "lte", "value": 1.5})),
+            (
+                "malformed_hogql",
+                _threshold_config(
+                    query=trends_metric_query(
+                        series=[{"kind": "EventsNode", "event": "$pageview", "math": "hogql", "math_hogql": "sum("}]
+                    )
+                ),
+            ),
+        ]
+    )
+    def test_invalid_metric_replacement_leaves_the_check_and_activity_unchanged(self, _name: str, config: dict) -> None:
+        check = self._create()
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(approved_at=timezone.now())
+        original_state = SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).values().get()
+        log_count = SignalReportArtefact.objects.filter(report=self.report).count()
+
+        rejected = self.client.post(
+            f"{self.url}{check.id}/replace/", {"title": "Better metric", "config": config}, format="json"
+        )
+        assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+        assert SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).values().get() == original_state
+        assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == 1
+        assert SignalReportArtefact.objects.filter(report=self.report).count() == log_count
+
+    def test_replacement_keeps_a_check_moved_by_a_report_merge(self) -> None:
+        SignalReport.objects.filter(id=self.report.id).update(status=SignalReport.Status.READY)
+        self.report.refresh_from_db()
+        check = self._create()
+        survivor = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Surviving fix")
+        merge_reports(
+            team=self.team,
+            survivor=survivor,
+            source_ids=[str(self.report.id)],
+            attribution=ArtefactAttribution.from_user(self.user.id),
+        )
+        original_state = SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).values().get()
+        log_count = SignalReportArtefact.objects.filter(report_id__in=[self.report.id, survivor.id]).count()
+        request = APIRequestFactory().post(self.url)
+        force_authenticate(request, user=self.user)
+
+        with self.assertRaisesRegex(CheckCreationError, "moved to another report"):
+            replace_metric_check(
+                check=check,
+                title="Revised goal",
+                rationale="",
+                config=_threshold_config(),
+                attribution=ArtefactAttribution.from_user(self.user.id),
+                access_policy=ReportMetricAccessPolicy(request=Request(request), team=self.team),
+            )
+
+        assert SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).values().get() == original_state
+        assert original_state["report_id"] == survivor.id
+        assert not SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).exists()
+        assert SignalReportArtefact.objects.filter(report_id__in=[self.report.id, survivor.id]).count() == log_count
+
+    @parameterized.expand(
+        [
+            ("minute_precision_soak", "-30d", MIN_CHECK_INTERVAL_MINUTES, 3, True),
+            ("zero_soak", "-7d", MIN_CHECK_INTERVAL_MINUTES, 3, True, 0),
+            ("longer_query_window", "-40d", 30 * 24 * 60, 3, False),
+            ("last_run_at_expiry", "-7d", 30 * 24 * 60, 3, False, 30 * 24 * 60),
+            ("fits_near_horizon", "-7d", 30 * 24 * 60, 3, True, 29 * 24 * 60),
+            ("pending_longer_query", "-40d", 30 * 24 * 60, 3, False, 1450, SignalReport.Status.READY),
+        ]
+    )
+    def test_replacement_preserves_only_recurring_schedules_that_fit(
+        self,
+        _name: str,
+        date_from: str,
+        interval: int,
+        runs: int,
+        fits: bool,
+        stored_soak: int = 1450,
+        report_status: str = SignalReport.Status.RESOLVED,
+    ) -> None:
+        now = datetime(2026, 10, 2, 12, tzinfo=UTC)
+        with time_machine.travel(now, tick=False):
+            SignalReport.objects.filter(id=self.report.id).update(status=report_status)
+            self.report.refresh_from_db()
+            check = self._create(
+                config=_threshold_config(
+                    query=trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}], date_from="-7d")
+                ),
+                run_interval_minutes=interval,
+                runs_remaining=runs,
+            )
+            SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+                soak_minutes=stored_soak, approved_at=now, approved_by=self.user
+            )
+            original_state = SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).values().get()
+            log_count = SignalReportArtefact.objects.filter(report=self.report).count()
+            config = _threshold_config(
+                query=trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}], date_from=date_from),
+                comparison={"operator": "lte", "value": 5},
+            )
+            payload: dict[str, object] = {"title": "Revised goal", "config": config}
+            response = self.client.post(f"{self.url}{check.id}/replace/", payload, format="json")
+        check.refresh_from_db()
+        if not fits:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert "90-day horizon" in response.json()["error"]
+            assert SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).values().get() == original_state
+            assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == 1
+            assert SignalReportArtefact.objects.filter(report=self.report).count() == log_count
+        else:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            replacement = SignalReportCheck.objects.for_team(self.team.id).get(id=response.json()["id"])
+            assert check.status == SignalReportCheck.Status.CANCELLED
+            assert replacement.soak_minutes == stored_soak
+            assert replacement.run_interval_minutes == interval
+            assert replacement.runs_remaining == runs
+            assert replacement.approved_at is None
+            assert replacement.approved_by_id is None
+            assert replacement.status == SignalReportCheck.Status.ACTIVE
+            last_run_at = replacement.next_run_at + timedelta(minutes=interval * (runs - 1))
+            assert last_run_at < replacement.expires_at <= now + MAX_CHECK_HORIZON
+
+    @parameterized.expand([("direct_query", False), ("metric_reference", True)])
+    def test_replacement_cannot_schedule_queries_hidden_from_the_requester(self, _name: str, reference: bool) -> None:
+        check = self._create()
+        self.report.metrics = [{"metric_id": "pageviews", "query": _PAGEVIEWS}]
+        self.report.save(update_fields=["metrics"])
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=PropertyDefinition.objects.create(
+                team=self.team, name="secret_plan", property_type="String", type=PropertyDefinition.Type.EVENT
+            ),
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        config: dict[str, object] = {"comparison": {"operator": "lte", "value": 5}}
+        config.update({"metric_id": "pageviews"} if reference else {"query": _PAGEVIEWS})
+        response = self.client.post(
+            f"{self.url}{check.id}/replace/", {"title": "Revised goal", "config": config}, format="json"
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.ACTIVE
+        assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == 1
+
+        task = Task.objects.create(team=self.team, created_by=self.user, title="Research a report")
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            state={"analytics_query_context": [_PAGEVIEWS], "task_summary": "Restricted measurement"},
+        )
+        trace = self.client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/session_logs/")
+        assert trace.status_code == status.HTTP_403_FORBIDDEN
+        summaries = self.client.post(
+            f"/api/projects/{self.team.id}/tasks/summaries/", {"ids": [str(task.id)]}, format="json"
+        )
+        assert summaries.status_code == status.HTTP_200_OK
+        assert summaries.json()["results"][0]["latest_run"]["task_summary"] is None
+
+    def test_task_write_key_without_query_access_cannot_replace_a_metric_check(self) -> None:
+        check = self._create()
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Task-only test key",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=["task:write", "task:read"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        response = self.client.post(
+            f"{self.url}{check.id}/replace/",
+            {"title": "Revised goal", "config": _threshold_config()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.ACTIVE
 
     def test_a_created_check_is_reported_for_adoption(self) -> None:
         with patch(_CAPTURE) as capture:
@@ -995,9 +1217,12 @@ class TestReportCheckAPI(APIBaseTest):
         stored = self._create(config={**config, "value_format": "percentage", "unit": "failure"})
         assert stored.config["metric_id"] == "checkout-errors"
         assert stored.config["query"] == _PAGEVIEWS
-        assert not {"metric_kind", "value_format", "unit"}.intersection(stored.config)
+        assert stored.config["metric_kind"] == "occurrences"
+        assert stored.config["value_format"] == "count"
         overridden = self._create(config={**config, "metric_kind": "custom", "value_format": "number", "unit": "USD"})
-        assert not {"metric_kind", "value_format", "unit"}.intersection(overridden.config)
+        assert overridden.config["metric_kind"] == "occurrences"
+        assert overridden.config["value_format"] == "count"
+        assert overridden.config["unit"] is None
 
         # Rewriting the metric under the same id must not move the check's target.
         rewritten = trends_metric_query(series=[{"kind": "EventsNode", "event": "$autocapture"}])
@@ -1018,6 +1243,40 @@ class TestReportCheckAPI(APIBaseTest):
         assert datetime.fromisoformat(measured_query["source"]["dateRange"]["date_from"]) >= timezone.now() - timedelta(
             days=32
         )
+
+    @parameterized.expand([("same_query", False), ("changed_query", True)])
+    def test_legacy_display_fields_only_come_from_the_metrics_original_query(self, _name: str, changed: bool) -> None:
+        query = trends_metric_query(
+            series=[{"kind": "EventsNode", "event": "completed"}, {"kind": "EventsNode", "event": "started"}],
+        )
+        query["source"]["trendsFilter"] = {"formula": "A / B", "aggregationAxisFormat": "percentage_scaled"}
+        self.report.metrics = [
+            {
+                "metric_id": "conversion",
+                "title": "Completion rate",
+                "kind": "conversion_rate",
+                "value_format": "percentage_scaled",
+                "query": query,
+            }
+        ]
+        self.report.save(update_fields=["metrics"])
+        check = self._create(config={"metric_id": "conversion", "comparison": {"operator": "gte", "value": 0.1}})
+        check.config = {
+            key: value for key, value in check.config.items() if key not in ("metric_kind", "value_format", "unit")
+        }
+        check.save(update_fields=["config"])
+        if changed:
+            self.report.metrics[0]["query"] = _PAGEVIEWS
+            self.report.save(update_fields=["metrics"])
+
+        response = self.client.get(f"{self.url}{check.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        config = response.json()["config"]
+        assert config.get("value_format") == (None if changed else "percentage_scaled")
+        assert config.get("metric_kind") == (None if changed else "conversion_rate")
+        assert config["query"] == query
+        check.refresh_from_db()
+        assert "value_format" not in check.config
 
     def test_a_check_created_in_a_child_environment_stays_on_that_environment(self) -> None:
         child = Team.objects.create(organization=self.organization, name="Child", parent_team=self.team)
@@ -1359,9 +1618,8 @@ class TestAgentCheckDispatch(APIBaseTest):
 
         scout_config.enabled = True
         scout_config.save()
-        SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(
-            next_run_at=timezone.now() - timedelta(minutes=1)
-        )
+        check.refresh_from_db()
+        assert check.next_run_at <= timezone.now()
         with patch(_CONNECT), patch(_DISPATCH, return_value="wf-1") as dispatch:
             summary = run_due_report_checks()
 
@@ -1416,19 +1674,63 @@ class TestAgentCheckDispatch(APIBaseTest):
         assert check.dispatched_at is None
         assert check.status == SignalReportCheck.Status.ACTIVE
 
-    def test_a_run_that_never_records_a_result_errors_the_check(self) -> None:
+    @parameterized.expand([("live_lane", True), ("paused_lane", False)])
+    def test_a_run_that_never_records_a_result_errors_the_check_unless_its_lane_is_paused(
+        self, _name, lane_enabled
+    ) -> None:
         now = timezone.now()
         check = self._check(dispatched_at=now - AGENT_CHECK_RESULT_WINDOW, next_run_at=now - timedelta(minutes=1))
+        self.scout_config.enabled = lane_enabled
+        self.scout_config.save()
 
         with patch(_CONNECT), patch(_DISPATCH) as dispatch:
             summary = run_due_report_checks()
 
-        assert summary.errored == 1
         dispatch.assert_not_called()
         check.refresh_from_db()
         assert check.dispatched_at is None
-        assert check.consecutive_errors == 1
-        assert "ended without recording a result" in self._results()[0].content
+        assert check.status == SignalReportCheck.Status.ACTIVE
+        if lane_enabled:
+            assert summary.errored == 1
+            assert check.consecutive_errors == 1
+            assert "ended without recording a result" in self._results()[0].content
+        else:
+            assert summary.deferred == 1
+            assert check.consecutive_errors == 0
+            assert self._results() == []
+            assert check.next_run_at > now + CHECK_DISPATCH_DEFER_AFTER - timedelta(minutes=5)
+
+    @parameterized.expand(
+        [
+            (
+                "paused_refusal",
+                "The `signals-scout-inbox-validation` scout is paused, so the check could not run.",
+                True,
+            ),
+            ("other_error", "the follow-up run ended without recording a result.", False),
+        ]
+    )
+    def test_the_repair_reactivates_only_checks_a_paused_refusal_retired(self, _name, reason, reactivated) -> None:
+        check = self._check(consecutive_errors=MAX_CONSECUTIVE_CHECK_ERRORS - 1)
+        record_check_verdict(
+            check, CheckVerdict(outcome="errored", explanation=f"{check.title}: {reason}"), now=timezone.now()
+        )
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.ERRORED
+
+        dry_run = reactivate_checks_errored_by_scout_pause(apply=False)
+        summary = reactivate_checks_errored_by_scout_pause(apply=True)
+
+        assert (dry_run.matched, dry_run.reactivated) == (int(reactivated), 0)
+        assert summary.reactivated == int(reactivated)
+        check.refresh_from_db()
+        if reactivated:
+            assert check.status == SignalReportCheck.Status.ACTIVE
+            assert check.consecutive_errors == 0
+            with patch(_CONNECT), patch(_DISPATCH, return_value="wf-1"):
+                assert run_due_report_checks().dispatched == 1
+        else:
+            assert check.status == SignalReportCheck.Status.ERRORED
 
 
 class TestCheckResultTool(APIBaseTest):
@@ -1734,18 +2036,33 @@ class TestPendingChecks(APIBaseTest):
         assert agent.next_run_at == resolved_at + timedelta(days=1)
         assert agent.measurement_start_at is None
 
-    def test_query_window_longer_than_the_horizon_is_rejected_before_resolution(self) -> None:
+    @parameterized.expand(
+        [
+            ("long_query_window", "-365d", 60, None, 1),
+            ("long_recurring_schedule", "-40d", 60, 30 * 24 * 60, 3),
+        ]
+    )
+    def test_measurement_schedule_outside_the_horizon_is_rejected_before_resolution(
+        self, _name: str, date_from: str, soak_minutes: int, interval: int | None, runs: int
+    ) -> None:
+        log_count = SignalReportArtefact.objects.filter(report=self.report).count()
         with self.assertRaisesRegex(CheckCreationError, "90-day horizon"):
             create_check(
                 report=self.report,
-                title="Yearly metric",
+                title="Unreachable metric",
                 kind="metric_threshold",
                 config=_threshold_config(
-                    query=trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}], date_from="-365d")
+                    query=trends_metric_query(
+                        series=[{"kind": "EventsNode", "event": "$pageview"}], date_from=date_from
+                    )
                 ),
                 attribution=ArtefactAttribution.system(),
-                soak_minutes=60,
+                soak_minutes=soak_minutes,
+                run_interval_minutes=interval,
+                runs_remaining=runs,
             )
+        assert not SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).exists()
+        assert SignalReportArtefact.objects.filter(report=self.report).count() == log_count
 
     def test_invalid_legacy_config_does_not_prevent_other_checks_from_arming(self) -> None:
         invalid = self._pending()
@@ -2065,7 +2382,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
         with patch(_CAPTURE) as capture, self.captureOnCommitCallbacks(execute=True):
             written = create_checks_from_specs(
                 report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
-            )
+            ).created
 
         assert len(written) == 1
         check = written[0]
@@ -2078,25 +2395,212 @@ class TestResearchAuthoredChecks(APIBaseTest):
     def test_a_newer_research_pass_replaces_the_pending_checks_of_an_older_one(self) -> None:
         older = create_checks_from_specs(
             report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
-        )
+        ).created
         newer = create_checks_from_specs(
             report=self.report,
             specs=[self._spec(title="Checkout errors stay under 5 a day")],
             attribution=ArtefactAttribution.system(),
-        )
+        ).created
         create_checks_from_specs(report=self.report, specs=[], attribution=ArtefactAttribution.system())
 
         older[0].refresh_from_db()
         newer[0].refresh_from_db()
         assert older[0].status == SignalReportCheck.Status.CANCELLED
+        assert newer[0].status == SignalReportCheck.Status.CANCELLED
+
+    @parameterized.expand(
+        [
+            ("current_config", False, "unchanged"),
+            ("config_written_before_display_fields", True, "unchanged"),
+            ("revise_approved", False, "revise"),
+            ("retire_approved", False, "retire"),
+            ("omitted_metric_defaults", False, "unchanged", "metric_defaults"),
+            ("omitted_agent_defaults", False, "unchanged", "agent_defaults"),
+            ("revise_recurring", False, "revise", "recurring"),
+            ("omitted_existing_wait", False, "unchanged", "omitted_wait"),
+            ("revise_omitted_existing_wait", False, "revise", "omitted_wait"),
+            ("longer_wait", False, "revise", "longer_wait"),
+            ("invalid_stored_config", False, "revise", "invalid_stored"),
+        ]
+    )
+    def test_research_reviews_approved_checks(
+        self, _name: str, legacy_config: bool, action: str, variant: str = ""
+    ) -> None:
+        spec = self._spec()
+        if variant == "metric_defaults":
+            spec.config["baseline_value"] = None
+        elif variant == "agent_defaults":
+            spec = self._spec(kind="agent", config={"instructions": "Check the issue again."})
+        existing = create_checks_from_specs(
+            report=self.report, specs=[spec], attribution=ArtefactAttribution.system()
+        ).created[0]
+        approved_at = timezone.now()
+        stored_config = dict(existing.config)
+        if variant == "metric_defaults":
+            stored_config["comparison"]["bounds"] = None
+            stored_config.pop("baseline_value")
+        elif variant == "agent_defaults":
+            stored_config.update(probe_hints=[], skill_name=None)
+        if variant == "invalid_stored":
+            stored_config["retired_config_field"] = "obsolete"
+        if variant == "omitted_wait":
+            SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(soak_minutes=72 * 60)
+        if variant == "recurring":
+            SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(
+                soak_minutes=1450, run_interval_minutes=7 * 24 * 60, runs_remaining=3
+            )
+        if legacy_config:
+            stored_config = {
+                key: value for key, value in stored_config.items() if key not in {"metric_kind", "value_format", "unit"}
+            }
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(
+            approved_at=approved_at, config=stored_config
+        )
+        existing.refresh_from_db()
+        original_schedule = (existing.next_run_at, existing.expires_at, existing.updated_at)
+        specs = (
+            []
+            if action == "retire"
+            else [self._spec(title="Revised goal", existing_check_id=existing.id)]
+            if action == "revise"
+            else [spec]
+        )
+
+        if variant == "omitted_wait":
+            specs[0] = self._spec(title=specs[0].title, existing_check_id=existing.id)
+        if variant == "invalid_stored":
+            specs = [self._spec(existing_check_id=existing.id)]
+        elif variant == "longer_wait":
+            specs[0] = specs[0].model_copy(update={"soak_hours": 72})
+        written = create_checks_from_specs(
+            report=self.report,
+            specs=specs,
+            attribution=ArtefactAttribution.system(),
+            checks_snapshot=check_versions([existing]),
+        ).created
+
+        existing.refresh_from_db()
+        assert existing.status == (
+            SignalReportCheck.Status.PENDING if action == "unchanged" else SignalReportCheck.Status.CANCELLED
+        )
+        assert existing.approved_at == approved_at
+        if action == "unchanged":
+            assert (existing.next_run_at, existing.expires_at, existing.updated_at) == original_schedule
+        assert len(written) == (1 if action == "revise" else 0)
+        if written:
+            assert written[0].title == (spec.title if variant == "invalid_stored" else "Revised goal")
+            assert written[0].approved_at is None
+            assert written[0].soak_minutes == (72 * 60 if variant == "longer_wait" else existing.soak_minutes)
+            assert written[0].run_interval_minutes == existing.run_interval_minutes
+            assert written[0].runs_remaining == existing.runs_remaining
+        assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == (
+            2 if action == "revise" else 1
+        )
+
+    def test_terminal_check_during_reconciliation_does_not_drop_new_specs(self) -> None:
+        older = create_checks_from_specs(
+            report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
+        ).created[0]
+
+        def expire_before_cancel(check: SignalReportCheck, **kwargs) -> bool:
+            SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+                status=SignalReportCheck.Status.EXPIRED
+            )
+            return cancel_check(check, **kwargs)
+
+        with patch("products.signals.backend.report_check_authoring.cancel_check", side_effect=expire_before_cancel):
+            newer = create_checks_from_specs(
+                report=self.report,
+                specs=[self._spec(title="Replacement goal")],
+                attribution=ArtefactAttribution.system(),
+            ).created
+        older.refresh_from_db()
+        assert older.status == SignalReportCheck.Status.EXPIRED
+        assert len(newer) == 1
+        assert newer[0].title == "Replacement goal"
         assert newer[0].status == SignalReportCheck.Status.PENDING
+
+    @parameterized.expand(
+        [
+            ("replacement",),
+            ("external_agent",),
+            ("approval",),
+            ("replacement_during_research", True),
+            ("approval_during_research", True),
+            ("task_check_during_research", True),
+        ]
+    )
+    def test_research_preserves_person_selected_pending_checks(
+        self, selection: str, capture_snapshot: bool = False
+    ) -> None:
+        original = create_checks_from_specs(
+            report=self.report,
+            specs=[self._spec()],
+            attribution=ArtefactAttribution.from_agent(self.user.id, "test-client")
+            if selection == "external_agent"
+            else ArtefactAttribution.system(),
+        ).created[0]
+        snapshot = check_versions([original]) if capture_snapshot else None
+        url = f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/checks/{original.id}/"
+        if selection.startswith("replacement"):
+            response = self.client.post(
+                f"{url}replace/",
+                {"title": "Person-selected goal", "config": self._spec().config},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+        elif selection.startswith("approval"):
+            response = self.client.post(f"{url}approve/")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+        elif selection == "task_check_during_research":
+            create_check(
+                report=self.report,
+                title="Task-selected goal",
+                rationale="",
+                kind="metric_threshold",
+                config=self._spec().config,
+                attribution=ArtefactAttribution.from_task(
+                    str(Task.objects.create(team=self.team, title="Select a check", description="").id)
+                ),
+                soak_minutes=60,
+            )
+        checks = SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).order_by("id")
+        selected_state = list(checks.values())
+        log_count = SignalReportArtefact.objects.filter(report=self.report).count()
+
+        create_checks_from_specs(
+            report=self.report,
+            specs=[self._spec(title="New research goal")],
+            attribution=ArtefactAttribution.system(),
+            checks_snapshot=snapshot,
+        )
+
+        assert list(checks.values()) == selected_state
+        assert SignalReportArtefact.objects.filter(report=self.report).count() == log_count
+
+    def test_research_keeps_a_check_with_a_minute_level_soak(self) -> None:
+        existing = create_checks_from_specs(
+            report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
+        ).created[0]
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(soak_minutes=1450)
+
+        assert (
+            create_checks_from_specs(
+                report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
+            ).created
+            == []
+        )
+
+        existing.refresh_from_db()
+        assert existing.status == SignalReportCheck.Status.PENDING
+        assert existing.soak_minutes == 1450
 
     def test_a_spec_naming_a_metric_the_report_does_not_have_is_dropped(self) -> None:
         written = create_checks_from_specs(
             report=self.report,
             specs=[self._spec(config={"metric_id": "invented", "comparison": {"operator": "lte", "value": 10}})],
             attribution=ArtefactAttribution.system(),
-        )
+        ).created
 
         assert written == []
         assert not SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).exists()
@@ -2108,7 +2612,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
 
         written = create_checks_from_specs(
             report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
-        )
+        ).created
 
         assert written[0].status == SignalReportCheck.Status.ACTIVE
         assert written[0].measurement_start_at is not None
@@ -2119,7 +2623,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
     def test_a_longer_soak_is_honoured_for_a_fix_that_reaches_users_slowly(self) -> None:
         written = create_checks_from_specs(
             report=self.report, specs=[self._spec(soak_hours=72)], attribution=ArtefactAttribution.system()
-        )
+        ).created
 
         assert written[0].soak_minutes == 72 * 60
 

@@ -4,7 +4,6 @@ import * as path from "node:path";
 import type { HookInput, Options } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "../../../utils/logger";
-import { SUBAGENT_REWRITES } from "../hooks";
 import { VALIDATION_LOCK_PREFIX } from "./memory-validation";
 import {
   buildSessionOptions,
@@ -103,19 +102,6 @@ describe("buildSessionOptions", () => {
     });
   });
 
-  it.each(Object.entries(SUBAGENT_REWRITES))(
-    'registers rewrite target "%s" → "%s" in options.agents',
-    (_source, target) => {
-      const options = buildSessionOptions(makeParams());
-      const registered = new Set(Object.keys(options.agents ?? {}));
-
-      expect(
-        registered.has(target),
-        `Rewrite target "${target}" is not registered in options.agents — either register the agent in buildAgents or remove the rewrite.`,
-      ).toBe(true);
-    },
-  );
-
   it("maps the custom auto mode to the SDK's default mode", () => {
     const options = buildSessionOptions({
       ...makeParams(),
@@ -135,7 +121,7 @@ describe("buildSessionOptions", () => {
     },
   );
 
-  it("preserves caller-provided agents alongside defaults", () => {
+  it("preserves caller-provided agents", () => {
     const params = makeParams();
     const options = buildSessionOptions({
       ...params,
@@ -149,26 +135,18 @@ describe("buildSessionOptions", () => {
       },
     });
 
-    expect(options.agents?.["custom-agent"]).toBeDefined();
-    expect(options.agents?.["ph-explore"]).toBeDefined();
-  });
-
-  it("lets caller-provided agents override defaults by name", () => {
-    const params = makeParams();
-    const override = {
-      description: "Overridden",
-      prompt: "Overridden prompt",
-    };
-    const options = buildSessionOptions({
-      ...params,
-      userProvidedOptions: {
-        agents: {
-          "ph-explore": override,
-        },
+    expect(options.agents).toEqual({
+      "custom-agent": {
+        description: "Custom",
+        prompt: "Custom prompt",
       },
     });
+  });
 
-    expect(options.agents?.["ph-explore"]).toEqual(override);
+  it("does not add custom agents by default", () => {
+    const options = buildSessionOptions(makeParams());
+
+    expect(options.agents).toBeUndefined();
   });
 
   it.each([

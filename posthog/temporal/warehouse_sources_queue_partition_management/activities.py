@@ -23,6 +23,19 @@ PARTITIONS_AHEAD = 7
 RETENTION_DAYS = 7
 DEFAULT_PARTITION_DELETE_BATCH_SIZE = 10_000
 
+# Rows in these tables change state in place two or three times, and each change leaves a dead
+# entry in the partial indexes on latest_state. A scale factor waits for 10% of a partition to be
+# dead, which late in the day is ~150k rows, and the claim query then reads through those entries.
+# A fixed threshold keeps the dead count low and about constant as the daily partition grows.
+_IN_PLACE_UPDATE_TABLES = ("sourcebatch", "queuejob")
+_PARTITION_AUTOVACUUM_OPTIONS = (
+    "autovacuum_vacuum_scale_factor=0",
+    "autovacuum_vacuum_threshold=10000",
+    "autovacuum_analyze_scale_factor=0.02",
+    "autovacuum_vacuum_cost_delay=2",
+    "autovacuum_vacuum_cost_limit=2000",
+)
+
 # Deliberately not the lock-takeover sentinel — that string has special
 # downstream semantics in the dead-job gate.
 RETENTION_STRANDED_ERROR = "batches aged out of retention without being processed"
@@ -102,6 +115,9 @@ def _manage_database_partitions(today: date, errors: list[str]) -> _PartitionCha
                 except Exception as e:
                     errors.append(f"Failed to create {partition_name}: {e}")
                     logger.exception("Failed to create partition", partition=partition_name)
+                    continue
+                if table in _IN_PLACE_UPDATE_TABLES:
+                    _tune_partition_autovacuum(conn, partition_name, errors)
 
         cutoff = today - timedelta(days=RETENTION_DAYS)
         failed_default_expiries: set[str] = set()
@@ -137,6 +153,23 @@ def _manage_database_partitions(today: date, errors: list[str]) -> _PartitionCha
         alerts = _find_partition_alerts(conn, today, failed_default_expiries)
 
     return _PartitionChanges(ensured=ensured, dropped=dropped, alerts=alerts)
+
+
+def _tune_partition_autovacuum(conn: psycopg.Connection, partition_name: str, errors: list[str]) -> None:
+    row = conn.execute("SELECT reloptions FROM pg_class WHERE oid = %s::regclass", [partition_name]).fetchone()
+    current = set(row[0] or []) if row else set()
+    if current.issuperset(_PARTITION_AUTOVACUUM_OPTIONS):
+        return
+    # ALTER takes a lock that conflicts with a running autovacuum, so skip it when the options
+    # are already set, and give up quickly rather than queue behind one.
+    try:
+        conn.execute("SET lock_timeout = '5s'")
+        conn.execute(f"ALTER TABLE {partition_name} SET ({', '.join(_PARTITION_AUTOVACUUM_OPTIONS)})")
+    except Exception as e:
+        errors.append(f"Failed to tune autovacuum on {partition_name}: {e}")
+        logger.exception("Failed to tune partition autovacuum", partition=partition_name)
+    finally:
+        conn.execute("RESET lock_timeout")
 
 
 def _partition_ddl_database_url() -> str:

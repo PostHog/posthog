@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
+from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
@@ -19,7 +20,9 @@ from products.autoresearch.backend.models import (
     AutoresearchRun,
     AutoresearchTrainingRun,
 )
+from products.autoresearch.backend.query import BATCH_QUERY
 from products.autoresearch.backend.temporal.workflows import (
+    _VALIDATION_ATTEMPT_TIMEOUT,
     InferenceWorkflowResult,
     KickoffTrainingInput,
     KickoffTrainingResult,
@@ -220,6 +223,31 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         assert result.status == "skipped"
         mock_inference.assert_not_called()
         mock_validation.assert_not_called()
+
+    @parameterized.expand([("inference",), ("validation",)])
+    @patch("products.autoresearch.backend.temporal.workflows.run_online_validation_for_pipeline", return_value=[])
+    @patch("products.autoresearch.backend.temporal.workflows.run_inference_for_pipeline")
+    def test_activities_run_their_queries_as_batch_work(
+        self, step: str, mock_inference: MagicMock, mock_validation: MagicMock
+    ) -> None:
+        pipeline = self._create_pipeline()
+        env = ActivityEnvironment()
+        if step == "inference":
+            AutoresearchModel.objects.create(
+                pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION, model_recipe={"stub": True}, recipe_hash="abc"
+            )
+            mock_inference.return_value = MagicMock(pk="run-1", rows_scored=0, status="completed", error="")
+            env.run(
+                activity_run_inference,
+                RunInferenceInput(pipeline_id=str(pipeline.id), team_id=self.team.id, prediction_date="2026-09-11"),
+            )
+            assert mock_inference.call_args.kwargs["query_context"] == BATCH_QUERY
+            assert mock_inference.call_args.kwargs["scheduled"] is True
+        else:
+            env.run(activity_run_validation, RunValidationInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
+            assert mock_validation.call_args.kwargs["query_context"] == BATCH_QUERY
+            claim_deadline = mock_validation.call_args.kwargs["claim_deadline"]
+            assert django_timezone.now() < claim_deadline < django_timezone.now() + _VALIDATION_ATTEMPT_TIMEOUT
 
     @parameterized.expand([("scheduled", False), ("manual", True)])
     @patch("products.autoresearch.backend.temporal.workflows.run_inference_for_pipeline")

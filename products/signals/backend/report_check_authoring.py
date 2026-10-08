@@ -25,13 +25,17 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.dataclasses import frozen
+
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.models import SignalReport, SignalReportCheck
+from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportCheck
 from products.signals.backend.report_check_artefacts import write_check_cancelled, write_check_scheduled
 from products.signals.backend.report_check_execution import resolve_check_query
+from products.signals.backend.report_check_research import research_can_reconcile_checks
 from products.signals.backend.report_check_telemetry import capture_report_check_created
 from products.signals.backend.report_check_timing import metric_check_ready_at
 from products.signals.backend.report_checks import (
+    DEFAULT_CHECK_SOAK_HOURS,
     MAX_ACTIVE_CHECKS_PER_REPORT,
     MAX_CHECK_HORIZON,
     CheckConfigValidationError,
@@ -42,6 +46,7 @@ from products.signals.backend.report_checks import (
     soak_minutes_from_gap,
     validate_metric_check_for_write,
 )
+from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 
 logger = structlog.get_logger(__name__)
 
@@ -50,6 +55,10 @@ _METRIC_DISPLAY_FIELDS = frozenset({"metric_kind", "value_format", "unit"})
 
 class CheckCreationError(ValueError):
     """A check that cannot be written: a bad config, an unresolvable metric, or a full report."""
+
+
+class CheckQueryAccessError(PermissionError):
+    """The requester cannot read the measurement they would schedule."""
 
 
 def create_check(
@@ -92,11 +101,23 @@ def create_check(
         locked_report = SignalReport.objects.select_for_update().filter(id=report.id, team_id=report.team_id).first()
         if locked_report is None:
             raise CheckCreationError("The report this check belongs to is gone.")
+        if soak_minutes is None:
+            assert next_run_at is not None
+            soak_minutes = soak_minutes_from_gap(next_run_at, now)
+        first_run_at = (
+            next_run_at
+            if next_run_at is not None and locked_report.status == SignalReport.Status.RESOLVED
+            else now + timedelta(minutes=soak_minutes)
+        )
         metric_ready_at = None
         if kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
             metric_ready_at = metric_check_ready_at(stored_config["query"], locked_report.team, now)
-            if metric_ready_at >= now + MAX_CHECK_HORIZON:
-                raise CheckCreationError("The full measurement window must fit within the check's 90-day horizon.")
+            first_run_at = max(first_run_at, metric_ready_at)
+            last_run_at = first_run_at + timedelta(minutes=(run_interval_minutes or 0) * max(0, runs_remaining - 1))
+            if last_run_at >= now + MAX_CHECK_HORIZON:
+                raise CheckCreationError(
+                    "The remaining runs must fit within the check's 90-day horizon. Use a shorter query window."
+                )
         open_checks = SignalReportCheck.objects.for_team(locked_report.team_id).filter(
             report_id=locked_report.id, status__in=SignalReportCheck.OPEN_STATUSES
         )
@@ -104,13 +125,8 @@ def create_check(
             raise CheckCreationError(f"A report may carry at most {MAX_ACTIVE_CHECKS_PER_REPORT} active checks.")
         if locked_report.status == SignalReport.Status.RESOLVED:
             status = SignalReportCheck.Status.ACTIVE
-            if next_run_at is None:
-                assert soak_minutes is not None
-                next_run_at = now + timedelta(minutes=soak_minutes)
-            if soak_minutes is None:
-                soak_minutes = soak_minutes_from_gap(next_run_at, now)
+            next_run_at = first_run_at
             if metric_ready_at is not None:
-                next_run_at = max(next_run_at, metric_ready_at)
                 if expires_at is not None and expires_at <= next_run_at:
                     raise CheckCreationError("The expiry must allow a full post-resolution measurement window.")
             if expires_at is None:
@@ -122,9 +138,6 @@ def create_check(
                 )
         else:
             status = SignalReportCheck.Status.PENDING
-            if soak_minutes is None:
-                assert next_run_at is not None
-                soak_minutes = soak_minutes_from_gap(next_run_at, now)
             # Provisional, and rewritten at arm time. The horizon is real though: a report that
             # never resolves retires its pending checks rather than holding them forever.
             next_run_at = now + timedelta(minutes=soak_minutes)
@@ -201,8 +214,7 @@ def _stored_config(report: SignalReport, kind: str, config: dict) -> dict:
             validate_metric_check_for_write(normalized)
         except CheckConfigValidationError as error:
             raise CheckCreationError(str(error)) from None
-    # Accept metadata before writers persist it, so old workers can read checks during rollout.
-    return {key: value for key, value in stored_config.items() if key not in _METRIC_DISPLAY_FIELDS}
+    return stored_config
 
 
 def _with_metric_display(report: SignalReport, config: dict, metric_id: str | None) -> dict:
@@ -221,41 +233,98 @@ def _with_metric_display(report: SignalReport, config: dict, metric_id: str | No
     return filled
 
 
+def _check_configs_match(report: SignalReport, check: SignalReportCheck, desired: dict) -> bool:
+    try:
+        stored = parse_check_config(
+            check.kind, _with_metric_display(report, check.config, check.config.get("metric_id"))
+        )
+    except CheckConfigValidationError:
+        return False
+    return stored == parse_check_config(check.kind, desired)
+
+
+@frozen
+class CheckReconciliation:
+    applied: bool
+    created: list[SignalReportCheck]
+
+
 def create_checks_from_specs(
     *,
     report: SignalReport,
     specs: list[CheckSpec],
     attribution: ArtefactAttribution,
-) -> list[SignalReportCheck]:
-    """Write a research run's check specs on the report it just finished.
+    checks_snapshot: dict[str, str] | None = None,
+    reconcile: bool = True,
+) -> CheckReconciliation:
+    """Reconcile a successful verification turn with the report's open checks.
 
-    The specs replace the report's pending checks rather than joining them. Every pending row on the
-    report was written against an older version of this prose, which this pass has just rewritten.
-    Left in place, those rows would fill the per-report cap, and the resolve would arm them against
-    prose they were not written for. A pass that returns no specs leaves them alone, because
-    the verification turn is best-effort and an empty result can be a failed turn.
-
-    A spec the report cannot carry is dropped with a log rather than failing the run, the way an
-    unvalidatable chart is: the prose is the report's point, and a check that names a metric the
-    presentation turn did not keep is the model over-reaching, not a broken pipeline.
+    Identical rows keep their schedule, results, and approval. A changed or omitted claim retires;
+    replacements start unapproved. If a new spec cannot be stored, the transaction rolls back and
+    leaves the old checks running.
     """
-    if not specs:
-        return []
-    # Only the pending rows, never a check the resolve already armed: this pass replaces prose that
-    # has not been measured against yet.
-    for replaced in SignalReportCheck.objects.for_team(report.team_id).filter(
-        report_id=report.id, status=SignalReportCheck.Status.PENDING
-    ):
-        cancel_check(
-            replaced,
-            reason="replaced_by_research",
-            attribution=attribution,
-            from_statuses=(SignalReportCheck.Status.PENDING,),
-        )
-    written: list[SignalReportCheck] = []
-    for spec in specs:
-        try:
-            written.append(
+    try:
+        with transaction.atomic():
+            report = SignalReport.objects.select_for_update().get(id=report.id, team_id=report.team_id)
+            desired = [(spec, _stored_config(report, spec.kind, spec.config)) for spec in specs]
+            existing = list(
+                SignalReportCheck.objects.for_team(report.team_id)
+                .select_for_update()
+                .filter(report_id=report.id, status__in=SignalReportCheck.OPEN_STATUSES)
+                .order_by("id")
+            )
+            if reconcile and not research_can_reconcile_checks(existing, checks_snapshot):
+                logger.info(
+                    "signals.report_check.research_reconciliation_skipped",
+                    report_id=str(report.id),
+                    team_id=report.team_id,
+                    reason="checks_changed_during_research",
+                    spec_count=len(specs),
+                )
+                return CheckReconciliation(applied=False, created=[])
+            if not reconcile:
+                existing = [
+                    check
+                    for check in existing
+                    if check.status == SignalReportCheck.Status.PENDING
+                    and check.actor_kind not in (SignalActorKind.USER, SignalActorKind.AGENT)
+                    and check.approved_at is None
+                ]
+            retained_ids: set[uuid.UUID] = set()
+            new_specs: list[tuple[CheckSpec, SignalReportCheck | None]] = []
+            referenced_ids: set[uuid.UUID] = set()
+            for spec, config in desired:
+                previous = next((check for check in existing if check.id == spec.existing_check_id), None)
+                if spec.existing_check_id is not None:
+                    if previous is None or previous.id in referenced_ids or previous.id in retained_ids:
+                        raise CheckCreationError("An existing check must be open on this report and referenced once.")
+                    referenced_ids.add(previous.id)
+                match = next(
+                    (
+                        check
+                        for check in existing
+                        if check.id not in retained_ids
+                        and (check.id not in referenced_ids or check.id == spec.existing_check_id)
+                        and (previous is None or check.id == previous.id)
+                        and check.title == spec.title
+                        and check.rationale == spec.rationale
+                        and check.kind == spec.kind
+                        and (
+                            "soak_hours" not in spec.model_fields_set
+                            or max(1, round((check.soak_minutes or 60) / 60)) == spec.soak_hours
+                        )
+                        and _check_configs_match(report, check, config)
+                    ),
+                    None,
+                )
+                if match is None:
+                    new_specs.append((spec, previous))
+                else:
+                    retained_ids.add(match.id)
+            for replaced in existing:
+                if replaced.id not in retained_ids:
+                    cancel_check(replaced, reason="replaced_by_research", attribution=attribution)
+            created = [
                 create_check(
                     report=report,
                     title=spec.title,
@@ -263,24 +332,70 @@ def create_checks_from_specs(
                     kind=spec.kind,
                     config=spec.config,
                     attribution=attribution,
-                    soak_minutes=spec.soak_hours * 60,
+                    soak_minutes=(
+                        previous.soak_minutes if previous.soak_minutes is not None else DEFAULT_CHECK_SOAK_HOURS * 60
+                    )
+                    if previous is not None
+                    and (
+                        "soak_hours" not in spec.model_fields_set
+                        or spec.soak_hours == max(1, round((previous.soak_minutes or 60) / 60))
+                    )
+                    else spec.soak_hours * 60,
+                    run_interval_minutes=previous.run_interval_minutes if previous is not None else None,
+                    runs_remaining=previous.runs_remaining if previous is not None else 1,
                 )
-            )
-        except CheckCreationError as error:
-            logger.warning(
-                "signals.report_check.research_spec_dropped",
-                report_id=str(report.id),
-                team_id=report.team_id,
-                kind=spec.kind,
-                reason=str(error),
-            )
-    return written
+                for spec, previous in new_specs
+            ]
+            return CheckReconciliation(applied=True, created=created)
+    except (CheckCreationError, CheckConfigValidationError) as error:
+        logger.warning(
+            "signals.report_check.research_spec_dropped",
+            report_id=str(report.id),
+            team_id=report.team_id,
+            reason=str(error) if isinstance(error, CheckCreationError) else "invalid_check_config",
+        )
+        return CheckReconciliation(applied=False, created=[])
+
+
+def replace_metric_check(
+    *,
+    check: SignalReportCheck,
+    title: str,
+    rationale: str,
+    config: dict,
+    attribution: ArtefactAttribution,
+    access_policy: ReportMetricAccessPolicy,
+) -> SignalReportCheck:
+    """Replace one open metric check atomically, keeping it live if the new check is invalid."""
+    if check.kind != SignalReportCheck.Kind.METRIC_THRESHOLD:
+        raise CheckCreationError("Only metric checks can be replaced this way.")
+    with transaction.atomic():
+        report = SignalReport.objects.select_for_update().get(id=check.report_id, team_id=check.team_id)
+        locked = SignalReportCheck.objects.for_team(check.team_id).select_for_update().get(id=check.id)
+        if locked.report_id != report.id:
+            raise CheckCreationError("This check moved to another report. Reload the report before replacing it.")
+        stored_config = _stored_config(report, SignalReportCheck.Kind.METRIC_THRESHOLD, config)
+        if not access_policy.may_read_query(stored_config):
+            raise CheckQueryAccessError("The measurement query is not available to you.")
+        if not cancel_check(locked, reason="replaced_by_request", attribution=attribution):
+            raise CheckCreationError("This check has already finished. Review its result before adding another.")
+        return create_check(
+            report=report,
+            title=title,
+            rationale=rationale,
+            kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
+            config=config,
+            attribution=attribution,
+            soak_minutes=locked.soak_minutes if locked.soak_minutes is not None else DEFAULT_CHECK_SOAK_HOURS * 60,
+            run_interval_minutes=locked.run_interval_minutes,
+            runs_remaining=locked.runs_remaining,
+        )
 
 
 def cancel_check(
     check: SignalReportCheck,
     *,
-    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research"],
+    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request"],
     attribution: ArtefactAttribution,
     from_statuses: Sequence[str] = SignalReportCheck.OPEN_STATUSES,
 ) -> bool:

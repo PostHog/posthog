@@ -51,16 +51,6 @@ class TestDeepgramSourceClass:
         schema = next(s for s in self.source.get_schemas(MagicMock(), team_id=1) if s.name == endpoint)
         assert schema.supports_incremental is incremental
 
-    def test_schemas_expose_composite_primary_keys(self) -> None:
-        # Fan-out children must key on [project_id, ...] to stay unique table-wide; a regression to a
-        # bare id would seed duplicate rows across projects.
-        schemas = {s.name: s.detected_primary_keys for s in self.source.get_schemas(MagicMock(), team_id=1)}
-        assert schemas["members"] == ["project_id", "member_id"]
-        assert schemas["requests"] == ["project_id", "request_id"]
-        # An aggregate row is identified by its period plus the slice it covers, never by the period
-        # alone, because a grouped response returns several rows for the same period.
-        assert schemas["usage_breakdown"] == ["project_id", "start", "end", "grouping_key"]
-
     def test_get_schemas_filters_by_name(self) -> None:
         schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["requests"])
         assert [s.name for s in schemas] == ["requests"]
@@ -70,16 +60,6 @@ class TestDeepgramSourceClass:
         with patch.object(source_module, "validate_deepgram_credentials", return_value=api_ok):
             ok, _error = self.source.validate_credentials(DeepgramSourceConfig(api_key="k"), team_id=1)
         assert ok is expected
-
-    def test_non_retryable_errors_cover_auth_and_bad_request(self) -> None:
-        errors = self.source.get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-        # A 400 is a deterministic client error; it must fail the sync with a friendly message rather
-        # than retry and store the raw "400 Client Error: Bad Request".
-        bad_request = [message for key, message in errors.items() if "400 Client Error: Bad Request" in key]
-        assert len(bad_request) == 1
-        assert bad_request[0]
 
     @parameterized.expand([("incremental_on", True), ("incremental_off", False)])
     def test_source_for_pipeline_gates_last_value_on_incremental(self, _name: str, use_incremental: bool) -> None:

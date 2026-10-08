@@ -7,6 +7,8 @@ import { Card } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
+import { briefingItemReportCard } from 'scenes/project-homepage/today/todayBriefingItems'
+import { TodayReportHoverCard } from 'scenes/project-homepage/today/TodayReportHoverCard'
 import { urls } from 'scenes/urls'
 
 import { todayListAppearanceLogic } from '~/layout/today/todayListAppearanceLogic'
@@ -21,9 +23,13 @@ import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
-import { reportMetricQueryHandler } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
+import {
+    reportMetricQueryHandler,
+    reportMetricsFixture,
+} from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
 
 const ADA = {
@@ -282,6 +288,7 @@ const REPORTS = [
         title: 'Signup form rejects plus-addressed emails',
         summary:
             'Sign-ups with a plus sign in the email address fail validation since the last release.\n\n## Impact\n\nNew teams that use plus addressing cannot finish signing up.',
+        summary_lead: 'Sign-ups with a plus sign in the email address fail validation since the last release.',
         status: SignalReportStatus.READY,
         signal_count: 12,
         updated_at: '2026-09-28T07:00:00Z',
@@ -294,6 +301,7 @@ const REPORTS = [
         id: 'report-2',
         title: 'Pricing page visitors drop off at the plan table',
         summary: 'Most visitors who reach the plan table leave without starting a trial.',
+        summary_lead: 'Most visitors who reach the plan table leave without starting a trial.',
         status: SignalReportStatus.READY,
         signal_count: 5,
         updated_at: '2026-09-27T16:00:00Z',
@@ -309,6 +317,7 @@ const REPORTS = [
         id: 'report-3',
         title: 'LLM costs doubled for the summarize tool',
         summary: 'Token usage for the summarize tool doubled after the prompt change.',
+        summary_lead: 'Token usage for the summarize tool doubled after the prompt change.',
         status: SignalReportStatus.PENDING_INPUT,
         signal_count: 3,
         updated_at: '2026-09-27T10:00:00Z',
@@ -321,6 +330,8 @@ const REPORTS = [
         title: 'Checkout conversion fell after the address form change',
         summary:
             'Fewer people finish checkout since the address form gained a required phone field.\n\n[Checkout conversion](chart:checkout-conversion)\n\nThe drop is sharpest on mobile, where the field is hard to fill.',
+        summary_lead:
+            'Fewer people finish checkout since the address form gained a required phone field. The drop is sharpest on mobile, where the field is hard to fill.',
         status: SignalReportStatus.READY,
         signal_count: 4,
         updated_at: '2026-09-28T08:00:00Z',
@@ -367,6 +378,7 @@ function briefingItem(overrides: Partial<BriefingItemApi> & Pick<BriefingItemApi
         reason: 'waiting_for_you',
         state: 'open',
         source_product: null,
+        report: null,
         ...overrides,
     }
 }
@@ -400,6 +412,41 @@ const PERSONAL_BRIEFING: BriefingApi = {
             signal: 'P1, fix ready for review',
             rank: 1,
             source_product: 'error_tracking',
+            title: 'Signup form rejects plus-addressed emails',
+            report: {
+                priority: 'P1',
+                summary:
+                    'Since the release on Friday, the signup form rejects emails with a plus sign. People who try again with another address finish signup, the rest drop off at the email step.',
+                pull_request_state: 'open',
+                pull_request_url: 'https://github.com/example-org/web/pull/4821',
+                signal_count: 23,
+                updated_at: '2026-09-28T15:10:00Z',
+                metrics: [
+                    {
+                        metric_id: 'affected-users',
+                        title: 'Affected users',
+                        kind: 'affected_users',
+                        role: 'primary',
+                        value: 52,
+                        series: [12, 18, 15, 22, 31, 40, 52],
+                        value_format: 'count',
+                        unit: 'users',
+                        query: reportMetricsFixture[0].query,
+                    },
+                    ...reportMetricsFixture.slice(1).map((metric) => ({
+                        metric_id: metric.metric_id,
+                        title: metric.title,
+                        kind: metric.kind,
+                        role: metric.role ?? 'supporting',
+                        value: metric.value ?? 0,
+                        series: metric.series ?? null,
+                        value_format: metric.value_format ?? 'number',
+                        unit: metric.unit ?? null,
+                        query: metric.query,
+                    })),
+                ],
+                charts: [],
+            },
         }),
         briefingItem({
             key: 'report:report-3',
@@ -407,6 +454,31 @@ const PERSONAL_BRIEFING: BriefingApi = {
             signal: 'P2, claimed by you',
             rank: 2,
             source_product: 'llm_analytics',
+            title: 'Summarize tool costs doubled after the prompt change',
+            report: {
+                priority: 'P2',
+                summary:
+                    'The summarize tool now sends the whole thread as context instead of the last ten messages. Token use per call doubled on Tuesday and has stayed there. Cost per conversation rose the same amount, while answer ratings did not change. Trimming the context back would undo the rise.',
+                pull_request_state: null,
+                pull_request_url: null,
+                signal_count: 7,
+                updated_at: '2026-09-27T09:00:00Z',
+                metrics: [],
+                charts: [
+                    {
+                        chart_id: 'summarize-tokens',
+                        title: 'Tokens per summarize call',
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'TrendsQuery',
+                                series: [{ kind: 'EventsNode', event: '$ai_generation' }],
+                                dateRange: { date_from: '2026-09-14', date_to: '2026-09-28' },
+                            },
+                        },
+                    },
+                ],
+            },
         }),
         briefingItem({
             key: 'dashboard:12',
@@ -466,6 +538,60 @@ function clearTodayStorage(
     return <Story />
 }
 
+function mockReportPage(reportId: string): ReportPageApi {
+    const report = REPORTS.find((candidate) => candidate.id === reportId) ?? REPORTS[0]
+    const signals = mockSignals(reportId, 6).map((signal) => {
+        const firstLine = signal.content.split('\n')[0]
+        return {
+            signal_id: signal.signal_id,
+            content: signal.content,
+            source_product: signal.source_product,
+            source_type: signal.source_type,
+            source_id: signal.source_id,
+            timestamp: signal.timestamp,
+            extra: { ...signal.extra },
+            headline: firstLine,
+            lead: firstLine,
+            meta: '',
+            cited: signal.source_product === 'signals_scout' ? ('code' as const) : null,
+            recording: null,
+            link: null,
+            preview: {
+                hint: 'Show the description',
+                code: [],
+                block: [],
+                text: signal.content,
+                facts: [],
+                link: null,
+                link_label: null,
+            },
+        }
+    })
+    return {
+        lead: report.summary_lead ?? '',
+        proposal: report.suggested_prompts?.[0] ?? '',
+        impact_sentence: '',
+        named_pull_request: null,
+        solution_names_pull_request: false,
+        evidence: signals.slice(0, 3),
+        source_count: signals.length,
+        impact_numbers:
+            report.id === 'report-1'
+                ? [
+                      {
+                          key: 'tickets',
+                          value: '4',
+                          sentence: 'support tickets over 3 days.',
+                          signal: signals[0],
+                          values: [],
+                          working: null,
+                      },
+                  ]
+                : [],
+        last_seen: null,
+    }
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Project Homepage/Today',
@@ -482,15 +608,11 @@ const meta: Meta = {
                     REPORTS.find((report) => report.id === req.params.id) ?? REPORTS[0],
                 ],
                 '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
-                '/api/projects/:team_id/signals/reports/:id/signals/': (req) => [
-                    200,
-                    // Error tracking signals fetch their issue, which these stories do not mock.
-                    {
-                        signals: mockSignals(String(req.params.id), 6).filter(
-                            (signal) => signal.source_product !== 'error_tracking'
-                        ),
-                    },
-                ],
+                '/api/projects/:team_id/today/reports/:id/page/': (req) => [200, mockReportPage(String(req.params.id))],
+                '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [], count: 0, next: null },
+                '/api/projects/:team_id/signals/reports/:id/checks/': { results: [], count: 0, next: null },
+                '/api/users/@me/integrations/': { results: [] },
+                '/api/users/@me/integrations/slack/linkable_workspaces/': { results: [] },
                 '/api/projects/:team_id/today/briefing/': () => [404, { detail: 'Not found.' }],
                 '/api/projects/:team_id/task_channels/': SPACES,
                 '/api/projects/:team_id/task_channels/:id/': (req) => [
@@ -518,7 +640,9 @@ const meta: Meta = {
                         ? channel === 'space-checkout'
                             ? CANVASES
                             : []
-                        : VIEW_CANVASES.filter((canvas) => canvas.kind === params.get('kind'))
+                        : VIEW_CANVASES.filter((canvas) => canvas.kind === params.get('kind')).sort((first, second) =>
+                              second.updated_at.localeCompare(first.updated_at)
+                          )
                     return [200, { results, count: results.length, next: null, previous: null }]
                 },
                 '/api/projects/:team_id/task_activity/': {
@@ -556,6 +680,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/dashboards/': { results: DASHBOARDS, count: DASHBOARDS.length },
             },
             post: {
+                '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
                 '/api/projects/:team_id/tasks/summaries/': {
                     count: 2,
                     next: null,
@@ -594,6 +719,26 @@ export const Home: Story = {}
 
 export const HomeWithPersonalBriefing: Story = {
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/today/briefing/': PERSONAL_BRIEFING } })],
+}
+
+// One report was resolved and another dismissed after the briefing was written.
+export const HomeWithResolvedAndDismissedItems: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/briefing/': {
+                    ...PERSONAL_BRIEFING,
+                    items: PERSONAL_BRIEFING.items.map((item) =>
+                        item.key === 'report:report-3'
+                            ? { ...item, state: 'dismissed' }
+                            : item.key === 'report:report-1'
+                              ? { ...item, state: 'done' }
+                              : item
+                    ),
+                },
+            },
+        }),
+    ],
 }
 
 export const HomeWithNothingForYou: Story = {
@@ -651,13 +796,25 @@ export const ReportWithPullRequest: Story = {
     parameters: { pageUrl: urls.todayReport('report-1') },
 }
 
-export const ReportWithSuggestedPrompts: Story = {
+export const ReportProposingItsFirstPrompt: Story = {
     parameters: { pageUrl: urls.todayReport('report-2') },
 }
 
-// One chart placed in the summary, one trailing it. Charts resolve without the Inbox detail logic.
-export const ReportWithCharts: Story = {
+export const ReportWithAnImpactMetric: Story = {
     parameters: { pageUrl: urls.todayReport('report-4') },
+}
+
+export const ReportWithTicketsAndEvidenceDetail: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1') },
+}
+
+export const ReportThatFailsToLoad: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1') },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/today/reports/:id/page/': () => [500, {}] } })],
+}
+
+export const ReportInANarrowWindow: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1'), testOptions: { viewport: { width: 800, height: 900 } } },
 }
 
 export const SpacesPane: Story = {
@@ -684,6 +841,11 @@ export const SpacesPaneHoveringSpaceRow: Story = {
 
 export const SpacePage: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
+}
+
+// New session opens this page. It files into the personal space until the user picks another one.
+export const NewSessionPage: Story = {
+    parameters: { pageUrl: urls.taskNewSession() },
 }
 
 // A Cmd-click pick can't be held in a static story, so the play step selects a pinned and a recent row through the logic.
@@ -802,7 +964,7 @@ export const LibraryAllObjects: Story = {
 }
 
 export const LibraryFeatureFlags: Story = {
-    parameters: { pageUrl: urls.library('feature_flag') },
+    parameters: { pageUrl: urls.featureFlags() },
 }
 
 export const ToolsPane: Story = {
@@ -822,13 +984,29 @@ export const NarrowWindowWithSidebar: Story = {
     },
 }
 
+export const PhoneWidth: Story = {
+    parameters: { testOptions: { viewport: { width: 390, height: 844 } } },
+}
+
+export const PhoneWidthMorePane: Story = {
+    parameters: { testOptions: { viewport: { width: 390, height: 844 } } },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByRole('button', { name: 'More' }))
+    },
+}
+
+// A root page: the phone header shows the title and a sidebar button, and the scene title row keeps only its actions.
+export const PhoneWidthListScene: Story = {
+    parameters: { pageUrl: urls.featureFlags(), testOptions: { viewport: { width: 390, height: 844 } } },
+}
+
 // The card opens on hover, which a static story can't hold, so these render its contents in the same frame.
 const noop = (): void => {}
 
 function HoverCardFrame({ children }: { children: ReactNode }): JSX.Element {
     return (
         <div className="p-4">
-            <Card size="sm" className="w-72 gap-0 border border-border py-0 shadow-md">
+            <Card size="sm" className="w-72 gap-0 border border-border py-0 shadow-[var(--shadow-md)]">
                 {children}
             </Card>
         </div>
@@ -887,6 +1065,34 @@ export const SpaceHoverCard: Story = {
     ),
 }
 
+export const ReportHoverCard: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodayReportHoverCard
+                preview={{
+                    kind: 'report',
+                    card: briefingItemReportCard(PERSONAL_BRIEFING.items[0]),
+                    surface: 'sidebar',
+                }}
+            />
+        </HoverCardFrame>
+    ),
+}
+
+export const ReportHoverCardResolved: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodayReportHoverCard
+                preview={{
+                    kind: 'report',
+                    card: briefingItemReportCard({ ...PERSONAL_BRIEFING.items[1], state: 'done' }),
+                    surface: 'sidebar',
+                }}
+            />
+        </HoverCardFrame>
+    ),
+}
+
 // The details are picked through the logic, where the dialog saves them, so each session row shows a second line.
 export const SpacesPaneWithListItemDetails: Story = {
     play: async ({ canvasElement }) => {
@@ -927,6 +1133,7 @@ export const ViewsEmpty: Story = {
 export const ViewsNewMenu: Story = {
     parameters: { pageUrl: urls.views() },
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByText('New…'))
+        const [newView] = await within(canvasElement).findAllByText('New view')
+        await userEvent.click(newView)
     },
 }

@@ -559,14 +559,30 @@ test('the cargo-dist manifest shares the cli lane', () => {
 })
 
 test('a single-language workflow claims that language rather than everything', () => {
-    assert.deepEqual(
-        computeTargets(['.github/workflows/ci-frontend.yml'], CONTEXT),
-        computeTargets(['.oxlintrc.json'], CONTEXT)
-    )
+    const javascript = computeTargets(['.oxlintrc.json'], CONTEXT)
+    for (const file of [
+        '.github/workflows/ci-frontend.yml',
+        '.github/workflows/ci-storybook.yml',
+        '.github/workflows/ci-storybook-update-test-timing.yml',
+    ]) {
+        assert.deepEqual(
+            computeTargets([file], CONTEXT),
+            javascript.filter((target) => !target.startsWith('node:')),
+            file
+        )
+    }
+    for (const file of ['.github/workflows/ci-nodejs.yml', '.github/workflows/ci-nodejs-container.yml']) {
+        assert.deepEqual(
+            computeTargets([file], CONTEXT),
+            computeTargets(['Dockerfile.ml-mirror-image-scrub'], CONTEXT),
+            file
+        )
+    }
     for (const file of [
         '.github/workflows/ci-backend.yml',
         '.github/workflows/ci-python.yml',
         '.github/workflows/ci-clickhouse-multinode-migrations.yml',
+        '.github/workflows/ci-clickhouse-util-udfs.yml',
         // The backend test-timing pair and the IDOR coverage check run only in
         // ci-backend and its timing workflow.
         '.github/scripts/optimize_test_durations.py',
@@ -1994,6 +2010,13 @@ test('an unavailable tach graph widens backend changes instead of narrowing', ()
 test('core changes expand to every leaf target in their own domain', () => {
     const backend = computeTargets(['posthog/models/team.py'], CONTEXT)
     assert.deepEqual(backend, ['py:core', 'py:product:alpha', 'py:product:beta', 'py:product:gamma'])
+    for (const file of [
+        'posthog/user_scripts/json_drop_keys_udf_x86_64',
+        'clickhouse-udfs/util/cmd/json_drop_keys_udf/main.go',
+        'clickhouse-udfs/util/go.mod',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), backend, file)
+    }
 
     const frontend = computeTargets(['frontend/src/lib/components/Foo.tsx'], CONTEXT)
     assert.deepEqual(frontend, ['fe:core', 'fe:product:alpha', 'fe:product:beta', 'fe:product:gamma'])

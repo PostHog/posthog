@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class TwitterSourceConfig(config.Config):
-    pass
+    bearer_token: str
+    username: str

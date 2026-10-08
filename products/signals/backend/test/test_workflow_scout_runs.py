@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Team
@@ -144,14 +145,23 @@ class TestWorkflowScoutRunDispatch(APIBaseTest):
 
         self._assert_rejected("skill_missing", ScoutRunRejectionKind.NOT_FOUND)
 
-    def test_rejects_while_a_run_is_in_flight(self) -> None:
+    @parameterized.expand([False, True])
+    def test_rejects_while_a_production_run_is_in_flight(self, is_trial: bool) -> None:
         task = Task.objects.create(team=self.team, title="t", description="d")
         task_run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         SignalScoutRun.objects.create(
-            task_run=task_run, team=self.team, scout_config=self.config, skill_name=SKILL, skill_version=1
+            task_run=task_run,
+            team=self.team,
+            scout_config=self.config,
+            skill_name=SKILL,
+            skill_version=1,
+            metadata={"scout_trial": {"version": 1}} if is_trial else {},
         )
 
-        self._assert_rejected("run_in_flight", ScoutRunRejectionKind.CONFLICT)
+        if is_trial:
+            assert self._run().workflow_id == self.workflow_id
+        else:
+            self._assert_rejected("run_in_flight", ScoutRunRejectionKind.CONFLICT)
 
     def test_skips_when_temporal_single_flights_the_start(self) -> None:
         # The pre-dispatch check can't see a run whose row isn't written yet, so the Temporal

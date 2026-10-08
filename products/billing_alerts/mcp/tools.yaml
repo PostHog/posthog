@@ -1,17 +1,12 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product billing_alerts
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product billing_alerts
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Billing alerts
 feature: billing_alerts
 url_prefix: /organization/billing
 ui_apps: {}
 tools:
-    billing-alert-check-now:
-        operation: billing_alerts_check_now_create
-        enabled: false
     billing-alert-create:
         operation: billing_alerts_create
         enabled: true
@@ -30,24 +25,6 @@ tools:
             absolute_value threshold rule with threshold_value, in USD. Optional destination_changes can create Slack,
             Microsoft Teams, or HTTPS webhook destinations atomically with the alert.
         feature_flag: billing-alerts
-    billing-alert-delete:
-        operation: billing_alerts_destroy
-        enabled: false
-    billing-alert-destination-create:
-        operation: billing_alerts_destinations_create
-        enabled: false
-    billing-alert-destination-delete:
-        operation: billing_alerts_destinations_delete_create
-        enabled: false
-    billing-alert-events-list:
-        operation: billing_alerts_events_list
-        enabled: false
-    billing-alert-get:
-        operation: billing_alerts_retrieve
-        enabled: false
-    billing-alert-replace:
-        operation: billing_alerts_update
-        enabled: false
     billing-alert-update:
         operation: billing_alerts_partial_update
         enabled: true
@@ -67,6 +44,3 @@ tools:
             Repeating a request that creates a destination of the same type is rejected, because an alert allows one
             destination group per type.
         feature_flag: billing-alerts
-    billing-alerts-list:
-        operation: billing_alerts_list
-        enabled: false

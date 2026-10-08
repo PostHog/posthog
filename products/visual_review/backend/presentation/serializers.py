@@ -4,6 +4,10 @@ DRF serializers for visual_review.
 Converts DTOs to/from JSON using DataclassSerializer.
 """
 
+from datetime import datetime
+
+from django.utils import timezone
+
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -33,8 +37,10 @@ from ..facade.contracts import (
     FlakinessEntry,
     FlakinessOverview,
     FlakinessTotals,
+    LiftOnMergeInput,
     QuarantinedIdentifierEntry,
     QuarantineInput,
+    QuarantineLiftEntry,
     QuarantineSourceRun,
     RecomputeResult,
     Repo,
@@ -52,7 +58,7 @@ from ..facade.contracts import (
     UploadTarget,
     UserBasicInfo,
 )
-from ..facade.enums import FlakinessState, RunPurpose, ShiftBandKind
+from ..facade.enums import FlakinessState, QuarantineLiftState, RunPurpose, ShiftBandKind
 
 # --- Output Serializers ---
 
@@ -406,9 +412,93 @@ class QuarantineInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = QuarantineInput
 
+    def validate_expires_at(self, value: datetime | None) -> datetime | None:
+        # A past expiry would end the active quarantine and store one that is already over.
+        if value is not None and value <= timezone.now():
+            raise serializers.ValidationError("The expiry must be in the future.")
+        return value
+
 
 class UnquarantineQuerySerializer(serializers.Serializer):
     identifier = serializers.CharField(max_length=512, help_text="Snapshot identifier to unquarantine")
+
+
+class ErrorDetailSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="What went wrong and what to do next.")
+    code = serializers.CharField(
+        required=False, help_text="A stable code for the error, such as `lift_commit_unknown` or `rate_limited`."
+    )
+
+
+class LiftOnMergeInputSerializer(DataclassSerializer):
+    identifier = serializers.CharField(
+        max_length=512,
+        help_text=(
+            "Identifier of a quarantined snapshot in this run, such as a Storybook story ID. The snapshot's "
+            "picture is what a default-branch run must render for the quarantine to lift. An unchanged snapshot "
+            "uses its baseline. A changed or new snapshot must be approved first, because requesting a lift never "
+            "approves a picture."
+        ),
+    )
+
+    class Meta:
+        dataclass = LiftOnMergeInput
+
+
+class QuarantineLiftEntrySerializer(DataclassSerializer):
+    id = serializers.UUIDField(help_text="UUID of the lift request.")
+    quarantine_id = serializers.UUIDField(
+        help_text="UUID of the quarantine event this request lifts. A later quarantine of the same snapshot is a different event."
+    )
+    identifier = serializers.CharField(help_text="Snapshot identifier under quarantine.")
+    run_type = serializers.CharField(help_text="Run type of the quarantine, for example storybook.")
+    pr_number = serializers.IntegerField(help_text="Pull request whose merge the lift waits for.")
+    expected_hash = serializers.CharField(
+        help_text=(
+            "Content hash a default-branch run must render, against a baseline entry with the same hash, "
+            "for the lift to apply."
+        )
+    )
+    state = serializers.ChoiceField(
+        choices=QuarantineLiftState.choices,
+        help_text=(
+            "`pending` waits for the merge and a matching default-branch run. `applied` lifted the quarantine. "
+            "`cancelled` was withdrawn, or the pull request closed without merging into the run's branch. "
+            "`superseded` means the quarantine ended some other way, or another request lifted it."
+        ),
+    )
+    detail = serializers.CharField(help_text="The latest verification outcome, in plain words.")
+    created_at = serializers.DateTimeField(help_text="When the lift was requested.")
+    updated_at = serializers.DateTimeField(help_text="When the request last changed.")
+    resolved_at = serializers.DateTimeField(
+        allow_null=True, required=False, help_text="When the request left `pending`. Null while it waits."
+    )
+    source_run_id = serializers.UUIDField(
+        allow_null=True, required=False, help_text="Run the lift was requested from. Null after that run is deleted."
+    )
+    requested_by = UserBasicInfoSerializer(
+        allow_null=True, required=False, help_text="User who requested the lift, or on whose behalf an agent did."
+    )
+    merge_commit_sha = serializers.CharField(
+        allow_null=True, required=False, help_text="Merge commit of the pull request. Set when the lift applies."
+    )
+    lifted_at_sha = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Commit of the default-branch run that proved the fix and lifted the quarantine. A branch that "
+            "does not contain it still treats the snapshot as quarantined."
+        ),
+    )
+
+    class Meta:
+        dataclass = QuarantineLiftEntry
+        # Declared here because a serializer attribute named `source` shadows `Field.source`.
+        extra_kwargs = {
+            "source": {
+                "help_text": "Who requested the lift: `human` for a person in the UI, `agent` for an agent through MCP."
+            },
+        }
 
 
 class CreateRepoInputSerializer(DataclassSerializer):
@@ -565,8 +655,8 @@ class FlakinessEntrySerializer(DataclassSerializer):
             "every run, so its baseline is wrong and quarantining it only hides that. `unstable` "
             "fails some runs and not others, the classic flake. `at_risk` never fails, but its "
             "worst absorbed diff is already touching the threshold, so the next unrelated change "
-            "turns it red. `noisy` renders variants and absorbs them with room to spare. `clean` "
-            "matched its baseline on every run in the window."
+            "turns it red. `clean` has no gate failure inside the rate span, and any diff it absorbed "
+            "sits far below the threshold."
         ),
     )
     needs_decision = serializers.BooleanField(
@@ -606,11 +696,10 @@ class FlakinessTotalsSerializer(DataclassSerializer):
     broken = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `broken`.")
     unstable = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `unstable`.")
     at_risk = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `at_risk`.")
-    noisy = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `noisy`.")
     clean = serializers.IntegerField(
         help_text=(
-            "Identifiers whose `flakiness_state` is `clean`. They are listed because they carry live "
-            "variants or older history, and reported here so every listed entry is reachable."
+            "Identifiers whose `flakiness_state` is `clean`. They are listed because they carry a "
+            "quarantine or older gate failures, and reported here so every listed entry is reachable."
         )
     )
     by_run_type = serializers.DictField(
@@ -652,6 +741,15 @@ class RunSnapshotsQuerySerializer(serializers.Serializer):
         help_text=(
             "Return only the snapshot with this id, read from the `id` field of a snapshot in "
             "the run. Use it to fetch one snapshot without listing the whole run."
+        ),
+    )
+    quarantined_only = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Whether to list only the snapshots whose identifier is currently quarantined. "
+            "Defaults to false. When true, `include_quarantined` is ignored and quarantined "
+            "snapshots are returned. Combine with `exclude_unchanged=false` to find a quarantined "
+            "story that rendered `unchanged`, which is the snapshot to request a lift on merge for."
         ),
     )
 

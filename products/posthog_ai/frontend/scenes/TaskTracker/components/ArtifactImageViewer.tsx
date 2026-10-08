@@ -1,4 +1,4 @@
-import { PointerEvent, useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { MouseEvent, PointerEvent, ReactNode, useCallback, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconMinus, IconPlus } from '@posthog/icons'
 import { Button, Separator, Text, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill-primitives'
@@ -48,8 +48,22 @@ function ZoomButton({
     )
 }
 
-/** An image preview that fits the pane, zooms in steps, and pans by drag once it overflows. */
-export function ArtifactImageViewer({ src, alt }: { src: string; alt: string }): JSX.Element {
+/**
+ * An image preview that fits the pane, zooms in steps, and pans by drag once it overflows. `overlay` sits on
+ * the image at its displayed size, so content placed in percentages stays on the same spot at every zoom.
+ * While `onPlace` is set, a click reports where it landed as shares of the image size, and drag does not pan.
+ */
+export function ArtifactImageViewer({
+    src,
+    alt,
+    overlay,
+    onPlace,
+}: {
+    src: string
+    alt: string
+    overlay?: ReactNode
+    onPlace?: (x: number, y: number) => void
+}): JSX.Element {
     const paneRef = useRef<HTMLDivElement>(null)
     const dragRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null)
     const [natural, setNatural] = useState<{ width: number; height: number } | null>(null)
@@ -82,7 +96,7 @@ export function ArtifactImageViewer({ src, alt }: { src: string; alt: string }):
 
     const onPointerDown = (event: PointerEvent<HTMLDivElement>): void => {
         const element = paneRef.current
-        if (!overflows || !element || event.button !== 0) {
+        if (onPlace || !overflows || !element || event.button !== 0) {
             return
         }
         dragRef.current = { x: event.clientX, y: event.clientY, left: element.scrollLeft, top: element.scrollTop }
@@ -97,6 +111,17 @@ export function ArtifactImageViewer({ src, alt }: { src: string; alt: string }):
         }
         element.scrollLeft = start.left - (event.clientX - start.x)
         element.scrollTop = start.top - (event.clientY - start.y)
+    }
+    const onImageClick = (event: MouseEvent<HTMLButtonElement>): void => {
+        if (!onPlace) {
+            return
+        }
+        const box = event.currentTarget.getBoundingClientRect()
+        // A keyboard press has no pointer position, so it places the pin at the center.
+        const keyboard = event.detail === 0
+        const x = keyboard ? 0.5 : (event.clientX - box.left) / box.width
+        const y = keyboard ? 0.5 : (event.clientY - box.top) / box.height
+        onPlace(Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y)))
     }
     const endDrag = (): void => {
         dragRef.current = null
@@ -115,26 +140,38 @@ export function ArtifactImageViewer({ src, alt }: { src: string; alt: string }):
                 onPointerMove={onPointerMove}
                 onPointerUp={endDrag}
                 onPointerCancel={endDrag}
-                onDoubleClick={() => setZoom(zoom === 'fit' ? 1 : 'fit')}
+                onDoubleClick={() => !onPlace && setZoom(zoom === 'fit' ? 1 : 'fit')}
             >
                 {/* min-size centers the image while it fits and lets the scroll area grow once it does not. */}
                 <div className="flex min-h-full min-w-full w-max items-center justify-center p-6">
-                    <img
-                        src={src}
-                        alt={alt}
-                        draggable={false}
-                        style={width ? { width } : undefined}
-                        className={cn(
-                            'block max-w-none rounded-sm border border-border bg-white',
-                            !natural && 'invisible'
+                    <div className="relative">
+                        <img
+                            src={src}
+                            alt={alt}
+                            draggable={false}
+                            style={width ? { width } : undefined}
+                            className={cn(
+                                'block max-w-none rounded-sm border border-border bg-white',
+                                !natural && 'invisible'
+                            )}
+                            onLoad={(event) =>
+                                setNatural({
+                                    width: event.currentTarget.naturalWidth || 1,
+                                    height: event.currentTarget.naturalHeight || 1,
+                                })
+                            }
+                        />
+                        {natural && onPlace && (
+                            <button
+                                type="button"
+                                aria-label="Place a pin here"
+                                className="absolute inset-0 z-10 cursor-crosshair rounded-sm"
+                                onClick={onImageClick}
+                                data-attr="task-artifact-image-place-pin"
+                            />
                         )}
-                        onLoad={(event) =>
-                            setNatural({
-                                width: event.currentTarget.naturalWidth || 1,
-                                height: event.currentTarget.naturalHeight || 1,
-                            })
-                        }
-                    />
+                        {natural && overlay}
+                    </div>
                 </div>
             </div>
             {natural && (

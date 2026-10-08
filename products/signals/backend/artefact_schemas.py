@@ -335,6 +335,15 @@ class RankingModelResult(BaseModel):
         default_factory=dict,
         description="Outcome head name to its calibrated probability. Empty on a skipped model.",
     )
+    # No upper bound: a lift reaches `1 / base_rate`.
+    lifts: dict[str, Annotated[float, Field(ge=0.0)]] = Field(
+        default_factory=dict,
+        description=(
+            "Outcome head name to its probability divided by the head's base rate "
+            "(`refit_classification_threshold`) from the model's metadata. Empty on a skipped model. "
+            "A head without a saved threshold has no entry."
+        ),
+    )
     metadata: dict[str, Any] = Field(
         default_factory=dict,
         description=(
@@ -1216,6 +1225,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "implementation_replacement",
         "implementation_handover",
         "ranking_score",
+        "impact_measurement_plan",
     }
 )
 

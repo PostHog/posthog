@@ -219,6 +219,7 @@ export class ToolDomainExtractor {
         'enable',
         'end',
         'estimate',
+        'fail',
         'freeze',
         'launch',
         'migrate',
@@ -234,10 +235,12 @@ export class ToolDomainExtractor {
         'ship',
         'show',
         'start',
+        'suggest',
         'test',
         'transfer',
         'unarchive',
         'unfreeze',
+        'upload',
     ])
 
     private readonly items: ToolItem[]
