@@ -1,5 +1,5 @@
 import { IconX } from '@posthog/icons'
-import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { formatFileSize } from '../../utils/attachments'
 import { ComposerAttachmentPreview } from './ComposerAttachmentPreview'
@@ -33,18 +33,21 @@ export function ComposerAttachment({ file, uploading, onRemove }: ComposerAttach
                 </span>
             </Tooltip>
             {!uploading && (
-                <LemonButton
-                    size="xxsmall"
-                    noPadding
-                    icon={<IconX className="size-3" />}
+                <button
+                    type="button"
                     aria-label={`Remove ${file.name}`}
                     onClick={(event) => {
+                        event.preventDefault()
                         event.stopPropagation()
                         onRemove()
                     }}
-                    className="absolute -top-1.5 -right-1.5 z-10 size-4 min-h-0 rounded-full border bg-bg-light opacity-0 group-hover/attachment:opacity-100 group-focus-within/attachment:opacity-100 focus-visible:opacity-100"
+                    className="absolute -top-2 -right-2 z-10 flex size-6 items-center justify-center rounded-full border-0 bg-transparent p-1 opacity-0 group-hover/attachment:opacity-100 group-focus-within/attachment:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1"
                     data-attr="posthog-ai-remove-attachment"
-                />
+                >
+                    <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-[var(--color-text-primary)] text-[var(--color-text-primary-inverse)] shadow-sm">
+                        <IconX className="size-2.5" />
+                    </span>
+                </button>
             )}
         </div>
     )

@@ -20,8 +20,8 @@ import { getRuntimeAdapterForModel, pickerModels } from 'products/posthog_ai/fro
 import { cycleMode, getModesForRuntimeAdapter } from 'products/posthog_ai/frontend/utils/composerModes'
 import { ModelAccessEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { AttachedContextChips } from '../../../components/composer/AttachedContextChips'
+import { AttachedContextPicker } from '../../../components/composer/AttachedContextPicker'
 import { CommandResultCard } from '../../../components/composer/CommandResultCard'
 import { ComposerAttachmentChips } from '../../../components/composer/ComposerAttachmentChips'
 import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
@@ -279,13 +279,15 @@ export function TaskRunComposer({
                 ) : (
                     <>
                         <Composer.Frame ref={labelRef}>
-                            <Composer.Header className="flex flex-wrap items-center gap-1">
-                                <AttachedContextBar />
-                                <ComposerAttachments attachmentsKey={attachmentsKey} dropTargetRef={labelRef} />
+                            <Composer.Header className="flex flex-wrap items-center gap-2 empty:hidden">
+                                <AttachedContextChips />
+                                <ComposerAttachmentChips attachmentsKey={attachmentsKey} />
                             </Composer.Header>
                             {field}
                             <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
-                                {pickers(modePicker, modelPicker)}
+                                <ComposerAttachments attachmentsKey={attachmentsKey} dropTargetRef={labelRef} />
+                                <AttachedContextPicker />
+                                {pickers(modelPicker, modePicker)}
                                 <div className="ml-auto">
                                     <ContextUsageChip />
                                 </div>

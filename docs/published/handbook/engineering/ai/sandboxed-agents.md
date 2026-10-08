@@ -171,6 +171,7 @@ This only prefills the composer; the user must send the message and complete any
 Canceling file selection keeps the legacy form open.
 Both chat layouts show selected files as compact tiles with an image preview or file type.
 Hover over a tile or focus it with the keyboard to see the full file name and remove control.
+File tiles sit above the text. The Attach, Context, model, and mode controls share a row below it.
 
 ## Task navigation
 

@@ -1,5 +1,5 @@
 import { IconX } from '@posthog/icons'
-import { Button, Spinner, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill-primitives'
+import { Spinner, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill-primitives'
 
 import { formatFileSize } from '../../utils/attachments'
 import type { ComposerAttachmentProps } from '../composer/ComposerAttachment'
@@ -34,20 +34,21 @@ export function QuillComposerAttachment({ file, uploading, onRemove }: ComposerA
                 <TooltipContent>{`${file.name} (${formatFileSize(file.size)})`}</TooltipContent>
             </Tooltip>
             {!uploading && (
-                <Button
+                <button
                     type="button"
-                    variant="secondary"
-                    size="icon-xs"
                     aria-label={`Remove ${file.name}`}
                     onClick={(event) => {
+                        event.preventDefault()
                         event.stopPropagation()
                         onRemove()
                     }}
-                    className="absolute -top-1.5 -right-1.5 z-10 rounded-full opacity-0 group-hover/attachment:opacity-100 group-focus-within/attachment:opacity-100 focus-visible:opacity-100"
+                    className="absolute -top-2 -right-2 z-10 flex size-6 items-center justify-center rounded-full border-0 bg-transparent p-1 opacity-0 group-hover/attachment:opacity-100 group-focus-within/attachment:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1"
                     data-attr="posthog-ai-remove-attachment"
                 >
-                    <IconX />
-                </Button>
+                    <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-[var(--foreground)] text-[var(--background)] shadow-sm">
+                        <IconX className="size-2.5" />
+                    </span>
+                </button>
             )}
         </div>
     )
