@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { withRemoteResourcesBlocked } from './suggestionEmailPreview'
+import { emailPreviewDocument } from './suggestionEmailPreview'
 
 function RenderedEmail({
     label,
@@ -21,7 +21,8 @@ function RenderedEmail({
                 <iframe
                     title={`Rendered email: ${label}`}
                     sandbox=""
-                    srcDoc={loadRemote ? html : withRemoteResourcesBlocked(html)}
+                    referrerPolicy="no-referrer"
+                    srcDoc={emailPreviewDocument(html, { loadRemote })}
                     className="w-full h-[70vh] bg-white rounded border"
                 />
             ) : (
