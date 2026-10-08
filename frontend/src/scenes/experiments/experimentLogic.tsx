@@ -2363,7 +2363,10 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         changeExperimentStartDate: async ({ startDate }) => {
-            await asyncActions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
+            actions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
             // eslint-disable-next-line no-unused-expressions
             if (values.experiment) {
                 posthog.capture('experiment start date changed', {
@@ -2375,7 +2378,10 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         changeExperimentEndDate: async ({ endDate }) => {
-            await asyncActions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
+            actions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
             // eslint-disable-next-line no-unused-expressions
             if (values.experiment) {
                 posthog.capture('experiment end date changed', {
@@ -2690,17 +2696,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics_secondary: values.experiment.metrics_secondary,
                 update_feature_flag_params: false,
             })
-
-            // kea-loaders turns a rejected loader into a failure action, so awaiting its async action does
-            // not throw. Await the underlying queued request instead to keep the existing result caches when
-            // the save fails. The loader still owns error reporting and optimistic-concurrency recovery.
-            const updatePromise = cache.inflightUpdate?.promise
-            if (!updatePromise) {
-                return
-            }
-            try {
-                await updatePromise
-            } catch {
+            if (!(await inflightUpdateSaved(cache))) {
                 return
             }
 
@@ -2726,12 +2722,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
                 update_feature_flag_params: false,
             })
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         updateExperimentSettings: async ({ update }) => {
             // Settings like stats config, CUPED, and conversion-window handling change
             // how metrics and exposures are computed, so persist then re-query.
-            await asyncActions.updateExperiment({ ...update, update_feature_flag_params: false })
+            actions.updateExperiment({ ...update, update_feature_flag_params: false })
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
             // Unlaunched experiments have no results to recalculate, so don't promise a recalculation.
             lemonToast.success(
                 values.isExperimentLaunched ? 'Settings saved. Recalculating results…' : 'Settings saved'
@@ -3394,7 +3396,10 @@ export const experimentLogic = kea<experimentLogicType>([
                     }))
             }
 
-            await asyncActions.updateExperiment(update)
+            actions.updateExperiment(update)
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
 
             if (!canReuseResults) {
                 actions.refreshExperimentResults(true, 'metric_config_change')
@@ -3619,43 +3624,41 @@ export const experimentLogic = kea<experimentLogicType>([
                 ? Array.from(new Set([...current, variantKey]))
                 : current.filter((k: string) => k !== variantKey)
 
-            try {
-                // excluded_variants is the canonical column; the backend mirrors it into the
-                // deprecated `parameters` blob. No need to resend feature_flag_variants — the
-                // backend validates exclusions against the linked flag. The column updates
-                // atomically, so we just send the new list.
-                await asyncActions.updateExperiment({
-                    excluded_variants: next,
-                })
-                lemonToast.success(
-                    excluded
-                        ? `Variant ${variantKey} excluded from analysis`
-                        : `Variant ${variantKey} re-included in analysis`,
-                    {
-                        button: {
-                            label: 'Undo',
-                            action: () => actions.setVariantExcluded(variantKey, !excluded),
-                        },
-                    }
-                )
-                // Re-fetch results since the variant set changed. On the recalculation flow this advances the
-                // window (experiment_config_change), so every metric recomputes; legacy uses the per-metric
-                // loaders. Exposures refresh either way.
-                if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
-                    // eslint-disable-next-line no-unused-expressions
-                    values.experiment &&
-                        experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation(
-                            'experiment_config_change'
-                        )
-                } else {
-                    actions.loadPrimaryMetricsResults(true)
-                    actions.loadSecondaryMetricsResults(true)
-                }
-                actions.loadExposures(true)
-            } catch (error) {
-                lemonToast.error('Could not update variant exclusion. Please try again.')
-                throw error
+            // excluded_variants is the canonical column; the backend mirrors it into the
+            // deprecated `parameters` blob. No need to resend feature_flag_variants — the
+            // backend validates exclusions against the linked flag. The column updates
+            // atomically, so we just send the new list.
+            actions.updateExperiment({
+                excluded_variants: next,
+            })
+            if (!(await inflightUpdateSaved(cache))) {
+                return
             }
+            lemonToast.success(
+                excluded
+                    ? `Variant ${variantKey} excluded from analysis`
+                    : `Variant ${variantKey} re-included in analysis`,
+                {
+                    button: {
+                        label: 'Undo',
+                        action: () => actions.setVariantExcluded(variantKey, !excluded),
+                    },
+                }
+            )
+            // Re-fetch results since the variant set changed. On the recalculation flow this advances the
+            // window (experiment_config_change), so every metric recomputes; legacy uses the per-metric
+            // loaders. Exposures refresh either way.
+            if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
+                // eslint-disable-next-line no-unused-expressions
+                values.experiment &&
+                    experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation(
+                        'experiment_config_change'
+                    )
+            } else {
+                actions.loadPrimaryMetricsResults(true)
+                actions.loadSecondaryMetricsResults(true)
+            }
+            actions.loadExposures(true)
         },
     })),
     loaders(({ actions, values, cache }) => ({
