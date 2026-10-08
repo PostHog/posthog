@@ -5440,7 +5440,6 @@ export type FileSystemIconType =
     | 'default_icon_type'
     | 'dashboard'
     | 'llm_analytics'
-    | 'ai_gateway'
     | 'product_analytics'
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
@@ -9159,7 +9158,6 @@ export interface UserUIConfiguration {
 // Keep this in alphabetical order if you wanna maintain Rafa's sanity
 export enum ProductKey {
     ACTIONS = 'actions',
-    AI_GATEWAY = 'ai_gateway',
     AI_OBSERVABILITY = 'llm_analytics',
     ALERTS = 'alerts',
     ANNOTATIONS = 'annotations',

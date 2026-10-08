@@ -13,6 +13,7 @@ from django.db import transaction
 
 from pydantic import BaseModel
 
+from posthog.enums import LabeledStrEnum
 from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
@@ -96,10 +97,11 @@ class GitHubCredentialSource(StrEnum):
     SERVER_INTEGRATION = "server_integration"
 
 
-class RunSource(StrEnum):
-    MANUAL = "manual"
-    SIGNAL_REPORT = "signal_report"
-    AGENT = "agent"
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class RunSource(LabeledStrEnum):
+    MANUAL = "manual", "manual"
+    SIGNAL_REPORT = "signal_report", "signal_report"
+    AGENT = "agent", "agent"
 
 
 def mcp_scopes_for_run_source(run_source: RunSource | None) -> Literal["read_only", "full"]:
@@ -110,9 +112,10 @@ def mcp_scopes_for_run_source(run_source: RunSource | None) -> Literal["read_onl
 USER_AUTHORABLE_ORIGIN_PRODUCTS: tuple[str, ...] = ("user_created", "slack", "posthog_ai")
 
 
-class RuntimeAdapter(StrEnum):
-    CLAUDE = "claude"
-    CODEX = "codex"
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class RuntimeAdapter(LabeledStrEnum):
+    CLAUDE = "claude", "claude"
+    CODEX = "codex", "codex"
 
 
 class LLMProvider(StrEnum):

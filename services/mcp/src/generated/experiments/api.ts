@@ -775,7 +775,10 @@ export const ExperimentsListQueryParams = () => zod.object({
         .describe(
             'Filter to experiments created from an LLM prompt with this name. Matches experiments whose parameters.prompt_metadata.name equals the given value.'
         ),
-    search: zod.string().optional().describe('Free-text search applied to the experiment name (case-insensitive).'),
+    search: zod
+        .string()
+        .optional()
+        .describe('Free-text search applied to the experiment name and its feature flag key (case-insensitive).'),
     status: zod
         .enum(['all', 'complete', 'draft', 'exposure_frozen', 'paused', 'running', 'stopped'])
         .optional()
