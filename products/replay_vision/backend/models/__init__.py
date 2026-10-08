@@ -1,6 +1,7 @@
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
+from products.replay_vision.backend.models.replay_observation_request import ReplayObservationRequest
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -17,6 +18,7 @@ __all__ = [
     "ReplayObservation",
     "ReplayObservationLabel",
     "ReplayObservationMedia",
+    "ReplayObservationRequest",
     "ReplayObservationUsage",
     "ReplayObservationView",
     "ReplayScanner",

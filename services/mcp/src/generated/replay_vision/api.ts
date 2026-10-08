@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 49 enabled ops
+ * PostHog API - MCP 51 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -663,6 +663,107 @@ export const EnvironmentVisionQuotaRetrieveParams = () => zod.object({
 })
 
 export const EnvironmentVisionQuotaSpendSeriesRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Scan sessions with a saved scanner or an inline question. Poll the returned request for results.
+ */
+export const VisionRequestsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visionRequestsCreateBodySessionIdsItemMax = 128
+
+export const visionRequestsCreateBodySessionIdsMax = 200
+
+export const visionRequestsCreateBodyInlineOnePromptMax = 20000
+
+export const visionRequestsCreateBodyInlineOneScannerTypeDefault = `monitor`
+export const visionRequestsCreateBodyInlineOneModelDefault = `gemini-3-flash-preview`
+export const visionRequestsCreateBodyIdempotencyKeyMax = 200
+
+export const visionRequestsCreateBodyReferenceDefault = ``
+export const visionRequestsCreateBodyReferenceMax = 200
+
+export const VisionRequestsCreateBody = () => zod
+    .object({
+        session_ids: zod
+            .array(zod.string().max(visionRequestsCreateBodySessionIdsItemMax))
+            .max(visionRequestsCreateBodySessionIdsMax)
+            .describe(
+                'Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole request. Duplicates are dropped.'
+            ),
+        scanner_id: zod
+            .string()
+            .optional()
+            .describe('A saved scanner to apply to the sessions. Pass this or `inline`, not both.'),
+        inline: zod
+            .object({
+                prompt: zod
+                    .string()
+                    .max(visionRequestsCreateBodyInlineOnePromptMax)
+                    .describe(
+                        'What to look for in these sessions, in plain language. The same instruction a saved scanner carries.'
+                    ),
+                scanner_type: zod
+                    .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
+                    .describe(
+                        '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
+                    )
+                    .default(visionRequestsCreateBodyInlineOneScannerTypeDefault)
+                    .describe(
+                        "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment"
+                    ),
+                scanner_config: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        'Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here.'
+                    ),
+                model: zod
+                    .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.8-flash'])
+                    .describe(
+                        '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
+                    )
+                    .default(visionRequestsCreateBodyInlineOneModelDefault)
+                    .describe(
+                        'Model to scan with. Determines what each observation costs in credits.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
+                    ),
+            })
+            .describe('A question asked inline, without saving a scanner first.')
+            .optional()
+            .describe(
+                'A question to ask without saving a scanner first. Asking the same question again reuses the answers already given for the same sessions. Pass this or `scanner_id`, not both.'
+            ),
+        idempotency_key: zod
+            .string()
+            .max(visionRequestsCreateBodyIdempotencyKeyMax)
+            .optional()
+            .describe(
+                'Any unique string per logical request, such as a UUID. Sending the same key again returns the first request instead of starting new scans, so a retry after a timeout never charges twice.'
+            ),
+        reference: zod
+            .string()
+            .max(visionRequestsCreateBodyReferenceMax)
+            .default(visionRequestsCreateBodyReferenceDefault)
+            .describe('Your own id for this request, such as a ticket or job id. Returned unchanged.'),
+    })
+    .describe('Body of POST \/vision\/requests\/ - the sessions plus a saved scanner or an inline question.')
+
+/**
+ * Start scans for named sessions from code, and read their results back through one request id.
+ */
+export const VisionRequestsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this replay observation request.'),
     project_id: zod
         .string()
         .describe(
@@ -2034,23 +2135,16 @@ export const VisionScannersInlineScanCreateParams = () => zod.object({
         ),
 })
 
-export const visionScannersInlineScanCreateBodySessionIdsItemMax = 128
-
-export const visionScannersInlineScanCreateBodySessionIdsMax = 200
-
 export const visionScannersInlineScanCreateBodyPromptMax = 20000
 
 export const visionScannersInlineScanCreateBodyScannerTypeDefault = `monitor`
 export const visionScannersInlineScanCreateBodyModelDefault = `gemini-3-flash-preview`
+export const visionScannersInlineScanCreateBodySessionIdsItemMax = 128
+
+export const visionScannersInlineScanCreateBodySessionIdsMax = 200
 
 export const VisionScannersInlineScanCreateBody = () => zod
     .object({
-        session_ids: zod
-            .array(zod.string().max(visionScannersInlineScanCreateBodySessionIdsItemMax))
-            .max(visionScannersInlineScanCreateBodySessionIdsMax)
-            .describe(
-                'Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.'
-            ),
         prompt: zod
             .string()
             .max(visionScannersInlineScanCreateBodyPromptMax)
@@ -2080,6 +2174,12 @@ export const VisionScannersInlineScanCreateBody = () => zod
             .default(visionScannersInlineScanCreateBodyModelDefault)
             .describe(
                 'Model to scan with. Determines what each observation costs in credits.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
+            ),
+        session_ids: zod
+            .array(zod.string().max(visionScannersInlineScanCreateBodySessionIdsItemMax))
+            .max(visionScannersInlineScanCreateBodySessionIdsMax)
+            .describe(
+                'Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.'
             ),
     })
     .describe('Body of POST \/vision\/scanners\/inline_scan\/ - a prompt plus the sessions to point it at.')

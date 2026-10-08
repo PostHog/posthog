@@ -1075,9 +1075,6 @@ const visionScannersInlineScan = (): ToolBase<ReturnType<typeof VisionScannersIn
         handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersInlineScanSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
-            if (params.session_ids !== undefined) {
-                body['session_ids'] = params.session_ids
-            }
             if (params.prompt !== undefined) {
                 body['prompt'] = params.prompt
             }
@@ -1089,6 +1086,9 @@ const visionScannersInlineScan = (): ToolBase<ReturnType<typeof VisionScannersIn
             }
             if (params.model !== undefined) {
                 body['model'] = params.model
+            }
+            if (params.session_ids !== undefined) {
+                body['session_ids'] = params.session_ids
             }
             const result = await context.api.request<unknown>({
                 method: 'POST',
@@ -1618,6 +1618,62 @@ const visionScannersWatchFeed = (): ToolBase<
     },
 })
 
+const VisionRequestsCreateSchema = () => {
+    const VisionRequestsCreateBody = orvalSchemas.VisionRequestsCreateBody()
+    return VisionRequestsCreateBody
+}
+
+const visionRequestsCreate = (): ToolBase<
+    ReturnType<typeof VisionRequestsCreateSchema>,
+    Schemas.ObservationRequest
+> => ({
+    name: 'vision-requests-create',
+    schema: VisionRequestsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionRequestsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.session_ids !== undefined) {
+            body['session_ids'] = params.session_ids
+        }
+        if (params.scanner_id !== undefined) {
+            body['scanner_id'] = params.scanner_id
+        }
+        if (params.inline !== undefined) {
+            body['inline'] = params.inline
+        }
+        if (params.idempotency_key !== undefined) {
+            body['idempotency_key'] = params.idempotency_key
+        }
+        if (params.reference !== undefined) {
+            body['reference'] = params.reference
+        }
+        const result = await context.api.request<Schemas.ObservationRequest>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/requests/`,
+            body,
+        })
+        return result
+    },
+})
+
+const VisionRequestsGetSchema = () => {
+    const VisionRequestsRetrieveParams = orvalSchemas.VisionRequestsRetrieveParams()
+    return VisionRequestsRetrieveParams.omit({ project_id: true })
+}
+
+const visionRequestsGet = (): ToolBase<ReturnType<typeof VisionRequestsGetSchema>, Schemas.ObservationRequest> => ({
+    name: 'vision-requests-get',
+    schema: VisionRequestsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionRequestsGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ObservationRequest>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/requests/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-alerts-create': visionAlertsCreate,
     'vision-alerts-delete': visionAlertsDelete,
@@ -1668,4 +1724,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-scanners-update': visionScannersUpdate,
     'vision-scanners-variants-list': visionScannersVariantsList,
     'vision-scanners-watch-feed': visionScannersWatchFeed,
+    'vision-requests-create': visionRequestsCreate,
+    'vision-requests-get': visionRequestsGet,
 }

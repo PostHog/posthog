@@ -32,6 +32,6 @@
             "type": "array"
         }
     },
-    "required": ["session_ids", "prompt"],
+    "required": ["prompt", "session_ids"],
     "type": "object"
 }

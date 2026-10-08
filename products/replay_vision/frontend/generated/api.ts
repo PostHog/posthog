@@ -16,6 +16,7 @@ import type {
     BackfillWindowApi,
     BulkObserveRequestApi,
     BulkObserveResponseApi,
+    CreateObservationRequestApi,
     CreateTaskFromObservationResponseApi,
     DraftScannerRequestApi,
     DraftScannerResponseApi,
@@ -24,12 +25,14 @@ import type {
     ExperimentVariantsReadoutApi,
     InlineScanRequestApi,
     InlineScanResponseApi,
+    ObservationRequestApi,
     ObservationSearchResponseApi,
     ObservationSignalReportApi,
     ObservationStatsApi,
     ObserveAlreadyScannedApi,
     ObserveRequestApi,
     ObserveResponseApi,
+    PaginatedObservationRequestListApi,
     PaginatedReplayObservationListApi,
     PaginatedReplayScannerBackfillListApi,
     PaginatedReplayScannerListApi,
@@ -66,6 +69,7 @@ import type {
     VisionObservationsSearchSuggestionsRetrieveParams,
     VisionObservationsThumbnailRetrieveParams,
     VisionQuotaApi,
+    VisionRequestsListParams,
     VisionScannersBackfillsListParams,
     VisionScannersImpactRetrieveParams,
     VisionScannersListParams,
@@ -620,6 +624,74 @@ export const environmentVisionQuotaSpendSeriesRetrieve = async (
     options?: RequestInit
 ): Promise<VisionSpendSeriesApi> => {
     return apiMutator<VisionSpendSeriesApi>(getEnvironmentVisionQuotaSpendSeriesRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionRequestsListUrl = (projectId: string, params?: VisionRequestsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/requests/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/requests/`
+}
+
+/**
+ * Start scans for named sessions from code, and read their results back through one request id.
+ */
+export const visionRequestsList = async (
+    projectId: string,
+    params?: VisionRequestsListParams,
+    options?: RequestInit
+): Promise<PaginatedObservationRequestListApi> => {
+    return apiMutator<PaginatedObservationRequestListApi>(getVisionRequestsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionRequestsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/requests/`
+}
+
+/**
+ * Scan sessions with a saved scanner or an inline question. Poll the returned request for results.
+ */
+export const visionRequestsCreate = async (
+    projectId: string,
+    createObservationRequestApi: CreateObservationRequestApi,
+    options?: RequestInit
+): Promise<ObservationRequestApi> => {
+    return apiMutator<ObservationRequestApi>(getVisionRequestsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createObservationRequestApi),
+    })
+}
+
+export const getVisionRequestsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/requests/${id}/`
+}
+
+/**
+ * Start scans for named sessions from code, and read their results back through one request id.
+ */
+export const visionRequestsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ObservationRequestApi> => {
+    return apiMutator<ObservationRequestApi>(getVisionRequestsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
