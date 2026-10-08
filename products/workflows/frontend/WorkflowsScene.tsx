@@ -1,5 +1,5 @@
 import { MakeLogicType, actions, kea, path, props, reducers, selectors, useActions, useValues } from 'kea'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -8,6 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -109,7 +110,13 @@ export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
         ],
     }),
     trackedActionToUrl(({ values }) => ({
-        setCurrentTab: () => [urls.workflows(values.currentTab)],
+        setCurrentTab: () => {
+            const target = urls.workflows(values.currentTab)
+            // A tab set from the URL keeps that URL's params, such as a template search.
+            return removeProjectIdIfPresent(router.values.location.pathname) === target
+                ? [target, router.values.searchParams, router.values.hashParams]
+                : [target]
+        },
     })),
     urlToAction(({ actions, values }) => {
         return {
