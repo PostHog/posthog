@@ -302,12 +302,12 @@ class TestUpdateFeatureFlagActionDetect(APIBaseTest):
                 True,
             ),
             (
-                "whole_float_value_is_its_integer",
-                [_condition_set({**PROVIDER_FILTER, "value": 1.0})],
-                [_condition_set({**PROVIDER_FILTER, "value": 1})],
+                "whole_float_value_replaces_integer",
+                [_condition_set({**PROVIDER_FILTER, "value": [1.0]})],
+                [_condition_set({**PROVIDER_FILTER, "value": [1]})],
                 {},
                 {},
-                False,
+                True,
             ),
             (
                 "undeclared_property_key",
@@ -1139,6 +1139,26 @@ class TestReleaseConditionGating(APIBaseTest):
             assert "release_conditions" in change_request.intent["gated_changes"]
         flag.refresh_from_db()
         assert flag.filters["groups"][0]["properties"][0]["value"] == [f"{expected_stored}@example.com"]
+
+    def test_stale_save_of_a_value_python_counts_as_equal_is_gated(self, _mock_enabled: MagicMock):
+        def filters(value: Any, description: str = "") -> dict[str, Any]:
+            prop = {"key": "beta", "type": "person", "operator": "exact", "value": [value]}
+            return {"groups": [{"properties": [prop], "rollout_percentage": 100, "description": description}]}
+
+        flag = FeatureFlag.objects.create(
+            team=self.team, key="typed-flag", filters=filters(True), version=2, created_by=self.user
+        )
+        self._create_policies([("feature_flag.update", {})])
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": filters(1, "edited"), "version": 1, "original_flag": {"filters": filters(1)}},
+            format="json",
+        )
+
+        assert self._change_request_keys() == ["feature_flag.update"]
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["properties"][0]["value"] == [True]
 
 
 class TestActionRegistrationAndIntegration(APIBaseTest):

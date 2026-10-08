@@ -228,26 +228,14 @@ def _apply_create(validated_intent: dict[str, Any], context: Optional[dict[str, 
         raise ApplyFailed(f"Serializer save failed: {str(e)}")
 
 
-def _normalize_numbers(value: Any) -> Any:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-    if isinstance(value, dict):
-        return {key: _normalize_numbers(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_normalize_numbers(item) for item in value]
-    return value
-
-
 def _comparable(value: Any) -> str:
-    """Encode a value so that equal JSON compares equal and `true` never equals `1`.
+    """Encode a release condition value so that values flag evaluation tells apart compare unequal.
 
-    Python's `==` treats `True == 1` as equal, but flag evaluation does not, so a change between them
-    must count. A whole-number float equals its integer, because the flag editor parses a stored
-    `1.0` as `1` and sends `1` back.
+    Python's `==` treats `True`, `1` and `1.0` as equal. The flag matcher compares an exact value by
+    its string form, so `true`, `1` and `1.0` match different people and a change between them must
+    count.
     """
-    return json.dumps(_normalize_numbers(value), sort_keys=True, default=str)
+    return json.dumps(value, sort_keys=True, default=str)
 
 
 def _canonical_property(prop: Any) -> Any:
@@ -705,11 +693,20 @@ class UpdateFeatureFlagAction(BaseAction):
         return results
 
     @staticmethod
-    def _changed_paths(old_values: list[dict[str, Any]], new_values: list[dict[str, Any]]) -> list[str]:
+    def _changed_paths(
+        old_values: list[dict[str, Any]], new_values: list[dict[str, Any]], *, strict: bool = False
+    ) -> list[str]:
+        """Return the paths whose value changed.
+
+        Rollout values compare with `==`, so a stored `50.0` still equals a submitted `50`. Release
+        condition values compare strictly, see `_comparable`.
+        """
         old_by_path = {v["path"]: v["value"] for v in old_values}
         new_by_path = {v["path"]: v["value"] for v in new_values}
         paths = [*new_by_path, *(path for path in old_by_path if path not in new_by_path)]
-        return [path for path in paths if _comparable(old_by_path.get(path)) != _comparable(new_by_path.get(path))]
+        if strict:
+            return [path for path in paths if _comparable(old_by_path.get(path)) != _comparable(new_by_path.get(path))]
+        return [path for path in paths if old_by_path.get(path) != new_by_path.get(path)]
 
     @classmethod
     def _new_release_conditions(
@@ -726,6 +723,8 @@ class UpdateFeatureFlagAction(BaseAction):
         For a stale caller this keeps each stored field that FeatureFlagSerializer.update would not
         write: one the caller did not change from what they loaded, or one somebody else changed
         since. The serializer drops the first and refuses the second as a conflict, field by field.
+        Both checks use the serializer's own comparison, Python `!=` on the whole field, so the gate
+        and the write always agree on which fields land.
 
         That holds only when the write reaches the serializer directly. When the same write also
         changes `active` or a rollout, it can open a change request, and the approved request replays
@@ -738,19 +737,12 @@ class UpdateFeatureFlagAction(BaseAction):
         original_flag = None if other_gated_change else _stale_caller_original_flag(request, flag)
         if original_flag is not None and "filters" in original_flag:
             original_filters = original_flag["filters"]
-            caller_changed = not isinstance(original_filters, dict) or bool(
-                cls._changed_paths(
-                    _release_conditions(original_filters, flag.bucketing_identifier),
-                    _release_conditions(new_filters, flag.bucketing_identifier),
-                )
-            )
-            if not caller_changed or original_filters != flag.filters:
+            if original_filters == new_filters or original_filters != flag.filters:
                 release_filters = flag.filters or {}
 
         if original_flag is not None and "bucketing_identifier" in original_flag and "bucketing_identifier" in change:
             original_bucketing = original_flag["bucketing_identifier"]
-            caller_changed = _canonical_bucketing(original_bucketing) != _canonical_bucketing(release_bucketing)
-            if not caller_changed or original_bucketing != flag.bucketing_identifier:
+            if original_bucketing == release_bucketing or original_bucketing != flag.bucketing_identifier:
                 release_bucketing = flag.bucketing_identifier
 
         return _release_conditions(release_filters, release_bucketing)
@@ -780,7 +772,7 @@ class UpdateFeatureFlagAction(BaseAction):
             request, flag, change, new_filters, other_gated_change=other_gated_change
         )
         # The owner lookup runs queries, so it runs only after the cheap comparison found a change.
-        if cls._changed_paths(old_release, new_release) and flag_owner_kind(flag) is None:
+        if cls._changed_paths(old_release, new_release, strict=True) and flag_owner_kind(flag) is None:
             before["release_conditions"] = old_release
             after["release_conditions"] = new_release
 
@@ -789,7 +781,11 @@ class UpdateFeatureFlagAction(BaseAction):
     @classmethod
     def _triggered_paths(cls, values: _GatedValues) -> list[str]:
         return [
-            path for field in values.after for path in cls._changed_paths(values.before[field], values.after[field])
+            path
+            for field in values.after
+            for path in cls._changed_paths(
+                values.before[field], values.after[field], strict=field == "release_conditions"
+            )
         ]
 
     @classmethod
