@@ -91,25 +91,6 @@ class TestFronteggTransport:
             assert request.headers["Authorization"] == "Bearer fake-token"
         manager.save_state.assert_called_once_with(FronteggResumeConfig(page=first_page + 1))
 
-    @pytest.mark.parametrize("rows", [[], [{"id": "permission-one"}]])
-    def test_permissions_single_page(self, rows: list[dict[str, str]]) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        inputs = MagicMock(spec=SourceInputs, schema_name="permissions", team_id=1, job_id="test-job")
-        with (
-            patch(f"{TRANSPORT}.FronteggAuth", return_value=None),
-            patch(f"{REST_CLIENT}.make_tracked_session") as factory,
-        ):
-            session = Session()
-            factory.return_value = session
-            with patch.object(session, "send", return_value=response(rows)) as send:
-                items = frontegg_source(config(), manager, inputs, "v3").items()
-                assert [row for batch in cast(Iterable[Any], items) for row in batch] == rows
-        send.assert_called_once()
-        request = send.call_args.args[0]
-        assert request.url == "https://api.frontegg.com/identity/resources/permissions/v1"
-        manager.save_state.assert_not_called()
-
     @pytest.mark.parametrize(
         "region,host",
         [

@@ -5396,6 +5396,61 @@ export interface EventMatchResponseApi {
     matches: EventMatchApi[]
 }
 
+/**
+ * * `offer` - offer
+ * * `answer` - answer
+ */
+export type TerminalNetplayDescriptionTypeEnumApi =
+    (typeof TerminalNetplayDescriptionTypeEnumApi)[keyof typeof TerminalNetplayDescriptionTypeEnumApi]
+
+export const TerminalNetplayDescriptionTypeEnumApi = {
+    Offer: 'offer',
+    Answer: 'answer',
+} as const
+
+export interface TerminalNetplayDescriptionApi {
+    /** WebRTC session description type.
+     *
+     * * `offer` - offer
+     * * `answer` - answer */
+    type: TerminalNetplayDescriptionTypeEnumApi
+    /**
+     * WebRTC session description with ICE candidates.
+     * @maxLength 16384
+     */
+    sdp: string
+}
+
+export interface TerminalNetplayReceivedSignalApi {
+    /** Peer that sent the description. */
+    sender: string
+    description: TerminalNetplayDescriptionApi
+}
+
+export interface TerminalNetplayMailboxApi {
+    /** Descriptions received since the last read. */
+    signals: TerminalNetplayReceivedSignalApi[]
+}
+
+export interface TerminalNetplaySignalApi {
+    /**
+     * Room code shown by the game host.
+     * @pattern ^[A-Z0-9]{4,12}$
+     */
+    room: string
+    /**
+     * Peer that sent the description.
+     * @pattern ^[a-z0-9]{1,32}$
+     */
+    sender: string
+    /**
+     * Peer that receives the description.
+     * @pattern ^[a-z0-9]{1,32}$
+     */
+    recipient: string
+    description: TerminalNetplayDescriptionApi
+}
+
 export interface UploadedMediaApi {
     readonly id: string
     /** The file's original name. */
@@ -6822,6 +6877,21 @@ export const PropertyDefinitionsListType = {
     Group: 'group',
     Session: 'session',
 } as const
+
+export type TerminalNetplayMailboxRetrieveParams = {
+    /**
+     * Peer whose mailbox to read. The host reads 'host'.
+     * @minLength 1
+     * @pattern ^[a-z0-9]{1,32}$
+     */
+    peer: string
+    /**
+     * Room code shown by the game host.
+     * @minLength 1
+     * @pattern ^[A-Z0-9]{4,12}$
+     */
+    room: string
+}
 
 export type UploadedMediaListParams = {
     /**

@@ -188,7 +188,10 @@ export class RequestStateResolver {
             userAgent: props.clientUserAgent,
         })
 
-        const renderUiEnabled = clientProfile.isRenderUiHost()
+        // `render-ui` is only meaningful for MCP Apps hosts (Claude web/desktop) that can
+        // mount its iframe. Single-exec CLI clients like Claude Code can't mount it, so the
+        // tool's advertisement and execution stay gated on the UI-host check.
+        const renderUiEnabled = clientProfile.isClaudeUiHost()
 
         const { mode: resolvedMode, useSingleExec } = resolveMode({
             mode: requestContext.mode,

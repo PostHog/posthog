@@ -14,6 +14,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Tag, User
+from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
 from products.actions.backend.models.action import Action
 from products.actions.backend.models.selector_match_change import ActionSelectorMatchChange
@@ -23,6 +24,20 @@ from products.product_analytics.backend.facade.models import Insight
 
 
 class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True)
+    def test_create_rejects_a_step_filter_through_a_denied_warehouse_table(self, _flag):
+        denied_filter = deny_warehouse_table_to_member(self.organization, self.team, self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={"name": "internal signup", "steps": [{"event": "$pageview", "properties": [denied_filter]}]},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "steps"
+        assert "denied_warehouse_table" in response.json()["detail"]
+        assert not Action.objects.filter(team=self.team, name="internal signup").exists()
+
     @patch("products.actions.backend.api.action.report_user_action")
     def test_create_action(self, patch_capture, *args):
         response = self.client.post(
