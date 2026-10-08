@@ -42,7 +42,9 @@ export function SearchPositionCell({
             ).map(([metric, label, definition]) => (
                 <div key={metric} className="flex max-w-full flex-wrap items-center justify-end gap-x-1">
                     <Tooltip title={`${definition}${networkNote} Requires a sync with ad placement data.`}>
-                        <span className="text-xs text-secondary">{label}</span>
+                        <span className="text-xs text-secondary" tabIndex={0}>
+                            {label}
+                        </span>
                     </Tooltip>
                     <ChangeValueCell
                         value={row[metric] == null ? null : [row[metric], row.previous?.[metric] ?? null]}

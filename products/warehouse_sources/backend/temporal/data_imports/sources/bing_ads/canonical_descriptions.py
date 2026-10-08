@@ -48,6 +48,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "destination_url": "Destination URL after dynamic text substitution.",
             "ad_distribution": "Distribution channel for the ad, such as Search or Audience.",
             "conversions_qualified": "Conversions attributed to the ad, including fractional conversions.",
+            "top_impression_rate_percent": "Percentage of ad impressions shown above search results.",
+            "absolute_top_impression_rate_percent": "Percentage of ad impressions shown as the first ad.",
         },
     },
     "campaigns": {
@@ -70,8 +72,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://learn.microsoft.com/en-us/advertising/reporting-service/campaignperformancereportrequest",
         "columns": {
             **_REPORT_METRICS,
-            "top_impression_rate_percent": "Percentage of ad impressions shown above search results.",
-            "absolute_top_impression_rate_percent": "Percentage of ad impressions shown as the first ad.",
             "absolute_top_impression_share_percent": "Percentage of impressions shown in the very top position.",
             "top_impression_share_percent": "Percentage of impressions shown in a top position above search results.",
             "impression_share_percent": "Share of impressions received out of those the ad was eligible for.",

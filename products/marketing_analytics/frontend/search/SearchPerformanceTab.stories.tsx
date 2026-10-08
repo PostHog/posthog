@@ -646,7 +646,40 @@ export const PositionMetrics: Story = {
         await expect(await canvas.findAllByText('64.0%')).not.toHaveLength(0)
         await expect(await canvas.findAllByText('28.0%')).not.toHaveLength(0)
         await expect(canvas.queryByRole('button', { name: 'Visibility' })).not.toBeInTheDocument()
-        await userEvent.hover((await canvas.findAllByText('Top'))[0])
+        const topLabel = (await canvas.findAllByText('Top'))[0]
+        topLabel.focus()
+        await userEvent.tab({ shift: true })
+        await userEvent.tab()
+        await expect(topLabel).toHaveFocus()
+        await waitFor(() =>
+            expect(
+                within(document.body).getByText(
+                    'Percentage of Google Search ad impressions shown among the top ads. Excludes Search partners. Requires a sync with ad placement data.'
+                )
+            ).toBeVisible()
+        )
+        await userEvent.tab()
+        await expect((await canvas.findAllByText('72.0%'))[0].parentElement).toHaveFocus()
+        await waitFor(() =>
+            expect(
+                within(document.body).getByText(
+                    'Percentage of Google Search ad impressions shown among the top ads. Excludes Search partners.'
+                )
+            ).toBeVisible()
+        )
+        await userEvent.tab()
+        const firstLabel = (await canvas.findAllByText('First'))[0]
+        await expect(firstLabel).toHaveFocus()
+        await waitFor(() =>
+            expect(
+                within(document.body).getByText(
+                    'Percentage of Google Search ad impressions shown as the first ad. Excludes Search partners. Requires a sync with ad placement data.'
+                )
+            ).toBeVisible()
+        )
+        await userEvent.keyboard('{Escape}')
+        firstLabel.blur()
+        await userEvent.hover(topLabel)
         await waitFor(() =>
             expect(
                 within(document.body).getByText(
