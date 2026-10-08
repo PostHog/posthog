@@ -5,7 +5,7 @@ use opentelemetry_proto::tonic::common::v1::{any_value, KeyValue};
 use serde_json::{Map, Value};
 
 use super::error_status::apply_error_status_properties;
-use super::identity::extract_distinct_id_for_span;
+use super::identity::{extract_distinct_id_for_span, span_fallback_distinct_id};
 use super::providers;
 
 pub struct SpanEvent {
@@ -117,8 +117,9 @@ fn nanos_to_datetime(nanos: u64) -> Option<DateTime<Utc>> {
 
 /// Convert OTLP spans into [`SpanEvent`]s. `request_fallback_distinct_id` is
 /// used only when neither the span nor its enclosing resource carries a
-/// distinct_id attribute — see [`extract_distinct_id_for_span`] for the full
-/// precedence list.
+/// distinct_id attribute and the span has no session id or valid trace id to
+/// derive one from. See [`extract_distinct_id_for_span`] and
+/// [`span_fallback_distinct_id`] for the full precedence list.
 pub fn expand_into_events(
     request: &ExportTraceServiceRequest,
     request_fallback_distinct_id: &str,
@@ -144,10 +145,15 @@ pub fn expand_into_events(
                     continue;
                 };
 
+                let fallback_distinct_id = span_fallback_distinct_id(
+                    &span.attributes,
+                    &span.trace_id,
+                    request_fallback_distinct_id,
+                );
                 let distinct_id = extract_distinct_id_for_span(
                     &span.attributes,
                     rs.resource.as_ref(),
-                    request_fallback_distinct_id,
+                    &fallback_distinct_id,
                 );
                 let span_attrs = attributes_to_map(&span.attributes);
                 let event_name = (provider.classify)(&span_attrs);
@@ -332,7 +338,6 @@ mod tests {
 
         let event = &events[0];
         assert_eq!(event.event_name, "$ai_generation");
-        assert_eq!(event.distinct_id, "user-1");
 
         let props = event.properties.as_object().unwrap();
         assert_eq!(props["$ai_trace_id"], "0102030405060708090a0b0c0d0e0f10");
@@ -657,6 +662,36 @@ mod tests {
         };
         let events = expand_into_events(&request, "fallback-id");
         assert_eq!(events[0].distinct_id, "fallback-id");
+    }
+
+    #[test]
+    fn test_spans_of_one_trace_share_a_distinct_id_across_requests() {
+        let request = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: None,
+                scope_spans: vec![ScopeSpans {
+                    scope: None,
+                    spans: vec![make_span(
+                        vec![7; 16],
+                        vec![1; 8],
+                        vec![],
+                        0,
+                        0,
+                        "",
+                        vec![make_kv(
+                            "gen_ai.request.model",
+                            any_value::Value::StringValue("gpt-4".to_string()),
+                        )],
+                    )],
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+        let first = expand_into_events(&request, "first-request");
+        let second = expand_into_events(&request, "second-request");
+        assert_eq!(first[0].distinct_id, second[0].distinct_id);
+        assert_ne!(first[0].distinct_id, "first-request");
     }
 
     fn make_minimal_request(

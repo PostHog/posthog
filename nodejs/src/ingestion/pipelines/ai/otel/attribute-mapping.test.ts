@@ -39,6 +39,21 @@ describe('mapOtelAttributes', () => {
         expect(event.properties![otelKey]).toBeUndefined()
     })
 
+    it.each([
+        ['uses the conversation id', { 'gen_ai.conversation.id': 'conversation-1' }, 'conversation-1'],
+        [
+            'keeps an explicit session id',
+            { 'gen_ai.conversation.id': 'conversation-1', $ai_session_id: 'explicit' },
+            'explicit',
+        ],
+        ['ignores an empty conversation id', { 'gen_ai.conversation.id': '' }, undefined],
+    ])('%s as $ai_session_id', (_label, properties, expected) => {
+        const event = createEvent('$ai_generation', properties)
+        mapOtelAttributes(event)
+        expect(event.properties!.$ai_session_id).toBe(expected)
+        expect(event.properties!['gen_ai.conversation.id']).toBe(properties['gen_ai.conversation.id'])
+    })
+
     it('JSON-parses string values for $ai_input and $ai_output_choices', () => {
         const event = createEvent('$ai_generation', {
             'gen_ai.input.messages': '[{"role": "user", "content": "Hello"}]',
