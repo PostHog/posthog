@@ -40,6 +40,7 @@ class Reopened:
 def apply_run(
     context: CandidateContext, drafts: Sequence[SuggestionDraft], now: datetime, *, surface: bool
 ) -> LifecycleResult:
+    """Apply one run's drafts to the stored suggestions, then show new ones when `surface` is set."""
     fingerprints = {draft.fingerprint for draft in drafts}
     reopened = _reopen(context, drafts)
     upsert_suggestions(context.team_id, drafts)
@@ -59,6 +60,7 @@ REVIVABLE_STATUSES = (WarehouseSuggestionStatus.EXPIRED, WarehouseSuggestionStat
 
 
 def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft]) -> Reopened:
+    """Move closed suggestions that match a draft back to proposed and unshown, dismissed ones only if they earn it."""
     drafts_by_fingerprint = {draft.fingerprint: draft for draft in drafts}
     suggestions = WarehouseSuggestion.objects.for_team(context.team_id)
     closed = suggestions.filter(
@@ -80,6 +82,7 @@ def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft]) -> Reo
 
 
 def _earns_reproposal(row: WarehouseSuggestion, draft: SuggestionDraft, rules: LifecycleRules) -> bool:
+    """Whether a not-now dismissal now scores above, and at least `reproposal_score_multiple` times, its old score."""
     return (
         row.dismissal_reason == WarehouseSuggestionDismissalReason.NOT_NOW
         and row.dismissed_at_score is not None
@@ -89,6 +92,7 @@ def _earns_reproposal(row: WarehouseSuggestion, draft: SuggestionDraft, rules: L
 
 
 def _auto_resolve(context: CandidateContext, refreshed_fingerprints: Collection[str]) -> int:
+    """Auto-resolve proposed suggestions with no draft this run whose subject no longer needs them."""
     open_rows = (
         WarehouseSuggestion.objects.for_team(context.team_id)
         .filter(status=WarehouseSuggestionStatus.PROPOSED)
@@ -102,6 +106,7 @@ def _auto_resolve(context: CandidateContext, refreshed_fingerprints: Collection[
 
 
 def _expire(context: CandidateContext, refreshed_fingerprints: Collection[str], now: datetime) -> int:
+    """Expire proposed suggestions with no draft for `expire_after_days`, unless the read data is too short to tell."""
     rules = context.rules.lifecycle
     if context.reads.recent_days_with_data < rules.expire_after_days:
         return 0
@@ -116,6 +121,7 @@ def _expire(context: CandidateContext, refreshed_fingerprints: Collection[str], 
 
 
 def _surface(team_id: int, rules: LifecycleRules, now: datetime) -> int:
+    """Show waiting suggestions within the daily, open and per-kind limits, and return how many were shown."""
     suggestions = WarehouseSuggestion.objects.for_team(team_id)
     start_of_day = datetime.combine(now.date(), time.min, tzinfo=now.tzinfo)
     open_kinds = Counter(
@@ -152,6 +158,7 @@ def _pick_in_turns(
     open_kinds: Counter[str],
     max_open_per_kind: int,
 ) -> list[UUID]:
+    """Pick up to `slots` suggestions in turns across `kind_order`, highest score first, skipping full kinds."""
     queues: defaultdict[str, deque[WarehouseSuggestion]] = defaultdict(deque)
     for row in sorted(waiting, key=lambda row: (-row.score, str(row.id))):
         queues[row.kind].append(row)
@@ -169,6 +176,7 @@ def _pick_in_turns(
 
 
 def _move(row: WarehouseSuggestion, team_id: int, status: WarehouseSuggestionStatus) -> bool:
+    """Move a suggestion to `status` as the system, and return False when a person already decided it."""
     try:
         transition_to(row.id, team_id, status, user_id=None)
     except SuggestionAlreadyDecidedError:

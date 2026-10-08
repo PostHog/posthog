@@ -37,6 +37,8 @@ class DeprecatePayload:
 
 @frozen
 class MaterializePayload:
+    """The stored materialize payload, with the warehouse table id of each source."""
+
     subject_name: str
     refresh_interval_seconds: int
     saves_seconds_per_month: float
@@ -58,6 +60,8 @@ class VisibleSources:
 
 @frozen
 class MaterializeSuggestionPayload:
+    """The materialize payload a caller sees: the source names they can read, and a count of the others."""
+
     subject_name: str
     refresh_interval_seconds: int
     saves_seconds_per_month: float
