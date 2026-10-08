@@ -16,8 +16,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { metricNamePickerLogic } from './components/metricNamePickerLogic'
-import { MetricsCatalog } from './components/MetricsCatalog'
-import { metricsCatalogLogic } from './components/metricsCatalogLogic'
 import { MetricsOverview } from './components/MetricsOverview'
 import { MetricsSqlEditor } from './components/MetricsSqlEditor'
 import { metricsUsageTrackingLogic } from './components/metricsUsageTrackingLogic'
@@ -32,7 +30,6 @@ const METRICS_FEEDBACK_SURVEY_ID = '01a07c35-6be3-0000-16b3-4cd66a6873f3'
 
 const TABS: { key: MetricsSceneActiveTab; label: string; 'data-attr': string }[] = [
     { key: 'overview', label: 'Overview', 'data-attr': 'metrics-scene-tab-overview' },
-    { key: 'explore', label: 'Explore', 'data-attr': 'metrics-scene-tab-explore' },
     { key: 'viewer', label: 'Viewer', 'data-attr': 'metrics-scene-tab-viewer' },
     { key: 'sql', label: 'SQL', 'data-attr': 'metrics-scene-tab-sql' },
 ]
@@ -67,7 +64,6 @@ const MetricsSceneContent = (): JSX.Element => {
     )
     const tabDisabledReasons: Record<MetricsSceneActiveTab, string | null> = {
         overview: metricsViewerDisabledReason,
-        explore: metricsViewerDisabledReason,
         viewer: metricsViewerDisabledReason,
         sql: metricsSqlDisabledReason,
     }
@@ -81,9 +77,6 @@ const MetricsSceneContent = (): JSX.Element => {
     useOnMountEffect(() => {
         primeItems()
     })
-    // Holds cross-tab state: a catalog card click preloads the viewer. Mounted here, a tab
-    // flip cannot unmount the logic and reset the handoff before the destination reads it.
-    useMountedLogic(metricsCatalogLogic)
 
     const onFeedbackClick = (): void => {
         posthog.displaySurvey(METRICS_FEEDBACK_SURVEY_ID)
@@ -129,7 +122,6 @@ const MetricsSceneContent = (): JSX.Element => {
             />
             <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
                 {activeTab === 'overview' && <MetricsOverview />}
-                {activeTab === 'explore' && <MetricsCatalog />}
                 {activeTab === 'viewer' && <MetricsViewer />}
                 {activeTab === 'sql' && <MetricsSqlEditor />}
             </div>
