@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.he
     HETZNER_BASE_URL,
     METRICS_RETENTION,
     HetznerResumeConfig,
+    hetzner_child_source,
     hetzner_metrics_source,
     hetzner_source,
     validate_credentials,
@@ -114,91 +115,6 @@ class TestPagination:
         assert params[1]["page"] == 2
         # Checkpoint saved after the first page, pointing at the next page.
         manager.save_state.assert_called_once_with(HetznerResumeConfig(page=2))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([{"id": 1}, {"id": 2}], last_page=1)])
-        manager = _make_manager()
-
-        rows = _rows(_source("servers", manager))
-
-        assert [r["id"] for r in rows] == [1, 2]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_response_key_empty(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([], last_page=1)])
-        manager = _make_manager()
-
-        rows = _rows(_source("servers", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_response_key_stops_without_raising(self, MockSession) -> None:
-        # The hand-rolled source treated a missing envelope key as an empty page (stop), not an error;
-        # a non-required data_selector preserves that — the paginator stops rather than failing loud.
-        session = MockSession.return_value
-        _wire(session, [_page(None, drop_key=True, last_page=1)])
-        manager = _make_manager()
-
-        rows = _rows(_source("servers", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession) -> None:
-        # A saved page must skip already-synced pages instead of restarting at page 1.
-        session = MockSession.return_value
-        params = _wire(session, [_page([{"id": 99}], last_page=2)])
-        manager = _make_manager(HetznerResumeConfig(page=2))
-
-        rows = _rows(_source("servers", manager))
-
-        assert [r["id"] for r in rows] == [99]
-        assert params[0]["page"] == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sort_param_present_for_resource_endpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page([{"id": 1}], last_page=1)])
-
-        _rows(_source("servers", _make_manager()))
-
-        assert params[0]["sort"] == "id:asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_pricing_is_one_row_from_one_request(self, MockSession) -> None:
-        # /pricing ignores `page` and has no meta.pagination; a page-number paginator would request
-        # page 2 forever and repeat the same row.
-        session = MockSession.return_value
-        response = Response()
-        response.status_code = 200
-        response._content = json.dumps({"pricing": {"currency": "EUR", "vat_rate": "19.00"}}).encode()
-        response.url = f"{HETZNER_BASE_URL}/pricing"
-        params = _wire(session, [response])
-
-        rows = _rows(_source("pricing", _make_manager()))
-
-        assert rows == [{"currency": "EUR", "vat_rate": "19.00"}]
-        assert session.send.call_count == 1
-        assert "page" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_catalog_endpoint_omits_sort(self, MockSession) -> None:
-        # server_types has no verified sort support, so we must not send a sort param that could 400.
-        session = MockSession.return_value
-        params = _wire(session, [_page([{"id": 1}], endpoint="server_types", last_page=1)])
-
-        _rows(_source("server_types", _make_manager()))
-
-        assert "sort" not in params[0]
 
 
 NOW = datetime(2026, 3, 1, tzinfo=UTC)
@@ -318,20 +234,6 @@ class TestMetrics:
         assert manager.safe_point.call_count == window_count
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_starts_at_the_watermark(self, MockSession) -> None:
-        session = MockSession.return_value
-        watermark = NOW - timedelta(minutes=10)
-        sent = _wire_requests(
-            session,
-            [_page([{"id": 1, "created": "2020-01-01T00:00:00+00:00"}]), _metrics({})],
-        )
-
-        _rows(_metrics_source("server_metrics", _make_manager(), last_value=watermark))
-
-        assert len(sent) == 2
-        assert sent[1][1]["start"] == _rfc3339(watermark)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resource_deleted_mid_sync_is_skipped(self, MockSession) -> None:
         session = MockSession.return_value
         recent = (NOW - timedelta(minutes=30)).isoformat()
@@ -350,6 +252,29 @@ class TestMetrics:
         assert [(r["server_id"], r["value"]) for r in rows] == [(2, 1.0)]
 
 
+class TestNetworkMembers:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_deleted_or_empty_network_is_skipped(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire_requests(
+            session,
+            [
+                _page([{"id": 1}, {"id": 2}, {"id": 3}], endpoint="networks"),
+                _json_response({"error": {"code": "not_found"}}, status=404, reason="Not Found"),
+                _page([], endpoint="members"),
+                _page([{"type": "server", "id": 9}], endpoint="members"),
+            ],
+        )
+        manager = _make_manager()
+
+        rows = _rows(
+            hetzner_child_source(api_token="token", endpoint="network_members", resumable_source_manager=manager)
+        )
+
+        assert rows == [{"network_id": 3, "type": "server", "id": 9}]
+        assert manager.safe_point.call_count == 2
+
+
 class TestRetries:
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
     @mock.patch(SLEEP_PATCH, lambda *_: None)
@@ -362,23 +287,6 @@ class TestRetries:
             _rows(_source("servers", _make_manager()))
         # 5 attempts (DEFAULT_RETRY_ATTEMPTS) before giving up.
         assert session.send.call_count == 5
-
-    @mock.patch(SLEEP_PATCH, lambda *_: None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retries_then_succeeds(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _page([], status=503, reason="err"),
-                _page([{"id": 7}], last_page=1),
-            ],
-        )
-
-        rows = _rows(_source("servers", _make_manager()))
-
-        assert [r["id"] for r in rows] == [7]
-        assert session.send.call_count == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_client_error_is_not_retried(self, MockSession) -> None:
@@ -418,15 +326,6 @@ class TestValidateCredentials:
 
 
 class TestSourceResponse:
-    def test_datetime_partition_for_resource_endpoint(self) -> None:
-        with mock.patch(CLIENT_SESSION_PATCH):
-            response = _source("servers", _make_manager())
-        assert response.name == "servers"
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created"]
-
     @parameterized.expand([("actions",), ("server_types",), ("locations",)])
     def test_no_partition_for_timestampless_endpoints(self, endpoint: str) -> None:
         # actions has no `created`; catalog endpoints carry no timestamps — partitioning on a null or

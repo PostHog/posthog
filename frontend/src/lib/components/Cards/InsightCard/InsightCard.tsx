@@ -225,6 +225,8 @@ export interface InsightCardProps extends Resizeable {
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     /** Project the insight belongs to, when that is not the current project. The card's links then open it there. */
     projectId?: number
+    /** Time zone of `projectId`, so the chart places that project's annotations on the right day. */
+    projectTimezone?: string
     /** Shown above the title, for a card that has to name where its insight comes from. */
     contextHeading?: JSX.Element | null
 }
@@ -267,6 +269,7 @@ function InsightCardInternal(
         variablesOverride,
         children,
         projectId,
+        projectTimezone,
         contextHeading,
         breakdownColorOverride: _breakdownColorOverride,
         dataColorThemeId: _dataColorThemeId,
@@ -321,8 +324,17 @@ function InsightCardInternal(
             loadPriority,
             doNotLoad,
             refreshAfterDisplayOptionsChange: handleRefreshAfterDisplayOptionsChange,
+            sourceProject: projectId !== undefined ? { id: projectId, timezone: projectTimezone } : undefined,
         }),
-        [insight, dashboardId, loadPriority, doNotLoad, handleRefreshAfterDisplayOptionsChange]
+        [
+            insight,
+            dashboardId,
+            loadPriority,
+            doNotLoad,
+            handleRefreshAfterDisplayOptionsChange,
+            projectId,
+            projectTimezone,
+        ]
     )
 
     const { persistDisplayOptions } = useActions(insightDataLogic(insightLogicPropsBase))

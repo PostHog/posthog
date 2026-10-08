@@ -8,6 +8,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { DashboardCompareFilter } from 'scenes/dashboard/DashboardCompareFilter'
+import { dashboardControlScopeText } from 'scenes/dashboard/dashboardControls'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -39,8 +40,18 @@ export function DashboardEditBarAdvancedFilters({
 }: {
     showCompareFilter?: boolean
 }): JSX.Element {
-    const { dashboard, dashboardEditing, placement, canEditDashboard, effectiveEditBarFilters } =
-        useValues(dashboardLogic)
+    const {
+        dashboard,
+        dashboardEditing,
+        placement,
+        canEditDashboard,
+        effectiveEditBarFilters,
+        dashboardControlScopes,
+    } = useValues(dashboardLogic)
+    const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
+    const testAccountsScopeText = controlsEnabled
+        ? dashboardControlScopeText(dashboardControlScopes.testAccounts)
+        : null
     const { setFilterTestAccounts, setDashboardEditing } = useActions(dashboardLogic)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -122,6 +133,7 @@ export function DashboardEditBarAdvancedFilters({
                         ]}
                     />
                     <p className="mb-0 text-xs text-secondary">{CHOICE_HINTS[choice]}</p>
+                    {testAccountsScopeText && <p className="mb-0 text-xs text-secondary">{testAccountsScopeText}.</p>}
                     {showCompareFilter && (
                         <>
                             <LemonDivider className="my-0" />

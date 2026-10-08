@@ -17,7 +17,10 @@ from django.core.cache import cache
 from django.db import connection
 from django.test import override_settings
 
+import jwt
 import requests
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -1667,3 +1670,154 @@ class TestYouTubeAnalyticsIntegrationModel(BaseTest):
     def test_oauth_config_unconfigured_raises(self):
         with pytest.raises(NotImplementedError, match="YouTube Analytics app not configured"):
             OauthIntegration.oauth_config_for_kind("youtube-analytics")
+
+
+_APPLE_ADS_APP_PRIVATE_KEY = (
+    ec.generate_private_key(ec.SECP256R1())
+    .private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    .decode()
+)
+
+_APPLE_ADS_ACL = {
+    "result": {
+        "acls": [
+            {
+                "adAccount": {"id": 123456789, "name": "Hedgebox", "orgId": 555, "orgName": "Hedgebox Inc"},
+                "roles": [{"roleName": "API Account Read Only"}],
+            }
+        ]
+    }
+}
+
+
+@override_settings(
+    APPLE_ADS_APP_CLIENT_ID="SEARCHADS.posthog",
+    APPLE_ADS_APP_TEAM_ID="SEARCHADS.team",
+    APPLE_ADS_APP_KEY_ID="key-1",
+    APPLE_ADS_APP_PRIVATE_KEY=_APPLE_ADS_APP_PRIVATE_KEY,
+)
+class TestAppleAdsIntegrationModel(BaseTest):
+    def _mock_acl(self, mock_get, status_code: int = 200, payload: Optional[dict] = None) -> None:
+        mock_get.return_value.status_code = status_code
+        mock_get.return_value.json.return_value = _APPLE_ADS_ACL if payload is None else payload
+
+    def test_oauth_config_signs_the_client_secret_apple_expects(self):
+        # Apple issues no static secret: it reads `client_secret` as an ES256 assertion naming the
+        # registration. Posting a literal setting value instead fails every grant at the exchange.
+        config = OauthIntegration.oauth_config_for_kind("apple-ads")
+
+        assert config.authorize_url == "https://appleid.apple.com/auth/oauth2/v2/authorize"
+        assert config.token_url == "https://appleid.apple.com/auth/oauth2/token"
+        assert config.client_id == "SEARCHADS.posthog"
+        assert config.scope == "searchads"
+
+        claims = jwt.decode(
+            config.client_secret,
+            _APPLE_ADS_APP_PRIVATE_KEY,
+            algorithms=["ES256"],
+            audience="https://appleid.apple.com",
+            options={"verify_signature": False},
+        )
+        assert claims["iss"] == "SEARCHADS.team"
+        assert claims["sub"] == "SEARCHADS.posthog"
+        assert jwt.get_unverified_header(config.client_secret)["kid"] == "key-1"
+
+    @parameterized.expand(
+        ["APPLE_ADS_APP_CLIENT_ID", "APPLE_ADS_APP_TEAM_ID", "APPLE_ADS_APP_KEY_ID", "APPLE_ADS_APP_PRIVATE_KEY"]
+    )
+    def test_oauth_config_unconfigured_raises(self, missing_setting: str):
+        with override_settings(**{missing_setting: ""}):
+            with pytest.raises(NotImplementedError, match="Apple Ads service provider app not configured"):
+                OauthIntegration.oauth_config_for_kind("apple-ads")
+
+    @patch("posthog.models.integration.oauth.requests.get")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_integration_from_oauth_response_names_the_grant_from_apples_acl(self, mock_post, mock_get):
+        # Apple's token response carries no identifier at all, so without the ACL lookup the
+        # callback has nothing to key the integration on and fails after a successful grant.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "at_1",
+            "refresh_token": "rt_1",
+            "expires_in": 3600,
+            "token_type": "Bearer",
+        }
+        self._mock_acl(mock_get)
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "apple-ads", self.team.id, self.user, {"code": "code", "state": "token=state_token"}
+        )
+
+        assert integration.integration_id == f"grant:{hashlib.sha256(b'rt_1').hexdigest()}"
+        assert integration.config["apple_ads_account_name"] == "Hedgebox Inc"
+        assert integration.config["apple_ads_org_ids"] == ["555"]
+        assert integration.sensitive_config["refresh_token"] == "rt_1"
+
+    @patch("posthog.models.integration.oauth.requests.get")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_grants_for_the_same_organization_remain_separate(self, mock_post, mock_get):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.side_effect = [
+            {"access_token": "at_1", "refresh_token": "rt_1", "expires_in": 3600},
+            {"access_token": "at_2", "refresh_token": "rt_2", "expires_in": 3600},
+        ]
+        self._mock_acl(mock_get)
+
+        first = OauthIntegration.integration_from_oauth_response(
+            "apple-ads", self.team.id, self.user, {"code": "code-1", "state": "token=state_token"}
+        )
+        second = OauthIntegration.integration_from_oauth_response(
+            "apple-ads", self.team.id, self.user, {"code": "code-2", "state": "token=state_token"}
+        )
+
+        assert first.id != second.id
+        assert first.integration_id != second.integration_id
+
+    @parameterized.expand([("rejected", 403, None), ("no_readable_account", 200, {"result": {"acls": []}})])
+    @patch("posthog.models.integration.oauth.requests.get")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_a_grant_that_reads_no_ad_account_is_refused(
+        self, _name: str, status_code: int, payload: Optional[dict], mock_post, mock_get
+    ):
+        # An Apple Ads user with no API role can complete the grant and still read nothing. Storing
+        # it leaves a connected-looking integration that fails on every sync instead of at connect.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "at_1", "refresh_token": "rt_1"}
+        self._mock_acl(mock_get, status_code=status_code, payload=payload)
+
+        with pytest.raises(ValidationError, match="cannot read any ad account"):
+            OauthIntegration.integration_from_oauth_response(
+                "apple-ads", self.team.id, self.user, {"code": "code", "state": "token=state_token"}
+            )
+
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_token_refresh_retries_at_apples_other_documented_path(self, mock_post):
+        # Apple's guide names `/auth/oauth2/token` for the exchange and `/auth/token` for the
+        # refresh. Tokens live an hour, so honoring only one path would kill every integration
+        # within an hour of connecting.
+        rejected = MagicMock(status_code=400)
+        rejected.json.return_value = {"error": "invalid_request"}
+        accepted = MagicMock(status_code=200)
+        accepted.json.return_value = {"access_token": "at_2", "expires_in": 3600}
+        mock_post.side_effect = [rejected, accepted]
+
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="apple-ads",
+            integration_id="555",
+            config={"expires_in": 3600, "refreshed_at": int(time.time()) - 3600},
+            sensitive_config={"refresh_token": "rt_1", "access_token": "at_1"},
+        )
+
+        OauthIntegration(integration).refresh_access_token()
+
+        assert [call.args[0] for call in mock_post.call_args_list] == [
+            "https://appleid.apple.com/auth/oauth2/token",
+            "https://appleid.apple.com/auth/token",
+        ]
+        assert integration.sensitive_config["access_token"] == "at_2"
+        assert integration.errors == ""

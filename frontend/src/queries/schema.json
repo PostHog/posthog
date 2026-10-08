@@ -6144,6 +6144,29 @@
             "enum": ["count", "count_distinct", "sum", "average", "minimum", "maximum", "custom"],
             "type": "string"
         },
+        "BIConditionGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "filters": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "groups": {
+                    "items": {
+                        "$ref": "#/definitions/BIConditionGroup"
+                    },
+                    "type": "array"
+                },
+                "operator": {
+                    "enum": ["AND", "OR"],
+                    "type": "string"
+                }
+            },
+            "required": ["operator", "filters", "groups"],
+            "type": "object"
+        },
         "BIConfig": {
             "additionalProperties": false,
             "properties": {
@@ -6182,6 +6205,23 @@
                 "limit": {
                     "$ref": "#/definitions/BIQueryLimit"
                 },
+                "missingDates": {
+                    "description": "Fill missing date buckets before table calculations. Unset preserves observed points only.",
+                    "enum": ["gap", "zero"],
+                    "type": "string"
+                },
+                "resultFilterGroup": {
+                    "$ref": "#/definitions/BIConditionGroup"
+                },
+                "resultFilters": {
+                    "items": {
+                        "$ref": "#/definitions/BIResultFilter"
+                    },
+                    "type": "array"
+                },
+                "rowFilterGroup": {
+                    "$ref": "#/definitions/BIConditionGroup"
+                },
                 "rows": {
                     "items": {
                         "$ref": "#/definitions/BIField"
@@ -6208,6 +6248,12 @@
                             "type": "null"
                         }
                     ]
+                },
+                "topN": {
+                    "$ref": "#/definitions/BITopN"
+                },
+                "totals": {
+                    "$ref": "#/definitions/BITotals"
                 },
                 "values": {
                     "items": {
@@ -6313,6 +6359,42 @@
             "enum": [100, 1000, 10000, 50000],
             "type": "number"
         },
+        "BIResultFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "measureIndex": {
+                    "$ref": "#/definitions/non_negative_integer"
+                },
+                "operator": {
+                    "enum": [
+                        "equals",
+                        "not_equals",
+                        "greater_than",
+                        "less_than",
+                        "greater_than_or_equal",
+                        "less_than_or_equal",
+                        "between",
+                        "is_set",
+                        "is_not_set"
+                    ],
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                },
+                "valueTo": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "measureIndex", "operator", "value"],
+            "type": "object"
+        },
         "BISort": {
             "additionalProperties": false,
             "properties": {
@@ -6330,6 +6412,66 @@
             "enum": ["asc", "desc"],
             "type": "string"
         },
+        "BITableCalculation": {
+            "additionalProperties": false,
+            "properties": {
+                "computeUsing": {
+                    "description": "Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions.",
+                    "type": "string"
+                },
+                "requireFullWindow": {
+                    "description": "Require a complete window of non-null values before displaying a moving average.",
+                    "type": "boolean"
+                },
+                "type": {
+                    "$ref": "#/definitions/BITableCalculationType"
+                },
+                "window": {
+                    "$ref": "#/definitions/positive_integer",
+                    "description": "Number of points, including the current point, in a trailing moving average."
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
+        "BITableCalculationType": {
+            "enum": ["percent_of_total", "running_total", "difference", "percent_change", "moving_average", "rank"],
+            "type": "string"
+        },
+        "BITopN": {
+            "additionalProperties": false,
+            "properties": {
+                "count": {
+                    "$ref": "#/definitions/positive_integer"
+                },
+                "fieldId": {
+                    "type": "string"
+                },
+                "includeOther": {
+                    "type": "boolean"
+                },
+                "measureIndex": {
+                    "$ref": "#/definitions/non_negative_integer"
+                }
+            },
+            "required": ["fieldId", "count", "measureIndex", "includeOther"],
+            "type": "object"
+        },
+        "BITotals": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "type": "boolean"
+                },
+                "rows": {
+                    "type": "boolean"
+                },
+                "subtotals": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "BIValue": {
             "additionalProperties": false,
             "properties": {
@@ -6339,11 +6481,20 @@
                 "customExpression": {
                     "type": "string"
                 },
+                "display": {
+                    "$ref": "#/definitions/ChartSettingsDisplay"
+                },
                 "field": {
                     "$ref": "#/definitions/BIField"
                 },
+                "formatting": {
+                    "$ref": "#/definitions/ChartSettingsFormatting"
+                },
                 "label": {
                     "type": "string"
+                },
+                "tableCalculation": {
+                    "$ref": "#/definitions/BITableCalculation"
                 }
             },
             "required": ["field", "aggregation"],
@@ -18608,6 +18759,20 @@
                         }
                     ],
                     "description": "Time granularity forced onto every insight that supports one."
+                },
+                "metricFilters": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MetricsQueryFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Metric label matchers ANDed into every metrics tile. Other tiles ignore them."
                 },
                 "properties": {
                     "anyOf": [
@@ -30993,6 +31158,7 @@
                 "customerio-webhook",
                 "customerio-track",
                 "apns",
+                "apple-ads",
                 "postgresql",
                 "aws-s3",
                 "aws-redshift",
@@ -50787,7 +50953,7 @@
                 },
                 "error_code": {
                     "default": null,
-                    "description": "Stable machine-readable code for the error (the DRF exception code), when known.",
+                    "description": "Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.",
                     "type": ["string", "null"]
                 },
                 "error_message": {

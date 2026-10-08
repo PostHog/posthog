@@ -91,6 +91,7 @@ the row lists both.
 | appsflyer                        | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | appsignal                        | HTTP (REST + GraphQL)       | requests                                                        | ✅                          |
 | appstack                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| arcade                           | HTTP                        | requests                                                        | ✅                          |
 | argocd                           | HTTP                        | requests                                                        | ✅                          |
 | asaas                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | asana                            | HTTP                        | requests                                                        | ✅                          |
@@ -100,6 +101,7 @@ the row lists both.
 | astronomer                       | HTTP                        | requests                                                        | ✅                          |
 | attentive                        | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| auth0                            | HTTP                        | requests                                                        | ✅                          |
 | automox                          | HTTP                        | requests                                                        | ✅                          |
 | autumn                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | avalara                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -540,6 +542,7 @@ the row lists both.
 | mistral_ai                       | HTTP                        | requests                                                        | ✅                          |
 | mixmax                           | HTTP                        | requests                                                        | ✅                          |
 | mixpanel                         | HTTP                        | requests                                                        | ✅                          |
+| modal                            | gRPC                        | modal (vendor SDK)                                              | ⚠️ Vendor SDK               |
 | moengage                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mollie                           | HTTP                        | requests                                                        | ✅                          |
 | monday                           | HTTP (GraphQL)              | requests                                                        | ✅                          |
@@ -556,6 +559,7 @@ the row lists both.
 | n8n                              | HTTP                        | requests                                                        | ✅                          |
 | nager_date                       | HTTP                        | requests                                                        | ✅                          |
 | nebius_ai                        | HTTP                        | requests                                                        | ✅                          |
+| neo4j                            | HTTP                        | requests                                                        | ✅                          |
 | neon                             | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | netlify                          | HTTP                        | requests                                                        | ✅                          |
 | new_relic                        | HTTP (GraphQL/NerdGraph)    | requests                                                        | ✅                          |
@@ -708,6 +712,7 @@ the row lists both.
 | scale_ai                         | HTTP                        | requests                                                        | ✅                          |
 | scaleway                         | HTTP                        | requests                                                        | ✅                          |
 | scalr                            | HTTP                        | requests                                                        | ✅                          |
+| scrunch                          | HTTP                        | requests                                                        | ✅                          |
 | secoda                           | HTTP                        | requests                                                        | ✅                          |
 | secureframe                      | HTTP                        | requests                                                        | ✅                          |
 | segment                          | HTTP                        | requests                                                        | ✅                          |
@@ -809,6 +814,7 @@ the row lists both.
 | temporalio                       | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | tenable_vulnerability_management | HTTP (async export flow)    | requests                                                        | ✅                          |
 | terraform_cloud                  | HTTP                        | requests                                                        | ✅                          |
+| testdino                         | HTTP                        | requests                                                        | ✅                          |
 | testrail                         | HTTP                        | requests                                                        | ✅                          |
 | thinkific                        | HTTP                        | requests                                                        | ✅                          |
 | thinkific_courses                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -860,6 +866,7 @@ the row lists both.
 | vendr                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | veracode                         | HTTP                        | requests (custom HMAC signing)                                  | ✅                          |
 | vercel                           | HTTP                        | requests                                                        | ✅                          |
+| vimeo                            | HTTP                        | requests                                                        | ✅                          |
 | vitally                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | vultr                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wasabi                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -906,6 +913,7 @@ the row lists both.
 
 ### Notes on partially-tracked sources
 
+- **modal** uses grpclib inside its SDK without a channel or interceptor hook, so gRPC traffic bypasses tracking.
 - **bing_ads** uses Microsoft's `bingads` Python SDK, which builds its own HTTP transport via `suds-py3` for
   the SOAP API and a separate Reporting client. The SDK does not expose a session or HTTP-client injection
   hook today. Outbound traffic from this source bypasses the tracked transport.
@@ -983,7 +991,6 @@ doesn't conflict with concurrent PRs.
 - athenahealth
 - atlan
 - audiogo
-- auth0
 - autodesk_construction_cloud
 - automox
 - aws_athena
@@ -1245,6 +1252,7 @@ doesn't conflict with concurrent PRs.
 - logrocket
 - lokalise
 - looker
+- loom
 - m3ter
 - mailtrap
 - mantle
@@ -1433,6 +1441,7 @@ doesn't conflict with concurrent PRs.
 - sprinklr
 - sprinto
 - sprout_social
+- sqlite
 - starburst
 - statsig
 - stockx

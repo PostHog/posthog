@@ -63,6 +63,7 @@ rules:
                               |AccountTrackRuleRun
                               |AccountView
                               |Action
+                              |ActionSelectorMatchChange
                               |AEOCitationCheck
                               |AEOPrompt
                               |AgentApplication
@@ -140,6 +141,7 @@ rules:
                               |Dashboard
                               |DashboardTemplate
                               |DashboardWidget
+                              |TeamHomeTabDashboardConfig
                               |DataColorTheme
                               |DataModelingJob
                               |DataQualityCheck
@@ -185,6 +187,7 @@ rules:
                               |ErrorTrackingBypassRule
                               |ErrorTrackingGroupingRule
                               |ErrorTrackingIssue
+                              |ErrorTrackingIssueChange
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
@@ -440,6 +443,7 @@ rules:
                               |WikiPageProposal
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
+                              |WarehouseSuggestion
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
@@ -513,6 +517,7 @@ rules:
                         |AccountTrackRuleRun
                         |AccountView
                         |Action
+                        |ActionSelectorMatchChange
                         |AgentApplication
                         |AgentArtifact
                         |AgentIdentityCredential
@@ -588,6 +593,7 @@ rules:
                         |Dashboard
                         |DashboardTemplate
                         |DashboardWidget
+                        |TeamHomeTabDashboardConfig
                         |DataColorTheme
                         |DataModelingJob
                         |DataQualityCheck
@@ -633,6 +639,7 @@ rules:
                         |ErrorTrackingBypassRule
                         |ErrorTrackingGroupingRule
                         |ErrorTrackingIssue
+                        |ErrorTrackingIssueChange
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
@@ -877,6 +884,7 @@ rules:
                         |WikiPageProposal
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
+                        |WarehouseSuggestion
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction

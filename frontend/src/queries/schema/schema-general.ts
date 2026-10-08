@@ -2923,7 +2923,7 @@ export type QueryStatus = {
     /**  @default null */
     error_message: string | null
     /**
-     * Stable machine-readable code for the error (the DRF exception code), when known.
+     * Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.
      * @default null
      */
     error_code: string | null
@@ -6783,6 +6783,8 @@ export interface DashboardFilter {
     filterTestAccounts?: boolean | null
     /** Period comparison forced onto every insight that supports one. */
     compareFilter?: CompareFilter | null
+    /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
+    metricFilters?: MetricsQueryFilter[] | null
 }
 
 export interface TileFilters {

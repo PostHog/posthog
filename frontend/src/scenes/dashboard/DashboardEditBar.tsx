@@ -1,16 +1,23 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import type { ReactNode } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
+import {
+    DashboardControl,
+    dashboardControlScopeText,
+    isDashboardControlHidden,
+} from 'scenes/dashboard/dashboardControls'
 import { DashboardEditBarAdvancedFilters } from 'scenes/dashboard/DashboardEditBarAdvancedFilters'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
@@ -22,9 +29,41 @@ import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Compone
 import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
 import { InsightLogicProps, IntervalType } from '~/types'
 
+import { DashboardMetricLabelFilter } from 'products/metrics/frontend/components/DashboardMetricLabelFilter'
+
 interface DashboardEditBarProps {
     showDateFilter?: boolean
     className?: string
+}
+
+/** Wraps one filter control: hides it when it changes no insight, and says in a tooltip how many insights it changes. */
+function DashboardControlSlot({
+    control,
+    hasValue,
+    className,
+    children,
+}: {
+    control: DashboardControl
+    hasValue: boolean
+    className?: string
+    children: ReactNode
+}): JSX.Element | null {
+    const { dashboardControlScopes } = useValues(dashboardLogic)
+    const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
+
+    if (!controlsEnabled) {
+        return <div className={className}>{children}</div>
+    }
+    const scope = dashboardControlScopes[control]
+    if (isDashboardControlHidden(scope, hasValue)) {
+        return null
+    }
+    const scopeText = dashboardControlScopeText(scope)
+    return (
+        <Tooltip title={scopeText} placement="top" delayMs={300}>
+            <div className={className}>{children}</div>
+        </Tooltip>
+    )
 }
 
 export function DashboardIntervalFilter(): JSX.Element {
@@ -58,7 +97,9 @@ export function DashboardIntervalFilter(): JSX.Element {
 
 export function DashboardEditBar({ showDateFilter = true, className }: DashboardEditBarProps): JSX.Element {
     const { dashboard, dashboardEditing, hasVariables, effectiveEditBarFilters } = useValues(dashboardLogic)
-    const { setDates, setProperties, setBreakdownFilter, setDashboardEditing } = useActions(dashboardLogic)
+    const { setDates, setProperties, setBreakdownFilter, setMetricFilters, setDashboardEditing } =
+        useActions(dashboardLogic)
+    const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
@@ -89,7 +130,11 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
             }
         >
             {showDateFilter && (
-                <div className={clsx('content-end min-w-0', { 'h-[61px]': hasVariables })}>
+                <DashboardControlSlot
+                    control="dateRange"
+                    hasValue={!!effectiveEditBarFilters.date_from || !!effectiveEditBarFilters.date_to}
+                    className={clsx('content-end min-w-0', { 'h-[61px]': hasVariables })}
+                >
                     <Shortcut
                         name="DashboardDateFilter"
                         keybind={[keyBinds.dateFilter]}
@@ -122,14 +167,22 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                             )}
                         />
                     </Shortcut>
-                </div>
+                </DashboardControlSlot>
             )}
             {showDateFilter && (
-                <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                <DashboardControlSlot
+                    control="interval"
+                    hasValue={effectiveEditBarFilters.interval != null}
+                    className={clsx('content-end', { 'h-[61px]': hasVariables })}
+                >
                     <DashboardIntervalFilter />
-                </div>
+                </DashboardControlSlot>
             )}
-            <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+            <DashboardControlSlot
+                control="properties"
+                hasValue={(effectiveEditBarFilters.properties?.length ?? 0) > 0}
+                className={clsx('content-end', { 'h-[61px]': hasVariables })}
+            >
                 <PropertyFilters
                     onChange={(properties) => {
                         if (!dashboardEditing?.filters) {
@@ -155,8 +208,12 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                         TaxonomicFilterGroupType.DataWarehousePersonProperties,
                     ]}
                 />
-            </div>
-            <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+            </DashboardControlSlot>
+            <DashboardControlSlot
+                control="breakdown"
+                hasValue={!!effectiveEditBarFilters.breakdown_filter}
+                className={clsx('content-end', { 'h-[61px]': hasVariables })}
+            >
                 <BindLogic logic={insightLogic} props={insightProps}>
                     <TaxonomicBreakdownFilter
                         insightProps={insightProps}
@@ -183,12 +240,34 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                         size="small"
                     />
                 </BindLogic>
-            </div>
+            </DashboardControlSlot>
 
             <VariablesForDashboard />
             <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
                 <DashboardEditBarAdvancedFilters showCompareFilter={showDateFilter} />
             </div>
+            {controlsEnabled && (
+                <DashboardControlSlot
+                    control="metricLabels"
+                    hasValue={(effectiveEditBarFilters.metricFilters?.length ?? 0) > 0}
+                    className={clsx('content-end', { 'h-[61px]': hasVariables })}
+                >
+                    <div className="flex min-h-[30px] flex-wrap items-center gap-1 border-l border-primary pl-2">
+                        <DashboardMetricLabelFilter
+                            metricFilters={effectiveEditBarFilters.metricFilters}
+                            onChange={(metricFilters) => {
+                                if (!dashboardEditing?.filters) {
+                                    setDashboardEditing(
+                                        { filters: true, layout: false },
+                                        DashboardEventSource.DashboardFilters
+                                    )
+                                }
+                                setMetricFilters(metricFilters)
+                            }}
+                        />
+                    </div>
+                </DashboardControlSlot>
+            )}
         </div>
     )
 }

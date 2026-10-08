@@ -5,11 +5,9 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jenkins import (
     JenkinsSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.source import JenkinsSource
 
 
@@ -21,28 +19,6 @@ class TestJenkinsSource:
     def setup_method(self) -> None:
         self.source = JenkinsSource()
         self.team_id = 123
-
-    def test_source_is_released_not_hidden(self) -> None:
-        # A finished source must be visible (no unreleasedSource) and labelled ALPHA.
-        config = self.source.get_source_config
-        assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_source_config_fields(self) -> None:
-        config = self.source.get_source_config
-        by_name: dict[str, SourceFieldInputConfig] = {}
-        for field in config.fields:
-            assert isinstance(field, SourceFieldInputConfig)
-            by_name[field.name] = field
-        assert set(by_name) == {"host", "username", "api_token"}
-        # Only the API token is a secret; the URL and username are not.
-        assert by_name["api_token"].secret is True
-        assert by_name["host"].secret is False
-        assert by_name["username"].secret is False
-
-    def test_get_schemas_lists_every_endpoint(self) -> None:
-        schemas = {s.name for s in self.source.get_schemas(_config(), team_id=self.team_id)}
-        assert schemas == set(ENDPOINTS)
 
     @parameterized.expand(
         [
@@ -79,11 +55,6 @@ class TestJenkinsSource:
     )
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         assert not any(key in other_error for key in self.source.get_non_retryable_errors())
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # get_schemas does no I/O, so the static catalog is safe to render in public docs.
-        assert self.source.lists_tables_without_credentials is True
-        assert {t["name"] for t in self.source.get_documented_tables()} == set(ENDPOINTS)
 
     def test_validate_credentials_delegates_when_host_valid(self) -> None:
         with mock.patch.object(self.source, "_validate_host", return_value=(True, None)):

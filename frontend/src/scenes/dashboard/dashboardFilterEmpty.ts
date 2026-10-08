@@ -11,6 +11,7 @@ export function isDashboardFilterOverrideEmpty(filter: DashboardFilter | TileFil
             filter.interval === undefined &&
             filter.filterTestAccounts === undefined &&
             filter.compareFilter === undefined &&
+            (filter as DashboardFilter).metricFilters === undefined &&
             !(filter as TileFilters).ignoreDashboardFilters)
     )
 }

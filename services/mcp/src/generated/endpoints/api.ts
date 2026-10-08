@@ -459,6 +459,20 @@ export const EndpointsRunCreateBody = () => zod.object({
                     ])
                     .optional()
                     .describe('Time granularity forced onto every insight that supports one.'),
+                metricFilters: zod
+                    .union([
+                        zod.array(
+                            zod.object({
+                                key: zod.string(),
+                                op: zod.enum(['eq', 'neq', 'regex', 'not_regex']),
+                                scope: zod.union([zod.enum(['resource', 'attribute', 'auto']), zod.null()]).optional(),
+                                value: zod.string(),
+                            })
+                        ),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Metric label matchers ANDed into every metrics tile. Other tiles ignore them.'),
                 properties: zod
                     .union([
                         zod.array(

@@ -84,6 +84,7 @@ OLD_DENY_PATTERN_DEFS = {
             "dockerfile",
             "docker-compose",
             "\\.github/workflows",
+            "\\.depot/workflows",
             "\\.github/pr-deploy",
             "iam",
             "cloudflare",
@@ -136,7 +137,7 @@ OLD_DENY_PATTERN_DEFS = {
             "^docs/published/handbook/engineering/type-system\\.md$",
             "^tools/hogli-commands/hogli_commands/(api_ratchet|projections|tach_lint)\\.py$",
             "^tools/hogli-commands/hogli_commands/product_structure\\.yaml$",
-            "^tools/hogli-commands/hogli_commands/product/(baseline|checks|crossings|isolation|reverse_accessors)\\.py$",
+            "^tools/hogli-commands/hogli_commands/product/",
         ]
     },
     "workflows_delivery": {
@@ -689,10 +690,10 @@ def test_reviewer_system_composes_guidance_and_scaffold() -> None:
     # Wording changes are governed by human review (stamphog_policy deny), not a
     # frozen snapshot; this only guards the composition seam itself.
     guidance = reviewer._load_review_guidance()
-    assert reviewer.REVIEWER_SYSTEM == guidance + reviewer._REVIEWER_SCAFFOLD_TAIL
+    assert reviewer.REVIEWER_SYSTEM == reviewer._AUDIT_HEAD + guidance + reviewer._REVIEWER_SCAFFOLD_TAIL
     assert guidance.startswith(policy.review_guidance_path().read_text())
     assert "showstoppers" in guidance
-    assert "Verdicts:" in reviewer._REVIEWER_SCAFFOLD_TAIL
+    assert "Facts to report:" in reviewer._AUDIT_HEAD
 
 
 # ── 6. Folder prose is sanitized and capped ──

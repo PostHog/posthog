@@ -38,18 +38,27 @@ const keywordOnlyMatch = (matches: readonly FuseResultMatch[] = []): string | nu
     return matches.find((match) => match.key === SEARCH_KEYWORDS_KEY)?.value ?? null
 }
 
+// Lists come from memoized selectors, so the same array reaches here on every keystroke.
+// Building the index once per array keeps typing to a search, not a rebuild.
+const fuseByItems = new WeakMap<FuseSearchable[], ReturnType<typeof createFuse<FuseSearchable>>>()
+
 /**
  * Filter items using Fuse.js fuzzy search. Searches across name, displayName,
  * category, and searchKeywords with weighted scoring.
  */
+
 export function filterSearchItems<T extends FuseSearchable>(items: T[], query: string): T[] {
     const trimmed = query.trim()
     if (!trimmed) {
         return items
     }
-    const fuse = createFuse<T>(items, FUSE_OPTIONS)
+    let fuse = fuseByItems.get(items)
+    if (!fuse) {
+        fuse = createFuse<FuseSearchable>(items, FUSE_OPTIONS)
+        fuseByItems.set(items, fuse)
+    }
     return fuse.search(trimmed).map((result) => ({
-        ...result.item,
+        ...(result.item as T),
         matchedSearchKeyword: keywordOnlyMatch(result.matches),
     }))
 }
