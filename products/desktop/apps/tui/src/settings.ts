@@ -1,14 +1,14 @@
+import type { Billing } from "./billing";
 import { isValidClaudeSetupToken } from "./claudeToken";
 import { isTyping } from "./composer";
 import { editQuery } from "./search";
 import { sheetKey } from "./sheet";
 
-// The settings screen: the ChatGPT plan for local chats with its login, and the Claude plan for cloud chats with its token.
+// The settings screen: the ChatGPT login and the Claude token that /billing's plans run on.
 export interface SettingsView {
-  planOn: boolean;
+  billing: Billing;
   // Who is logged in to ChatGPT; null when nobody is.
   account: string | null;
-  cloudOn: boolean;
   hasToken: boolean;
   index: number;
   // A login is running, so its row takes no second Enter.
@@ -20,21 +20,13 @@ export interface SettingsView {
   error: string | null;
 }
 
-export type SettingsItem =
-  | "plan"
-  | "login"
-  | "logout"
-  | "cloud"
-  | "token"
-  | "removeToken";
+export type SettingsItem = "login" | "logout" | "token" | "removeToken";
 
 export type SettingsEffect =
-  | { kind: "setPlan"; on: boolean }
   | { kind: "login" }
   | { kind: "answer"; text: string }
   | { kind: "cancel" }
   | { kind: "logout" }
-  | { kind: "setCloud"; on: boolean }
   | { kind: "saveToken"; token: string }
   | { kind: "clearToken" }
   | { kind: "close" };
@@ -43,15 +35,13 @@ export const TOKEN_HINT =
   "Paste the full token from `claude setup-token`. It starts with sk-ant-oat01-.";
 
 export function settingsView(saved: {
-  planOn: boolean;
+  billing: Billing;
   account: string | null;
-  cloudOn?: boolean;
   hasToken?: boolean;
 }): SettingsView {
   return {
-    planOn: saved.planOn,
+    billing: saved.billing,
     account: saved.account,
-    cloudOn: saved.cloudOn ?? false,
     hasToken: saved.hasToken ?? false,
     index: 0,
     busy: false,
@@ -63,9 +53,7 @@ export function settingsView(saved: {
 
 export function settingsItems(view: SettingsView): SettingsItem[] {
   return [
-    "plan",
     view.account ? "logout" : "login",
-    "cloud",
     "token",
     ...(view.hasToken ? ["removeToken" as const] : []),
   ];
@@ -117,20 +105,10 @@ export function settingsKey(
   }
   if (key?.kind === "choose") {
     const item = items[view.index];
-    if (item === "plan")
-      return {
-        view: { ...view, planOn: !view.planOn },
-        effect: { kind: "setPlan", on: !view.planOn },
-      };
     if (item === "logout")
       return {
         view: { ...view, account: null },
         effect: { kind: "logout" },
-      };
-    if (item === "cloud")
-      return {
-        view: { ...view, cloudOn: !view.cloudOn },
-        effect: { kind: "setCloud", on: !view.cloudOn },
       };
     if (item === "token") return { view: { ...view, draft: "" } };
     if (item === "removeToken")

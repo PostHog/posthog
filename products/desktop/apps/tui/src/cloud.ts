@@ -16,7 +16,8 @@ import { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/
 import { McpProxyService } from "@posthog/workspace-server/services/mcp-proxy/mcp-proxy";
 import { LocalPiRpcClientFactory } from "@posthog/workspace-server/services/pi-session/pi-rpc-client-factory";
 import type { TuiAuth } from "./auth";
-import { CHATGPT_MODEL, chatgptAccount } from "./chatgpt";
+import { localStartFor } from "./billing";
+import { chatgptAccount } from "./chatgpt";
 import { currentRepository, PiChats } from "./chats";
 import { claudeTokenStore } from "./claudeToken";
 import { LOG_PATH } from "./errors";
@@ -274,16 +275,13 @@ export function createCloud(
     // A local chat runs the harness in the folder the TUI started in, on the same PostHog login.
     startLocal: async (id) => {
       projectId = (await context()).teamId;
-      const chatgpt = loadPrefs().localChatgptPlan;
-      if (chatgpt && !chatgptAccount())
-        throw new Error(
-          "Log in to ChatGPT in settings (Ctrl+;), or turn the ChatGPT plan off",
-        );
       const session = new LocalSession(
         await piClients.create({
           sessionFile: localChats.sessionFile(id),
           taskContext: { taskId: id, cwd: process.cwd() },
-          model: chatgpt ? CHATGPT_MODEL : undefined,
+          ...localStartFor(loadPrefs().billing, {
+            chatgptAccount: chatgptAccount(),
+          }),
         }),
         mcp,
       );

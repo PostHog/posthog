@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { BILLINGS, type Billing } from "./billing";
 
 export type ChatPlace = "local" | "cloud";
 
@@ -11,10 +12,8 @@ export interface Prefs {
   narrowSidebar: boolean;
   // The repositories each pane's new cloud chats clone, by pane id, from /repo.
   paneRepositories: Record<string, string[]>;
-  // New local chats run on the user's own ChatGPT plan, after a login from settings.
-  localChatgptPlan: boolean;
-  // New cloud chats run Claude Code on the user's own Claude plan, with the token from settings.
-  cloudClaudePlan: boolean;
+  // Who pays for new chats, from /billing.
+  billing: Billing;
 }
 
 const PREFS_PATH = join(homedir(), ".config", "posthog-tui", "prefs.json");
@@ -23,8 +22,7 @@ const DEFAULT_PREFS: Prefs = {
   newChatPlace: "cloud",
   narrowSidebar: false,
   paneRepositories: {},
-  localChatgptPlan: false,
-  cloudClaudePlan: false,
+  billing: "posthog",
 };
 
 const repositoriesOf = (saved: unknown): Record<string, string[]> =>
@@ -45,8 +43,8 @@ export function loadPrefs(path: string = PREFS_PATH): Prefs {
       newChatPlace: saved.newChatPlace === "local" ? "local" : "cloud",
       narrowSidebar: saved.narrowSidebar === true,
       paneRepositories: repositoriesOf(saved.paneRepositories),
-      localChatgptPlan: saved.localChatgptPlan === true,
-      cloudClaudePlan: saved.cloudClaudePlan === true,
+      billing:
+        BILLINGS.find((billing) => billing === saved.billing) ?? "posthog",
     };
   } catch {
     return DEFAULT_PREFS;

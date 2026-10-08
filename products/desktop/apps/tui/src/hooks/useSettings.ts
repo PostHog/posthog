@@ -7,7 +7,7 @@ import {
 } from "../claudeToken";
 import { messageOf } from "../errors";
 import { openUrl } from "../openUrl";
-import { loadPrefs, savePrefs } from "../prefs";
+import { loadPrefs } from "../prefs";
 import { type SettingsView, settingsKey, settingsView } from "../settings";
 
 export interface SettingsState {
@@ -27,7 +27,7 @@ interface Asked {
 export function useSettings(): SettingsState {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<SettingsView>(() =>
-    settingsView({ planOn: false, account: null }),
+    settingsView({ billing: "posthog", account: null }),
   );
   // Keys arrive in bursts before React renders, so each one reads the view the last one left.
   const latest = useRef(view);
@@ -80,9 +80,8 @@ export function useSettings(): SettingsState {
       if (!open)
         update(
           settingsView({
-            planOn: loadPrefs().localChatgptPlan,
+            billing: loadPrefs().billing,
             account: chatgptAccount(),
-            cloudOn: loadPrefs().cloudClaudePlan,
             hasToken: loadClaudeToken() !== null,
           }),
         );
@@ -93,8 +92,6 @@ export function useSettings(): SettingsState {
       update(next);
       if (!effect) return;
       try {
-        if (effect.kind === "setCloud")
-          return savePrefs({ cloudClaudePlan: effect.on });
         if (effect.kind === "saveToken") return saveClaudeToken(effect.token);
         if (effect.kind === "clearToken") return clearClaudeToken();
       } catch (error) {
@@ -103,8 +100,7 @@ export function useSettings(): SettingsState {
           error: `Couldn't save: ${messageOf(error)}`,
         });
       }
-      if (effect.kind === "setPlan") savePrefs({ localChatgptPlan: effect.on });
-      else if (effect.kind === "login") void startLogin();
+      if (effect.kind === "login") void startLogin();
       else if (effect.kind === "answer") {
         asked.current?.resolve(effect.text);
         asked.current = null;

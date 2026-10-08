@@ -2,6 +2,7 @@ import type { ImageContent } from "@earendil-works/pi-ai";
 import type { CloudRegion, Task } from "@posthog/shared";
 import { type Dispatch, type SetStateAction, useRef, useState } from "react";
 import { REGIONS } from "../auth";
+import { BILLINGS, billingSheet, cloudHarnessFor } from "../billing";
 import type { PiChats } from "../chats";
 import type { Composer } from "../composer";
 import { messageOf } from "../errors";
@@ -18,7 +19,7 @@ import {
 } from "../layout";
 import type { LocalSession } from "../local";
 import { parseSlash } from "../models";
-import { type ChatPlace, loadPrefs } from "../prefs";
+import { type ChatPlace, loadPrefs, savePrefs } from "../prefs";
 import type { Sheet } from "../sheet";
 import { parseShell } from "../shell";
 import type { Notice } from "./useNotice";
@@ -189,6 +190,13 @@ export function useSend({
     }
     if (slash?.command === "settings") {
       openSettings();
+      return;
+    }
+    if (slash?.command === "billing") {
+      openModal(paneId, billingSheet(loadPrefs().billing), (index) => {
+        savePrefs({ billing: BILLINGS[index] });
+        flashNotice(`New chats are paid by ${BILLINGS[index]}`, here);
+      });
       return;
     }
     // With no name, the command comes back with the current one to edit.
@@ -389,7 +397,7 @@ export function useSend({
           text,
           images,
           repos.reposFor(paneId),
-          loadPrefs().cloudClaudePlan ? "claude" : "pi",
+          cloudHarnessFor(loadPrefs().billing),
         )
     ).then(
       (task) => {

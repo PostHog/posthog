@@ -302,7 +302,11 @@ describe("PiChats", () => {
 
   describe("on the user's Claude plan", () => {
     const claude = (runStatus: string): Task =>
-      ({ ...task(runStatus), runtime: "acp" }) as Task;
+      ({
+        ...task(runStatus),
+        runtime: "acp",
+        runtime_adapter: "claude",
+      }) as Task;
 
     it("starts a new chat as a Claude Code cloud run that asks for the plan token", async () => {
       const { api, chats } = setup();
@@ -350,16 +354,57 @@ describe("PiChats", () => {
     });
   });
 
-  it("refuses to continue a chat from another harness", async () => {
+  describe("on the user's ChatGPT plan", () => {
+    const codex = (runStatus: string): Task =>
+      ({
+        ...task(runStatus),
+        runtime: "acp",
+        runtime_adapter: "codex",
+      }) as Task;
+
+    it("starts a new chat as a Codex cloud run on the connected ChatGPT account", async () => {
+      const { api, chats } = setup();
+
+      await chats.start("Fix the flaky test", [], undefined, "codex");
+
+      expect(api.createTask).toHaveBeenCalledWith({
+        description: "Fix the flaky test",
+        repository: "posthog/posthog",
+        runtime: "acp",
+        runtime_adapter: "codex",
+      });
+      expect(api.createTaskRun).toHaveBeenCalledWith("t1", {
+        environment: "cloud",
+        mode: "interactive",
+        adapter: "codex",
+        codexModelAccess: "own-subscription",
+      });
+    });
+
+    it("continues a finished Codex run with a new run on the same plan", async () => {
+      const { api, chats } = setup();
+
+      await chats.reply(codex("completed"), "Keep going");
+
+      expect(api.runTaskInCloud).toHaveBeenCalledWith("t1", null, {
+        adapter: "codex",
+        codexModelAccess: "own-subscription",
+        resumeFromRunId: "r1",
+        pendingUserMessage: "Keep going",
+      });
+    });
+  });
+
+  it("refuses to continue a chat from a harness it does not know", async () => {
     const { chats } = setup();
-    const codex = {
+    const other = {
       ...task("completed"),
       runtime: "acp",
-      latest_run: { ...task("completed").latest_run, runtime_adapter: "codex" },
+      runtime_adapter: "gemini",
     } as unknown as Task;
 
-    await expect(chats.reply(codex, "hi")).rejects.toThrow(
-      "Only pi and Claude chats can be continued here",
+    await expect(chats.reply(other, "hi")).rejects.toThrow(
+      "This chat's agent cannot be continued here",
     );
   });
 

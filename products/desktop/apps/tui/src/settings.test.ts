@@ -7,22 +7,12 @@ const DOWN = "\u001b[B";
 const ENTER = "\r";
 const ESC = "\u001b";
 
-describe("settingsKey", () => {
-  it("toggles the ChatGPT plan with Enter on the first row", () => {
-    const { view, effect } = settingsKey(
-      settingsView({ planOn: false, account: null }),
-      ENTER,
-    );
-    expect(view.planOn).toBe(true);
-    expect(effect).toEqual({ kind: "setPlan", on: true });
-  });
+const view = (saved: Partial<Parameters<typeof settingsView>[0]> = {}) =>
+  settingsView({ billing: "posthog", account: null, ...saved });
 
-  it("starts a login from the second row and ignores a second Enter while it runs", () => {
-    const onLogin = settingsKey(
-      settingsView({ planOn: false, account: null }),
-      DOWN,
-    ).view;
-    const started = settingsKey(onLogin, ENTER);
+describe("settingsKey", () => {
+  it("starts a login from the first row and ignores a second Enter while it runs", () => {
+    const started = settingsKey(view(), ENTER);
     expect(started.effect).toEqual({ kind: "login" });
     expect(started.view.busy).toBe(true);
     expect(settingsKey(started.view, ENTER).effect).toBeUndefined();
@@ -30,7 +20,7 @@ describe("settingsKey", () => {
 
   it("answers an open prompt on Enter and cancels it on Esc", () => {
     const asked = {
-      ...settingsView({ planOn: false, account: null }),
+      ...view(),
       busy: true,
       prompt: "Paste the code",
       draft: "",
@@ -44,32 +34,15 @@ describe("settingsKey", () => {
     expect(settingsKey(typed, ESC).effect).toEqual({ kind: "cancel" });
   });
 
-  it("logs out from the second row when logged in, and closes on Esc", () => {
-    const onLogout = settingsKey(
-      settingsView({ planOn: true, account: "me@example.com" }),
-      DOWN,
-    ).view;
-    const out = settingsKey(onLogout, ENTER);
+  it("logs out from the first row when logged in, and closes on Esc", () => {
+    const out = settingsKey(view({ account: "me@example.com" }), ENTER);
     expect(out.effect).toEqual({ kind: "logout" });
     expect(out.view.account).toBeNull();
     expect(settingsKey(out.view, ESC).effect).toEqual({ kind: "close" });
   });
 
-  it("toggles the Claude plan for cloud chats from its own row", () => {
-    const onCloud = settingsKey(
-      settingsKey(settingsView({ planOn: false, account: null }), DOWN).view,
-      DOWN,
-    ).view;
-    const { view, effect } = settingsKey(onCloud, ENTER);
-    expect(view.cloudOn).toBe(true);
-    expect(effect).toEqual({ kind: "setCloud", on: true });
-  });
-
   it("saves a pasted Claude token on Enter and rejects a bad one with a hint", () => {
-    const typing = settingsKey(
-      settingsView({ planOn: false, account: null }),
-      "sk-ant-api03-x",
-    );
+    const typing = settingsKey(view(), "sk-ant-api03-x");
     expect(typing.view.draft).toBe("sk-ant-api03-x");
     const rejected = settingsKey(typing.view, ENTER);
     expect(rejected.effect).toBeUndefined();
@@ -86,14 +59,9 @@ describe("settingsKey", () => {
   });
 
   it("removes the saved Claude token from its own row", () => {
-    const start = settingsView({
-      planOn: false,
-      account: null,
-      hasToken: true,
-    });
-    const onRemove = [DOWN, DOWN, DOWN, DOWN].reduce(
-      (view, key) => settingsKey(view, key).view,
-      start,
+    const onRemove = [DOWN, DOWN].reduce(
+      (current, key) => settingsKey(current, key).view,
+      view({ hasToken: true }),
     );
     const removed = settingsKey(onRemove, ENTER);
     expect(removed.effect).toEqual({ kind: "clearToken" });
