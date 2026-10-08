@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 
@@ -16,21 +16,23 @@ import { WizardPushStep } from './WizardPushStep'
 import { WizardTemplateStep } from './WizardTemplateStep'
 import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
 
-/** The first-run setup for one path, one step at a time, ending in a draft workflow. */
+/** The first-run setup for one path, one step at a time, ending in the workflow editor. */
 export function WorkflowsOnboardingWizard(): JSX.Element {
-    const { wizardPath, stepKeys, stepIndex, currentStep, stepDone, isLastStep, continueDisabledReason } =
-        useValues(workflowsOnboardingWizardLogic)
-    const { setStepIndex, next, back, exit } = useActions(workflowsOnboardingWizardLogic)
+    const {
+        wizardPath,
+        stepKeys,
+        stepIndex,
+        currentStep,
+        stepDone,
+        isLastStep,
+        continueDisabledReason,
+        setupCheckFailed,
+    } = useValues(workflowsOnboardingWizardLogic)
+    const { setStepIndex, next, back, exit, loadHasMessagingWorkflow } = useActions(workflowsOnboardingWizardLogic)
 
     const copy = WIZARD_STEP_COPY[currentStep]
     const isSkip = copy.optional && !stepDone?.[currentStep]
-    const continueLabel = isLastStep
-        ? wizardPath === 'messaging'
-            ? 'Create journey'
-            : 'Create workflow'
-        : isSkip
-          ? 'Skip for now'
-          : 'Continue'
+    const continueLabel = isLastStep ? 'Open in editor' : isSkip ? 'Skip for now' : 'Continue'
 
     return (
         <div className="mx-auto w-full max-w-4xl flex flex-col gap-6 py-4" data-attr="workflows-onboarding-wizard">
@@ -45,6 +47,18 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
                     Exit setup
                 </LemonButton>
             </div>
+            {setupCheckFailed && wizardPath === 'messaging' && (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Retry',
+                        onClick: loadHasMessagingWorkflow,
+                        'data-attr': 'workflows-onboarding-wizard-retry-setup-check',
+                    }}
+                >
+                    We couldn't check your setup, so some steps may show as not done.
+                </LemonBanner>
+            )}
             <OnboardingWizardStepper
                 steps={stepKeys}
                 currentIndex={stepIndex}

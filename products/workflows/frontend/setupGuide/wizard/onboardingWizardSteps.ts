@@ -81,7 +81,7 @@ export const WIZARD_STEP_COPY: Record<WizardStepKey, WizardStepCopy> = {
         label: 'First journey',
         title: 'Pick your first journey',
         description:
-            'Start from a template or from scratch. We create a draft, so you can change the trigger and the emails before anything sends.',
+            'Start from a template or from scratch. It opens in the editor, where you change the trigger and the emails and save it as a draft. Nothing sends until you launch it.',
         optional: false,
     },
     template: {
@@ -97,9 +97,9 @@ export const WIZARD_STEP_COPY: Record<WizardStepKey, WizardStepCopy> = {
         optional: true,
     },
     create: {
-        label: 'Create',
-        title: 'Review and create',
-        description: 'We create a draft workflow. Nothing runs until you launch it.',
+        label: 'Review',
+        title: 'Review and open',
+        description: 'It opens in the editor, where you save it as a draft. Nothing runs until you launch it.',
         optional: false,
     },
 }

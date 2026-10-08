@@ -10,8 +10,8 @@ export function WizardCreateStep(): JSX.Element | null {
     if (startsBlank) {
         return (
             <ol className="mb-0 pl-5 list-decimal text-secondary flex flex-col gap-1">
-                <li>We open an empty draft workflow.</li>
-                <li>You add a trigger and the steps you need.</li>
+                <li>We open an empty workflow in the editor.</li>
+                <li>You add a trigger and the steps you need, then save it as a draft.</li>
                 <li>Nothing runs until you launch it.</li>
             </ol>
         )
@@ -34,8 +34,8 @@ export function WizardCreateStep(): JSX.Element | null {
             <div className="border-t pt-4">
                 <h4 className="mb-2 text-sm font-semibold">What happens next</h4>
                 <ol className="mb-0 pl-5 list-decimal text-secondary flex flex-col gap-1">
-                    <li>We create a draft workflow from this template.</li>
-                    <li>You set who it runs for, and test it with a real event.</li>
+                    <li>We open this template in the workflow editor.</li>
+                    <li>You set who it runs for, test it with a real event, and save it as a draft.</li>
                     <li>Nothing runs until you launch it.</li>
                 </ol>
             </div>
