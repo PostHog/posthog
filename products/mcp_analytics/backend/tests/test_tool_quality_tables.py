@@ -152,6 +152,7 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
         assert searched.totalCount == 1
         assert [row.tool for row in highest_error_rate.results] == ["rare_target"]
 
+    @time_machine.travel(datetime(2026, 9, 24, 12, tzinfo=UTC), tick=False)
     def test_previous_calls_and_current_metrics_split_by_window(self) -> None:
         now = datetime.now(tz=UTC)
         previous_window = now - timedelta(days=10)
