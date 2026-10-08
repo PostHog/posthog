@@ -387,8 +387,7 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
 
 
 def filter_action_ids(filters: Optional[dict]) -> list[int]:
-    # Total over untrusted input: callers scan raw client filters before DRF validation, so
-    # malformed shapes must yield [] here and get their structured 400 from the serializer.
+    # Callers scan raw client filters before DRF validation, so a malformed shape yields [] and the serializer 400s.
     if not isinstance(filters, dict):
         return []
     try:
@@ -433,9 +432,8 @@ def filter_cohort_ids(filters: Optional[dict]) -> list[int]:
         return []
 
     ids = collect_property_cohort_ids(filters.get("properties") or [])
-    # Each event/action entry carries its own `properties`, which the compiler compiles too
-    # (hog_function_filters_to_expr), so a cohort leaf there must be eligibility-validated and
-    # must enable cohort compilation, exactly like a top-level one.
+    # Each event/action entry has its own `properties`, which hog_function_filters_to_expr compiles too, so a
+    # cohort leaf there needs the same eligibility validation and cohort compilation as a top-level one.
     for key in ("events", "actions"):
         entries = filters.get(key)
         if isinstance(entries, list):

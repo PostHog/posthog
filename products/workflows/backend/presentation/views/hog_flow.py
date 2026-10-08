@@ -1313,9 +1313,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             get_team = self.context.get("get_team")
             if get_team is None:
                 return False
-            # The flag targets organizations, so evaluate against the organization that owns the
-            # team being written to — a user saving into a project outside their active
-            # organization must get that project's rollout decision, not their own org's.
+            # The flag targets organizations, so evaluate it against the organization that owns the target
+            # team: a user saving into a project outside their active organization gets that project's rollout.
             organization_id = str(get_team().organization_id)
             return feature_enabled_or_false(
                 WORKFLOWS_COHORT_CONDITIONS_FLAG,
@@ -1789,15 +1788,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                     if strict:
                         raise serializers.ValidationError("Event filters are not allowed in conditionals")
                 else:
-                    # Cohorts are allowed in conditional_branch only: a wait_until_condition has no
-                    # membership wake stream, so it would only ever advance via the polling backstop.
-                    # With the flag off, cohorts fail compilation exactly as before.
-                    # Action references count too: a referenced Action's stored steps can carry
-                    # cohort properties this shallow scan can't see. Enabling on the reference alone
-                    # is safe — the validator resolves the Action's steps and the compiler rejects
-                    # any cohort id the validator didn't clear.
-                    # Grandfathered conditions short-circuit ahead of the flag so internal
-                    # re-saves never pay the flag-service call.
+                    # Cohorts are allowed in conditional_branch only: a wait_until_condition has no membership
+                    # wake stream, so it would only advance on the polling backstop. An action reference counts
+                    # too, because the validator resolves the Action's steps and the compiler rejects any cohort
+                    # it did not clear. Grandfathered conditions skip the flag so re-saves never pay the flag call.
                     cohorts_supported = (
                         is_conditional_branch
                         and (bool(filter_cohort_ids(filters)) or bool(filter_action_ids(filters)))
@@ -2919,11 +2913,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
         }
 
-        # Conditional-branch conditions the active flow already carries, so the cohort-conditions
-        # flag only polices new adoption: a resubmitted stored condition keeps compiling with
-        # cohort support after a flag dial-down, an eval blip, or an internal re-save with no
-        # request context, instead of bricking the save. Same active-only rule as the gated
-        # templates above: a draft can hold a cohort condition without ever passing the gate.
+        # The stored conditions of an active flow keep compiling with cohort support after a flag dial-down
+        # or an internal re-save without request context, so the flag only polices new adoption. Drafts are
+        # excluded, like the gated templates above: a draft can hold a cohort condition without passing the gate.
         self.context["stored_cohort_conditions"] = {
             action["id"]: [
                 _authored_condition(stored_condition)
