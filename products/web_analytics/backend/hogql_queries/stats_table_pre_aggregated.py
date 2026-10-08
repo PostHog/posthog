@@ -697,10 +697,12 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             case WebStatsBreakdown.VIEWPORT:
                 # Same nullable pair as the live path: a zero or NULL dimension
                 # folds into (NULL, NULL) so both serve one "(not set)" row.
-                unusable = (
-                    "viewport_width IS NULL OR viewport_height IS NULL OR viewport_width = 0 OR viewport_height = 0"
+                return parse_expr(
+                    "tuple("
+                    "if(viewport_width IS NULL OR viewport_height IS NULL OR viewport_width = 0 OR viewport_height = 0, NULL, viewport_width), "
+                    "if(viewport_width IS NULL OR viewport_height IS NULL OR viewport_width = 0 OR viewport_height = 0, NULL, viewport_height)"
+                    ")"
                 )
-                return parse_expr(f"tuple(if({unusable}, NULL, viewport_width), if({unusable}, NULL, viewport_height))")
             case WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
                 return ast.Field(chain=["referring_domain"])
             case WebStatsBreakdown.INITIAL_UTM_SOURCE:

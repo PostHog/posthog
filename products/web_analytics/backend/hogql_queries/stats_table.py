@@ -1025,10 +1025,12 @@ WHERE and(
                 # toInt keeps the comparison typed even when the team has no Numeric property
                 # definition (a raw String property cannot be compared to 0), and folds
                 # non-numeric garbage into "(not set)" with everything else.
-                width = "toInt(properties.$viewport_width)"
-                height = "toInt(properties.$viewport_height)"
-                unusable = f"{width} IS NULL OR {height} IS NULL OR {width} = 0 OR {height} = 0"
-                return parse_expr(f"tuple(if({unusable}, NULL, {width}), if({unusable}, NULL, {height}))")
+                return parse_expr(
+                    "tuple("
+                    "if(toInt(properties.$viewport_width) IS NULL OR toInt(properties.$viewport_height) IS NULL OR toInt(properties.$viewport_width) = 0 OR toInt(properties.$viewport_height) = 0, NULL, toInt(properties.$viewport_width)), "
+                    "if(toInt(properties.$viewport_width) IS NULL OR toInt(properties.$viewport_height) IS NULL OR toInt(properties.$viewport_width) = 0 OR toInt(properties.$viewport_height) = 0, NULL, toInt(properties.$viewport_height))"
+                    ")"
+                )
             case WebStatsBreakdown.DEVICE_TYPE:
                 return ast.Field(chain=["properties", "$device_type"])
             case WebStatsBreakdown.COUNTRY:
