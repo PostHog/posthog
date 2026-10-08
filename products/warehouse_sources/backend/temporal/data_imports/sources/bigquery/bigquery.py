@@ -13,9 +13,11 @@ from __future__ import annotations
 import math
 import time
 import typing
+import threading
 import contextlib
 import collections
 import collections.abc
+import concurrent.futures
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -333,6 +335,122 @@ def _query_should_retry(exc: Exception) -> bool:
     )
 
 
+# Limits on the waits of one import. The BigQuery client passes `timeout=None` to its HTTP session
+# by default, and a streaming read has no limit between two pages, so without these a connection
+# that goes silent holds its worker until the activity ends.
+#
+# Each REST request, as (connect, read) seconds. The read limit is on one silent socket read, and
+# the server answers a wait for a query job every few seconds, so a job that runs for a long time
+# never reaches it.
+BIGQUERY_HTTP_TIMEOUT_SECONDS: tuple[float, float] = (10.0, 120.0)
+# The exact count of a filtered read. Its result feeds the progress display and the billing limit
+# check only, so a count that is not done by this time gives 0 (unknown).
+BIGQUERY_ROW_COUNT_JOB_TIMEOUT_SECONDS = 120
+# The query job that copies the rows to a temporary table before the first row is read. It sorts
+# the full result of an incremental read, so it gets a long limit.
+BIGQUERY_COPY_JOB_TIMEOUT_SECONDS = 2 * 60 * 60
+# The wait for one page of the Storage Read API stream. A read that keeps returning pages starts
+# a new wait with each page.
+BIGQUERY_READ_ROWS_IDLE_TIMEOUT_SECONDS = 10 * 60
+
+# HTTP/2 keepalive pings let gRPC find a connection that a proxy or NAT dropped without a reset.
+_BIGQUERY_STORAGE_KEEPALIVE_OPTIONS: tuple[tuple[str, int], ...] = (
+    ("grpc.keepalive_time_ms", 60 * 1000),
+    ("grpc.keepalive_timeout_ms", 20 * 1000),
+    ("grpc.keepalive_permit_without_calls", 0),
+)
+
+# Stable prefixes, matched by `BigQuerySource.get_retryable_errors`.
+BIGQUERY_JOB_TIMEOUT_ERROR = "BigQuery did not finish the query job"
+BIGQUERY_READ_TIMEOUT_ERROR = "BigQuery sent no rows"
+
+
+class BigQueryJobTimeoutError(Exception):
+    """A query job was not done at its limit. A later attempt can succeed."""
+
+    def __init__(self, timeout_seconds: float) -> None:
+        super().__init__(f"{BIGQUERY_JOB_TIMEOUT_ERROR} within {timeout_seconds:g} seconds, so PostHog ended it")
+
+
+class BigQueryReadTimeoutError(Exception):
+    """The Storage Read API stream sent no page before the limit. A later attempt can succeed."""
+
+    def __init__(self, timeout_seconds: float) -> None:
+        super().__init__(f"{BIGQUERY_READ_TIMEOUT_ERROR} for {timeout_seconds:g} seconds, so PostHog ended the read")
+
+
+class _DeadlineAuthorizedSession(AuthorizedSession):
+    """An authorized session whose requests always have a timeout.
+
+    A default on the session is not sufficient, because the BigQuery client passes an explicit
+    `timeout=None` for each call that the caller gave no timeout.
+    """
+
+    def request(  # type: ignore[override]
+        self,
+        method: str,
+        url: str,
+        data: Any = None,
+        headers: Any = None,
+        max_allowed_time: float | None = None,
+        timeout: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        return super().request(
+            method,
+            url,
+            data=data,
+            headers=headers,
+            max_allowed_time=max_allowed_time,
+            timeout=BIGQUERY_HTTP_TIMEOUT_SECONDS if timeout is None else timeout,
+            **kwargs,
+        )
+
+
+def _wait_for_job(job: Any, *, timeout_seconds: float, **result_kwargs: Any) -> Any:
+    """Wait for a query job, and raise `BigQueryJobTimeoutError` when it is not done in time."""
+    try:
+        return job.result(timeout=timeout_seconds, **result_kwargs)
+    except concurrent.futures.TimeoutError as e:
+        try:
+            # The job would run on, and bill the customer, with nothing to read its result.
+            job.cancel(timeout=BIGQUERY_HTTP_TIMEOUT_SECONDS[1])
+        except Exception as cancel_error:
+            structlog.get_logger().debug("Could not cancel a BigQuery job at its limit", error=str(cancel_error))
+        raise BigQueryJobTimeoutError(timeout_seconds) from e
+
+
+def _pages_with_idle_timeout(
+    pages: Iterator[_T], *, timeout_seconds: float, end_read: Callable[[], None]
+) -> Iterator[_T]:
+    """Yield `pages`, and raise `BigQueryReadTimeoutError` when one does not come in time.
+
+    A gRPC deadline covers the stream as a whole, so it cannot tell a silent stream from a long
+    one. At the limit a timer thread calls `end_read`, which must make the blocked read raise.
+    """
+    while True:
+        expired = threading.Event()
+
+        def _expire(expired: threading.Event = expired) -> None:
+            expired.set()
+            end_read()
+
+        timer = threading.Timer(timeout_seconds, _expire)
+        timer.daemon = True
+        timer.start()
+        try:
+            page = next(pages)
+        except StopIteration:
+            return
+        except Exception as e:
+            if expired.is_set():
+                raise BigQueryReadTimeoutError(timeout_seconds) from e
+            raise
+        finally:
+            timer.cancel()
+        yield page
+
+
 # `job_retry` recovers a failed query *job* (a retryable reason surfaced from `jobs.getQueryResults`);
 # `retry` recovers the job-*creation* API call (`jobs.insert`). BigQuery's transient queued-jobs quota
 # is rejected at insert, which `job_retry` never wraps, so the create path needs its own retry.
@@ -645,7 +763,7 @@ def bigquery_client(
     # AuthorizedSession is a `requests.Session` subclass that injects the OAuth2
     # bearer token. Mount our TrackedHTTPAdapter on it so every BigQuery REST
     # call is logged and metered alongside the other warehouse sources.
-    authed_session = AuthorizedSession(credentials, auth_request=GoogleAuthRequest(auth_request_session))
+    authed_session = _DeadlineAuthorizedSession(credentials, auth_request=GoogleAuthRequest(auth_request_session))
     tracked_adapter = TrackedHTTPAdapter(max_retries=DEFAULT_RETRY)
     authed_session.mount("https://", tracked_adapter)
     authed_session.mount("http://", tracked_adapter)
@@ -702,6 +820,7 @@ def bigquery_storage_read_client(credentials: google_auth_credentials.Credential
         options=[
             ("grpc.max_send_message_length", -1),
             ("grpc.max_receive_message_length", -1),
+            *_BIGQUERY_STORAGE_KEEPALIVE_OPTIONS,
         ],
     )
     tracked_channel = make_tracked_channel(channel, host=BIGQUERY_STORAGE_HOST)
@@ -1101,7 +1220,14 @@ def _get_rows_to_sync(
         query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
 
         job_config = QueryJobConfig(query_parameters=query_parameters)
-        rows = _query_result_with_job_retry(client, query, job_config=job_config, project=table.project, page_size=1)
+        rows = _query_result_with_job_retry(
+            client,
+            query,
+            job_config=job_config,
+            project=table.project,
+            page_size=1,
+            timeout_seconds=BIGQUERY_ROW_COUNT_JOB_TIMEOUT_SECONDS,
+        )
         row = next(rows, None)
 
         if row and len(row) > 0 and row[0] is not None:
@@ -1114,7 +1240,7 @@ def _get_rows_to_sync(
         return 0
     except Exception as e:
         logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
-        if not _is_missing_table_or_dataset(e):
+        if not _is_missing_table_or_dataset(e) and not isinstance(e, BigQueryJobTimeoutError):
             capture_exception(e)
 
         return 0
@@ -1352,7 +1478,7 @@ def _run_destination_query_with_job_retry(
 
     def _run() -> None:
         job = client.query(query, job_config=job_config, project=project, retry=BIGQUERY_QUERY_CREATE_RETRY)
-        job.result(job_retry=BIGQUERY_QUERY_JOB_RETRY)
+        _wait_for_job(job, timeout_seconds=BIGQUERY_COPY_JOB_TIMEOUT_SECONDS, job_retry=BIGQUERY_QUERY_JOB_RETRY)
 
     _with_job_not_found_retry(_run)
 
@@ -1364,6 +1490,7 @@ def _query_result_with_job_retry(
     job_config: QueryJobConfig,
     project: str,
     page_size: int | None = None,
+    timeout_seconds: float | None = None,
 ) -> RowIterator:
     """Run a read-only query and return its row iterator, retrying the transient job-metadata race.
 
@@ -1375,7 +1502,11 @@ def _query_result_with_job_retry(
 
     def _run() -> RowIterator:
         job = client.query(query, job_config=job_config, project=project, retry=BIGQUERY_QUERY_CREATE_RETRY)
-        return job.result(page_size=page_size, job_retry=BIGQUERY_QUERY_JOB_RETRY)
+        if timeout_seconds is None:
+            return job.result(page_size=page_size, job_retry=BIGQUERY_QUERY_JOB_RETRY)
+        return _wait_for_job(
+            job, timeout_seconds=timeout_seconds, page_size=page_size, job_retry=BIGQUERY_QUERY_JOB_RETRY
+        )
 
     return _with_job_not_found_retry(_run)
 
@@ -1856,7 +1987,12 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
 
                     record_batches = []
                     table_size_bytes = 0
-                    for page in rows_iterator.pages:
+                    pages = _pages_with_idle_timeout(
+                        iter(rows_iterator.pages),
+                        timeout_seconds=BIGQUERY_READ_ROWS_IDLE_TIMEOUT_SECONDS,
+                        end_read=bq_storage.transport.close,
+                    )
+                    for page in pages:
                         record_batch = page.to_arrow()
                         # TODO: Perhaps we should support slicing record batches like we do in batch exports.
                         table_size_bytes += record_batch.get_total_buffer_size()

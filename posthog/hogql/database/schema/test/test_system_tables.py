@@ -1201,6 +1201,26 @@ class TestSystemTablesCanvasDeletedExclusion(BaseTest):
         assert f"equals(system__canvases.team_id, {self.team.pk})" in query
 
 
+class TestSystemTablesJoinOnHiddenBackedFields(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_joined_tables_filtered_on_deleted_are_not_ambiguous(self):
+        tile = _create_dashboard_tile(self.team, "join")
+
+        response = execute_hogql_query(
+            "SELECT i.id, d.id FROM system.insights i "
+            "JOIN system.dashboard_tiles dt ON dt.insight_id = i.id "
+            "JOIN system.dashboards d ON d.id = dt.dashboard_id "
+            "WHERE i.deleted = 0 AND dt.deleted = 0 AND d.deleted = 0",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert [(str(row[0]), str(row[1])) for row in response.results] == [
+            (str(tile.insight_id), str(tile.dashboard_id))
+        ]
+
+
 class TestSystemTablesCanvasDeletedExclusionIsolation(NonAtomicBaseTest):
     """End-to-end check that soft-deleted canvases are never returned via HogQL."""
 
