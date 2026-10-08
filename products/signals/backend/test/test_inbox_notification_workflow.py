@@ -22,7 +22,6 @@ from products.signals.backend.temporal.inbox_notification import (
     InboxNotificationState,
     SignalReportInboxNotificationWorkflow,
     _compute_inbox_notification_state,
-    _fetch_signals_for_notification,
     _send_report_inbox_notifications,
 )
 
@@ -246,7 +245,7 @@ def test_send_retries_transient_clickhouse_failure_before_claiming_report(team):
             "products.signals.backend.temporal.inbox_notification.fetch_signals_for_report_sync",
             side_effect=[ClickHouseAtCapacity(), []],
         ) as fetch,
-        patch.object(_fetch_signals_for_notification.retry, "sleep"),
+        patch("products.signals.backend.temporal.inbox_notification._fetch_signals_for_notification.retry.sleep"),
         patch("products.signals.backend.temporal.inbox_notification.post_report_findings_to_tickets"),
         patch(
             "products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications", return_value=1
