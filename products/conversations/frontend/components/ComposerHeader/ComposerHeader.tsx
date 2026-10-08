@@ -11,7 +11,7 @@ export interface SimplifiedRepliesProps {
     statusLabel?: string
 }
 
-/** Names where the reply goes and who it reaches before the first word, and keeps saying it after the placeholder is gone. */
+// The editor placeholder names the channel only until the agent starts to type, so the header keeps the destination visible.
 export function ComposerHeader({
     isPrivate,
     channel,

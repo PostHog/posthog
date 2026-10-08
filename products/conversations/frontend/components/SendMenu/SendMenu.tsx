@@ -11,11 +11,6 @@ import { ReplyIcon } from '../ReplyIcon/ReplyIcon'
 
 const DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'] as const
 
-/**
- * One Send button in place of the split button and draft mode. It never sends on its own: it opens a menu
- * that says where the reply goes and lists every way to send, each naming the status the ticket is left in.
- * While open, Enter sends, a digit picks the numbered status, Escape goes back to the draft.
- */
 export function SendMenu({
     visible,
     onVisibilityChange,

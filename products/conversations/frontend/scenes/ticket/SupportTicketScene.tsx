@@ -84,7 +84,6 @@ const SEND_AND_SET_STATUS_OPTIONS: { value: TicketStatus; statusLabel: string }[
     { value: 'resolved', statusLabel: 'resolved' },
 ]
 
-// The composer header's recipient: the addresses an email goes to, otherwise the customer's name.
 export function simplifiedRepliesFor(ticket: Ticket, emailRecipients: string): SimplifiedRepliesProps {
     const customer =
         ticket.person?.properties?.name ||
