@@ -37,6 +37,27 @@ describe('aiTaskInstructionsCompareLogic', () => {
         expect(logic.values.selectedRevisionPrompt).toEqual(expected)
     })
 
+    it('reloads the version list on every open, so a version published since the last open shows', async () => {
+        let listCalls = 0
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/revisions/': () => {
+                    listCalls += 1
+                    return [200, { count: 0, next: null, previous: null, results: [] }]
+                },
+            },
+        })
+        initKeaTests()
+        const logic = aiTaskInstructionsCompareLogic({ workflowId: 'wf-1', actionId: 'triage' })
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.setOpen(true)).toDispatchActions(['loadRevisionsSuccess'])
+        logic.actions.setOpen(false)
+        await expectLogic(logic, () => logic.actions.setOpen(true)).toDispatchActions(['loadRevisionsSuccess'])
+
+        expect(listCalls).toBe(2)
+    })
+
     it('reports a failed version load, and clears it on switching to the live version', async () => {
         useMocks({ get: { [REVISION_URL]: () => [500, { detail: 'error' }] } })
         initKeaTests()

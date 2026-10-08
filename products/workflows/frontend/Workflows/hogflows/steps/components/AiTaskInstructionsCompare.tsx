@@ -103,7 +103,7 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                 ) : (
                     <div className="flex flex-col gap-1">
                         <span className="text-xs text-secondary">
-                            Removed lines are from {versionName}. Added lines are the current instructions.
+                            Removed lines are from {versionName}. Added lines are the instructions in this step now.
                         </span>
                         {/* Keeps a failed editor load inside this box, so the rest of the step panel stays usable. */}
                         <ErrorBoundary>

@@ -216,13 +216,14 @@ export const aiTaskInstructionsCompareLogic = kea<aiTaskInstructionsCompareLogic
             if (!open) {
                 return
             }
-            if (!values.revisionsResponse && !values.revisionsResponseLoading) {
+            // Reload on every open, because a publish since the last open adds a version.
+            if (!values.revisionsResponseLoading) {
                 actions.loadRevisions()
             }
             // pinned: analytics event name
             posthog.capture('workflows ai task instructions compared', {
                 workflow_id: props.workflowId,
-                compared_version: values.selectedVersion ?? 'live',
+                compared_version: values.selectedVersion === null ? 'live' : String(values.selectedVersion),
                 trigger: 'open',
             })
         },
@@ -233,7 +234,7 @@ export const aiTaskInstructionsCompareLogic = kea<aiTaskInstructionsCompareLogic
             // pinned: analytics event name
             posthog.capture('workflows ai task instructions compared', {
                 workflow_id: props.workflowId,
-                compared_version: version ?? 'live',
+                compared_version: version === null ? 'live' : String(version),
                 trigger: 'select_version',
             })
         },
