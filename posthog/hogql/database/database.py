@@ -173,7 +173,12 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import feature_enabled_or_false
-from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
+from posthog.schema_enums import (
+    DatabaseSerializedFieldType,
+    DataWarehouseSavedQueryOrigin,
+    PersonsOnEventsMode,
+    SessionTableVersion,
+)
 from posthog.scopes import APIScopeObject
 from posthog.synthetic_user import SyntheticUser
 from posthog.week_start_day import WeekStartDay
@@ -332,6 +337,22 @@ MODELS_NAMESPACE_TABLE_ERROR = "The models namespace is reserved for data models
 
 def is_reserved_models_name(name: str) -> bool:
     return name == "models" or name.startswith("models.")
+
+
+def models_namespace_chain(saved_query: Any) -> list[str] | None:
+    """The `models.` path an authored saved query also resolves under, or None when it gets only its stored name.
+
+    `origin` is nullable on old rows, so authored means "not machine-made" rather than an exact origin match.
+    """
+    origin = getattr(saved_query, "origin", None)
+    if origin in (DataWarehouseSavedQueryOrigin.ENDPOINT, DataWarehouseSavedQueryOrigin.MANAGED_VIEWSET):
+        return None
+    if getattr(saved_query, "managed_viewset_id", None) is not None:
+        return None
+    name: str = saved_query.name
+    if is_reserved_models_name(name) or is_reserved_system_name(name):
+        return None
+    return ["models", *name.split(".")]
 
 
 def _revenue_trigger_prefixes(handles: list[SourceHandle]) -> set[str]:
@@ -802,6 +823,8 @@ class Database(BaseModel):
     _view_table_names: list[str] = []
     _table_slot_origins: dict[tuple[str, ...], str] = {}
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
+    # `models.<stored name>` -> stored chain, for authored saved queries. Resolved through the tree at lookup time.
+    _models_aliases: dict[str, list[str]] = {}
     _connection_id: str | None = None
     _direct_connection_metadata: dict[str, Any] | None = None
     _direct_access_warehouse_table_names: set[str] = set()
@@ -860,6 +883,7 @@ class Database(BaseModel):
         self._view_table_names = []
         self._table_slot_origins = {}
         self._denied_tables = set()
+        self._models_aliases = {}
         self._connection_id = None
         self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
@@ -893,6 +917,9 @@ class Database(BaseModel):
             table_name = table_name.split(".")
         if self.tables.has_child(table_name):
             return True
+        alias_target = self._models_aliases.get(".".join(table_name))
+        if alias_target is not None and not self.is_table_access_denied(table_name):
+            return self.tables.has_child(alias_target)
         # A miss under a revenue prefix may just mean the deferred views are not built yet.
         if self._should_build_revenue_views_for(table_name):
             self._ensure_revenue_views_built()
@@ -905,7 +932,10 @@ class Database(BaseModel):
         callers that need the boolean without resolving (e.g. gating writes that reference tables)."""
         if isinstance(table_name, list):
             table_name = ".".join(str(part) for part in table_name)
-        return table_name in self._denied_tables
+        if table_name in self._denied_tables:
+            return True
+        alias_target = self._models_aliases.get(table_name)
+        return alias_target is not None and ".".join(alias_target) in self._denied_tables
 
     def get_table_node(self, table_name: str | list[str]) -> TableNode:
         if isinstance(table_name, str):
@@ -914,7 +944,15 @@ class Database(BaseModel):
         if isinstance(table_name, list) and len(table_name) == 1 and "." in table_name[0]:
             table_name = table_name[0].split(".")
 
-        return self.tables.get_child(table_name)
+        try:
+            return self.tables.get_child(table_name)
+        except ResolutionError:
+            # The deny check comes before the alias, so a denied query stored as `models.x` is never
+            # answered by the alias of an allowed `x`.
+            alias_target = self._models_aliases.get(".".join(table_name))
+            if alias_target is None or self.is_table_access_denied(table_name):
+                raise
+            return self.tables.get_child(alias_target)
 
     def get_table(self, table_name: str | list[str]) -> Table:
         try:
@@ -2426,11 +2464,18 @@ class Database(BaseModel):
             if saved_query.table_id is not None
         }
 
+        # Settled before access control drops any row: a stored `models.x` the caller cannot see still
+        # owns that name, so the alias of `x` must not answer for it or carry `x`'s denial onto it.
+        stored_names = {saved_query.name for saved_query in sources.saved_queries}
+
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             for saved_query in sources.saved_queries:
                 with timings.measure(f"saved_query_{saved_query.name}"):
                     if is_reserved_system_name(saved_query.name):
                         continue
+                    models_chain = models_namespace_chain(saved_query)
+                    if models_chain is not None and ".".join(models_chain) not in stored_names:
+                        database._models_aliases[".".join(models_chain)] = saved_query.name.split(".")
                     if (
                         sources.is_hogql_warehouse_access_control_enabled
                         and not sources.bypass_warehouse_access_control
