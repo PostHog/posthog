@@ -96,6 +96,16 @@ describe('metricsUsageTrackingLogic', () => {
         ],
         ['metrics viewer live toggled', () => metricsViewerLogic.actions.setLiveRefresh(true), { enabled: true }],
         [
+            'metrics viewer display type changed',
+            () => metricsViewerLogic.actions.setDisplayType('stat'),
+            { display_type: 'stat' },
+        ],
+        [
+            'metrics viewer value reducer changed',
+            () => metricsViewerLogic.actions.setReduce('mean'),
+            { reduce: 'mean', display_type: 'line' },
+        ],
+        [
             'metrics viewer date range changed',
             () => metricsViewerLogic.actions.setDateFrom('-24h'),
             { date_from: '-24h' },

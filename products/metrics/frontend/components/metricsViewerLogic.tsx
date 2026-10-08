@@ -29,6 +29,7 @@ import {
     MetricsQuery,
     MetricsQueryClause,
     MetricsQueryFilter,
+    MetricsReducer,
     MetricsYAxisSettings,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -58,7 +59,7 @@ import type { _MetricPickerNameApi } from '../generated/api.schemas'
 import { type MetricTopMoverRow, topMoverRows } from '../metricsAnomaly'
 import { EMPTY_SERVICE_PATTERN, SERVICE_NAME_KEY } from '../metricsAttributes'
 import { correlationServiceNames, metricsFilterGroup } from '../metricsLinks'
-import { METRICS_PANELS } from '../panels/registry'
+import { METRICS_PANELS, resolveReducer } from '../panels/registry'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import type { MetricNameItem } from './metricNamePickerLogic'
 import type { MetricsChartSeries } from './metricsSeries'
@@ -179,6 +180,7 @@ export interface MetricsAnomalyBadge {
 export const DEFAULT_DATE_FROM = '-1h'
 // Kept off the persisted node: a saved query with no `display` renders as a line chart anyway.
 export const DEFAULT_DISPLAY_TYPE: MetricsDisplayType = 'line'
+export const DEFAULT_REDUCER: MetricsReducer = 'last'
 // A latency-over-time heatmap only makes sense for a distribution metric; gauges and
 // counters have no per-bucket histogram to grid.
 const HISTOGRAM_METRIC_TYPES: readonly OtelMetricTypeEnumApi[] = [
@@ -495,6 +497,7 @@ export interface metricsViewerLogicValues {
     queryResultsLoading: boolean
     queryState: MetricsViewerQueryState
     rangeFunction: MetricRangeFunction | null
+    reduce: MetricsReducer
     savedInsight: InsightModel | null
     savedInsightLoading: boolean
     savedQueryNode: MetricsHistogramQuery | MetricsQuery | null
@@ -707,6 +710,9 @@ export interface metricsViewerLogicActions {
     setRangeFunction: (rangeFunction: MetricRangeFunction | null) => {
         rangeFunction: MetricRangeFunction | null
     }
+    setReduce: (reduce: MetricsReducer) => {
+        reduce: MetricsReducer
+    }
     setSelectedMetricType: (metricType: OtelMetricTypeEnumApi | null) => {
         metricType: OtelMetricTypeEnumApi | null
     }
@@ -755,7 +761,8 @@ export interface metricsViewerLogicMeta {
         metricsDisplay: (
             displayType: MetricsDisplayType,
             goalLines: GoalLine[],
-            yAxisSettings: MetricsYAxisSettings
+            yAxisSettings: MetricsYAxisSettings,
+            reduce: MetricsReducer
         ) => MetricsDisplaySettings | undefined
         metricsQueryNode: (
             namedClauses: MetricsViewerClause[],
@@ -878,6 +885,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             key,
             value,
         }),
+        setReduce: (reduce: MetricsReducer) => ({ reduce }),
     }),
     reducers(({ props }) => ({
         // The clause list, active index, and formula live in one reducer so the
@@ -1029,6 +1037,12 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     return next
                 },
             },
+        ],
+        // Seeded through resolveReducer so a node saved with the deprecated `statSummary` keeps
+        // its summary when the editor rebuilds `display`.
+        reduce: [
+            resolveReducer(props.initialQuery?.display) as MetricsReducer,
+            { setReduce: (_, { reduce }) => reduce },
         ],
         isAddToDashboardModalOpen: [
             false,
@@ -1512,16 +1526,18 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // Chart settings as they'd be persisted, with every default omitted — an all-defaults
         // object would change the shape of newly-saved nodes for no gain.
         metricsDisplay: [
-            (s) => [s.displayType, s.goalLines, s.yAxisSettings],
+            (s) => [s.displayType, s.goalLines, s.yAxisSettings, s.reduce],
             (
                 displayType: MetricsDisplayType,
                 goalLines: GoalLine[],
-                yAxisSettings: MetricsYAxisSettings
+                yAxisSettings: MetricsYAxisSettings,
+                reduce: MetricsReducer
             ): MetricsDisplaySettings | undefined => {
                 const display: MetricsDisplaySettings = {
                     ...(displayType !== DEFAULT_DISPLAY_TYPE ? { type: displayType } : {}),
                     ...(goalLines.length ? { goalLines } : {}),
                     ...(Object.keys(yAxisSettings).length ? { yAxis: yAxisSettings } : {}),
+                    ...(reduce !== DEFAULT_REDUCER ? { reduce } : {}),
                 }
                 return Object.keys(display).length ? display : undefined
             },
