@@ -1,0 +1,221 @@
+{
+    "name": "Kafka consumers",
+    "description": "Consumer lag and throughput of Kafka topics and consumer groups from the Kafka exporter.",
+    "panels": [
+        {
+            "key": "lag",
+            "title": "Consumer lag",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "kafka_consumergroup_lag",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "{message}",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "produced",
+            "title": "Messages produced",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "kafka_topic_partition_current_offset",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "{message}/s",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 3,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "consumed",
+            "title": "Messages consumed",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "kafka_consumergroup_current_offset",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "{message}/s",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "brokers",
+            "title": "Brokers",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "kafka_brokers",
+                        "aggregation": "max"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 9,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "lag_by_group",
+            "title": "Lag by consumer group",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "kafka_consumergroup_lag",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "consumergroup"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "{message}"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 2,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "lag_by_topic",
+            "title": "Lag by topic",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "kafka_consumergroup_lag",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "topic"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "{message}"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 2,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "produced_by_topic",
+            "title": "Messages produced by topic",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "kafka_topic_partition_current_offset",
+                        "aggregation": "rate",
+                        "groupBy": [
+                            {
+                                "key": "topic"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "{message}/s"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 6,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "consumed_by_group",
+            "title": "Messages consumed by group",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "kafka_consumergroup_current_offset",
+                        "aggregation": "rate",
+                        "groupBy": [
+                            {
+                                "key": "consumergroup"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "{message}/s"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 6,
+                "w": 6,
+                "h": 4
+            }
+        }
+    ]
+}

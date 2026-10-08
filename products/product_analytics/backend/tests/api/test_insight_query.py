@@ -432,6 +432,22 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "DataVisualizationNode",
                 "HogQLQuery",
             ),
+            (
+                "bare_metrics_query",
+                {
+                    "kind": "MetricsQuery",
+                    "clauses": [{"name": "a", "metricName": "http_requests_total", "aggregation": "rate"}],
+                    "display": {"type": "line", "unit": "{req}/s"},
+                },
+                "MetricsQuery",
+                None,
+            ),
+            (
+                "bare_metrics_histogram_query",
+                {"kind": "MetricsHistogramQuery", "metricName": "http_request_duration_seconds"},
+                "MetricsHistogramQuery",
+                None,
+            ),
         ]
     )
     def test_mcp_create_normalizes_query(self, _name, query, expected_kind, expected_source_kind) -> None:

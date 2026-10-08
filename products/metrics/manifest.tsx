@@ -17,13 +17,26 @@ export const manifest: ProductManifest = {
             iconType: 'metrics',
             docsHref: 'https://posthog.com/docs/metrics',
         },
+        MetricsDashboardReview: {
+            name: 'Dashboard review',
+            import: () => import('./frontend/dashboardReview/MetricsDashboardReviewScene'),
+            projectBased: true,
+            layout: 'app-container',
+            activityScope: 'Metrics',
+            description: 'Review AI-generated metrics dashboards before projects see them.',
+            iconType: 'metrics',
+        },
     },
     routes: {
         '/metrics': ['Metrics', 'metrics'],
+        '/metrics/dashboard-review': ['MetricsDashboardReview', 'metricsDashboardReview'],
+        '/metrics/dashboard-review/:templateId': ['MetricsDashboardReview', 'metricsDashboardReview'],
     },
     redirects: {},
     urls: {
         metrics: (): string => '/metrics',
+        metricsDashboardReview: (templateId?: string): string =>
+            templateId ? `/metrics/dashboard-review/${templateId}` : '/metrics/dashboard-review',
     },
     fileSystemTypes: {},
     treeItemsNew: [

@@ -1,0 +1,297 @@
+{
+    "name": "Redis",
+    "description": "Commands, memory, hit rate and keys of Redis servers that run the Redis exporter.",
+    "panels": [
+        {
+            "key": "clients",
+            "title": "Connected clients",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "redis_connected_clients",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "commands",
+            "title": "Commands",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "redis_commands_processed_total",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "{op}/s",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 3,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "hit_rate",
+            "title": "Keyspace hit rate",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "redis_keyspace_hits_total",
+                        "aggregation": "rate"
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "redis_keyspace_misses_total",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "%",
+                    "reduce": "last",
+                    "thresholds": [
+                        {
+                            "color": "danger",
+                            "value": 0
+                        },
+                        {
+                            "color": "warning",
+                            "value": 80
+                        },
+                        {
+                            "color": "success",
+                            "value": 95
+                        }
+                    ]
+                },
+                "formula": "a / (a + b) * 100"
+            },
+            "layout": {
+                "x": 6,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "memory",
+            "title": "Memory used",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "redis_memory_used_bytes",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "By",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 9,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "commands_by_instance",
+            "title": "Commands by instance",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "redis_commands_processed_total",
+                        "aggregation": "rate",
+                        "groupBy": [
+                            {
+                                "key": "instance"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "{op}/s"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 2,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "memory_vs_max",
+            "title": "Memory used and limit",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "used",
+                        "metricName": "redis_memory_used_bytes",
+                        "aggregation": "sum"
+                    },
+                    {
+                        "name": "limit",
+                        "metricName": "redis_memory_max_bytes",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "By"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 2,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "hits_misses",
+            "title": "Keyspace hits and misses",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "hits",
+                        "metricName": "redis_keyspace_hits_total",
+                        "aggregation": "rate"
+                    },
+                    {
+                        "name": "misses",
+                        "metricName": "redis_keyspace_misses_total",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "{op}/s"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 6,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "evictions",
+            "title": "Evicted and expired keys",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "evicted",
+                        "metricName": "redis_evicted_keys_total",
+                        "aggregation": "rate"
+                    },
+                    {
+                        "name": "expired",
+                        "metricName": "redis_expired_keys_total",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "line"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 6,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "keys",
+            "title": "Keys by database",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "redis_db_keys",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "db"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 10,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "network",
+            "title": "Network traffic",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "input",
+                        "metricName": "redis_net_input_bytes_total",
+                        "aggregation": "rate"
+                    },
+                    {
+                        "name": "output",
+                        "metricName": "redis_net_output_bytes_total",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "By/s"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 10,
+                "w": 6,
+                "h": 4
+            }
+        }
+    ]
+}

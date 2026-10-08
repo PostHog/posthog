@@ -53,5 +53,6 @@ def log_error_if_site_url_not_reachable() -> None:
         logger.error(
             "site_url_not_reachable",
             site_url=settings.SITE_URL,
-            exception=_site_reachable_exception,
+            # A str, not the exception: the console renderer treats an `exception` field as a formatted traceback.
+            error=str(_site_reachable_exception),
         )

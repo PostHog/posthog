@@ -13,6 +13,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import type { DashboardImportApi } from 'products/metrics/frontend/generated/api.schemas'
 
 import { metricsDashboardImportLogic } from '../dashboardImport/metricsDashboardImportLogic'
+import { SuggestedDashboardsMenu } from '../suggestedDashboards/SuggestedDashboardsMenu'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 
 const MAX_LISTED_IMPORTS = 5
@@ -75,6 +76,7 @@ export function MetricsDashboardActions(): JSX.Element {
     const { openImportModal, openImport } = useActions(metricsDashboardImportLogic)
     const { newDashboardClicked } = useActions(metricsUsageTrackingLogic)
     const importEnabled = useFeatureFlag('METRICS_DASHBOARD_IMPORT')
+    const suggestionsEnabled = useFeatureFlag('METRICS_SUGGESTED_DASHBOARDS')
 
     const dashboardDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Dashboard,
@@ -95,6 +97,7 @@ export function MetricsDashboardActions(): JSX.Element {
 
     return (
         <div className="flex flex-wrap items-center gap-2">
+            {suggestionsEnabled && <SuggestedDashboardsMenu />}
             {importEnabled && (
                 <LemonMenu
                     items={[

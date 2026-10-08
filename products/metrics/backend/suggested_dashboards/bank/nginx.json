@@ -1,0 +1,239 @@
+{
+    "name": "NGINX",
+    "description": "Requests and connections of NGINX servers that run the NGINX Prometheus exporter.",
+    "panels": [
+        {
+            "key": "requests",
+            "title": "Requests",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "nginx_http_requests_total",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "{req}/s",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "active",
+            "title": "Active connections",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "nginx_connections_active",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 3,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "dropped",
+            "title": "Dropped connections",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "nginx_connections_accepted",
+                        "aggregation": "rate"
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "nginx_connections_handled",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "{connection}/s",
+                    "reduce": "last",
+                    "thresholds": [
+                        {
+                            "color": "success",
+                            "value": 0
+                        },
+                        {
+                            "color": "danger",
+                            "value": 1
+                        }
+                    ]
+                },
+                "formula": "a - b"
+            },
+            "layout": {
+                "x": 6,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "up",
+            "title": "Servers up",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "nginx_up",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 9,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "requests_by_instance",
+            "title": "Requests by instance",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "nginx_http_requests_total",
+                        "aggregation": "rate",
+                        "groupBy": [
+                            {
+                                "key": "instance"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "{req}/s"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 2,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "connection_states",
+            "title": "Connections by state",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "reading",
+                        "metricName": "nginx_connections_reading",
+                        "aggregation": "sum"
+                    },
+                    {
+                        "name": "writing",
+                        "metricName": "nginx_connections_writing",
+                        "aggregation": "sum"
+                    },
+                    {
+                        "name": "waiting",
+                        "metricName": "nginx_connections_waiting",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "area"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 2,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "accepted_handled",
+            "title": "Accepted and handled connections",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "accepted",
+                        "metricName": "nginx_connections_accepted",
+                        "aggregation": "rate"
+                    },
+                    {
+                        "name": "handled",
+                        "metricName": "nginx_connections_handled",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "{connection}/s"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 6,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "active_by_instance",
+            "title": "Active connections by instance",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "nginx_connections_active",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "instance"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 6,
+                "w": 6,
+                "h": 4
+            }
+        }
+    ]
+}
