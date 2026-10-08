@@ -471,4 +471,5 @@ def _recorded(
         error_message=error_message,
         query_duration_ms=query_duration_ms,
         disable=disable,
+        skipped=skip is not None and not failed,
     )

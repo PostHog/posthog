@@ -135,7 +135,13 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     configuration_id=request.configuration_id,
                     evaluation_key=request.evaluation_key,
                     target=target,
-                    announcement=replace(announced, transitions=transitions, overflowed=request.overflowed),
+                    # Only the batch that opens the evaluation carries the overflow, so a destination
+                    # subscribed to several of its events hears about it once.
+                    announcement=replace(
+                        announced,
+                        transitions=transitions,
+                        overflowed=request.overflowed if transitions[0] is announced.transitions[0] else 0,
+                    ),
                     incident_action=action_by_event_id.get(event_id),
                 )
             except ThreadBusy as error:

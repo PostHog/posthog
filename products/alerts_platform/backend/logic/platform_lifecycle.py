@@ -128,20 +128,22 @@ def _alerts_for_write(
 REAP_AFTER: Final = timedelta(hours=24)
 
 
-def _reap(team_id: int, configurations: Sequence[PlatformAlertConfiguration], now: datetime) -> None:
+def _reap(
+    team_id: int,
+    configurations: Sequence[PlatformAlertConfiguration],
+    now: datetime,
+    *,
+    returned: Collection[_InstanceKey],
+) -> None:
     """Deletes instances that hold a slot and nothing else, so a stale group frees its place.
 
     Only an instance that is not firing, not muted, and that no check returned for longer than both
     `REAP_AFTER` and its cooldown. A configuration whose checks fail returns no groups, so its
-    instances look unseen without being gone, and none of them is reaped while it is not OK.
+    instances look unseen without being gone. The caller passes only configurations whose check
+    succeeded.
     """
     # An ungrouped configuration's one instance is returned by every check, so it has nothing to reap.
-    healthy = {
-        str(c.id): c
-        for c in configurations
-        if c.check_status == PlatformAlertConfiguration.CheckStatus.OK
-        and Grouping.from_stored(c.grouping).mode != GroupingMode.SINGLE
-    }
+    healthy = {str(c.id): c for c in configurations if Grouping.from_stored(c.grouping).mode != GroupingMode.SINGLE}
     if not healthy:
         return
     candidates = (
@@ -150,10 +152,12 @@ def _reap(team_id: int, configurations: Sequence[PlatformAlertConfiguration], no
             configuration_id__in=list(healthy), state=PlatformAlert.State.NOT_FIRING, last_seen_at__lt=now - REAP_AFTER
         )
         .filter(Q(snooze_until__isnull=True) | Q(snooze_until__lte=now))
-        .values_list("id", "configuration_id", "last_seen_at")
+        .values_list("id", "configuration_id", "grouping_key", "last_seen_at")
     )
     reaped: dict[str, list[UUID]] = {}
-    for alert_id, configuration_id, last_seen_at in candidates:
+    for alert_id, configuration_id, grouping_key, last_seen_at in candidates:
+        if _InstanceKey(configuration_id=str(configuration_id), grouping_key=grouping_key) in returned:
+            continue
         configuration = healthy[str(configuration_id)]
         if configuration.snooze_until is not None and configuration.snooze_until > now:
             continue
@@ -330,6 +334,8 @@ def _check_status(configuration: PlatformAlertConfiguration, outcome: PlatformAl
     if outcome.failure is not None:
         failed = outcome.failure.new_state
         return failed if failed in _CHECK_STATUSES else configuration.check_status
+    if outcome.skipped:
+        return configuration.check_status
     states = {group.new_state for group in outcome.groups}
     for status in (PlatformAlertConfiguration.CheckStatus.BROKEN, PlatformAlertConfiguration.CheckStatus.ERRORED):
         if status.value in states:
@@ -366,15 +372,25 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         )
         if not configurations:
             return 0
-        alerts = _alerts_for_write(
+        # In outcome order, because the source put the groups it most wants kept first.
+        returned = [
+            _InstanceKey(configuration_id=str(configuration.id), grouping_key=group.grouping_key)
+            for configuration in configurations
+            for group in by_id[str(configuration.id)].groups
+        ]
+        # Before the cap is counted, so a slot a stale group held is free for a new one this check.
+        _reap(
             team_id,
-            configurations,
             [
-                _InstanceKey(configuration_id=str(configuration.id), grouping_key=group.grouping_key)
+                configuration
                 for configuration in configurations
-                for group in by_id[str(configuration.id)].groups
+                if _check_status(configuration, by_id[str(configuration.id)])
+                == PlatformAlertConfiguration.CheckStatus.OK
             ],
+            now,
+            returned=frozenset(returned),
         )
+        alerts = _alerts_for_write(team_id, configurations, returned)
         touched: list[PlatformAlert] = []
         # One read for the batch. Every configuration in it belongs to this team, and a
         # calendar recurrence resolves its anchor against the team's zone.
@@ -449,7 +465,6 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         PlatformAlertConfiguration.objects.for_team(team_id).bulk_update(
             configurations, ["check_status", "consecutive_failures", "enabled", "next_check_at"]
         )
-        _reap(team_id, configurations, now)
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.
         transaction.on_commit(lambda: _record_history(team_id, rows))

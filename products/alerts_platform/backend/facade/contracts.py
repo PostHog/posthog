@@ -417,6 +417,7 @@ class PlatformAlertOutcome:
     consecutive_failures: int
     groups: tuple[GroupOutcome, ...] = ()
     failure: CheckFailure | None = None
+    skipped: bool = False
     error_message: str | None = None
     query_duration_ms: int | None = None
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an

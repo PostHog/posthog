@@ -261,6 +261,7 @@ def _record_check_metrics(
     muted_by_quiet_hours: bool = False,
     now: datetime,
     grouping_key: str = "",
+    record_lag: bool = True,
 ) -> None:
     safe_record(increment_checks, SourceKind.LOGS.value, notification.value)
     if skip is not None:
@@ -272,7 +273,7 @@ def _record_check_metrics(
     previous_state = check.instance(grouping_key).state
     if previous_state != new_state:
         safe_record(increment_state_transition, SourceKind.LOGS.value, previous_state, new_state)
-    if check.next_check_at is not None:
+    if record_lag and check.next_check_at is not None:
         lag_ms = int((now - check.next_check_at).total_seconds() * 1000)
         if lag_ms > 0:
             safe_record(record_scheduler_lag, SourceKind.LOGS.value, lag_ms)
@@ -716,7 +717,7 @@ def _evaluate_grouped(
         now=now,
         muted=muted,
     )
-    for verdict in decision.verdicts:
+    for index, verdict in enumerate(decision.verdicts):
         _record_check_metrics(
             check,
             new_state=verdict.group.new_state,
@@ -725,6 +726,7 @@ def _evaluate_grouped(
             muted_by_quiet_hours=muted,
             now=now,
             grouping_key=verdict.group.grouping_key,
+            record_lag=index == 0,
         )
     recorded = PlatformAlertOutcome(
         configuration_id=check.id,
