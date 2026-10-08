@@ -587,8 +587,6 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
             "metrics.gmail_saves",
             "metrics.gmail_secondary_clicks",
             "metrics.impressions",
-            "metrics.top_impression_percentage",
-            "metrics.absolute_top_impression_percentage",
             "metrics.interaction_event_types",
             "metrics.interaction_rate",
             "metrics.interactions",
