@@ -154,6 +154,7 @@ export type RetentionPeriod = 'Hour' | 'Day' | 'Week' | 'Month'
 
 export interface RetentionFilter {
     aggregationType?: RetentionAggregationType | null
+    display?: ChartDisplayType | null
     period?: RetentionPeriod | null
     retentionReference?: RetentionReference | null
     showTrendLines?: boolean | null
