@@ -175,7 +175,7 @@ export const ReviewHogSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            "Deprecated: use default_review_mode. True when default_review_mode is 'flash'. Writing true sets default_review_mode to 'flash', and writing false sets it to 'follow'."
+            "Deprecated: use default_review_mode. True when default_review_mode is 'flash'. Writing true sets default_review_mode to 'flash', and writing false sets it to 'off'."
         ),
     default_review_mode: zod
         .enum(['follow', 'flash', 'full', 'off'])

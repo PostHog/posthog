@@ -58,7 +58,7 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
     review_authored_prs = serializers.BooleanField(
         required=False,
         help_text="Deprecated: use default_review_mode. True when default_review_mode is 'flash'. Writing true "
-        "sets default_review_mode to 'flash', and writing false sets it to 'follow'.",
+        "sets default_review_mode to 'flash', and writing false sets it to 'off'.",
     )
     default_review_mode = serializers.ChoiceField(
         required=False,

@@ -65,6 +65,7 @@ class TestReviewRepositoryAPI(APIBaseTest):
             self.client.post(people_url, {"user_id": self.user.id, "kind": "listed"}, format="json").status_code == 200
         )
 
+        assert self.client.delete(f"{people_url}a/").status_code == 404
         removed = self.client.delete(f"{people_url}{person_id}/")
 
         assert removed.status_code == 200, removed.json()

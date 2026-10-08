@@ -82549,7 +82549,7 @@ export namespace Schemas {
       resolve_comments?: boolean;
       /** Show a fun image in the review comment when a review of this user's pull requests finds nothing to raise. On by default; turning it off makes clean reviews end with the text summary only. */
       celebrate_clean_reviews?: boolean;
-      /** Deprecated: use default_review_mode. True when default_review_mode is 'flash'. Writing true sets default_review_mode to 'flash', and writing false sets it to 'follow'. */
+      /** Deprecated: use default_review_mode. True when default_review_mode is 'flash'. Writing true sets default_review_mode to 'flash', and writing false sets it to 'off'. */
       review_authored_prs?: boolean;
       /** Automatic reviews of this user's own pull requests in every repository added to PostHog Review: 'follow' (default) uses each repository's rule, 'flash' and 'full' review every pull request, 'off' reviews none. A per-repository choice overrides it. Flash reviews post findings without resolving comments. Automatic Full reviews do not run yet, so 'full' gets no automatic review for now.
        *
@@ -95183,7 +95183,7 @@ export namespace Schemas {
       resolve_comments?: boolean;
       /** Show a fun image in the review comment when a review of this user's pull requests finds nothing to raise. On by default; turning it off makes clean reviews end with the text summary only. */
       celebrate_clean_reviews?: boolean;
-      /** Deprecated: use default_review_mode. True when default_review_mode is 'flash'. Writing true sets default_review_mode to 'flash', and writing false sets it to 'follow'. */
+      /** Deprecated: use default_review_mode. True when default_review_mode is 'flash'. Writing true sets default_review_mode to 'flash', and writing false sets it to 'off'. */
       review_authored_prs?: boolean;
       /** Automatic reviews of this user's own pull requests in every repository added to PostHog Review: 'follow' (default) uses each repository's rule, 'flash' and 'full' review every pull request, 'off' reviews none. A per-repository choice overrides it. Flash reviews post findings without resolving comments. Automatic Full reviews do not run yet, so 'full' gets no automatic review for now.
        *

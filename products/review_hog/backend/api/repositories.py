@@ -326,7 +326,7 @@ class ReviewRepositoryViewSet(
     @action(
         detail=True,
         methods=["DELETE"],
-        url_path=r"people/(?P<person_id>[0-9a-f-]+)",
+        url_path=r"people/(?P<person_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})",
         required_scopes=["review_hog:write"],
     )
     def remove_person(self, request: Request, person_id: str, **kwargs) -> Response:

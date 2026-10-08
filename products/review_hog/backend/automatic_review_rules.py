@@ -155,14 +155,17 @@ class AddedRepositoryNames:
         return f"review_hog:added_repositories:{team_id}"
 
     @classmethod
-    def load(cls, team_id: int) -> frozenset[str]:
+    def load(cls, team_id: int) -> list[str]:
+        # A sorted list, not a set: the cache stores JSON-shaped values only.
         names = ReviewRepository.objects.for_team(team_id).values_list("full_name", flat=True)
-        return frozenset(name.lower() for name in names)
+        return sorted({name.lower() for name in names})
 
     @classmethod
     def get(cls, team_id: int) -> frozenset[str]:
         names = cache.get_or_set(cls.cache_key(team_id), lambda: cls.load(team_id), cls.TTL_SECONDS)
-        return names if isinstance(names, frozenset) else cls.load(team_id)
+        if not isinstance(names, list):
+            names = cls.load(team_id)
+        return frozenset(names)
 
     @classmethod
     def invalidate(cls, team_id: int) -> None:
