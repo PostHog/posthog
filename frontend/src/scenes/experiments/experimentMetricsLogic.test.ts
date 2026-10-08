@@ -904,6 +904,8 @@ describe('experimentMetricsLogic', () => {
                 expect(lemonToast.info).toHaveBeenCalledWith('Metrics were recalculated less than 5 minutes ago.')
                 expect(lemonToast.error).not.toHaveBeenCalled()
                 expect(logic.values.isRecalculating).toBe(false)
+                // The page's flags are off here, so this is what keeps the button honest after the 429.
+                expect(logic.values.backendEnforcesRefreshWindow).toBe(true)
             })
 
             it('unblocks the reload button when the window closes, without a new load', async () => {

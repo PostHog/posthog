@@ -66,12 +66,14 @@ function RecalculationRefreshButton({ experiment }: { experiment: Experiment }):
         queuedRerun,
         isManualRefreshBlocked,
         nextAllowedManualRefresh,
+        backendEnforcesRefreshWindow,
     } = useValues(metricsLogic)
     const { triggerRecalculation } = useActions(metricsLogic)
     const { currentRefresh } = useValues(experimentLogic)
     const { reportExperimentMetricsRefreshed } = useActions(experimentLogic)
     const { refreshExperimentResults } = useAsyncActions(experimentLogic)
-    const rateLimitEnabled = useFeatureFlag('EXPERIMENTS_RECALCULATION_RATE_LIMIT')
+    // A page with stale flags learns about the window from a 429, so the backend signal counts too.
+    const showRefreshWindow = useFeatureFlag('EXPERIMENTS_RECALCULATION_RATE_LIMIT') || backendEnforcesRefreshWindow
 
     return (
         <RefreshButton
@@ -80,7 +82,7 @@ function RecalculationRefreshButton({ experiment }: { experiment: Experiment }):
             progress={recalculationProgress}
             queuedHint={queuedRerun ? 'Changes apply after the current recalculation finishes' : undefined}
             blockedReason={
-                rateLimitEnabled && isManualRefreshBlocked && nextAllowedManualRefresh
+                showRefreshWindow && isManualRefreshBlocked && nextAllowedManualRefresh
                     ? `Next refresh possible ${dayjs(nextAllowedManualRefresh).fromNow()}`
                     : undefined
             }
