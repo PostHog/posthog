@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase, override_settings
 
-from parameterized import parameterized
+from parameterized import param, parameterized
 from rest_framework.exceptions import APIException
 
 from posthog.schema import (
@@ -456,12 +456,13 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         [
             ("validation", "Unknown field: missing_column", None, "Unknown field: missing_column", None),
             ("timeout", "Query timed out", "error", "Query timed out", None),
-            (
+            param(
                 "memory_limit",
                 "Query memory limit exceeded",
                 "clickhouse_memory_limit_exceeded",
                 "Query memory limit exceeded",
                 None,
+                expected_error_type="memory_limit",
             ),
             ("warehouse_connection", "Warehouse connection failed", None, "Warehouse connection failed", None),
             (
@@ -500,6 +501,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         expected_code: str | None,
         mock_get_query_status: Mock,
         mock_process_query: Mock,
+        *,
+        expected_error_type: str = "internal",
     ) -> None:
         mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
 
@@ -521,7 +524,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertEqual(str(context.exception), expected_message)
         self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
-        self.assertEqual(context.exception.error_type, "internal")
+        self.assertEqual(context.exception.error_type, expected_error_type)
         self.assertEqual(context.exception.error_code, expected_code)
 
     @parameterized.expand(

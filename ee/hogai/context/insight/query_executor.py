@@ -489,6 +489,9 @@ class AssistantQueryExecutor:
                 # Check for query execution errors before using results
                 if query_status.get("error"):
                     error_code = query_status.get("error_code")
+                    cached_error_type: MaxToolErrorType = (
+                        "memory_limit" if error_code == ClickHouseQueryMemoryLimitExceeded.default_code else "internal"
+                    )
                     error_code = (
                         error_code.lower() if error_code and internal_ch_error_user_message(error_code) else None
                     )
@@ -496,7 +499,7 @@ class AssistantQueryExecutor:
                         raise MaxToolRetryableError(rejection, error_type="validation", error_code=error_code)
                     if error_message := query_status.get("error_message") or internal_ch_error_user_message(error_code):
                         # Async status loses the exception type, so keep retry advice without guessing its category.
-                        raise MaxToolRetryableError(error_message, error_type="internal", error_code=error_code)
+                        raise MaxToolRetryableError(error_message, error_type=cached_error_type, error_code=error_code)
                     raise Exception("Query failed")
 
                 # Use the completed query results
