@@ -1112,6 +1112,57 @@ describe('preserveGroupTargetingFilters', () => {
         expect(aggregationViolations(existing, merged)).toEqual([])
     })
 
+    it('restores a person type in a moved set that states its own group type', () => {
+        const existing = {
+            aggregation_group_type_index: null,
+            groups: [
+                {
+                    aggregation_group_type_index: 0,
+                    properties: [
+                        { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
+                        { key: 'email', type: 'person', operator: 'icontains', value: '@acme.com' },
+                    ],
+                    rollout_percentage: 100,
+                },
+                {
+                    aggregation_group_type_index: 1,
+                    properties: [{ key: 'seats', type: 'group', group_type_index: 1, operator: 'gt', value: 10 }],
+                    rollout_percentage: 100,
+                },
+            ],
+        }
+
+        const merged = preserveGroupTargetingFilters(existing, {
+            groups: [
+                {
+                    aggregation_group_type_index: 1,
+                    properties: [{ key: 'seats', operator: 'gt', value: 10 }],
+                    rollout_percentage: 100,
+                },
+                {
+                    aggregation_group_type_index: 0,
+                    properties: [
+                        { key: 'plan', operator: 'exact', value: 'enterprise' },
+                        { key: 'email', operator: 'icontains', value: '@acme.com' },
+                    ],
+                    rollout_percentage: 100,
+                },
+            ],
+        })
+
+        expect(
+            merged?.groups?.map((group) =>
+                group.properties?.map((property) => [property.key, property.type, property.group_type_index])
+            )
+        ).toEqual([
+            [['seats', 'group', 1]],
+            [
+                ['plan', 'group', 0],
+                ['email', 'person', undefined],
+            ],
+        ])
+    })
+
     it('restores a flag dependency in a group set when another set changes its keys', () => {
         const existing = {
             aggregation_group_type_index: 0,

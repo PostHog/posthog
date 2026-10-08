@@ -17,8 +17,10 @@
  * source even when other sets change.
  *
  * A set's aggregation then decides its property types. A group-aggregated set restores a
- * person-aggregated type that its source holds for the key. It types every other untyped
- * property as `group` against the set's own group type index. A person-aggregated set restores
+ * person-aggregated type that its source holds for the key. A group-aggregated set with no source
+ * that states or implies its own group type looks the key up in every stored set instead. It types
+ * every other untyped property as `group` against the set's own group type index. A key that the
+ * looked-up sets also hold as a group property stays `group`. A person-aggregated set restores
  * every stored type except `group`. check_property_types_match_aggregation in
  * products/feature_flags/backend/filters_validation.py reports a person-aggregated property in a
  * group set. The flag evaluator reads each property by its own type, so a group set keeps the
@@ -216,7 +218,7 @@ function mergeProperty(
 
     if (!isPresentType(out.type)) {
         if (isPresentGroupIndex(setGroupTypeIndex)) {
-            // A source that also holds the key as a group property leaves the type ambiguous.
+            // Candidates that also hold the key as a group property leave the type ambiguous.
             out.type = sourceCandidates?.some((candidate) => candidate.type === 'group')
                 ? 'group'
                 : (pickPersonAggregatedCandidate(sourceCandidates, out)?.type ?? 'group')
@@ -291,6 +293,12 @@ function mergeConditionSet(
 
     const setGroupTypeIndex = resolveGroupIndex(pinnedToPerson, out.aggregation_group_type_index, flagLevelGroupIndex)
 
+    // A set with no source that states or implies its own group type is the retry that the refusal
+    // asks for. Its person-aggregated properties keep the types that the stored flag holds for them.
+    const typeCandidatesByKey =
+        sourceSet?.propsByKey ??
+        (isPresentGroupIndex(out.aggregation_group_type_index) ? crossSetPropsByKey : undefined)
+
     if (Array.isArray(out.properties)) {
         out.properties = out.properties.map((prop) => {
             if (!prop || typeof prop !== 'object') {
@@ -301,7 +309,7 @@ function mergeConditionSet(
             }
             return mergeProperty(
                 prop,
-                sourceSet?.propsByKey.get(prop.key),
+                typeCandidatesByKey?.get(prop.key),
                 crossSetPropsByKey.get(prop.key),
                 setGroupTypeIndex
             )
