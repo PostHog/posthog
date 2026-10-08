@@ -76,7 +76,7 @@ class Metric(
     status = models.CharField(
         max_length=32,
         choices=[(s.value, s.value) for s in MetricStatus],
-        default=MetricStatus.PROPOSED,
+        default=MetricStatus.PROPOSED.value,
         help_text="Persisted lifecycle state. drifted is computed at read time, not stored here.",
     )
     approved_by = models.ForeignKey(
@@ -108,7 +108,7 @@ class Metric(
     created_source = models.CharField(
         max_length=32,
         choices=[(s.value, s.value) for s in CreatedSource],
-        default=CreatedSource.USER,
+        default=CreatedSource.USER.value,
         help_text="Whether a human or an agent authored this metric.",
     )
     ai_model = models.CharField(

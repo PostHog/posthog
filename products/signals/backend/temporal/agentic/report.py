@@ -23,25 +23,22 @@ from posthog.temporal.oauth import McpScopePreset, grants_scratchpad_write
 
 from products.business_knowledge.backend.logic import is_available_for_team
 from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
-from products.signals.backend.artefact_schemas import (
-    ArtefactContent,
-    ImpactMeasurementPlan,
-    RelatedTo,
-    ReportLink,
-    SuggestedReviewers,
-)
+from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, ReportLink, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.enums import ReportLinkKind
-from products.signals.backend.impact_measurement_plans import latest_measurement_plans
-from products.signals.backend.models import ArtefactAttribution, SignalActorKind, SignalReport, SignalReportArtefact
+from products.signals.backend.models import (
+    ArtefactAttribution,
+    SignalActorKind,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportCheck,
+)
 from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
-from products.signals.backend.report_content_gates import (
-    team_expected_impact_authoring_enabled,
-    team_report_metrics_enabled,
-)
+from products.signals.backend.report_check_research import check_versions
+from products.signals.backend.report_content_gates import team_report_metrics_enabled
 from products.signals.backend.report_generation.ownership_reviewers import suggest_repository_owners
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
@@ -120,6 +117,12 @@ class RunAgenticReportOutput:
     # writes the metrics they reference — a check naming a metric the report never got is dropped
     # there rather than stored pointing at nothing. `None` predates the field and writes none.
     checks: list[dict[str, Any]] | None = None
+    checks_snapshot: dict[str, str] | None = None
+
+    # Old activity results wrote an empty list when no checks were authored. The transition may
+    # reconcile existing rows only when this marker came from a new verification turn.
+    reconcile_checks: bool = False
+    checks_summary: str | None = None
     # The plan of dependent pull requests, as `ReportLayer` dicts. The ready transition turns each
     # one into a child report. `None` predates the field and creates none.
     layers: list[dict[str, Any]] | None = None
@@ -148,6 +151,14 @@ def _parse_artefact_content(
             f"report {report_id}: {artefact.type} artefact {artefact.id} is incompatible with the "
             f"current {model_cls.__name__} schema"
         ) from error
+
+
+def _load_check_snapshot(team_id: int, report_id: str) -> dict[str, str]:
+    return check_versions(
+        SignalReportCheck.objects.for_team(team_id).filter(
+            report_id=report_id, status__in=SignalReportCheck.OPEN_STATUSES
+        )
+    )
 
 
 async def _load_previous_research(team_id: int, report_id: str) -> ReportResearchOutput | None:
@@ -244,15 +255,32 @@ def _parse_stored_metrics(raw: object, report_id: str) -> list[ReportMetric]:
     return parsed
 
 
-def _load_previous_measurement_plans(team_id: int, report_id: str) -> dict[str, tuple[str, ImpactMeasurementPlan]]:
-    report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
-    if report is None:
-        return {}
-    return {
-        metric_id: (str(row.id), plan)
-        for metric_id, (row, plan) in latest_measurement_plans(report).items()
-        if not plan.retired
-    }
+def _load_previous_checks(team_id: int, report_id: str) -> list[dict]:
+    checks = SignalReportCheck.objects.for_team(team_id).filter(
+        report_id=report_id, status__in=SignalReportCheck.OPEN_STATUSES
+    )
+    return [
+        {
+            "id": str(check.id),
+            "title": check.title,
+            "rationale": check.rationale,
+            "kind": check.kind,
+            "config": {
+                key: value
+                for key, value in check.config.items()
+                if (key != "query" or not check.config.get("metric_id"))
+                and (key != "baseline_value" or check.config.get("query") is not None)
+            },
+            "stored_query": check.config.get("query")
+            if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
+            else None,
+            "soak_hours": max(1, round((check.soak_minutes or 60) / 60)),
+            "run_interval_minutes": check.run_interval_minutes,
+            "runs_remaining": check.runs_remaining,
+            "approved": check.approved_at is not None,
+        }
+        for check in checks
+    ]
 
 
 async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[str | None, str | None]:
@@ -669,8 +697,6 @@ def _resolve_report_metrics_payload(
     metrics: list[ReportMetric],
     metrics_enabled: bool,
     *,
-    expected_impact_authoring_enabled: bool = False,
-    previous_metrics: list[ReportMetric] | None = None,
     report_id: str,
     team_id: int,
 ) -> list[dict[str, Any]] | None:
@@ -689,29 +715,7 @@ def _resolve_report_metrics_payload(
             metric_count=len(metrics),
         )
         return []
-    if not expected_impact_authoring_enabled:
-        previous_by_id = {metric.metric_id: metric for metric in previous_metrics or []}
-        sanitized_metrics = []
-        for metric in metrics:
-            previous = previous_by_id.get(metric.metric_id)
-            same_measure = (
-                previous is not None
-                and previous.query == metric.query
-                and previous.kind == metric.kind
-                and previous.value_format == metric.value_format
-                and previous.unit == metric.unit
-            )
-            retained_goal = previous if same_measure else None
-            sanitized_metrics.append(
-                metric.model_copy(
-                    update={
-                        field_name: getattr(retained_goal, field_name) if retained_goal else None
-                        for field_name in REPORT_METRIC_GOAL_FIELDS
-                    }
-                )
-            )
-        metrics = sanitized_metrics
-    return [metric.model_dump(mode="json") for metric in metrics]
+    return [metric.model_dump(mode="json", exclude=set(REPORT_METRIC_GOAL_FIELDS)) for metric in metrics]
 
 
 async def _persist_agentic_report_artefacts(
@@ -961,22 +965,18 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             metrics_enabled = await database_sync_to_async(team_report_metrics_enabled, thread_sensitive=False)(
                 input.team_id
             )
-            expected_impact_authoring_enabled = metrics_enabled and await database_sync_to_async(
-                team_expected_impact_authoring_enabled, thread_sensitive=False
-            )(input.team_id)
             # An `agent` check needs a scout fleet to dispatch it. A team with none degrades to
             # deterministic checks rather than storing a check that could never run.
             agent_checks_enabled = await database_sync_to_async(_team_runs_scouts, thread_sensitive=False)(
                 input.team_id
             )
             # 2. Load previous research if this is a re-promoted report
+            checks_snapshot = await database_sync_to_async(_load_check_snapshot, thread_sensitive=False)(
+                input.team_id, input.report_id
+            )
             previous_research = await _load_previous_research(input.team_id, input.report_id)
-            previous_measurement_plans = (
-                await database_sync_to_async(_load_previous_measurement_plans, thread_sensitive=False)(
-                    input.team_id, input.report_id
-                )
-                if previous_research and expected_impact_authoring_enabled
-                else {}
+            previous_checks = await database_sync_to_async(_load_previous_checks, thread_sensitive=False)(
+                input.team_id, input.report_id
             )
             # 2b. Load the resolved report this one recurred from, if any, as extra research context
             resolved_report_title, resolved_report_summary = await _load_resolved_report_context(
@@ -1005,7 +1005,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 context,
                 previous_report_id=input.report_id if previous_research else None,
                 previous_report_research=previous_research,
-                previous_measurement_plans=previous_measurement_plans,
+                previous_checks=previous_checks,
                 implementation_context=implementation_context,
                 signal_report_id=input.report_id,
                 has_business_knowledge=has_bk,
@@ -1013,7 +1013,6 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 resolved_report_summary=resolved_report_summary,
                 linked_reports=linked_reports,
                 metrics_enabled=metrics_enabled,
-                expected_impact_authoring_enabled=expected_impact_authoring_enabled,
                 agent_checks_enabled=agent_checks_enabled,
                 steering_section=steering.section,
             )
@@ -1034,8 +1033,6 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
         metrics_payload = _resolve_report_metrics_payload(
             result.metrics,
             metrics_enabled,
-            expected_impact_authoring_enabled=expected_impact_authoring_enabled,
-            previous_metrics=previous_research.metrics if previous_research else None,
             report_id=input.report_id,
             team_id=input.team_id,
         )
@@ -1056,12 +1053,12 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             repository=repository,
             charts=charts_payload,
             metrics=metrics_payload,
-            revise_measurement_plan_metric_ids=result.revise_measurement_plan_metric_ids,
-            retire_measurement_plan_metric_ids=result.retire_measurement_plan_metric_ids,
-            previous_measurement_plan_ids={
-                metric_id: row_id for metric_id, (row_id, _) in previous_measurement_plans.items()
-            },
-            checks=[check.model_dump(mode="json") for check in result.checks],
+            checks=[check.model_dump(mode="json", exclude_none=True, exclude_unset=True) for check in result.checks]
+            if result.checks is not None
+            else None,
+            reconcile_checks=result.checks is not None,
+            checks_summary=result.checks_summary,
+            checks_snapshot=checks_snapshot,
             layers=[layer.model_dump(mode="json") for layer in result.layers],
             research_task_id=result.research_task_id,
             charts_enabled=True,

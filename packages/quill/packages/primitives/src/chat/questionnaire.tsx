@@ -8,6 +8,7 @@ import {
     type QuestionnaireItemStatus,
     type QuestionnaireShortcutMode,
 } from '@shadcn/react/questionnaire'
+import { mergeProps } from '@base-ui/react/merge-props'
 import { CheckIcon } from 'lucide-react'
 import * as React from 'react'
 
@@ -287,6 +288,24 @@ function QuestionnaireSkip({
     )
 }
 
+type AdvanceRender = React.ComponentProps<typeof QuestionnairePrimitive.Submit>['render']
+
+/**
+ * Next and Submit stay disabled while the active question is unanswered. The engine refuses an unanswered
+ * question on submit anyway, optional ones included (Skip is their way past), so a live button there only
+ * invites a click that fails. A keyboard submit still runs the engine's validation and shows the error.
+ */
+function disabledUntilAnswered(render: AdvanceRender): NonNullable<AdvanceRender> {
+    return (props, state) => {
+        const gated = { ...props, disabled: props.disabled || state.status === 'unanswered' }
+        if (typeof render === 'function') {
+            return render(gated, state)
+        }
+        const element = render ?? <Button variant="primary" />
+        return React.cloneElement(element, mergeProps(element.props as React.ComponentProps<'button'>, gated))
+    }
+}
+
 function QuestionnaireNext({
     children,
     className,
@@ -297,7 +316,7 @@ function QuestionnaireNext({
         <QuestionnairePrimitive.Next
             data-slot="questionnaire-next"
             className={cn('quill-questionnaire__next', className)}
-            render={render ?? <Button variant="primary" />}
+            render={disabledUntilAnswered(render)}
             {...props}
         >
             {children ?? 'Next'}
@@ -315,7 +334,7 @@ function QuestionnaireSubmit({
         <QuestionnairePrimitive.Submit
             data-slot="questionnaire-submit"
             className={cn('quill-questionnaire__submit', className)}
-            render={render ?? <Button variant="primary" />}
+            render={disabledUntilAnswered(render)}
             {...props}
         >
             {children ?? 'Submit'}

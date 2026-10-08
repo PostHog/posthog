@@ -1,5 +1,6 @@
 import FuseClass from 'fuse.js'
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -32,14 +33,17 @@ import {
     fileUploadSourceType,
     fileUploadSourceUrl,
 } from './fileUploadSource'
+import {
+    ALL_SOURCES_CATEGORY,
+    CATEGORY_SEARCH_PARAM,
+    SELF_MANAGED_CATEGORY,
+    SourceCategoryFilter,
+    isSourceCategoryFilter,
+} from './sourceCategories'
 import { sourceWizardLogic } from './sourceWizardLogic'
 
 // Helps kea-typegen reference the Fuse type without a bad `import { Fuse } from 'fuse.js'`.
 export interface Fuse extends FuseClass<CatalogItem> {}
-
-export type SourceCategoryFilter = DataWarehouseSourceCategoryApi | 'all'
-
-export const ALL_SOURCES_CATEGORY = 'all'
 
 // Self-managed (S3/GCS/Azure/R2) connectors don't flow through SourceConfigResponseApi, so place
 // them in a sensible catalog bucket explicitly.
@@ -55,10 +59,28 @@ const MANUAL_SOURCE_KEYWORDS: Record<string, string[]> = {
     azure: ['azure', 'microsoft azure', 'azure blob', 'blob storage'],
 }
 
+// The catalog matches a source against its label, name, keywords and category. That finds the
+// Databases category for "database", but "warehouse" matches nothing at all, even though it is
+// the word in this product's own name. Attach the words people type for the category itself.
+const DATABASE_CATEGORY_KEYWORDS = ['warehouse', 'data warehouse', 'dwh']
+
 // Every self-managed connector links files from a bucket, so a user searching for a file
 // format ("csv", "parquet") should land on them rather than an empty result that pushes
 // them to request a source we already support. Matches the formats the link form accepts.
 const FILE_STORAGE_FORMAT_KEYWORDS = ['csv', 'parquet', 'delta', 'file', 'files', 'flat file']
+
+// "Self-managed data warehouse sources" is the name the sources list gives these, but no connector
+// carries the phrase in its label or keywords, so searching the catalog for the name we taught the
+// user found nothing at all.
+const SELF_MANAGED_KEYWORDS = [
+    'self-managed',
+    'self managed',
+    'selfmanaged',
+    'bring your own',
+    'byo',
+    'own bucket',
+    'own storage',
+]
 
 // "Request a data warehouse source" survey. We render our own modal and submit the answer
 // directly as a `survey sent` event rather than using the posthog-js survey popover.
@@ -123,8 +145,10 @@ export interface sourceCatalogLogicValues {
     categoriesWithCounts: CatalogCategory[]
     filteredItems: CatalogItem[]
     hasCrossCategoryMatches: boolean
+    registeredInterestSources: string[]
     search: string
     selectedCategory: SourceCategoryFilter
+    selectedCategoryLabel: string
     sourceRequestModalOpen: boolean
     sourceRequestText: string
 }
@@ -174,6 +198,10 @@ export interface sourceCatalogLogicMeta {
             arg: ExternalDataSourceTypeEnumApi[] | undefined
         ) => CatalogItem[]
         categoriesWithCounts: (catalogItems: CatalogItem[]) => CatalogCategory[]
+        selectedCategoryLabel: (
+            categoriesWithCounts: CatalogCategory[],
+            selectedCategory: SourceCategoryFilter
+        ) => string
         catalogFuse: (catalogItems: CatalogItem[]) => Fuse
         filteredItems: (
             catalogItems: CatalogItem[],
@@ -215,6 +243,18 @@ function searchCatalog(catalogFuse: Fuse, term: string): CatalogItem[] {
     return [...matchCounts.keys()].sort((a, b) => (matchCounts.get(b) ?? 0) - (matchCounts.get(a) ?? 0))
 }
 
+// `self-managed` filters on the connection model rather than on `item.category`, so every place
+// that narrows the catalog to a category has to ask through here.
+function matchesCategory(item: CatalogItem, category: SourceCategoryFilter): boolean {
+    if (category === ALL_SOURCES_CATEGORY) {
+        return true
+    }
+    if (category === SELF_MANAGED_CATEGORY) {
+        return !!item.selfManaged
+    }
+    return item.category === category
+}
+
 export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
     path(['products', 'dataWarehouse', 'sourceCatalogLogic']),
     props({} as SourceCatalogLogicProps),
@@ -254,6 +294,14 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
         selectedCategory: [
             ALL_SOURCES_CATEGORY as SourceCategoryFilter,
             { setSelectedCategory: (_, { category }) => category },
+        ],
+        // Which "Coming soon" tiles this visit already asked to be told about, so the tile can
+        // confirm it rather than offering the same action again.
+        registeredInterestSources: [
+            [] as string[],
+            {
+                registerInterest: (state, { item }) => (state.includes(item.name) ? state : [...state, item.name]),
+            },
         ],
         sourceRequestModalOpen: [
             false,
@@ -324,7 +372,10 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                                 existingSource: connectedTypes.has(connector.name) || undefined,
                                 name: connector.name,
                                 label: connector.label ?? connector.name,
-                                keywords: connector.keywords ?? [],
+                                keywords:
+                                    connector.category === DataWarehouseSourceCategoryApi.Databases
+                                        ? [...(connector.keywords ?? []), ...DATABASE_CATEGORY_KEYWORDS]
+                                        : (connector.keywords ?? []),
                                 featured: connector.featured ?? undefined,
                                 url: urls.dataWarehouseSourceNew(connector.name),
                             },
@@ -337,7 +388,11 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                         label: source.name,
                         iconType: source.type,
                         category: MANUAL_SOURCE_CATEGORY,
-                        keywords: [...(MANUAL_SOURCE_KEYWORDS[source.type] ?? []), ...FILE_STORAGE_FORMAT_KEYWORDS],
+                        keywords: [
+                            ...(MANUAL_SOURCE_KEYWORDS[source.type] ?? []),
+                            ...FILE_STORAGE_FORMAT_KEYWORDS,
+                            ...SELF_MANAGED_KEYWORDS,
+                        ],
                         status: 'stable',
                         url: urls.dataWarehouseSourceNew(source.type),
                         selfManaged: true,
@@ -353,7 +408,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                         label,
                         iconType: FILE_UPLOAD_SOURCE_NAME,
                         category: MANUAL_SOURCE_CATEGORY,
-                        keywords,
+                        keywords: [...keywords, ...SELF_MANAGED_KEYWORDS],
                         status: 'stable',
                         releaseStatus: FILE_UPLOAD_SOURCE_CONFIG.releaseStatus,
                         url: fileUploadSourceUrl(format),
@@ -392,11 +447,29 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     )
                     // Most-populated categories first; fall back to taxonomy order on a tie.
                     .sort((a, b) => b.count - a.count)
+                const selfManagedCount = catalogItems.filter((item) => item.selfManaged).length
                 return [
                     { category: ALL_SOURCES_CATEGORY, label: 'All sources', count: catalogItems.length },
+                    ...(selfManagedCount
+                        ? [
+                              {
+                                  category: SELF_MANAGED_CATEGORY as SourceCategoryFilter,
+                                  label: 'Self-managed',
+                                  count: selfManagedCount,
+                              },
+                          ]
+                        : []),
                     ...present,
                 ]
             },
+        ],
+
+        // The empty state names the active filter. A real category's value is already its label
+        // ("File storage"), but `self-managed` is a slug, so read the label off the sidebar.
+        selectedCategoryLabel: [
+            (s) => [s.categoriesWithCounts, s.selectedCategory],
+            (categoriesWithCounts: CatalogCategory[], selectedCategory: SourceCategoryFilter): string =>
+                categoriesWithCounts.find((cat) => cat.category === selectedCategory)?.label ?? selectedCategory,
         ],
 
         catalogFuse: [
@@ -417,10 +490,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
             ): CatalogItem[] => {
                 const trimmed = search.trim()
                 const base = trimmed ? searchCatalog(catalogFuse, trimmed) : catalogItems
-                const filtered =
-                    selectedCategory === ALL_SOURCES_CATEGORY
-                        ? base
-                        : base.filter((item) => item.category === selectedCategory)
+                const filtered = base.filter((item) => matchesCategory(item, selectedCategory))
                 // Keep fuzzy-search relevance order when searching. When browsing, lead with the
                 // featured sources people connect most (Stripe, Postgres, the ad platforms, ...),
                 // then the rest of the connectable sources, then "Coming soon" ones — all
@@ -461,7 +531,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     return false
                 }
                 return searchCatalog(catalogFuse, trimmed).some(
-                    (item) => item.status !== 'coming_soon' && item.category !== selectedCategory
+                    (item) => item.status !== 'coming_soon' && !matchesCategory(item, selectedCategory)
                 )
             },
         ],
@@ -504,6 +574,17 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 $survey_response: response,
             })
             lemonToast.success('Thanks! Your source request has been submitted.')
+        },
+    })),
+    // The sources list links here with the category already chosen, so "New self-managed source"
+    // opens on the self-managed tiles rather than on the whole catalog.
+    urlToAction(({ actions, values }) => ({
+        '*': (_, searchParams) => {
+            const category = searchParams[CATEGORY_SEARCH_PARAM]
+            if (!isSourceCategoryFilter(category) || category === values.selectedCategory) {
+                return
+            }
+            actions.setSelectedCategory(category)
         },
     })),
     afterMount(({ actions, values }) => {

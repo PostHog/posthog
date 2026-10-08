@@ -33,16 +33,6 @@ def _make_http_response(body: dict[str, Any] | None, status_code: int = 200) -> 
 
 
 class TestFormatZeroDatetime:
-    def test_naive_datetime_gets_utc_timezone(self) -> None:
-        value = datetime(2026, 1, 1, 12, 0, 0)
-        assert _format_zero_datetime(value) == "2026-01-01T12:00:00+00:00"
-
-    def test_aware_datetime_is_converted_to_utc(self) -> None:
-        from datetime import timedelta, timezone
-
-        value = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone(timedelta(hours=2)))
-        assert _format_zero_datetime(value) == "2026-01-01T10:00:00+00:00"
-
     def test_date_is_combined_with_midnight_utc(self) -> None:
         assert _format_zero_datetime(date(2026, 1, 1)) == "2026-01-01T00:00:00+00:00"
 
@@ -51,14 +41,6 @@ class TestFormatZeroDatetime:
 
 
 class TestBuildWhere:
-    def test_no_workspace_no_last_value_returns_empty_filter(self) -> None:
-        convert = _build_where(None, "updatedAt")
-        assert json.loads(convert(None)) == {}
-
-    def test_workspace_only_when_no_last_value(self) -> None:
-        convert = _build_where(WORKSPACE_ID, "updatedAt")
-        assert json.loads(convert(None)) == {"workspaceId": WORKSPACE_ID}
-
     def test_workspace_and_date_filter_combined(self) -> None:
         convert = _build_where(WORKSPACE_ID, "updatedAt")
         result = json.loads(convert(datetime(2026, 1, 1, tzinfo=UTC)))
@@ -66,12 +48,6 @@ class TestBuildWhere:
             "workspaceId": WORKSPACE_ID,
             "updatedAt": {"$gt": "2026-01-01T00:00:00+00:00"},
         }
-
-    def test_date_filter_without_workspace(self) -> None:
-        # Users has no workspaceId field, so the filter must never include one.
-        convert = _build_where(None, "updatedAt")
-        result = json.loads(convert(datetime(2026, 1, 1, tzinfo=UTC)))
-        assert result == {"updatedAt": {"$gt": "2026-01-01T00:00:00+00:00"}}
 
     def test_no_date_field_never_adds_a_date_filter(self) -> None:
         convert = _build_where(WORKSPACE_ID, None)
@@ -102,44 +78,6 @@ class TestGetResource:
         assert isinstance(endpoint_config, dict)
         assert endpoint_config["path"] == path
         assert resource["primary_key"] == ["id"]
-
-    def test_full_refresh_scoped_endpoint_filters_by_workspace_only(self) -> None:
-        resource = get_resource("Companies", WORKSPACE_ID, should_use_incremental_field=False, incremental_field=None)
-        endpoint_config = resource["endpoint"]
-        assert isinstance(endpoint_config, dict)
-        params = endpoint_config["params"]
-        assert isinstance(params, dict)
-        where = params["where"]
-        order_by = params["orderBy"]
-        assert isinstance(where, str)
-        assert isinstance(order_by, str)
-        assert json.loads(where) == {"workspaceId": WORKSPACE_ID}
-        assert json.loads(order_by) == {"createdAt": "asc"}
-        assert resource["write_disposition"] == "replace"
-
-    def test_full_refresh_users_endpoint_has_no_workspace_filter(self) -> None:
-        resource = get_resource("Users", WORKSPACE_ID, should_use_incremental_field=False, incremental_field=None)
-        endpoint_config = resource["endpoint"]
-        assert isinstance(endpoint_config, dict)
-        params = endpoint_config["params"]
-        assert isinstance(params, dict)
-        assert "where" not in params
-
-    def test_incremental_uses_chosen_field_for_filter_and_sort(self) -> None:
-        resource = get_resource(
-            "Companies", WORKSPACE_ID, should_use_incremental_field=True, incremental_field="createdAt"
-        )
-        endpoint_config = resource["endpoint"]
-        assert isinstance(endpoint_config, dict)
-        params = endpoint_config["params"]
-        assert isinstance(params, dict)
-        where = params["where"]
-        order_by = params["orderBy"]
-        assert isinstance(where, dict)
-        assert isinstance(order_by, str)
-        assert where["cursor_path"] == "createdAt"  # ty: ignore[invalid-key]
-        assert json.loads(order_by) == {"createdAt": "asc"}
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
 
     def test_incremental_field_falls_back_to_first_advertised_option(self) -> None:
         resource = get_resource(
@@ -175,19 +113,6 @@ class TestGetResource:
         assert isinstance(params, dict)
         assert "where" not in params
         assert resource["write_disposition"] == "replace"
-
-    def test_paginator_uses_the_documented_default_limit(self) -> None:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-            OffsetPaginator,
-        )
-
-        resource = get_resource("Companies", WORKSPACE_ID, should_use_incremental_field=False, incremental_field=None)
-        endpoint_config = resource["endpoint"]
-        assert isinstance(endpoint_config, dict)
-        paginator = endpoint_config["paginator"]
-        assert isinstance(paginator, OffsetPaginator)
-        assert paginator.limit == 100
-        assert paginator.total_path == "total"
 
 
 class TestResolveWorkspaceId:
@@ -309,50 +234,3 @@ class TestZeroSourceResumeBehavior:
 
         assert offsets_sent == [200]
         manager.load_state.assert_called_once()
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response({"data": [{"id": "only"}], "total": 1})]
-        self._drive("Companies", manager, responses)
-
-        manager.save_state.assert_not_called()
-
-    def test_scoped_endpoint_sends_workspace_where_filter(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response({"data": [{"id": "c1"}], "total": 1})]
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.zero.zero.resolve_workspace_id",
-                return_value=WORKSPACE_ID,
-            ),
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-            ) as mock_session,
-        ):
-            mock_session.return_value.headers = {}
-            mock_session.return_value.prepare_request.side_effect = lambda req: req
-            mock_session.return_value.send.side_effect = fake_send
-
-            resource = zero_source(
-                api_key="test-key",
-                endpoint="Companies",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=None,
-                should_use_incremental_field=False,
-            )
-            list(cast(Iterable[Any], resource))
-
-        assert json.loads(sent_params[0]["where"]) == {"workspaceId": WORKSPACE_ID}

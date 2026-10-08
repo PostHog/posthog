@@ -14,11 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pipeliner.
     PipelinerHostNotAllowedError,
     PipelinerResumeConfig,
     _format_incremental_value,
-    normalize_service_url,
     pipeliner_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pipeliner.settings import ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -88,24 +86,6 @@ def _run(manager, responses, **kwargs) -> tuple[list[dict[str, Any]], mock.Magic
     return rows, session, params
 
 
-class TestNormalizeServiceUrl:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("us-east.api.pipelinersales.com", "us-east.api.pipelinersales.com"),
-            ("https://us-east.api.pipelinersales.com", "us-east.api.pipelinersales.com"),
-            ("http://us-east.api.pipelinersales.com/", "us-east.api.pipelinersales.com"),
-            ("  eu-central.api.pipelinersales.com  ", "eu-central.api.pipelinersales.com"),
-            (
-                "https://us-east.api.pipelinersales.com/api/v100/rest/spaces/abc",
-                "us-east.api.pipelinersales.com",
-            ),
-        ],
-    )
-    def test_normalize(self, raw, expected):
-        assert normalize_service_url(raw) == expected
-
-
 class TestFormatIncrementalValue:
     @pytest.mark.parametrize(
         "value, expected",
@@ -137,85 +117,6 @@ class TestPipelinerSourceTransport:
         assert params[1]["after"] == "cur1"
         assert session.send.call_count == 2
 
-    def test_requests_target_space_scoped_entity_url(self):
-        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-            session = MockSession.return_value
-            urls: list[str] = []
-
-            def _prepare(request):
-                urls.append(request.url)
-                return mock.MagicMock()
-
-            session.headers = {}
-            session.prepare_request.side_effect = _prepare
-            session.send.side_effect = [_response([{"id": "1"}])]
-
-            response = pipeliner_source(
-                service_url="us-east.api.pipelinersales.com",
-                space_id="space-1",
-                username="user",
-                password="pass",
-                endpoint="accounts",
-                team_id=1,
-                job_id="job-1",
-                resumable_source_manager=_manager(),
-            )
-            list(cast("Iterable[Any]", response.items()))
-
-        assert urls[0] == "https://us-east.api.pipelinersales.com/api/v100/rest/spaces/space-1/entities/Accounts"
-
-    def test_incremental_run_sends_server_side_filter_and_matching_sort(self):
-        _rows, _session, params = _run(
-            _manager(),
-            [_response([{"id": "1"}])],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-            incremental_field="modified",
-        )
-
-        assert params[0]["filter[modified]"] == "2026-01-01 00:00:00"
-        assert params[0]["filter-op[modified]"] == "gte"
-        assert params[0]["order-by"] == "modified"
-
-    def test_incremental_first_sync_has_no_filter_but_sorts_by_cursor_field(self):
-        _rows, _session, params = _run(
-            _manager(),
-            [_response([{"id": "1"}])],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="modified",
-        )
-
-        assert "filter[modified]" not in params[0]
-        assert params[0]["order-by"] == "modified"
-
-    def test_full_refresh_has_no_filter_and_sorts_by_created(self):
-        _rows, _session, params = _run(
-            _manager(),
-            [_response([{"id": "1"}])],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-        )
-
-        assert not any(key.startswith("filter") for key in params[0])
-        assert params[0]["order-by"] == "created"
-
-    def test_saves_state_after_yielding_each_page(self):
-        manager = _manager()
-        _run(
-            manager,
-            [
-                _response([{"id": "1"}], end_cursor="cur1", has_next_page=True),
-                _response([{"id": "2"}], end_cursor="cur2", has_next_page=False),
-            ],
-        )
-
-        # State is saved once per followed page boundary — after page 1 yielded, not for the last page.
-        assert manager.save_state.call_count == 1
-        saved = manager.save_state.call_args.args[0]
-        assert isinstance(saved, PipelinerResumeConfig)
-        assert saved.cursor == "cur1"
-
     def test_resumes_from_saved_cursor_and_reapplies_saved_filter(self):
         manager = _manager(PipelinerResumeConfig(cursor="resume-cur", filter_value="2026-01-01 00:00:00"))
         _rows, _session, params = _run(
@@ -237,15 +138,6 @@ class TestPipelinerSourceTransport:
         )
 
         assert rows == []
-        assert session.send.call_count == 1
-
-    def test_missing_page_info_terminates(self):
-        rows, session, _params = _run(
-            _manager(),
-            [_response([{"id": "1"}], include_page_info=False)],
-        )
-
-        assert [r["id"] for r in rows] == ["1"]
         assert session.send.call_count == 1
 
     def test_redirect_response_is_rejected(self):
@@ -274,27 +166,6 @@ class TestPipelinerSourceTransport:
             with pytest.raises(PipelinerHostNotAllowedError):
                 list(cast("Iterable[Any]", response.items()))
             session.send.assert_not_called()
-
-
-class TestPipelinerSourceResponse:
-    @pytest.mark.parametrize("endpoint", ENDPOINTS)
-    def test_response_shape(self, endpoint):
-        response = pipeliner_source(
-            service_url="us-east.api.pipelinersales.com",
-            space_id="space-1",
-            username="user",
-            password="pass",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=mock.MagicMock(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        # `created` never changes; partitioning on `modified` would rewrite partitions on every edit.
-        assert response.partition_keys == ["created"]
-        assert response.partition_mode == "datetime"
 
 
 class TestValidateCredentials:

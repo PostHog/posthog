@@ -20,9 +20,11 @@ import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import {
     legacyEntityToNode,
@@ -38,9 +40,14 @@ import {
     DashboardTile,
     DashboardType,
     JsonType,
+    SidePanelTab,
 } from '~/types'
 
 import { WEBSITE_METRICS_METRIC_CARD_TILES } from 'products/dashboards/frontend/websiteMetricsMetricCardTemplate'
+import {
+    titleMentionsMCP,
+    tryShowMCPAnalyticsNudge,
+} from 'products/mcp_analytics/frontend/nudge/mcpAnalyticsNudgeLogic'
 
 import { UNFILED_DASHBOARDS_FOLDER } from './dashboardConstants'
 
@@ -154,7 +161,9 @@ export interface newDashboardLogicValues {
     newDashboardTouched: boolean
     newDashboardTouches: Record<string, boolean>
     newDashboardValidationErrors: DeepPartialMap<NewDashboardForm, ValidationErrorType>
+    openAIAfterCreation: boolean
     redirectAfterCreation: boolean
+    setAsHomeTabDashboardAfterCreation: boolean
     showNewDashboardErrors: boolean
     variableSelectModalVisible: boolean
 }
@@ -186,6 +195,13 @@ export interface newDashboardLogicActions {
     }
     setActiveDashboardTemplate: (template: DashboardTemplateType) => {
         template: DashboardTemplateType
+    }
+    setAsHomeTabDashboardAfterCreation: (
+        setAsHomeTabDashboard: boolean,
+        openAI?: boolean
+    ) => {
+        openAI: boolean
+        setAsHomeTabDashboard: boolean
     }
     setIsLoading: (isLoading: boolean) => {
         isLoading: boolean
@@ -230,9 +246,13 @@ export interface newDashboardLogicActions {
     }
     submitNewDashboardSuccessWithResult: (
         result: DashboardType,
-        variables?: DashboardTemplateVariableType[]
+        variables?: DashboardTemplateVariableType[],
+        setAsHomeTabDashboard?: boolean,
+        openAI?: boolean
     ) => {
+        openAI: boolean | undefined
         result: DashboardType
+        setAsHomeTabDashboard: boolean | undefined
         variables: DashboardTemplateVariableType[] | undefined
     }
     touchNewDashboardField: (key: string) => {
@@ -268,6 +288,10 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         setActiveDashboardTemplate: (template: DashboardTemplateType) => ({ template }),
         clearActiveDashboardTemplate: true,
         setRedirectAfterCreation: (redirect: boolean) => ({ redirect }),
+        setAsHomeTabDashboardAfterCreation: (setAsHomeTabDashboard: boolean, openAI: boolean = false) => ({
+            setAsHomeTabDashboard,
+            openAI,
+        }),
         createDashboardFromTemplate: (
             template: DashboardTemplateType,
             variables: DashboardTemplateVariableType[],
@@ -279,10 +303,12 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             redirectAfterCreation,
             creationContext,
         }),
-        submitNewDashboardSuccessWithResult: (result: DashboardType, variables?: DashboardTemplateVariableType[]) => ({
-            result,
-            variables,
-        }),
+        submitNewDashboardSuccessWithResult: (
+            result: DashboardType,
+            variables?: DashboardTemplateVariableType[],
+            setAsHomeTabDashboard?: boolean,
+            openAI?: boolean
+        ) => ({ result, variables, setAsHomeTabDashboard, openAI }),
     }),
     reducers({
         isLoading: [
@@ -324,6 +350,20 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 showNewDashboardModal: () => true,
             },
         ],
+        setAsHomeTabDashboardAfterCreation: [
+            false,
+            {
+                setAsHomeTabDashboardAfterCreation: (_, { setAsHomeTabDashboard }) => setAsHomeTabDashboard,
+                hideNewDashboardModal: () => false,
+            },
+        ],
+        openAIAfterCreation: [
+            false,
+            {
+                setAsHomeTabDashboardAfterCreation: (_, { openAI }) => openAI,
+                hideNewDashboardModal: () => false,
+            },
+        ],
     }),
     forms(({ actions, props, values }) => ({
         newDashboard: {
@@ -338,6 +378,8 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 // `values` afterwards throws `[KEA] Can not find path`, which the catch below
                 // would mislabel as "Could not create dashboard" even though creation succeeded.
                 const redirectAfterCreation = values.redirectAfterCreation
+                const setAsHomeTabDashboard = values.setAsHomeTabDashboardAfterCreation
+                const openAI = values.openAIAfterCreation
                 try {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsCreate() from 'products/dashboards/frontend/generated/api' instead.
                     const result: DashboardType = await api.create(
@@ -354,10 +396,14 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     actions.resetNewDashboard()
                     const queryBasedDashboard = getQueryBasedDashboard(result)
                     queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
-                    actions.submitNewDashboardSuccessWithResult(result)
-                    tryShowMCPHint('dashboards.create', {
-                        derivedPrompt: result.name ? `Build a dashboard called ${result.name}` : undefined,
-                    })
+                    actions.submitNewDashboardSuccessWithResult(result, undefined, setAsHomeTabDashboard, openAI)
+                    if (titleMentionsMCP(result.name)) {
+                        tryShowMCPAnalyticsNudge('dashboard')
+                    } else {
+                        tryShowMCPHint('dashboards.create', {
+                            derivedPrompt: result.name ? `Build a dashboard called ${result.name}` : undefined,
+                        })
+                    }
                     if (show && redirectAfterCreation) {
                         breakpoint()
                         router.actions.push(urls.dashboard(result.id))
@@ -388,62 +434,99 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             actions.clearActiveDashboardTemplate()
             actions.resetNewDashboard()
         },
-        createDashboardFromTemplate: async ({
-            template,
-            variables,
-            redirectAfterCreation = true,
-            creationContext = null,
-        }) => {
-            actions.setIsLoading(true)
-            const tiles = makeTilesUsingVariables(
-                isMetricTemplate(template) ? WEBSITE_METRICS_METRIC_CARD_TILES : template.tiles,
-                variables
-            )
-            const dashboardJSON = {
-                ...template,
-                tiles,
-            }
-
-            try {
-                actions.hideNewDashboardModal()
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. dashboardsCreateFromTemplateJsonCreate() from 'products/dashboards/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                const result: DashboardType = await api.create(
-                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/create_from_template_json`,
-                    {
-                        template: dashboardJSON,
-                        creation_context: creationContext,
-                        _create_in_folder: UNFILED_DASHBOARDS_FOLDER,
-                    }
-                )
-
-                actions.resetNewDashboard()
-                const queryBasedDashboard = getQueryBasedDashboard(result)
-                queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
-                actions.submitNewDashboardSuccessWithResult(result, variables)
-
-                posthog.capture('dashboard created from template', {
-                    dashboard_id: result.id,
-                    template_id: template.id,
-                    template_name: template.template_name,
-                    template_variable_count: variables.length,
-                    template_scope: template.scope ?? null,
-                })
-
-                if (redirectAfterCreation) {
-                    router.actions.push(urls.dashboard(result.id))
-                }
-            } catch (e: any) {
-                if (!isBreakpoint(e)) {
-                    const message = e.code && e.detail ? `${e.code}: ${e.detail}` : e
-                    lemonToast.error(`Could not create dashboard: ${message}`)
-                }
-            }
-            actions.setIsLoading(false)
-        },
         showVariableSelectModal: ({ template }) => {
             actions.setActiveDashboardTemplate(template)
         },
+        submitNewDashboardSuccessWithResult: async ({ result, setAsHomeTabDashboard, openAI }) => {
+            if (setAsHomeTabDashboard) {
+                try {
+                    await teamLogic.asyncActions.updateCurrentTeam({ home_tab_dashboard: result.id })
+                    // Loader failures finish asyncActions without throwing, so confirm the saved selection.
+                    if (teamLogic.values.currentTeam?.home_tab_dashboard !== result.id) {
+                        lemonToast.error('Could not set this dashboard as Home. Please try again.')
+                        return
+                    }
+                } catch {
+                    lemonToast.error('Could not set this dashboard as Home. Please try again.')
+                    return
+                }
+            }
+            if (openAI) {
+                sidePanelStateLogic.actions.openSidePanel(
+                    SidePanelTab.Max,
+                    autoRunMaxPrompt(
+                        `Help me build my product analytics Home dashboard (dashboard ID ${result.id}). Ask me what I want to track, then add relevant insights to this dashboard.`
+                    )
+                )
+            }
+        },
     })),
+    listeners(({ actions, values }) => {
+        let templateCreationInFlight = false
+
+        return {
+            createDashboardFromTemplate: async ({
+                template,
+                variables,
+                redirectAfterCreation = true,
+                creationContext = null,
+            }) => {
+                if (templateCreationInFlight) {
+                    return
+                }
+                templateCreationInFlight = true
+                actions.setIsLoading(true)
+                const setAsHomeTabDashboard = values.setAsHomeTabDashboardAfterCreation
+                actions.setAsHomeTabDashboardAfterCreation(false)
+                const tiles = makeTilesUsingVariables(
+                    isMetricTemplate(template) ? WEBSITE_METRICS_METRIC_CARD_TILES : template.tiles,
+                    variables
+                )
+                const dashboardJSON = {
+                    ...template,
+                    tiles,
+                }
+
+                try {
+                    actions.hideNewDashboardModal()
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. dashboardsCreateFromTemplateJsonCreate() from 'products/dashboards/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                    const result: DashboardType = await api.create(
+                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/create_from_template_json`,
+                        {
+                            template: dashboardJSON,
+                            creation_context: creationContext,
+                            _create_in_folder: UNFILED_DASHBOARDS_FOLDER,
+                        }
+                    )
+
+                    actions.resetNewDashboard()
+                    const queryBasedDashboard = getQueryBasedDashboard(result)
+                    queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
+                    actions.submitNewDashboardSuccessWithResult(result, variables, setAsHomeTabDashboard)
+
+                    posthog.capture('dashboard created from template', {
+                        dashboard_id: result.id,
+                        template_id: template.id,
+                        template_name: template.template_name,
+                        template_variable_count: variables.length,
+                        template_scope: template.scope ?? null,
+                    })
+
+                    if (redirectAfterCreation) {
+                        router.actions.push(urls.dashboard(result.id))
+                    }
+                } catch (e: any) {
+                    if (!isBreakpoint(e)) {
+                        const message = e.code && e.detail ? `${e.code}: ${e.detail}` : e
+                        lemonToast.error(`Could not create dashboard: ${message}`)
+                    }
+                } finally {
+                    templateCreationInFlight = false
+                    actions.setIsLoading(false)
+                }
+            },
+        }
+    }),
     urlToAction(({ actions }) => ({
         '/dashboard': (_, _searchParams, hashParams) => {
             if ('newDashboard' in hashParams) {

@@ -29,6 +29,7 @@
         "history": "^5.0.1",
         "jest-image-snapshot": "^6.4.0",
         "mockdate": "^3.0.5",
+        "posthog-js-lite": "4.12.1",
         "sass": "^1.26.2",
         "storybook": "catalog:",
         "storybook-addon-pseudo-states": "^10.4.3",

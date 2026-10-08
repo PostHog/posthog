@@ -17,7 +17,7 @@ import { urls } from 'scenes/urls'
 
 import { ActivityTab, PropertyDefinitionType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket'
+import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket/ComposeTicketButton'
 
 import { personLogic } from '../logics/personLogic'
 import { asDisplay, pickBestPersonDistinctId } from '../person-utils'

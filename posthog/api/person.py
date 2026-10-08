@@ -40,10 +40,9 @@ from posthog.api.fields import CoercedStringListField
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import action, parse_actor_property_filters
+from posthog.api.utils import action, paging_params, parse_actor_property_filters
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.constants import LIMIT, OFFSET
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
@@ -51,7 +50,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.properties_timeline import PropertiesTimeline
 from posthog.hogql_queries.serialized_actors import SerializedPerson, get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
-from posthog.models import Filter, Person, Team, User
+from posthog.models import Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -90,12 +89,12 @@ from posthog.utils import (
 from products.ai_training.backend.facade.api import queue_person_training_deletion
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
-from products.workflows.backend.api.message_assets import (
+from products.workflows.backend.facade.api import get_workflow_names
+from products.workflows.backend.facade.message_assets import fetch_message_assets_for_person
+from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetSerializer,
     PersonMessageAssetsRequestSerializer,
-    fetch_message_assets_for_person,
 )
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -731,15 +730,17 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         client_query_id = request.GET.get("client_query_id")
         tag_client_query_id(client_query_id)
         team = self.team
-        filter = Filter(request=request, team=self.team)
-
         assert request.user.is_authenticated
+
+        paging = paging_params(request)
+        limit = paging.limit
+        offset = paging.offset
 
         is_csv_request = self.request.accepted_renderer.format == "csv"
         if is_csv_request:
-            filter = filter.shallow_clone({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
-        elif not filter.limit:
-            filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
+            limit, offset = CSV_EXPORT_LIMIT, 0
+        elif not limit:
+            limit = DEFAULT_PAGE_LIMIT
 
         from posthog.hogql import ast  # noqa: PLC0415 — deferred to avoid a circular import at module load
         from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
@@ -747,33 +748,35 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner  # noqa: PLC0415
 
         person_properties: list[dict] = parse_actor_property_filters(request.GET.get("properties"))
-        if filter.email:
-            person_properties.append({"type": "person", "key": "email", "value": filter.email, "operator": "exact"})
+        if request.GET.get("email"):
+            person_properties.append(
+                {"type": "person", "key": "email", "value": request.GET.get("email"), "operator": "exact"}
+            )
 
         include_total = "include_total" in request.GET
         include_matched_fields = str_to_bool(request.GET.get("include_matched_fields"))
-        search = (filter.search or "").strip()
+        search = (request.GET.get("search") or "").strip()
         tag_term = search if include_matched_fields else None
         # Nothing else narrows the result set, so an identifier that resolves over personhog is
         # already the whole first page, and a ClickHouse scan would add nothing. A tagged search
         # needs the hit on every page, because it leads the tagged sequence.
-        can_answer_from_identifier = not person_properties and (filter.offset == 0 or include_matched_fields)
+        can_answer_from_identifier = not person_properties and (offset == 0 or include_matched_fields)
 
         # This endpoint bypasses `QueryRunner.run()`, so nothing else measures how long it takes.
         # The search path is the slow one, so the shape of the request is recorded alongside the
         # duration. The search term itself is never recorded - it is user data.
         slo_properties: dict[str, JsonValue] = {
             "query_type": "ActorsQuery",
-            "has_search": bool(filter.search),
+            "has_search": bool(request.GET.get("search")),
             "has_properties": bool(person_properties),
-            "has_distinct_id": bool(filter.distinct_id),
+            "has_distinct_id": bool(request.GET.get("distinct_id")),
             # Only a caller that can cancel sends an id, which is what separates the command
             # palette's searches from the persons page's on the dashboard.
             "has_client_query_id": bool(client_query_id),
             "include_total": include_total,
             "is_csv": is_csv_request,
-            "limit": filter.limit,
-            "offset": filter.offset,
+            "limit": limit,
+            "offset": offset,
         }
         # The block wraps the identifier fast paths too, not just the ClickHouse one. Measuring
         # only the slow path would drop every fast answer out of the sample, so the endpoint would
@@ -794,22 +797,26 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             properties: list[dict] | dict[str, Any] = person_properties
             order_by = ["created_at DESC", "id DESC"]
             answered_by = "clickhouse"
-            if filter.distinct_id:
+            exact_distinct_id = request.GET.get("distinct_id")
+            if exact_distinct_id:
                 # Exact match on any of the person's distinct IDs; no matching person => no results.
-                matched = get_person_by_distinct_id(team.pk, filter.distinct_id, distinct_id_limit=0)
+                matched = get_person_by_distinct_id(team.pk, exact_distinct_id, distinct_id_limit=0)
                 if matched is None:
                     # Return early: a constant-false predicate can't be pushed into the persons
                     # lazy table, so ClickHouse would still aggregate every person row for the
                     # team before filtering everything out.
                     slo.tag(answered_by="exact_identifier", result_count=0)
-                    return self._person_list_response(request, [], filter, total_count=0 if include_total else None)
+                    return self._person_list_response(
+                        request, [], limit, offset, total_count=0 if include_total else None
+                    )
                 if can_answer_from_identifier and not search:
-                    page = [str(matched.uuid)][filter.offset : filter.offset + filter.limit]
+                    page = [str(matched.uuid)][offset : offset + limit]
                     slo.tag(answered_by="exact_identifier", result_count=len(page))
                     return self._person_list_response(
                         request,
                         page,
-                        filter,
+                        limit,
+                        offset,
                         total_count=1 if include_total else None,
                         has_next=False,
                     )
@@ -822,14 +829,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
                 if exact_hits and not email_property_search:
                     API_PERSON_LIST_SEARCH_COUNTER.labels(answered_by="exact_identifier").inc()
-                    page = list(exact_hits)[filter.offset : filter.offset + filter.limit]
+                    page = list(exact_hits)[offset : offset + limit]
                     slo.tag(answered_by="exact_identifier", result_count=len(page))
                     return self._person_list_response(
                         request,
                         page,
-                        filter,
+                        limit,
+                        offset,
                         total_count=len(exact_hits) if include_total else None,
-                        has_next=len(exact_hits) > filter.offset + filter.limit,
+                        has_next=len(exact_hits) > offset + limit,
                         tag_term=tag_term,
                         exact_hits=exact_hits,
                     )
@@ -855,15 +863,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 properties=properties,
                 search=None if email_property_search else search or None,
                 orderBy=order_by,
-                limit=filter.limit,
-                offset=filter.offset,
+                limit=limit,
+                offset=offset,
             )
             # Use .calculate() (not .run()) — it applies the limit/offset paginator but skips the
             # insight-caching wrapper. With an id-only select there's no actor-column hydration, so
             # we still hydrate the person objects ourselves via get_serialized_people.
             actors_runner = ActorsQueryRunner(team=team, query=actors_query)
             # ClickHouse can lag behind personhog or fail, so the hit leads the first page regardless.
-            hit_leads_page = email_property_search and filter.offset == 0
+            hit_leads_page = email_property_search and offset == 0
             actor_ids: list[Any] = []
             total_count: Optional[int] = None
             # A cancel kills every ClickHouse query the request has in flight, so both queries below
@@ -910,14 +918,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             slo.tag(answered_by=answered_by, result_count=len(actor_ids))
             return self._person_list_response(
-                request, actor_ids, filter, total_count=total_count, tag_term=tag_term, exact_hits=exact_hits
+                request, actor_ids, limit, offset, total_count=total_count, tag_term=tag_term, exact_hits=exact_hits
             )
 
     def _person_list_response(
         self,
         request: request.Request,
         person_uuids: builtins.list[Any],
-        filter: Filter,
+        limit: int,
+        offset: int,
         total_count: Optional[int] = None,
         has_next: Optional[bool] = None,
         tag_term: Optional[str] = None,
@@ -950,14 +959,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # A full page means there may be more behind it. Callers that know the whole result set up
         # front say so instead, so a page that happens to fill the limit does not advertise an
         # empty page after it.
-        _should_paginate = len(person_uuids) >= filter.limit if has_next is None else has_next
+        _should_paginate = len(person_uuids) >= limit if has_next is None else has_next
 
-        next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
-        previous_url = (
-            format_query_params_absolute_url(request, filter.offset - filter.limit)
-            if filter.offset - filter.limit >= 0
-            else None
-        )
+        next_url = format_query_params_absolute_url(request, offset + limit) if _should_paginate else None
+        previous_url = format_query_params_absolute_url(request, offset - limit) if offset - limit >= 0 else None
 
         # TEMPORARY: Work out usage patterns of this endpoint
         renderer = SafeJSONRenderer()
@@ -979,7 +984,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             OpenApiParameter(
                 "delete_events",
                 OpenApiTypes.BOOL,
-                description="If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday",
+                description="If true, queue a task to delete all events for this person. The task does not run right away. It is batched with other deletions and runs weekly.",
                 default=False,
             ),
         ],
@@ -1673,13 +1678,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Single lookup for every workflow referenced by this page of rows so the tab shows
         # human-readable names instead of raw UUIDs. Deleted workflows drop out of the map
         # and the row's `function_name` stays empty — the frontend falls back to `function_id`.
-        # HogFlow.id is a UUID column; ClickHouse function_id is a plain string, so coerce
-        # both sides to string when building the lookup dict.
-        function_ids = {row.function_id for row in data}
-        name_by_id = {
-            str(pk): (name or "")
-            for pk, name in HogFlow.objects.filter(team_id=self.team_id, id__in=function_ids).values_list("id", "name")
-        }
+        # HogFlow.id is a UUID column; ClickHouse function_id is a plain string, so the names come
+        # back keyed by the string id.
+        name_by_id = get_workflow_names(team_id=self.team_id, workflow_ids={row.function_id for row in data})
         enriched = [dataclasses.replace(row, function_name=name_by_id.get(row.function_id, "")) for row in data]
         return response.Response(MessageAssetSerializer(enriched, many=True).data)
 
@@ -1717,7 +1718,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise NotFound(detail="Person not found.")
 
     @extend_schema(
-        description="Reset a distinct_id for a deleted person. This allows the distinct_id to be used again.",
+        description="Fix a distinct_id that stays hidden after its person was deleted and created again. Does nothing if no live person uses this distinct_id. In that case, send a new event for it instead.",
     )
     @action(methods=["POST"], detail=False, required_scopes=["person:write"])
     def reset_person_distinct_id(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:

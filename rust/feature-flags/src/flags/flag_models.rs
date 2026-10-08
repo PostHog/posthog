@@ -84,7 +84,7 @@ pub struct EvaluationMetadata {
 
 impl EvaluationMetadata {
     /// Builds metadata that places all flags in a single evaluation stage
-    /// with no dependency ordering. Used by the PG fallback path.
+    /// with no dependency ordering. Used when `compute_flag_dependencies` returns an error.
     pub fn single_stage(flags: &[FeatureFlag]) -> Self {
         Self {
             dependency_stages: vec![flags.iter().map(|f| f.id).collect()],
@@ -98,8 +98,8 @@ impl EvaluationMetadata {
 /// `{"flags": [...], "evaluation_metadata": {...}, "cohorts": [...] | null}`.
 ///
 /// `evaluation_metadata` is always present in cache entries (written by Django).
-/// The PG fallback path constructs this struct with `EvaluationMetadata::single_stage()`,
-/// which places all flags in one evaluation stage with empty transitive deps.
+/// The PG fallback path computes it from the loaded flags with
+/// `compute_flag_dependencies_or_single_stage()`.
 ///
 /// HYPERCACHE CONTRACT: These fields must match the top-level keys returned by
 /// `_get_feature_flags_for_service()` in products/feature_flags/backend/flags_cache.py.

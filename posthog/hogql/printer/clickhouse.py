@@ -7,7 +7,7 @@ from django.conf import settings as django_settings
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
-from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.constants import FEATURE_FLAG_PROPERTY_PREFIX, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
@@ -16,6 +16,7 @@ from posthog.hogql.database.models import (
     SavedQuery,
     StringJSONDatabaseField,
     StructDatabaseField,
+    Table,
 )
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
@@ -32,17 +33,24 @@ from posthog.hogql.escape_sql import (
 )
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
+from posthog.hogql.functions.prompt_jev import is_decision_call
 from posthog.hogql.functions.udfs import (
     JSON_DROP_KEYS_CLICKHOUSE_NAME,
     JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME,
 )
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
+from posthog.hogql.printer.events_json_document import event_document_sql, json_member_pairs_sql
 from posthog.hogql.printer.hogql import HogQLPrinter
-from posthog.hogql.restricted_properties import RESTRICTABLE_JSON_BLOB_COLUMNS, restricted_property_keys_for_table_type
+from posthog.hogql.restricted_properties import (
+    RESTRICTABLE_JSON_BLOB_COLUMNS,
+    restricted_feature_flag_names,
+    restricted_property_keys_for_table_type,
+)
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
+from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
 from posthog.week_start_day import WeekStartDay
@@ -115,20 +123,10 @@ INLINE_SENTINEL_LITERALS = frozenset(
         "false",
         '^"|"$',
         "{}",
-        "DateTime",
-        "DateTime64(9, 'UTC')",
-        "Dynamic",
         "Float64",
         "Int64",
         "Array(String)",
         "[]",
-        "Array",
-        "Map",
-        "Tuple",
-        " ",
-        "T",
-        "Z",
-        '"',
     }
 )
 
@@ -147,6 +145,7 @@ ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
 
 class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
+    _reads_native_events_table: bool = False
 
     def visit_cte(self, node: ast.CTE):
         if node.materialized is False:
@@ -364,7 +363,9 @@ class ClickHousePrinter(BasePrinter):
             db = django_settings.CLICKHOUSE_DATABASE
             scale = EXCHANGE_RATE_DECIMAL_PRECISION
             # Build rate lookup expressions
-            from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, {scale}))"
+            # A NULL currency makes the lookup return NULL, not the default. NULL = 0 is not true, so the guard
+            # below would keep a NULL divisor, and divideDecimal fails on the zero under a NULL row.
+            from_rate = f"ifNull(dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, {scale})), toDecimal64(0, {scale}))"
             to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, {scale}))"
             # Use if() around divisor to avoid division by zero — with enable_analyzer=0, the old analyzer evaluates all branches regardless of condition.
             safe_from_rate = f"if({from_rate} = 0, toDecimal128(1, {scale}), {from_rate})"
@@ -390,6 +391,14 @@ class ClickHousePrinter(BasePrinter):
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
             merged = self._merge_table_top_level_settings(self.settings)
+            # ClickHouse turns the `%2E` in a stored dotted key back into `.` only when the reading query sets this
+            # too, so a query that formats the native JSON columns as text without it prints `a%2Eb`. It rides with
+            # the global settings, not the table's required settings, so a query printed without settings keeps its
+            # shape, and it is scoped to reads of the native table because an older ClickHouse rejects the name.
+            if self._reads_native_events_table and merged.get("json_type_escape_dots_in_keys") is None:
+                # Re-inserted so it prints after the global settings rather than at the field's declared position.
+                merged.pop("json_type_escape_dots_in_keys", None)
+                merged["json_type_escape_dots_in_keys"] = True
             if self.context.emit_top_level_settings:
                 printed = self._print_settings(merged)
                 if printed is not None:
@@ -408,6 +417,11 @@ class ClickHousePrinter(BasePrinter):
             raise InternalHogQLError("Full SELECT queries are disabled if context.team_id is not set")
 
         return super().visit_select_query(node)
+
+    def _collect_table_top_level_settings(self, table: Table) -> None:
+        super()._collect_table_top_level_settings(table)
+        if isinstance(table, EVENTS_TABLE_TYPES) and self.context.uses_new_events_schema():
+            self._reads_native_events_table = True
 
     def visit_join_expr(self, node: ast.JoinExpr):
         if node.type is None:
@@ -543,20 +557,16 @@ class ClickHousePrinter(BasePrinter):
                 "$group_3",
                 "$group_4",
             }:
-                # Proxy ALIAS expansion collides with aggregate outputs that reuse the column name.
+                # events_json has no columns for these; they are declared String paths in properties.
                 prefix = field_sql.removesuffix(self._print_identifier(name))
                 path = "$session_id" if name == "$session_id_uuid" else name
                 field_sql = f"{prefix}properties.{self._print_identifier(path)}"
                 if name == "$session_id_uuid":
                     field_sql = f"toUInt128(toUUIDOrNull({field_sql}))"
-        field_sql = self._maybe_stringify_events_json_field(type, field_sql)
-        return self._maybe_apply_json_drop_keys(type, field_sql)
-
-    def _maybe_stringify_events_json_field(self, type: ast.FieldType, field_sql: str) -> str:
         serialized = self._serialize_events_json_field(type, field_sql)
         if serialized is not None:
-            return serialized
-        return field_sql
+            return self._maybe_apply_json_drop_keys(type, serialized)
+        return self._maybe_apply_json_drop_keys(type, field_sql, mask_feature_flags=True)
 
     def _serialize_events_json_field(self, type: ast.FieldType, field_sql: str) -> str | None:
         if not self.context.uses_new_events_schema():
@@ -567,7 +577,7 @@ class ClickHousePrinter(BasePrinter):
         resolved_field = type.resolve_database_field(self.context)
         if not isinstance(resolved_field, StringJSONDatabaseField):
             return None
-        if resolved_field.name not in ("properties", "person_properties"):
+        if resolved_field.name not in ("properties", "person_properties", TEMPORARY_PROPERTIES_COLUMN):
             return None
         if not isinstance(type.table_type, ast.BaseTableType):
             return None
@@ -575,11 +585,30 @@ class ClickHousePrinter(BasePrinter):
         if not isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES):
             return None
 
-        serialized = (
-            "concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), "
-            f"arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString({field_sql})))), ','), '}}')"
-        )
+        if resolved_field.name == "properties":
+            prefix = field_sql.removesuffix(self._print_identifier("properties"))
+            temporary_properties_sql = f"{prefix}{self._print_identifier(TEMPORARY_PROPERTIES_COLUMN)}"
+            serialized = event_document_sql(
+                field_sql, temporary_properties_sql, self._document_feature_flags_sql(type, field_sql)
+            )
+        else:
+            serialized = f"concat('{{', arrayStringConcat({json_member_pairs_sql(field_sql)}, ','), '}}')"
         return f"{JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME}({serialized})"
+
+    def _document_feature_flags_sql(self, type: ast.FieldType, field_sql: str) -> str | None:
+        """The `$feature_flags` map without restricted flags, or None when a restricted `$feature_flags` hides them all."""
+        keys_to_drop = restricted_property_keys_for_table_type(type.table_type, self.context)
+        if "$feature_flags" in keys_to_drop:
+            return None
+        return self._visible_feature_flags_sql(field_sql, restricted_feature_flag_names(keys_to_drop))
+
+    def _visible_feature_flags_sql(self, field_sql: str, restricted_flags: list[str]) -> str:
+        """The `$feature_flags` map of `field_sql` without the restricted flags."""
+        flags = f"{field_sql}.{escape_clickhouse_identifier('$feature_flags')}"
+        if not restricted_flags:
+            return flags
+        placeholder = self.context.add_sensitive_value(restricted_flags)
+        return f"mapFilter((key, value) -> not(has({placeholder}, key)), {flags})"
 
     def _serialize_to_json_string_call(self, node: ast.Call) -> str | None:
         if node.name != "toJSONString" or len(node.args) != 1:
@@ -604,10 +633,15 @@ class ClickHousePrinter(BasePrinter):
         finally:
             self._json_function_argument_depth = depth
 
-    def _maybe_apply_json_drop_keys(self, type: ast.FieldType, field_sql: str) -> str:
+    def _maybe_apply_json_drop_keys(self, type: ast.FieldType, field_sql: str, mask_feature_flags: bool = False) -> str:
         """
         Wraps a StringJSONDatabaseField in JSONDropKeys() to strip restricted property keys
         when the raw JSON blob is selected directly (e.g., `SELECT properties FROM events`).
+
+        `mask_feature_flags` is for an events_json `properties` column printed as stored rather than as the rebuilt
+        document, which happens under `toJSONString(if(..., properties, ...))`. That document holds the flags in the
+        `$feature_flags` map, where JSONDropKeys cannot reach a restricted `$feature/<key>`, so the map is dropped and
+        merged back without the restricted flags.
         """
         if not self.context.restricted_properties:
             return field_sql
@@ -636,33 +670,29 @@ class ClickHousePrinter(BasePrinter):
         if not keys_to_drop:
             return field_sql
 
-        restricted_feature_flags = sorted(
-            key.removeprefix("$feature/") for key in keys_to_drop if key.startswith("$feature/")
-        )
-        filter_native_feature_flags = (
-            self.context.uses_new_events_schema()
+        restricted_flags = restricted_feature_flag_names(keys_to_drop)
+        mask_stored_feature_flags = (
+            mask_feature_flags
+            and bool(restricted_flags)
+            and "$feature_flags" not in keys_to_drop
             and resolved_field.name == "properties"
+            and self.context.uses_new_events_schema()
             and isinstance(type.table_type, ast.BaseTableType)
             and isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES)
-            and bool(restricted_feature_flags)
-            and "$feature_flags" not in keys_to_drop
         )
-        if filter_native_feature_flags:
-            keys_to_drop = {key for key in keys_to_drop if not key.startswith("$feature/")} | {"$feature_flags"}
+        if mask_stored_feature_flags:
+            keys_to_drop = {key for key in keys_to_drop if not key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)} | {
+                "$feature_flags"
+            }
 
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
         stripped = f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
-        if not filter_native_feature_flags:
+        if not mask_stored_feature_flags:
             return stripped
 
-        feature_keys_placeholder = self.context.add_sensitive_value(restricted_feature_flags)
-        physical_field = super().visit_field_type(type)
-        feature_flags = f"{physical_field}.{escape_clickhouse_identifier('$feature_flags')}"
-        filtered_feature_flags = (
-            f"mapFilter((key, value) -> not(has({feature_keys_placeholder}, key)), {feature_flags})"
-        )
-        feature_flags_patch = f"concat('{{\"$feature_flags\":', toJSONString({filtered_feature_flags}), '}}')"
-        return f"if(empty({filtered_feature_flags}), {stripped}, JSONMergePatch({stripped}, {feature_flags_patch}))"
+        filtered_flags = self._visible_feature_flags_sql(field_sql, restricted_flags)
+        flags_patch = f"concat('{{\"$feature_flags\":', toJSONString({filtered_flags}), '}}')"
+        return f"if(empty({filtered_flags}), {stripped}, JSONMergePatch({stripped}, {flags_patch}))"
 
     def _get_optimized_session_id_compare_operation(self, node: ast.CompareOperation) -> str | None:
         """Rewrite $session_id comparisons against UUID constants to use the $session_id_uuid column."""
@@ -689,7 +719,11 @@ class ClickHousePrinter(BasePrinter):
         if session_id_table is None or not constants:
             return None
 
-        field_sql = f"{self.visit(session_id_table)}.{self._print_identifier('$session_id_uuid')}"
+        table_sql = self.visit(session_id_table)
+        if self.context.uses_new_events_schema():
+            field_sql = f"toUInt128(toUUIDOrNull({table_sql}.properties.{self._print_identifier('$session_id')}))"
+        else:
+            field_sql = f"{table_sql}.{self._print_identifier('$session_id_uuid')}"
         wrapped = [f"toUInt128(accurateCastOrNull({self.visit(c)}, 'UUID'))" for c in constants]
 
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
@@ -943,6 +977,8 @@ class ClickHousePrinter(BasePrinter):
         return isinstance(left_type, ast.DecimalType) and isinstance(right_type, ast.DecimalType)
 
     def visit_call(self, node: ast.Call):
+        if is_decision_call(node.name):
+            raise QueryError(f"{node.name} must run through the HogQL query executor. It cannot be embedded in SQL.")
         serialized = self._serialize_to_json_string_call(node)
         if serialized is not None:
             return serialized
@@ -1287,16 +1323,21 @@ class ClickHousePrinter(BasePrinter):
         else:
             expr = self.visit(node.expr)
 
-        if any("%" in key for key in node.keys):
+        # The native table stores a dotted key as one path named with `%2E` (EVENTS_JSON_INSERT_SETTINGS), so a
+        # dot inside one key must not read as a path separator. The escaped key then takes the bound-parameter
+        # branch below, as `%` would otherwise break the SQL's own parameter placeholders.
+        keys = [key.replace(".", "%2E") for key in node.keys]
+
+        if any("%" in key for key in keys):
             if node.access_type == "sub_object":
-                for key in node.keys:
+                for key in keys:
                     subcolumn = f"^{quote_clickhouse_identifier(key)}"
                     expr = f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
                 return expr
-            subcolumn = ".".join(node.keys)
+            subcolumn = ".".join(keys)
             return f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
 
-        for index, key in enumerate(node.keys):
+        for index, key in enumerate(keys):
             separator = ".^" if node.access_type == "sub_object" and index == 0 else "."
             expr = f"{expr}{separator}{escape_clickhouse_identifier(key)}"
         return expr

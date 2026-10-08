@@ -1,11 +1,7 @@
-import { useState } from 'react'
-
-import { IconChevronRight, IconCopy, IconSparkles } from '@posthog/icons'
+import { IconCopy, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { cn } from 'lib/utils/css-classes'
-import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import {
@@ -19,11 +15,13 @@ import {
     parseIneligibleReason,
 } from '../replay_scanners/types'
 import { markSimilarSearchIntent, similarSearchUrl } from '../search/observationQueries'
+import { RECORDING_ORIGIN, observationFromOriginUrl } from '../utils/breadcrumbs'
 import { citedTextToPlainText, parseCitedSegments } from '../utils/citations'
-import { VERDICT_LABEL, readReasoning, scannerLabel } from '../utils/observation'
+import { VERDICT_LABEL, confidenceLevel, isSummaryScannerType, readReasoning, scannerLabel } from '../utils/observation'
 import { CitedMarkdown } from './CitedMarkdown'
 import { LabeledRow } from './LabeledRow'
 import { ObservationProgressBar } from './ObservationProgressBar'
+import { ObservationPrompt } from './ObservationPrompt'
 import { ObservationRetryButton } from './ObservationRetryButton'
 import { ScannerTypeBadge } from './ScannerTypeBadge'
 import { TimestampCitation } from './TimestampCitation'
@@ -183,7 +181,7 @@ export function ObservationPrimaryOutput({
         )
     }
 
-    if (scannerType === 'summarizer') {
+    if (isSummaryScannerType(scannerType)) {
         const title = typeof result.title === 'string' ? result.title : null
         const summary = typeof result.summary === 'string' ? result.summary : null
         const showCopy = copyable && summary !== null
@@ -331,63 +329,16 @@ export function ObservationPrimaryOutput({
 
 // A reader opens an observation for the result, not the prompt they configured. Collapse the prompt to one
 // peek line so the verdict and reasoning stay above the fold, but keep it in view so the verdict has context.
-function PromptRow({ prompt }: { prompt: string }): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
-    return (
-        <div>
-            <button
-                type="button"
-                className="flex items-center gap-0.5 text-xs text-muted mb-0.5 hover:text-default"
-                onClick={() => setExpanded(!expanded)}
-                aria-expanded={expanded}
-                data-attr="vision-observation-prompt-toggle"
-            >
-                <IconChevronRight className={cn('transition-transform', expanded && 'rotate-90')} />
-                Prompt
-            </button>
-            <p
-                className={cn(
-                    'text-sm m-0 leading-snug',
-                    expanded ? 'text-default whitespace-pre-wrap' : 'text-muted line-clamp-1'
-                )}
-            >
-                {prompt}
-            </p>
-        </div>
-    )
-}
-
-export function ObservationConfidence({
-    result,
-    standalone = false,
-}: {
-    result: Record<string, unknown>
-    /** For surfaces with no "Confidence" label of their own: the tag names the metric and the percentage is dropped. */
-    standalone?: boolean
-}): JSX.Element | null {
+/** Names the metric in the tag, for surfaces with no "Confidence" label of their own. */
+export function ObservationConfidence({ result }: { result: Record<string, unknown> }): JSX.Element | null {
     if (typeof result.confidence !== 'number') {
         return null
     }
-    const value = result.confidence
-    const pct = Math.round(value * 100)
-    const { type, label } =
-        value >= 0.8
-            ? ({ type: 'success', label: 'High' } as const)
-            : value >= 0.5
-              ? ({ type: 'warning', label: 'Medium' } as const)
-              : ({ type: 'danger', label: 'Low' } as const)
-    if (standalone) {
-        return (
-            <Tooltip title={`Confidence: ${pct}%`}>
-                <LemonTag type={type}>{`${label} confidence`}</LemonTag>
-            </Tooltip>
-        )
-    }
+    const { type, label } = confidenceLevel(result.confidence)
     return (
-        <div className="flex items-center gap-2">
-            <LemonTag type={type}>{label}</LemonTag>
-            <span className="text-sm tabular-nums text-muted">{pct}%</span>
-        </div>
+        <Tooltip title={`Confidence: ${Math.round(result.confidence * 100)}%`}>
+            <LemonTag type={type}>{`${label} confidence`}</LemonTag>
+        </Tooltip>
     )
 }
 
@@ -444,11 +395,14 @@ export function ObservationDockCard({
     onSeek,
     onRetry,
     retrying = false,
+    returnPath,
 }: {
     observation: ReplayObservationApi
     onSeek?: (timestampMs: number) => void
     onRetry?: () => void
     retrying?: boolean
+    /** The page the player is on, so the observation's back button returns to it. */
+    returnPath?: string
 }): JSX.Element {
     const snapshot = observation.scanner_snapshot
     const scannerType = snapshot?.scanner_type
@@ -459,7 +413,7 @@ export function ObservationDockCard({
     const similarUrl = observation.status === 'succeeded' ? similarSearchUrl(observation) : null
     // Summarizers excluded: their primary output already is the full text
     const reasoning =
-        observation.status === 'succeeded' && scannerType !== 'summarizer' ? readReasoning(observation) : null
+        observation.status === 'succeeded' && !isSummaryScannerType(scannerType) ? readReasoning(observation) : null
 
     return (
         <div className="border rounded p-3 bg-surface-primary space-y-2">
@@ -476,10 +430,12 @@ export function ObservationDockCard({
                     )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                    {observation.status === 'succeeded' && result && (
-                        <ObservationConfidence result={result} standalone />
-                    )}
-                    <Link to={urls.replayVisionObservation(observation.id)} className="text-xs whitespace-nowrap">
+                    {observation.status === 'succeeded' && result && <ObservationConfidence result={result} />}
+                    <Link
+                        data-attr="vision-observation-open"
+                        to={observationFromOriginUrl(observation.id, RECORDING_ORIGIN, returnPath)}
+                        className="text-xs whitespace-nowrap"
+                    >
                         View details
                     </Link>
                     {similarUrl && (
@@ -537,7 +493,9 @@ export function ObservationDockCard({
                             copyable
                         />
                     </LabeledRow>
-                    {prompt && scannerType !== 'summarizer' && <PromptRow prompt={prompt} />}
+                    {prompt && !isSummaryScannerType(scannerType) && (
+                        <ObservationPrompt prompt={prompt} question={observation.prompt_question} />
+                    )}
                     {reasoning && (
                         <LabeledRow label="Model reasoning">
                             <CitedMarkdown text={reasoning} segments={result.reasoning_segments} onSeek={onSeek} />

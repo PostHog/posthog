@@ -1,15 +1,22 @@
 use crate::api::errors::FlagError;
+use crate::cohorts::cohort_models::{CohortId, CohortMembership};
+use crate::cohorts::cohort_operations::apply_cohort_membership_logic;
+use crate::flags::evaluate_v2::EvaluationDetail;
 use crate::flags::flag_group_type_mapping::GroupTypeIndex;
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching::FeatureFlagMatch;
-use crate::flags::flag_matching_utils::match_flag_value_to_flag_filter;
+use crate::flags::flag_matching_utils::{failed_flag_dependency, match_flag_value_to_flag_filter};
 use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, FlagFilters, Holdout};
 use crate::properties::property_matching::{match_property, PropertyMatchingContext};
 use crate::properties::property_models::OperatorType;
 use chrono_tz::Tz;
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, fmt, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+    str::FromStr,
+};
 use uuid::Uuid;
 
 fn format_operator_explanation(key: &str, op_label: &str, value: &Option<Value>) -> String {
@@ -127,6 +134,7 @@ pub struct FlagsQueryParams {
 pub enum ServiceResponse {
     Default(LegacyFlagsResponse),
     V2(FlagsResponse),
+    V3(FlagsResponseV3),
     DecideV1(DecideV1Response),
     DecideV2(DecideV2Response),
 }
@@ -216,10 +224,10 @@ pub struct FlagsResponse {
     /// Set to `true` when the team is gated into slim `$feature_flag_called` events
     /// (TeamFeatureFlagsConfig.minimal_flag_called_events). Omitted otherwise, so SDKs
     /// that see no field at all fall back to full events, same as legacy teams.
-    /// Only reaches the wire on this v2 shape: `LegacyFlagsResponse`, `DecideV1Response`,
-    /// and `DecideV2Response` intentionally never carry it over. SDKs old enough to hit
-    /// those response shapes predate this field and have no code path that reads it, so
-    /// there's nothing gained by sending it to them.
+    /// Only reaches the wire on this v2 shape and on `FlagsResponseV3`: `LegacyFlagsResponse`,
+    /// `DecideV1Response`, and `DecideV2Response` intentionally never carry it over. SDKs old
+    /// enough to hit those response shapes predate this field and have no code path that reads
+    /// it, so there's nothing gained by sending it to them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub minimal_flag_called_events: Option<bool>,
 
@@ -427,7 +435,7 @@ pub struct ConditionAnalysis {
     pub explanation: String,
 }
 
-#[derive(Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct FlagDetails {
     pub key: String,
     pub enabled: bool,
@@ -439,6 +447,152 @@ pub struct FlagDetails {
     /// Optional detailed condition analysis, only included when requested
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conditions: Option<Vec<ConditionAnalysis>>,
+    #[serde(skip)]
+    pub config_outcome: ConfigOutcome,
+}
+
+/// The config format and, for a v2 flag that evaluated, the typed outcome the v3 record needs.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ConfigOutcome {
+    #[default]
+    V1,
+    V2(Option<EvaluationDetail>),
+}
+
+impl ConfigOutcome {
+    fn of(flag: &FeatureFlag, evaluation: Option<EvaluationDetail>) -> Self {
+        if flag.filters.is_v1() {
+            Self::V1
+        } else {
+            Self::V2(evaluation)
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FlagsResponseV3 {
+    pub errors_while_computing_flags: bool,
+    pub flags: HashMap<String, FlagDetailsV3>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quota_limited: Option<Vec<String>>,
+    pub request_id: Uuid,
+    pub evaluated_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minimal_flag_called_events: Option<bool>,
+    #[serde(flatten)]
+    pub config: ConfigResponse,
+}
+
+impl FlagsResponseV3 {
+    pub fn from_response(response: FlagsResponse) -> Self {
+        Self {
+            errors_while_computing_flags: response.errors_while_computing_flags,
+            flags: response
+                .flags
+                .into_iter()
+                .map(|(key, flag)| (key, FlagDetailsV3::from(flag)))
+                .collect(),
+            quota_limited: response.quota_limited,
+            request_id: response.request_id,
+            evaluated_at: response.evaluated_at,
+            minimal_flag_called_events: response.minimal_flag_called_events,
+            config: response.config,
+        }
+    }
+}
+
+/// `/flags?v=3` record: one typed `value` instead of `enabled` and `variant`.
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
+pub struct FlagDetailsV3 {
+    pub key: String,
+    /// `null` is a null flag default or a failed record.
+    pub value: Value,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub failed: bool,
+    pub reason: FlagEvaluationReason,
+    pub metadata: FlagDetailsMetadataV3,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conditions: Option<Vec<ConditionAnalysis>>,
+}
+
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct FlagDetailsMetadataV3 {
+    pub id: i32,
+    pub version: i32,
+    pub config_version: u8,
+    pub description: Option<String>,
+    pub payload: Option<Value>,
+    pub has_experiment: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variant_key: Option<String>,
+}
+
+impl From<FlagDetails> for FlagDetailsV3 {
+    fn from(flag: FlagDetails) -> Self {
+        let legacy_value = match flag.to_value() {
+            FlagValue::Boolean(enabled) => Value::Bool(enabled),
+            FlagValue::String(variant) => Value::String(variant),
+        };
+        let (value, reason, rule, config_version, payload, variant_key) = match flag.config_outcome
+        {
+            ConfigOutcome::V1 => {
+                let value = if flag.failed {
+                    Value::Null
+                } else {
+                    legacy_value
+                };
+                (
+                    value,
+                    flag.reason,
+                    None,
+                    1,
+                    flag.metadata.payload,
+                    flag.variant,
+                )
+            }
+            // A v2 value travels only in `value`; the legacy payload channel stays null.
+            ConfigOutcome::V2(Some(evaluation)) => {
+                let rule = evaluation.rule;
+                let reason = FlagEvaluationReason {
+                    code: evaluation.code.to_string(),
+                    condition_index: rule.map(|rule| rule.index as i32),
+                    description: Some(evaluation.description),
+                };
+                (evaluation.value, reason, rule, 2, None, None)
+            }
+            ConfigOutcome::V2(None) => {
+                let reason = FlagEvaluationReason {
+                    code: "error".to_string(),
+                    condition_index: None,
+                    description: flag.reason.description,
+                };
+                (Value::Null, reason, None, 2, None, None)
+            }
+        };
+        Self {
+            key: flag.key,
+            value,
+            failed: flag.failed,
+            reason,
+            metadata: FlagDetailsMetadataV3 {
+                id: flag.metadata.id,
+                version: flag.metadata.version,
+                config_version,
+                description: flag.metadata.description,
+                payload,
+                has_experiment: flag.metadata.has_experiment,
+                rule_type: rule.map(|rule| rule.kind.as_str().to_string()),
+                rule_id: rule.map(|rule| rule.id),
+                variant_key,
+            },
+            conditions: flag.conditions,
+        }
+    }
 }
 
 impl FlagDetails {
@@ -459,7 +613,7 @@ impl FlagDetails {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct FlagDetailsMetadata {
     pub id: i32,
     pub version: i32,
@@ -481,6 +635,7 @@ pub struct FlagEvaluationReason {
 
 pub trait FromFeatureAndMatch {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self;
+    #[allow(clippy::too_many_arguments)]
     fn create_with_analysis(
         flag: &FeatureFlag,
         flag_match: &FeatureFlagMatch,
@@ -488,6 +643,8 @@ pub trait FromFeatureAndMatch {
         property_values: Option<&HashMap<String, Value>>,
         group_property_values: Option<&HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        failed_flag_ids: Option<&HashSet<FeatureFlagId>>,
+        cohort_matches: Option<&HashMap<CohortId, CohortMembership>>,
         matching_context: PropertyMatchingContext,
     ) -> Self;
     fn create_error(flag: &FeatureFlag, error: &FlagError, condition_index: Option<i32>) -> Self;
@@ -504,6 +661,8 @@ impl FromFeatureAndMatch for FlagDetails {
             None,
             None,
             None,
+            None,
+            None,
             PropertyMatchingContext::new(Tz::UTC, false),
         )
     }
@@ -515,6 +674,8 @@ impl FromFeatureAndMatch for FlagDetails {
         property_values: Option<&HashMap<String, Value>>,
         group_property_values: Option<&HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        failed_flag_ids: Option<&HashSet<FeatureFlagId>>,
+        cohort_matches: Option<&HashMap<CohortId, CohortMembership>>,
         matching_context: PropertyMatchingContext,
     ) -> Self {
         FlagDetails {
@@ -545,12 +706,15 @@ impl FromFeatureAndMatch for FlagDetails {
                         property_values,
                         group_property_values,
                         flag_evaluation_results,
+                        failed_flag_ids,
+                        cohort_matches,
                         matching_context,
                     )
                 } else {
                     Vec::new()
                 }
             }),
+            config_outcome: ConfigOutcome::of(flag, flag_match.evaluation_v2.clone()),
         }
     }
 
@@ -573,6 +737,7 @@ impl FromFeatureAndMatch for FlagDetails {
                 has_experiment: flag.has_experiment,
             },
             conditions: None,
+            config_outcome: ConfigOutcome::of(flag, None),
         }
     }
 
@@ -608,12 +773,15 @@ impl FromFeatureAndMatch for FlagDetails {
 }
 
 impl FlagDetails {
+    #[allow(clippy::too_many_arguments)]
     fn build_condition_analysis(
         flag: &FeatureFlag,
         flag_match: &FeatureFlagMatch,
         property_values: Option<&HashMap<String, Value>>,
         group_property_values: Option<&HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        failed_flag_ids: Option<&HashSet<FeatureFlagId>>,
+        cohort_matches: Option<&HashMap<CohortId, CohortMembership>>,
         matching_context: PropertyMatchingContext,
     ) -> Vec<ConditionAnalysis> {
         let mut analyses = Vec::new();
@@ -666,16 +834,21 @@ impl FlagDetails {
                     // Resolve them against the actual flag evaluation results instead.
                     if property.depends_on_feature_flag() {
                         let empty = HashMap::new();
-                        let property_matched = match_flag_value_to_flag_filter(
-                            property,
-                            flag_evaluation_results.unwrap_or(&empty),
-                        );
+                        let results = flag_evaluation_results.unwrap_or(&empty);
+                        let property_matched = match_flag_value_to_flag_filter(property, results);
                         // Do not expose the dependency flag's evaluated value here. The caller is
                         // only authorized for the flag under test, not necessarily the dependency
                         // flag, so serializing its raw value would leak it. `matched` reflects the
                         // tested flag's own condition outcome, which the caller may already see.
                         let expected = property.value.clone().unwrap_or(Value::Null);
-                        let explanation = if property_matched {
+                        // A failed dependency has no entry in `results`.
+                        // `match_flag_value_to_flag_filter` returns false for a missing entry.
+                        let dependency_failed = failed_flag_ids
+                            .and_then(|failed| failed_flag_dependency(property, results, failed))
+                            .is_some();
+                        let explanation = if dependency_failed {
+                            format!("Flag dependency '{}' failed to evaluate", property.key)
+                        } else if property_matched {
                             format!(
                                 "Flag dependency '{}' satisfied the required value {}",
                                 property.key, expected
@@ -690,6 +863,65 @@ impl FlagDetails {
                             key: property.key.clone(),
                             operator: operator_str,
                             value: expected,
+                            r#type: type_str,
+                            actual_value: None,
+                            matched: property_matched,
+                            explanation,
+                        });
+                        continue;
+                    }
+
+                    // match_property() cannot evaluate a cohort filter, so it reports every one
+                    // as unmatched and contradicts the condition outcome. Resolve against
+                    // membership through the same helper the matcher uses.
+                    if property.is_cohort() {
+                        let empty = HashMap::new();
+                        let matches = cohort_matches.unwrap_or(&empty);
+                        let cohort_id = property.get_cohort_id();
+                        let cohort_label = match cohort_id {
+                            Some(id) => format!("cohort {id}"),
+                            None => "the targeted cohort".to_string(),
+                        };
+                        // A missing entry means membership was never resolved, not that the person
+                        // is outside the cohort. `apply_cohort_membership_logic` reads it as a
+                        // non-match, so a `not in` filter would claim a match the matcher never made.
+                        let membership = cohort_id.and_then(|id| matches.get(&id).copied());
+                        let (property_matched, explanation) = match membership {
+                            Some(membership) => {
+                                let memberships: HashMap<CohortId, bool> = matches
+                                    .iter()
+                                    .map(|(id, membership)| (*id, membership.is_member()))
+                                    .collect();
+                                let matched = apply_cohort_membership_logic(
+                                    std::slice::from_ref(property),
+                                    &memberships,
+                                )
+                                .unwrap_or(false);
+                                // State membership, not the verdict: the frontend renders this line
+                                // with no pass or fail marker. `matched` still follows the boolean,
+                                // because that is what the matcher applied the operator to.
+                                let line = match membership {
+                                    CohortMembership::Member => {
+                                        format!("Person is in {cohort_label}")
+                                    }
+                                    CohortMembership::NonMember => {
+                                        format!("Person is not in {cohort_label}")
+                                    }
+                                    CohortMembership::UnverifiedNonMember => format!(
+                                        "Could not fully check if person is in {cohort_label}, because it targets behavior over time"
+                                    ),
+                                };
+                                (matched, line)
+                            }
+                            None => (
+                                false,
+                                format!("Could not check if person is in {cohort_label}"),
+                            ),
+                        };
+                        property_analyses.push(PropertyAnalysis {
+                            key: property.key.clone(),
+                            operator: operator_str,
+                            value: property.value.clone().unwrap_or(Value::Null),
                             r#type: type_str,
                             actual_value: None,
                             matched: property_matched,
@@ -1122,6 +1354,7 @@ mod tests {
             reason: FeatureFlagMatchReason::ConditionMatch,
             condition_index: Some(0),
             payload: None,
+            evaluation_v2: None,
         },
         Some("Matched condition set 1".to_string())
     )]
@@ -1132,6 +1365,7 @@ mod tests {
             reason: FeatureFlagMatchReason::ConditionMatch,
             condition_index: Some(2),
             payload: None,
+            evaluation_v2: None,
         },
         Some("Matched condition set 3".to_string())
     )]
@@ -1142,6 +1376,7 @@ mod tests {
             reason: FeatureFlagMatchReason::NoConditionMatch,
             condition_index: None,
             payload: None,
+            evaluation_v2: None,
         },
         Some("No matching condition set".to_string())
     )]
@@ -1152,6 +1387,7 @@ mod tests {
             reason: FeatureFlagMatchReason::OutOfRolloutBound,
             condition_index: Some(2),
             payload: None,
+            evaluation_v2: None,
         },
         Some("Out of rollout bound".to_string())
     )]
@@ -1162,6 +1398,7 @@ mod tests {
             reason: FeatureFlagMatchReason::NoGroupType,
             condition_index: None,
             payload: None,
+            evaluation_v2: None,
         },
         Some("No group type".to_string())
     )]
@@ -1172,6 +1409,7 @@ mod tests {
             reason: FeatureFlagMatchReason::SuperConditionValue,
             condition_index: None,
             payload: None,
+            evaluation_v2: None,
         },
         Some("Super condition value".to_string())
     )]
@@ -1182,6 +1420,7 @@ mod tests {
             reason: FeatureFlagMatchReason::HoldoutConditionValue,
             condition_index: None,
             payload: None,
+            evaluation_v2: None,
         },
         Some("Holdout condition value".to_string())
     )]
@@ -1192,6 +1431,7 @@ mod tests {
             reason: FeatureFlagMatchReason::FlagDisabled,
             condition_index: None,
             payload: None,
+            evaluation_v2: None,
         },
         Some("Feature flag is disabled".to_string())
     )]
@@ -1202,6 +1442,7 @@ mod tests {
             reason: FeatureFlagMatchReason::MissingDependency,
             condition_index: None,
             payload: None,
+            evaluation_v2: None,
         },
         Some("Flag cannot be evaluated due to missing dependency".to_string())
     )]
@@ -1212,6 +1453,7 @@ mod tests {
             reason: FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated,
             condition_index: Some(0),
             payload: None,
+            evaluation_v2: None,
         },
         Some("No matching condition set (group conditions were not evaluated because no group type was provided)".to_string())
     )]
@@ -1251,6 +1493,7 @@ mod tests {
                     has_experiment: false,
                 },
                 conditions: None,
+                config_outcome: Default::default(),
             },
         );
 
@@ -1275,6 +1518,7 @@ mod tests {
                     has_experiment: false,
                 },
                 conditions: None,
+                config_outcome: Default::default(),
             },
         );
 
@@ -1299,6 +1543,7 @@ mod tests {
                     has_experiment: false,
                 },
                 conditions: None,
+                config_outcome: Default::default(),
             },
         );
 
@@ -1456,6 +1701,7 @@ mod tests {
             reason: FeatureFlagMatchReason::ConditionMatch,
             condition_index: Some(1),
             payload: None,
+            evaluation_v2: None,
         };
 
         // Create property values that would match both conditions
@@ -1467,6 +1713,8 @@ mod tests {
             &flag,
             &flag_match,
             Some(&property_values),
+            None,
+            None,
             None,
             None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
@@ -1551,6 +1799,7 @@ mod tests {
             reason: FeatureFlagMatchReason::ConditionMatch,
             condition_index: Some(0),
             payload: None,
+            evaluation_v2: None,
         };
 
         // The person happens to carry a conflicting `name`; it must not leak into the
@@ -1571,6 +1820,8 @@ mod tests {
             &flag_match,
             Some(&person_props),
             Some(&group_props),
+            None,
+            None,
             None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
@@ -1638,6 +1889,7 @@ mod tests {
             reason: FeatureFlagMatchReason::NoConditionMatch,
             condition_index: None,
             payload: None,
+            evaluation_v2: None,
         };
 
         // Group 0's properties do carry a matching `name`, but the condition's explicit
@@ -1652,6 +1904,8 @@ mod tests {
             &flag_match,
             None,
             Some(&group_props),
+            None,
+            None,
             None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
@@ -1706,6 +1960,7 @@ mod tests {
             reason: FeatureFlagMatchReason::ConditionMatch,
             condition_index: Some(0),
             payload: None,
+            evaluation_v2: None,
         };
         let mut flag_results = HashMap::new();
         flag_results.insert(42, FlagValue::Boolean(true));
@@ -1716,6 +1971,8 @@ mod tests {
             Some(&HashMap::new()),
             None,
             Some(&flag_results),
+            None,
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -1739,6 +1996,7 @@ mod tests {
             reason: FeatureFlagMatchReason::NoConditionMatch,
             condition_index: None,
             payload: None,
+            evaluation_v2: None,
         };
         let mut flag_results = HashMap::new();
         flag_results.insert(42, FlagValue::Boolean(false));
@@ -1749,6 +2007,8 @@ mod tests {
             Some(&HashMap::new()),
             None,
             Some(&flag_results),
+            None,
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -1775,6 +2035,7 @@ mod tests {
             reason: FeatureFlagMatchReason::NoConditionMatch,
             condition_index: None,
             payload: None,
+            evaluation_v2: None,
         };
 
         let analysis = FlagDetails::build_condition_analysis(
@@ -1783,6 +2044,8 @@ mod tests {
             Some(&HashMap::new()),
             None,
             None, // empty — dependency flag 42 absent
+            None,
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -1792,6 +2055,156 @@ mod tests {
             "Absent dependency flag must report matched=false, not error"
         );
         assert_eq!(analysis[0].properties[0].actual_value, None);
+    }
+
+    fn cohort_flag(operator: &str) -> crate::flags::flag_models::FeatureFlag {
+        serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": 1,
+                "name": "cohort-flag",
+                "key": "cohort-flag",
+                "active": true,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "id",
+                                    "value": 12345,
+                                    "type": "cohort",
+                                    "operator": operator
+                                }
+                            ],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap()
+    }
+
+    #[rstest]
+    #[case::is_in("in")]
+    #[case::is_not_in("not_in")]
+    fn test_condition_analysis_fails_cohort_filters_closed_when_membership_is_unresolved(
+        #[case] operator: &str,
+    ) {
+        use std::collections::HashMap;
+
+        // An evaluation at a past timestamp skips the DB preparation that loads cohorts, so the
+        // membership map arrives empty and the matcher fails the condition closed.
+        let flag = cohort_flag(operator);
+
+        let flag_match = FeatureFlagMatch {
+            matches: false,
+            variant: None,
+            reason: FeatureFlagMatchReason::NoConditionMatch,
+            condition_index: None,
+            payload: None,
+            evaluation_v2: None,
+        };
+
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&HashMap::new()),
+            None,
+            None,
+            None,
+            None, // membership never resolved
+            PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
+        );
+
+        assert_eq!(analysis.len(), 1);
+        assert!(
+            !analysis[0].properties[0].matched,
+            "Unresolved cohort membership must report matched=false for both operators"
+        );
+        assert!(
+            !analysis[0].properties_matched,
+            "Condition must agree with the matcher, which fails closed without cohorts"
+        );
+        assert_eq!(
+            analysis[0].properties[0].explanation, "Could not check if person is in cohort 12345",
+            "The line must not assert a membership that was never resolved"
+        );
+        assert_eq!(
+            analysis[0].explanation,
+            "Condition 1 did not match properties"
+        );
+    }
+
+    #[rstest]
+    #[case::in_member("in", CohortMembership::Member, true, "Person is in cohort 12345")]
+    #[case::in_non_member(
+        "in",
+        CohortMembership::NonMember,
+        false,
+        "Person is not in cohort 12345"
+    )]
+    #[case::not_in_member("not_in", CohortMembership::Member, false, "Person is in cohort 12345")]
+    #[case::not_in_non_member(
+        "not_in",
+        CohortMembership::NonMember,
+        true,
+        "Person is not in cohort 12345"
+    )]
+    // A behavioral or lifecycle cohort scores every leaf as a non-match, so the operator still
+    // applies but the line cannot claim the person is outside the cohort.
+    #[case::in_behavioral(
+        "in",
+        CohortMembership::UnverifiedNonMember,
+        false,
+        "Could not fully check if person is in cohort 12345, because it targets behavior over time"
+    )]
+    #[case::not_in_behavioral(
+        "not_in",
+        CohortMembership::UnverifiedNonMember,
+        true,
+        "Could not fully check if person is in cohort 12345, because it targets behavior over time"
+    )]
+    fn test_condition_analysis_applies_cohort_operator_to_known_membership(
+        #[case] operator: &str,
+        #[case] membership: CohortMembership,
+        #[case] expected_matched: bool,
+        #[case] expected_explanation: &str,
+    ) {
+        use std::collections::HashMap;
+
+        let flag = cohort_flag(operator);
+
+        let flag_match = FeatureFlagMatch {
+            matches: expected_matched,
+            variant: None,
+            reason: if expected_matched {
+                FeatureFlagMatchReason::ConditionMatch
+            } else {
+                FeatureFlagMatchReason::NoConditionMatch
+            },
+            condition_index: expected_matched.then_some(0),
+            payload: None,
+            evaluation_v2: None,
+        };
+
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&HashMap::new()),
+            None,
+            None,
+            None,
+            Some(&HashMap::from([(12345, membership)])),
+            PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
+        );
+
+        assert_eq!(analysis.len(), 1);
+        assert_eq!(
+            analysis[0].properties[0].matched, expected_matched,
+            "the operator must be applied to the resolved membership"
+        );
+        assert_eq!(analysis[0].properties[0].explanation, expected_explanation);
     }
 
     #[rstest]
@@ -1844,12 +2257,15 @@ mod tests {
             reason,
             condition_index: Some(0),
             payload: None,
+            evaluation_v2: None,
         };
 
         let analysis = FlagDetails::build_condition_analysis(
             &flag,
             &flag_match,
             Some(&property_values),
+            None,
+            None,
             None,
             None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
@@ -1919,12 +2335,15 @@ mod tests {
             reason: FeatureFlagMatchReason::HoldoutConditionValue,
             condition_index: None,
             payload: None,
+            evaluation_v2: None,
         };
 
         let analysis = FlagDetails::build_condition_analysis(
             &flag,
             &flag_match,
             Some(&property_values),
+            None,
+            None,
             None,
             None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
@@ -1962,12 +2381,15 @@ mod tests {
             reason: FeatureFlagMatchReason::ConditionMatch,
             condition_index: Some(0),
             payload: None,
+            evaluation_v2: None,
         };
 
         let analysis = FlagDetails::build_condition_analysis(
             &flag,
             &flag_match,
             Some(&property_values),
+            None,
+            None,
             None,
             None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
@@ -2008,12 +2430,15 @@ mod tests {
             reason: FeatureFlagMatchReason::HoldoutConditionValue,
             condition_index: None,
             payload: None,
+            evaluation_v2: None,
         };
 
         let analysis = FlagDetails::build_condition_analysis(
             &flag,
             &flag_match,
             Some(&property_values),
+            None,
+            None,
             None,
             None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
@@ -2065,12 +2490,15 @@ mod tests {
             reason: ConditionMatch,
             condition_index: Some(1),
             payload: None,
+            evaluation_v2: None,
         };
 
         let analysis = FlagDetails::build_condition_analysis(
             &flag,
             &flag_match,
             Some(&property_values),
+            None,
+            None,
             None,
             None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
@@ -2090,5 +2518,36 @@ mod tests {
         assert!(analysis[2].matched);
 
         assert!(analysis.iter().filter(|c| c.matched).count() <= 1);
+    }
+
+    #[test]
+    fn test_v3_record_of_a_failed_v1_flag_has_a_null_value() {
+        let flag = FlagDetails {
+            key: "v1-failed".to_string(),
+            enabled: false,
+            variant: None,
+            failed: true,
+            reason: FlagEvaluationReason {
+                code: "database_error".to_string(),
+                condition_index: None,
+                description: None,
+            },
+            metadata: FlagDetailsMetadata {
+                id: 1,
+                version: 1,
+                description: None,
+                payload: None,
+                has_experiment: false,
+            },
+            conditions: None,
+            config_outcome: ConfigOutcome::V1,
+        };
+
+        let record = FlagDetailsV3::from(flag);
+
+        assert_eq!(record.value, Value::Null);
+        assert!(record.failed);
+        assert_eq!(record.reason.code, "database_error");
+        assert_eq!(record.metadata.config_version, 1);
     }
 }

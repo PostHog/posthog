@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, PropertyMock, patch
 
@@ -47,6 +48,12 @@ from products.experiments.backend.experiment_service import (
     _merge_metric_arrays,
     _merge_saved_metric_links,
     _resolve_scalar_updates,
+)
+from products.experiments.backend.metric_resolution import METRIC_BUILDERS
+from products.experiments.backend.metric_validation import (
+    extract_entity_nodes,
+    is_events_node_actions_node_confusion,
+    logger as metric_validation_logger,
 )
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
@@ -695,6 +702,20 @@ class TestExperimentService(APIBaseTest):
 
         assert "baseline variant cannot be excluded" in str(ctx.exception)
 
+    def test_existing_flag_in_another_config_format_raises(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="other-format",
+            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().create_experiment(name="Other format", feature_flag_key="other-format")
+
+        assert "configuration format that an experiment cannot use yet" in str(ctx.exception)
+        assert not Experiment.objects.filter(team=self.team, name="Other format").exists()
+
     def test_existing_flag_with_one_variant_raises(self):
         self._create_flag(
             key="one-variant",
@@ -738,6 +759,21 @@ class TestExperimentService(APIBaseTest):
             ("non_object", [[1]], "Saved metric must be an object"),
             ("metadata_not_object", [{"id": 1, "metadata": "primary"}], "Metadata must be an object"),
             ("metadata_missing_type", [{"id": 1, "metadata": {"xxx": "primary"}}], "Metadata must have a type key"),
+            (
+                "breakdown_limit_not_a_number",
+                [{"id": 1, "metadata": {"type": "primary", "breakdown_limit": "abc"}}],
+                "Invalid saved metric metadata at index 0: [{'loc': ('breakdown_limit',)",
+            ),
+            (
+                "unknown_attribution_type",
+                [{"id": 1, "metadata": {"type": "primary", "breakdownAttributionType": "bogus"}}],
+                "Invalid saved metric metadata at index 0: [{",
+            ),
+            (
+                "breakdown_without_property",
+                [{"id": 1, "metadata": {"type": "primary", "breakdowns": [{"type": "event"}]}}],
+                "Invalid saved metric metadata at index 0: [{'loc': ('breakdowns', 0, 'property')",
+            ),
         ]
     )
     def test_create_experiment_validates_saved_metrics_payload(
@@ -1248,10 +1284,10 @@ class TestExperimentService(APIBaseTest):
             ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID])
         assert "Invalid metric at index 0:" in str(ctx.exception)
 
-    def test_metric_type_to_class_mapping_matches_schema(self) -> None:
+    def test_metric_builders_match_schema(self) -> None:
         """Drift guard: every variant of the ExperimentMetric union must have an entry in
-        _METRIC_TYPE_TO_CLASS. If a new metric_type is added to the schema, this fails so
-        the mapping (used to filter pydantic errors to the matching variant) stays accurate."""
+        METRIC_BUILDERS. The metric validator accepts only the metric_type values listed there,
+        so a new metric_type added to the schema fails here instead of being rejected on write."""
         root_annotation = ExperimentMetric.model_fields["root"].annotation
         assert root_annotation is not None, "ExperimentMetric.root has no annotation — schema is malformed"
         union_variants = root_annotation.__args__
@@ -1262,9 +1298,10 @@ class TestExperimentService(APIBaseTest):
                 f"{variant.__name__}.metric_type has no annotation — schema is malformed"
             )
             schema_pairs[metric_type_annotation.__args__[0]] = variant.__name__
-        assert ExperimentService._METRIC_TYPE_TO_CLASS == schema_pairs, (
-            "ExperimentMetric union changed — update ExperimentService._METRIC_TYPE_TO_CLASS. "
-            f"Expected {schema_pairs}, got {ExperimentService._METRIC_TYPE_TO_CLASS}"
+        builders = {metric_type: builder.__name__ for metric_type, builder in METRIC_BUILDERS.items()}
+        assert builders == schema_pairs, (
+            "ExperimentMetric union changed — update METRIC_BUILDERS in metric_resolution.py. "
+            f"Expected {schema_pairs}, got {builders}"
         )
 
     @parameterized.expand(
@@ -1294,7 +1331,7 @@ class TestExperimentService(APIBaseTest):
         ]
     )
     def test_is_events_node_actions_node_confusion_predicate(self, _: str, err: dict, expected: bool) -> None:
-        assert ExperimentService._is_events_node_actions_node_confusion(err) is expected
+        assert is_events_node_actions_node_confusion(err) is expected
 
     def test_pydantic_extra_forbidden_error_code_is_still_in_use(self) -> None:
         """Canary: the EventsNode.id hint matches on the pydantic error type slug
@@ -1307,7 +1344,7 @@ class TestExperimentService(APIBaseTest):
             error_types = {err["type"] for err in e.errors()}
             assert "extra_forbidden" in error_types, (
                 f"pydantic no longer emits 'extra_forbidden' for unknown fields — "
-                f"got {error_types}. Update ExperimentService._build_metric_validation_hint."
+                f"got {error_types}. Update _metric_validation_hint in metric_validation.py."
             )
         else:
             raise AssertionError("pydantic did not reject an unknown field on EventsNode")
@@ -2625,6 +2662,23 @@ class TestExperimentService(APIBaseTest):
         flag_variants = dup.feature_flag.filters["multivariate"]["variants"]
         assert len(flag_variants) == 3
 
+    def test_duplicate_experiment_onto_a_flag_in_another_config_format_raises(self):
+        self._create_flag(key="dup-source")
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="dup-other-format",
+            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+        )
+        service = self._service()
+        source = service.create_experiment(name="Source", feature_flag_key="dup-source")
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.duplicate_experiment(source, feature_flag_key="dup-other-format")
+
+        assert "configuration format that an experiment cannot use yet" in str(ctx.exception)
+        assert Experiment.objects.filter(team=self.team).count() == 1
+
     def test_duplicate_experiment_uses_flag_variants_over_stale_parameters(self):
         self._create_flag(key="dup-stale-source")
         service = self._service()
@@ -2739,6 +2793,12 @@ class TestExperimentService(APIBaseTest):
         kwargs.setdefault("primary_metrics_ordered_uuids", ["m1"])
         kwargs.setdefault("allow_unknown_events", True)
         return self._service().create_experiment(name=name, feature_flag_key=feature_flag_key, **kwargs)
+
+    def _create_launchable_experiment_on_flag_of_age(self, age: timedelta, **kwargs: Any) -> Experiment:
+        experiment = self._create_launchable_experiment(**kwargs)
+        FeatureFlag.objects.filter(pk=experiment.feature_flag_id).update(created_at=timezone.now() - age)
+        experiment.feature_flag.refresh_from_db()
+        return experiment
 
     def _create_ended_experiment(
         self,
@@ -3736,6 +3796,103 @@ class TestExperimentService(APIBaseTest):
 
         mock_report_user_action.assert_called_once()
         assert mock_report_user_action.call_args.args[1] == event_name
+
+    @parameterized.expand(
+        [
+            (
+                "launch_endpoint",
+                lambda self: self._create_launchable_experiment(name="Path L", feature_flag_key="path-launch-flag"),
+                lambda service, experiment, request: service.launch_experiment(experiment, request=request),
+                [("launch_endpoint", 0)],
+            ),
+            (
+                "launch_endpoint_on_older_flag",
+                lambda self: self._create_launchable_experiment_on_flag_of_age(
+                    timedelta(days=3, hours=2), name="Path O", feature_flag_key="path-older-flag"
+                ),
+                lambda service, experiment, request: service.launch_experiment(experiment, request=request),
+                [("launch_endpoint", 266400)],
+            ),
+            (
+                "create_with_start_date",
+                lambda self: None,
+                lambda service, experiment, request: service.create_experiment(
+                    name="Path C",
+                    feature_flag_key="path-create-flag",
+                    start_date=timezone.now(),
+                    event_source=EventSource.API,
+                ),
+                [("create_request", 0)],
+            ),
+            (
+                "create_draft",
+                lambda self: None,
+                lambda service, experiment, request: service.create_experiment(
+                    name="Path D", feature_flag_key="path-draft-flag", event_source=EventSource.API
+                ),
+                [],
+            ),
+            (
+                "update_sets_start_date_on_draft",
+                lambda self: self._create_launchable_experiment(name="Path U", feature_flag_key="path-update-flag"),
+                lambda service, experiment, request: service.update_experiment(
+                    experiment, {"start_date": timezone.now()}, event_source=EventSource.API
+                ),
+                [("update_start_date", 0)],
+            ),
+            (
+                "update_moves_start_date_of_running",
+                lambda self: self._create_running_experiment(name="Path M", feature_flag_key="path-move-flag"),
+                lambda service, experiment, request: service.update_experiment(
+                    experiment, {"start_date": timezone.now() - timedelta(days=1)}, event_source=EventSource.API
+                ),
+                [],
+            ),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_experiment_launched_reported_once_per_launch(self, _name, build, act, expected, mock_report_user_action):
+        with time_machine.travel(timezone.now(), tick=False):
+            experiment = build(self)
+            mock_report_user_action.reset_mock()
+
+            with self.captureOnCommitCallbacks(execute=True):
+                act(self._service(), experiment, self._make_request())
+
+        launched = [
+            call.args[2] for call in mock_report_user_action.call_args_list if call.args[1] == "experiment launched"
+        ]
+        assert [(event["launch_path"], event["flag_age_seconds"]) for event in launched] == expected
+
+    @parameterized.expand(
+        [
+            (
+                "launch_endpoint",
+                lambda service, experiment, request: service.launch_experiment(experiment, request=request),
+            ),
+            (
+                "update_sets_start_date_on_draft",
+                lambda service, experiment, request: service.update_experiment(
+                    experiment, {"start_date": timezone.now()}, event_source=EventSource.API
+                ),
+            ),
+        ]
+    )
+    def test_launch_is_saved_when_its_report_fails(self, _name, act):
+        def fail_launch_report(_user: Any, event: str, *_args: Any, **_kwargs: Any) -> None:
+            if event == "experiment launched":
+                raise RuntimeError("capture failed")
+
+        experiment = self._create_launchable_experiment(name="Path F", feature_flag_key="path-failed-report-flag")
+
+        with patch(
+            "products.experiments.backend.experiment_service.report_user_action", side_effect=fail_launch_report
+        ) as mock_report_user_action:
+            act(self._service(), experiment, self._make_request())
+
+        assert "experiment launched" in [call.args[1] for call in mock_report_user_action.call_args_list]
+        experiment.refresh_from_db()
+        assert experiment.start_date is not None
 
     # ------------------------------------------------------------------
     # Freeze exposure
@@ -5289,6 +5446,7 @@ class TestExperimentService(APIBaseTest):
             ("archived_true", {"archived": "true"}, {"Archived search"}),
             ("archived_false", {"archived": "false"}, {"Creator self", "Creator other", "Search match"}),
             ("search", {"search": "Search"}, {"Search match"}),
+            ("search_flag_key", {"search": "CREATED-BY"}, {"Creator self", "Creator other"}),
         ]
     )
     def test_filter_experiments_queryset_filters_by_common_query_params(
@@ -6849,12 +7007,9 @@ class TestExperimentService(APIBaseTest):
         # bypasses that check, we want to skip the value (don't crash, don't add a
         # non-string to the lookup set) and log so we can find the offending caller.
         # This is purely about the *incoming* payload shape — no DB lookup happens
-        # in `_extract_entity_nodes`.
-        from products.experiments.backend.experiment_service import logger as service_logger
-
-        service = self._service()
-        with patch.object(service_logger, "warning") as mock_warning:
-            event_names = service._extract_entity_nodes(
+        # in `extract_entity_nodes`.
+        with patch.object(metric_validation_logger, "warning") as mock_warning:
+            event_names = extract_entity_nodes(
                 [
                     {
                         "kind": "ExperimentMetric",

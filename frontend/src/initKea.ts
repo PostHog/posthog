@@ -25,6 +25,25 @@ Actions for which we don't want to show error alerts,
 mostly to avoid user confusion.
 */
 const ERROR_FILTER_ALLOW_LIST = [
+    'loadFacetValues', // Logs and tracing facets show an inline error icon on the failed facet.
+    'loadOfflineExperiments', // Offline views provide inline retry states.
+    'loadOfflineScorerOptions',
+    'loadOfflineSuggestedScorers',
+    'loadOfflineOverviewTrend',
+    'loadOfflineExperiment',
+    'loadOfflineSummaries',
+    'loadOfflineItems',
+    'completeOfflineExperiment',
+    'loadOfflineItem',
+    'loadOfflineItemPayload',
+    'loadOfflineItemResults',
+    'loadOfflineSelectedResult',
+    'loadOfflineResultPayload',
+    'loadOfflineHistoryDefinition',
+    'loadOfflineHistoryVersions',
+    'loadOfflineHistoryVersion',
+    'loadOfflineHistoryPrimaryPage',
+    'loadOfflineHistoryComparisonPage',
     'loadPreflight', // Gracefully handled if it fails
     'loadUser', // App won't load (unless loading from shared dashboards)
     'loadFunnels', // Special error handling on insights
@@ -68,12 +87,15 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadRuns', // The Wizard runs table shows a persistent stale-data banner; a poll failure must not toast every 10s
     'loadRunDetails', // The Wizard run drawer shows a stale-state banner with a retry
     'cancelRunRequest', // wizardRunDetailsLogic shows its own cancel-failure toast
-    'loadReplayComments', // The replay Comments tab renders its own retry state
     'loadCoreMemory', // The PostHog AI memory setting renders its own load error banner with a retry
     'updateCoreMemory', // maxSettingsLogic's updateCoreMemoryFailure listener shows its own save-failure toast
     'loadSessionEventDeltas', // The experiment watch shelf renders the refusal, or the failure with a retry
     'loadLineage', // MetricLineagePanel renders every failure class itself, including the not-ready 404
     'loadSourceDocuments', // The knowledge source page renders its own retry banner for the indexed page list
+    'refreshFeatureFlag', // featureFlagLogic's refreshFeatureFlagFailure listener shows a notice with a reload
+    'loadTableDetails', // The model detail summary renders its own error state with a retry
+    'loadIntegrationAccounts', // The source wizard's account picker shows the error under the field with a reconnect link
+    'loadCredentialAccounts', // Fires while the user types credentials; the account picker shows the error under the field
 ]
 
 /*
@@ -180,7 +202,8 @@ export function initKea({
                 // owning UI surfaces them itself: load actions (AccessDenied scene gates) and the
                 // self-handled write actions above. Other writes keep the generic toast, since
                 // most write flows have no failure handling of their own. Read-only impersonation
-                // uses the distinct `impersonation_read_only` code and still toasts.
+                // uses the distinct `impersonation_read_only` code, which apiStatusLogic toasts only
+                // when a click, an Enter key press, or a form submit started the request.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
                 if (
@@ -198,6 +221,7 @@ export function initKea({
                     // with this code is form validation (e.g. inviting an outside-domain email)
                     // and must keep the generic error toast.
                     const isVerifiedDomainError = error.code === 'verified_domain_required' && error.status === 403
+                    const isReadOnlyImpersonationError = error.code === 'impersonation_read_only'
                     const isFeatureFlagDuplicateKey =
                         error.code === 'unique' &&
                         error.attr === 'key' &&
@@ -220,6 +244,7 @@ export function initKea({
                         isTwoFactorError ||
                         isSensitiveActionError ||
                         isVerifiedDomainError ||
+                        isReadOnlyImpersonationError ||
                         isFeatureFlagDuplicateKey ||
                         isHasDependentsError
                     ) {

@@ -20,8 +20,9 @@ import json
 import uuid
 import dataclasses
 from collections.abc import Callable, Iterable
-from datetime import date, datetime, timedelta
-from decimal import Decimal
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal, localcontext
 from typing import Any
 
 from django.conf import settings
@@ -33,6 +34,7 @@ import posthoganalytics
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -52,7 +54,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.d
 
 logger = structlog.get_logger(__name__)
 
-STATISTICS_FEATURE_FLAG = "data-warehouse-column-statistics"
 # Cap profiling to once a day per table — an hourly-syncing table doesn't need re-profiling every hour,
 # and Delta-log stats only move materially over longer windows. Env-overridable for ops.
 MIN_RECOMPUTE_INTERVAL = timedelta(hours=int(os.getenv("WAREHOUSE_STATS_MIN_RECOMPUTE_INTERVAL_HOURS", "24")))
@@ -78,26 +79,6 @@ class ComputeTableStatisticsInputs:
     @property
     def properties_to_log(self) -> dict[str, Any]:
         return {"team_id": self.team_id, "schema_id": str(self.schema_id)}
-
-
-def statistics_enabled(team: Team) -> bool:
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                STATISTICS_FEATURE_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        capture_exception(e)
-        return False
 
 
 def capture_statistics_event(team: Team, event: str, properties: dict[str, Any]) -> None:
@@ -160,8 +141,11 @@ def _aggregate_add_action_stats(add_actions: Any, columns: dict[str, Any]) -> tu
 
         mins = [v for v in data.get(min_key, []) if v is not None] if min_key in data else []
         maxs = [v for v in data.get(max_key, []) if v is not None] if max_key in data else []
-        min_value = str(min(mins)) if mins else None
-        max_value = str(max(maxs)) if maxs else None
+        # A source string column can carry a NUL (0x00) byte; min_value/max_value land in a Postgres
+        # text column, which rejects it outright. Stripping it is consistent with treating these
+        # bounds as approximate (delta-rs already truncates long strings here).
+        min_value = str(min(mins)).replace("\x00", "") if mins else None
+        max_value = str(max(maxs)).replace("\x00", "") if maxs else None
         has_min_max = bool(mins or maxs)
 
         result[name] = _ColumnStat(
@@ -243,9 +227,20 @@ def _read_commit_actions(table_uri: str, storage_options: dict[str, str], versio
     filesystem = pafs.PyFileSystem(DeltaStorageHandler(table_uri, storage_options))
     with filesystem.open_input_stream(f"_delta_log/{version:020d}.json") as stream:
         raw = stream.read()
+    return _parse_commit_actions(raw)
+
+
+def _parse_commit_actions(raw: bytes) -> list[dict[str, Any]]:
+    """The actions of one `_delta_log` commit file, which holds one JSON action per line feed.
+
+    Split on the line feed alone, because `str.splitlines()` also breaks on U+0085, U+2028 and
+    U+2029. JSON allows those characters raw inside a string, and an action's `stats` embed the
+    table's own min and max strings, so one of them cuts an action in half and leaves the fragment
+    unparseable.
+    """
     # Floats as Decimal: a decimal column's stats arrive as JSON numbers, and a float would lose
     # the digits the stored representation keeps.
-    return [json.loads(line, parse_float=Decimal) for line in raw.decode().splitlines() if line.strip()]
+    return [json.loads(line, parse_float=Decimal) for line in raw.decode().split("\n") if line.strip()]
 
 
 # Actions a commit may carry without touching the live file set or the schema. Anything else
@@ -266,6 +261,19 @@ class _UnparseableValue(Exception):
     be a real customer value. This message never does, so the fold's `except Exception` handler can
     report it to logs and Sentry safely.
     """
+
+
+def _normalize_timestamp(delta_type: str, value: datetime) -> datetime:
+    """Give a Delta timestamp one offset shape per type, whatever shape its spelling carried.
+
+    A `timestamp` is a UTC instant and a `timestamp_ntz` is a wall clock, but writers disagree on
+    whether to spell the offset out: a commit log can carry a `timestamp` bound with no offset while
+    the stored bound came from the Add-action scan's UTC-aware value, or the reverse. The fold
+    compares the two, and comparing a naive datetime with an aware one raises TypeError.
+    """
+    if delta_type == "timestamp_ntz":
+        return value.replace(tzinfo=None)
+    return value.astimezone(UTC) if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 def _parse_stored_value(delta_type: Any, text: str) -> Any:
@@ -291,7 +299,7 @@ def _parse_stored_value(delta_type: Any, text: str) -> Any:
         if delta_type == "date":
             return date.fromisoformat(text)
         if delta_type in ("timestamp", "timestamp_ntz"):
-            return datetime.fromisoformat(text)
+            return _normalize_timestamp(delta_type, datetime.fromisoformat(text))
         if delta_type.startswith("decimal("):
             return Decimal(text)
     except (ValueError, ArithmeticError):
@@ -323,10 +331,14 @@ def _parse_log_value(delta_type: Any, value: Any) -> Any:
         if delta_type == "date":
             return date.fromisoformat(value)
         if delta_type in ("timestamp", "timestamp_ntz"):
-            return datetime.fromisoformat(value)
+            return _normalize_timestamp(delta_type, datetime.fromisoformat(value))
         if delta_type.startswith("decimal("):
-            scale = int(delta_type[len("decimal(") : -1].split(",")[1])
-            return Decimal(value).quantize(Decimal(1).scaleb(-scale))
+            precision, scale = (int(p) for p in delta_type[len("decimal(") : -1].split(","))
+            # The default context (28 significant digits) is narrower than Delta allows (up to 38),
+            # so a value using the column's full precision would otherwise blow the context and
+            # raise a spurious InvalidOperation on quantize even though it fits the column's type.
+            with localcontext(prec=precision):
+                return Decimal(value).quantize(Decimal(1).scaleb(-scale))
     except (ValueError, ArithmeticError):
         raise _UnparseableValue(f"cannot parse log value as {delta_type}") from None
     raise TypeError(f"no log representation for {delta_type}")
@@ -393,6 +405,12 @@ def _fold_commit_stats(
             return None
         row_counts.add(stored.row_count)
         delta_type = delta_schema_fields.get(name)
+        # Bounds stored under a type the fold can no longer maintain: schema evolution turned the
+        # column nested, or took it out of the Delta schema altogether. `_FoldState.fold` skips such
+        # a column, so carrying its bounds forward would freeze them while new files land — the full
+        # scan re-derives them instead.
+        if not isinstance(delta_type, str) and (stored.min_value is not None or stored.max_value is not None):
+            return None
         states[name] = _FoldState(
             delta_type=delta_type,
             null_count=stored.null_count,
@@ -433,9 +451,9 @@ def _fold_commit_stats(
     }
 
 
-def _delta_schema_fields(delta_table: Any) -> dict[str, Any]:
+def _delta_schema_fields(schema_json: str) -> dict[str, Any]:
     """Column name to Delta type: a string for a primitive, a dict for a nested type."""
-    schema = json.loads(delta_table.schema().to_json())
+    schema = json.loads(schema_json)
     return {field["name"]: field["type"] for field in schema.get("fields", [])}
 
 
@@ -459,8 +477,8 @@ def _get_team(team_id: int) -> Team:
 
 def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str, Any]:
     """Compute and persist per-column statistics for one warehouse table. Safe to re-run."""
-    # Lazy: DeltaTableRef drags deltalake/pyarrow/dlt — keep them off the flag-check import path that
-    # create_external_data_job_model_activity uses (it only imports statistics_enabled).
+    # Lazy: DeltaTableRef drags deltalake/pyarrow/dlt — keep them off the import path of modules that
+    # only need this module's workflow and input types.
     from asgiref.sync import async_to_sync  # noqa: PLC0415
 
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import (  # noqa: PLC0415
@@ -483,10 +501,6 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
 
     def emit_completed(status: str, **props: Any) -> None:
         capture_statistics_event(team, EVENT_COMPLETED, {"status": status, **event_props, **props})
-
-    if not statistics_enabled(team):
-        emit_completed("skipped", reason="flag_disabled")
-        return {"status": "skipped", "reason": "flag_disabled"}
 
     schema = (
         ExternalDataSchema.objects.select_related("source", "table")
@@ -528,15 +542,29 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
     job.schema = schema
 
     resource_name = schema.resolved_s3_folder_name or schema.name
-    delta_table_ref = DeltaTableRef(resource_name=resource_name, job=job, logger=log)
-    delta_table = async_to_sync(delta_table_ref.get_delta_table)()
-    if delta_table is None:
-        emit_completed("skipped", reason="no_delta_table")
-        return {"status": "skipped", "reason": "no_delta_table"}
+    delta_table_ref = DeltaTableRef(
+        resource_name=resource_name, job=job, logger=log, expect_missing=schema.table_id is None
+    )
+    # The version gate and the fold read only the version and the schema, which the deltalite open
+    # gives for fewer requests. A run that is certain to need the full scan opens with delta-rs at
+    # once, so no run opens the table twice unless a fold fails.
+    delta_table: Any = None
+    log_snapshot = _open_log_snapshot(delta_table_ref) if _fold_is_possible(existing, columns) else None
+    if log_snapshot is None:
+        delta_table = async_to_sync(delta_table_ref.get_delta_table)()
+        if delta_table is None:
+            emit_completed("skipped", reason="no_delta_table")
+            return {"status": "skipped", "reason": "no_delta_table"}
+        delta_version = delta_table.version()
+        table_uri = delta_table.table_uri
+        read_schema_json = _delta_rs_schema_reader(delta_table)
+    else:
+        delta_version = log_snapshot.version
+        table_uri = log_snapshot.table_uri
+        read_schema_json = _constant(log_snapshot.schema_json)
 
-    delta_version = delta_table.version()
     stored_version = _most_recent_computed_version(existing, columns)
-    # Delta versions are only monotonic within one incarnation (see vacuum_if_stale's identical
+    # Delta versions are only monotonic within one incarnation (see decide_vacuum's identical
     # caveat): reset_table() purges the log and restarts numbering at 0 for full-refresh/reset tables,
     # so a stored version ahead of the table's current one means the table was recreated since the
     # last computation. Treat that stored version as stale rather than a match, or a table whose
@@ -559,7 +587,8 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
         return {"status": "skipped", "reason": "no_columns"}
 
     folded = _fold_since_stored_version(
-        delta_table=delta_table,
+        table_uri=table_uri,
+        read_schema_json=read_schema_json,
         storage_options=delta_table_ref.get_storage_options(),
         existing=existing,
         columns=columns,
@@ -570,6 +599,15 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
         row_count, stats_by_column = folded
         basis = "incremental"
     else:
+        if delta_table is None:
+            # The fold failed, and the full scan needs the per-file statistics that only the
+            # delta-rs handle holds. That handle can be at a later version than the snapshot above,
+            # so the statistics are stored for the version that was scanned.
+            delta_table = async_to_sync(delta_table_ref.get_delta_table)()
+            if delta_table is None:
+                emit_completed("skipped", reason="no_delta_table")
+                return {"status": "skipped", "reason": "no_delta_table"}
+            delta_version = delta_table.version()
         add_actions = delta_table.get_add_actions(flatten=True)
         if add_actions.num_rows == 0:
             emit_completed("skipped", reason="no_files")
@@ -597,9 +635,62 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
     return {"status": "done", "columns": len(stats_by_column), "row_count": row_count, "basis": basis}
 
 
+def _fold_is_possible(existing: dict[str, WarehouseColumnStatistics], columns: dict[str, Any]) -> bool:
+    """Whether the stored statistics can take an incremental fold at all (see `_fold_since_stored_version`)."""
+    base_version = _most_recent_computed_version(existing, columns)
+    last_full_scan = _most_recent_full_scan_at(existing, columns)
+    return (
+        base_version is not None
+        and last_full_scan is not None
+        and timezone.now() - last_full_scan < MAX_RECOMPUTE_INTERVAL
+    )
+
+
+@frozen
+class _LogSnapshot:
+    table_uri: str
+    version: int
+    schema_json: str
+
+
+def _open_log_snapshot(delta_table_ref: Any) -> _LogSnapshot | None:
+    """The table URI, the latest version and the schema JSON, read through a deltalite open, or None.
+
+    deltalite loads the same snapshot as delta-rs (the newest commit at the time of the open) and
+    reads the checkpoint in one request. The handle is released here, so its file list does not
+    stay in memory. None covers a missing table, a log that deltalite cannot load, and a table that
+    deltalite does not support. The caller then opens with delta-rs, which keeps the handling of
+    those cases where it was.
+    """
+    import deltalite  # noqa: PLC0415 — heavy dep kept off this module's flag-check import path
+    from asgiref.sync import async_to_sync  # noqa: PLC0415
+
+    try:
+        table_uri = async_to_sync(delta_table_ref.get_table_uri)()
+        table = deltalite.DeltaLiteTable.open(table_uri, delta_table_ref.get_storage_options())
+        return _LogSnapshot(table_uri=table_uri, version=table.version(), schema_json=table.schema_json())
+    except Exception:
+        return None
+
+
+def _delta_rs_schema_reader(delta_table: Any) -> Callable[[], str]:
+    def read() -> str:
+        return delta_table.schema().to_json()
+
+    return read
+
+
+def _constant(value: str) -> Callable[[], str]:
+    def read() -> str:
+        return value
+
+    return read
+
+
 def _fold_since_stored_version(
     *,
-    delta_table: Any,
+    table_uri: str,
+    read_schema_json: Callable[[], str],
     storage_options: dict[str, str],
     existing: dict[str, WarehouseColumnStatistics],
     columns: dict[str, Any],
@@ -615,17 +706,16 @@ def _fold_since_stored_version(
     would never fall back to a full scan at all.
     """
     base_version = _most_recent_computed_version(existing, columns)
-    last_full_scan = _most_recent_full_scan_at(existing, columns)
-    if base_version is None or last_full_scan is None or timezone.now() - last_full_scan >= MAX_RECOMPUTE_INTERVAL:
+    if base_version is None or not _fold_is_possible(existing, columns):
         return None
     try:
         return _fold_commit_stats(
             existing=existing,
             columns=columns,
-            delta_schema_fields=_delta_schema_fields(delta_table),
+            delta_schema_fields=_delta_schema_fields(read_schema_json()),
             base_version=base_version,
             delta_version=delta_version,
-            read_commit_actions=lambda version: _read_commit_actions(delta_table.table_uri, storage_options, version),
+            read_commit_actions=lambda version: _read_commit_actions(table_uri, storage_options, version),
         )
     except Exception as e:
         # A commit file the log retention already removed is expected; anything else is a
@@ -680,9 +770,15 @@ async def compute_table_statistics_activity(inputs: ComputeTableStatisticsInputs
     """Activity wrapper. Heartbeats and runs the (sync) computation off the event loop."""
     async with Heartbeater():
         try:
-            return await database_sync_to_async(compute_table_statistics_sync, thread_sensitive=False)(
-                inputs.team_id, inputs.schema_id
-            )
+            # The sync computation bridges back to async while opening the Delta table. Its own
+            # executor keeps the outer call from occupying the pool needed by that nested work.
+            executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="warehouse-table-statistics")
+            try:
+                return await database_sync_to_async(
+                    compute_table_statistics_sync, thread_sensitive=False, executor=executor
+                )(inputs.team_id, inputs.schema_id)
+            finally:
+                executor.shutdown(wait=False, cancel_futures=True)
         except Exception as e:
             # get_delta_table already re-raises known-transient object-store blips as
             # NonReportableError (see DeltaTableRef._capture_unless_transient) and intentionally

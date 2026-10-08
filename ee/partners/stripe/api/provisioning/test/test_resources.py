@@ -4,17 +4,20 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.utils import generate_random_oauth_access_token
 
 from products.access_control.backend.models.access_control import AccessControl
 
+from ee.models.license import License
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvisioningTestBase
 
 RESOURCES_URL = f"{BASE_PATH}/provisioning/resources"
@@ -165,6 +168,47 @@ class TestResources(StripeProvisioningTestBase):
             "id": str(self.team.id),
             "error": {"code": "requires_payment_credentials", "message": "Billing activation failed"},
         }
+
+    @parameterized.expand(
+        [
+            ("partner_billed", None, 400, []),
+            ("partner_billed_org_with_own_stripe_customer", "cus_example", 200, [{"shared_payment_token": "spt_1"}]),
+        ]
+    )
+    def test_spt_activates_billing_unless_billing_is_locked_to_the_partner(
+        self, _name: str, customer_id: str | None, expected_status: int, expected_billing_payloads: list[dict[str, str]]
+    ) -> None:
+        self.stripe_app.update_provisioning(pays_for_customers=True)
+        OrganizationProvisioning.objects.create(
+            organization=self.organization,
+            partner=OrganizationProvisioning.Partner.STRIPE_PROJECTS,
+            application=self.stripe_app,
+        )
+        self.organization.customer_id = customer_id
+        self.organization.save(update_fields=["customer_id"])
+        token = self._get_bearer_token()
+        billing_response = requests.Response()
+        billing_response.status_code = 201
+
+        with (
+            patch(
+                "ee.partners.stripe.api.provisioning.billing.get_cached_instance_license",
+                return_value=License(key="12345::67890"),
+            ),
+            patch("ee.partners.stripe.api.provisioning.billing._team_has_active_billing", return_value=False),
+            patch("ee.billing.billing_manager.http_session.post", return_value=billing_response) as billing_post,
+        ):
+            res = self._post_signed_with_bearer(
+                RESOURCES_URL,
+                data={
+                    "service_id": "pay_as_you_go",
+                    "payment_credentials": {"type": "stripe_payment_token", "stripe_payment_token": "spt_1"},
+                },
+                token=token,
+            )
+
+        assert res.status_code == expected_status, res.json()
+        assert [call.kwargs["json"] for call in billing_post.call_args_list] == expected_billing_payloads
 
     def test_detail_returns_resource(self):
         token = self._get_bearer_token()

@@ -1,8 +1,19 @@
 import logging
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from enum import StrEnum
+from typing import TYPE_CHECKING, Final
+
+from posthog.dataclasses import frozen
 
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
+from products.review_hog.backend.reviewer.review_design import (
+    REVIEW_DESIGN_PIPELINE,
+    REVIEW_DESIGN_REASON_DEFAULT,
+    REVIEW_DESIGN_REASON_FULL_MODE,
+    REVIEW_DESIGN_REASON_KILL_SWITCH,
+    REVIEW_DESIGN_SINGLE_AGENT,
+)
 from products.signals.backend.enums import ReportPriority
 from products.tasks.backend.facade.run_config import (
     ReasoningEffort,
@@ -11,11 +22,14 @@ from products.tasks.backend.facade.run_config import (
     get_reasoning_effort_error,
 )
 
+if TYPE_CHECKING:
+    from openai.types.shared import ReasoningEffort as OpenAIReasoningEffort
+
 logger = logging.getLogger(__name__)
 
 # REVIEW MODEL
 REVIEW_RUNTIME_ADAPTER = RuntimeAdapter.CODEX
-REVIEW_MODEL = "gpt-6-sol"
+REVIEW_MODEL = "gpt-6.1-sol"
 REVIEW_REASONING_EFFORT = ReasoningEffort.XHIGH
 # Codex's default "auto" approval mode does not auto-approve MCP tool calls, so a headless reviewer
 # stalls on the skill pull without "full-access". (Claude sandboxes bypass permissions by default
@@ -65,6 +79,50 @@ DEFAULT_REVIEW_ARM = ReviewArm(
 REVIEW_MODE_FULL = "full"
 REVIEW_MODE_FLASH = "flash"
 
+# REVIEW DESIGN
+# The design a Flash turn runs on by default. Full turns always run on the pipeline. The
+# `reviewhog-flash-pipeline-kill-switch` feature flag overrides it without a deploy
+# (`reviewer/feature_flags.py`); this constant is the code default the flag falls back to.
+FLASH_DESIGN_DEFAULT = REVIEW_DESIGN_SINGLE_AGENT
+
+
+@frozen
+class ReviewDesignChoice:
+    design: str
+    reason: str
+
+
+def select_review_design(review_mode: str, *, kill_switch_on: bool) -> ReviewDesignChoice:
+    """The design one turn runs on: the single agent for a Flash turn of any size, the pipeline otherwise.
+
+    The single agent reviews a large PR in larger lens parts with a trimmed main diff, so PR size never
+    sends a Flash turn to the pipeline.
+    """
+    if review_mode != REVIEW_MODE_FLASH:
+        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_FULL_MODE)
+    if kill_switch_on:
+        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_KILL_SWITCH)
+    if FLASH_DESIGN_DEFAULT != REVIEW_DESIGN_SINGLE_AGENT:
+        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_DEFAULT)
+    return ReviewDesignChoice(design=REVIEW_DESIGN_SINGLE_AGENT, reason=REVIEW_DESIGN_REASON_DEFAULT)
+
+
+# RELEASE VERSION, one per review mode and design, because each evolves on its own.
+# Bump a (major, minor) with a pipeline or design change. Prompt, skill, and model pin edits
+# change the turn fingerprint (`reviewer/fingerprint.py`) instead.
+REVIEWHOG_VERSIONS: dict[tuple[str, str], tuple[int, int]] = {
+    (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 2),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 2),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 0),
+}
+
+
+def reviewhog_version_for_mode(review_mode: str, review_design: str = REVIEW_DESIGN_PIPELINE) -> str:
+    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-0`."""
+    major, minor = REVIEWHOG_VERSIONS[(review_mode, review_design)]
+    return f"reviewhog-{review_mode}-{major}-{minor}"
+
+
 # Share the arm so Flash's reviewer and validator use the same cost and reasoning budget.
 FLASH_ARM = ReviewArm(
     runtime_adapter=RuntimeAdapter.CODEX,
@@ -73,13 +131,80 @@ FLASH_ARM = ReviewArm(
     initial_permission_mode="full-access",
 )
 
-# Every GitHub message a flash turn writes (status comment, promo, review body, inline comments)
-# starts with this, so a reader can tell a flash review from a full one at a glance.
-FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review\n"
+# Flash comments posted before reviewhog-flash-1-1 open with this banner. Comments on old pull
+# requests keep it, so the matchers that read them back still remove it.
+LEGACY_FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review\n"
 
 
-def message_prefix_for_mode(review_mode: str) -> str:
-    return FLASH_MODE_MESSAGE_PREFIX if review_mode == REVIEW_MODE_FLASH else ""
+# Every single-agent session runs on this arm, whatever the user's Flash effort setting.
+SINGLE_AGENT_FLASH_ARM = ReviewArm(
+    runtime_adapter=RuntimeAdapter.CODEX,
+    model="gpt-6.1-sol",
+    reasoning_effort=ReasoningEffort.MEDIUM,
+    initial_permission_mode="full-access",
+)
+
+# Reserved so the single agent's persisted result never collides with a pipeline pass.
+SINGLE_AGENT_PASS_NUMBER = 2000
+SINGLE_AGENT_CHUNK_ID = 1
+SINGLE_AGENT_SOURCE = "flash-single-agent"
+
+# The main and lens findings merge into one list by priority, cut so a turn's comments stay few. A larger
+# PR gets a few more, because each extra lens part covers more code: 4, 6, 8, 10 for 1-4 parts.
+FLASH_MAX_FINDINGS_BASE = 4
+FLASH_MAX_FINDINGS_PER_EXTRA_PART = 2
+FLASH_MAX_FINDINGS_CEILING = 10
+# Must-fix findings post outside the cap. This multiple of the cap still bounds them, so a session that
+# marks everything P0 or P1 cannot flood the PR.
+FLASH_MUST_FIX_CAP_MULTIPLIER = 2
+
+
+def flash_max_findings(lens_part_count: int) -> int:
+    extra_parts = max(lens_part_count - 1, 0)
+    return min(FLASH_MAX_FINDINGS_BASE + FLASH_MAX_FINDINGS_PER_EXTRA_PART * extra_parts, FLASH_MAX_FINDINGS_CEILING)
+
+
+# Above FLASH_LENS_MAX_CHUNKS parts, the parts grow instead, so one turn never opens more sessions.
+FLASH_LENS_CHUNK_MAX_LINES = 600
+FLASH_LENS_MAX_CHUNKS = 4
+# Shorter than the sandbox timeout, so a slow lens session cannot hold the main findings back for long.
+FLASH_LENS_SESSION_TIMEOUT = timedelta(minutes=10)
+
+# About 200K tokens at 4 characters per token.
+FLASH_PROMPT_DIFF_MAX_CHARS = 800_000
+
+
+@frozen
+class FlashLens:
+    """One focused review that runs next to the main single-agent session, once per lens part."""
+
+    # Reserved like SINGLE_AGENT_PASS_NUMBER, so a lens result never collides with another session's.
+    pass_number: int
+    prompt_file: str
+    source: str
+
+
+FLASH_LENSES: dict[str, FlashLens] = {
+    "performance-reliability": FlashLens(
+        pass_number=2001,
+        prompt_file="lens_performance_reliability.md",
+        source="flash-lens-performance-reliability",
+    ),
+    "contracts-security": FlashLens(
+        pass_number=2002,
+        prompt_file="lens_contracts_security.md",
+        source="flash-lens-contracts-security",
+    ),
+}
+
+
+def is_single_agent_pass(pass_number: int) -> bool:
+    """Whether a persisted review result came from a single-agent session, the main one or a lens.
+
+    A Full turn can run on the same arm as the single-agent sessions, so the arm stamp alone cannot keep
+    the two designs' results apart at one head. The reserved passes can.
+    """
+    return pass_number >= SINGLE_AGENT_PASS_NUMBER
 
 
 def flash_arm_for_effort(reasoning_effort: str) -> ReviewArm:
@@ -91,9 +216,15 @@ def flash_arm_for_effort(reasoning_effort: str) -> ReviewArm:
 
 
 def review_arm_for_mode(
-    review_mode: str, persisted: ReviewArm, *, flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+    review_mode: str,
+    persisted: ReviewArm,
+    *,
+    flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value,
+    review_design: str = REVIEW_DESIGN_PIPELINE,
 ) -> ReviewArm:
     """The arm a turn's review units run on: the flash arm for a flash turn, else the report's own."""
+    if review_design == REVIEW_DESIGN_SINGLE_AGENT:
+        return SINGLE_AGENT_FLASH_ARM
     return flash_arm_for_effort(flash_reasoning_effort) if review_mode == REVIEW_MODE_FLASH else persisted
 
 
@@ -278,6 +409,10 @@ CHUNKING_REASONING_EFFORT = ReasoningEffort.XHIGH
 DEDUP_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
 DEDUP_MODEL = "claude-sonnet-5"
 DEDUP_REASONING_EFFORT = ReasoningEffort.XHIGH
+# Both dedup calls of a single-agent Flash turn run as one-shot OpenAI calls on these pins, whatever
+# the candidate count, instead of the pipeline's one-shot and sandbox dedup pins.
+FLASH_DEDUP_MODEL = "gpt-6-luna"
+FLASH_DEDUP_REASONING_EFFORT: Final["OpenAIReasoningEffort"] = "medium"
 
 # SANDBOX
 # Per-child-workflow fan-out width: each Temporal fan-out (review / validate) bounds its concurrent

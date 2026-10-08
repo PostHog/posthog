@@ -23,12 +23,11 @@ import dataclasses
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
-import pyarrow.dataset as pads
 import deltalake.exceptions
 from structlog.types import FilteringBoundLogger
 
@@ -39,20 +38,33 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     finalize_repartition_scheme,
     save_repartition_checkpoint_if_claimed,
+    stage_partition_scheme_for_full_refresh,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     evolve_pyarrow_schema,
     normalize_column_name,
     realign_decimal_buffers,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import DEFAULT_MAX_TABLE_BYTES
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import get_governor
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import _purge_s3_prefix
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     NULL_NUMERICAL_PARTITION,
     append_partition_key_to_table,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import table_payload_bytes
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_stream import (
+    PartitionedFileWriter,
+    SourceReader,
+    StreamBudget,
+    TempTableCommitter,
+    UnsupportedSourceTableError,
+    arrow_schema_of,
+    check_source_supported,
+    copied_source_files,
+    plan_source_files,
+    resume_blocker,
+    storage_filesystem,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -66,17 +78,16 @@ if TYPE_CHECKING:
 # Coarse → fine. A datetime table that's OOMing steps one tier finer each repartition cycle.
 DATETIME_FORMAT_TIERS: list[PartitionFormat] = ["month", "week", "day", "hour"]
 
-# Rows per scanned record-batch. A row count cannot bound memory on its own — the same count is a few
-# MB of a narrow table and gigabytes of nested records — so this is deliberately low rather than
-# tuned, the way `MAX_FETCH_PAGE_ROWS` is in `sources/common/sql/batching.py`. It bounds the window
-# that is still unmeasured when the scan hands a batch over; `REWRITE_BUFFER_MAX_BYTES` bounds what
-# is materialised, from real measurements. Low is cheap here: the parquet row group is read either
-# way, and the coalescing buffer merges small batches back before any commit.
-DEFAULT_REPARTITION_BATCH_SIZE = 1_000
+# Memory one rewrite may use when the pod's memory governor cannot size a slot (no cgroup limit).
+DEFAULT_REWRITE_BUDGET_BYTES = 512 * 1024 * 1024
+# A slot smaller than this cannot hold one decoded batch and a few open files; a slot larger than this
+# buys no throughput, because the rewrite is bound by object-store reads, not by its buffers.
+MIN_REWRITE_BUDGET_BYTES = 256 * 1024 * 1024
+MAX_REWRITE_BUDGET_BYTES = 2 * 1024 * 1024 * 1024
 
-# Minimum gap between claim re-reads during the rewrite loop. The loop yields at least one batch per
+# Minimum gap between claim re-reads during the rewrite loop. The loop reads at least one batch per
 # source *file*, so an over-fragmented table (the exact kind being repartitioned) produces one batch
-# per partition regardless of `DEFAULT_REPARTITION_BATCH_SIZE` — a few thousand rows spread over a few
+# per partition however small the budget makes the batches — a few thousand rows spread over a few
 # thousand hour-partitions is a few thousand batches. Re-reading the claim on every one turns a small
 # rewrite into thousands of Postgres round-trips, and any single failure discards the whole rewrite.
 # Throttling is safe because the rewrite writes only to a temp table scoped to our own claim token
@@ -91,27 +102,15 @@ CLAIM_RECHECK_INTERVAL_SECONDS = 10.0
 # on committed progress instead means an attempt converges across runs whatever kills it. Throttled
 # because it costs a claim check and a row write per checkpoint, and bounds re-done work to this
 # interval rather than to the whole rewrite. A checkpoint only records committed rows, so this also
-# bounds how long the coalescing buffer may be held before it commits — a buffer that fills slower
-# than this would otherwise leave the rewrite with nothing to resume from.
+# bounds how long the rewrite may go between commits — one that fills its buffers slower than this
+# would otherwise leave the rewrite with nothing to resume from.
 CHECKPOINT_INTERVAL_SECONDS = 30.0
 
-# Arrow payload the rewrite may hold in its coalescing buffer. Half the package's per-table cap
-# deliberately: the batch that triggers a flush is already materialised and stays resident while the
-# buffer drains, so the true peak is buffer + one incoming batch. Budgeting half keeps that sum inside
-# one `DEFAULT_MAX_TABLE_BYTES` instead of letting it reach twice the cap. Coalescing loses nothing
-# that matters — the win comes from merging thousands of KB-sized batches, not from filling the cap.
-REWRITE_BUFFER_MAX_BYTES = DEFAULT_MAX_TABLE_BYTES // 2
-
-# Rows the coalescing buffer may hold before it commits. Deliberately not the scan batch size: one
-# number for both caps the buffer at a single batch, so nothing coalesces and every batch becomes its
-# own Delta commit. Each commit is a transaction-log write, so that puts a floor under throughput that
-# no table large enough to need repartitioning can finish above.
-REWRITE_BUFFER_MAX_ROWS = 50_000
-
-# Arrow's default 16-batch readahead keeps memory in flight that never reaches the coalescing buffer,
-# so no buffer budget bounds it. Fragment readahead is left at its default: serialising file reads
-# would cost the most on the many-small-files tables this module rewrites.
-REWRITE_BATCH_READAHEAD = 1
+# How long a rewrite that must stop keeps working toward its next source-file boundary. The rewrite
+# can only commit there, so a stop inside a file discards the rows read since the last commit. One
+# large source file can take longer to copy than a worker shutdown should wait, so after this long
+# the rewrite stops without the commit and the next attempt reads that file again.
+STOP_GRACE_SECONDS = 120.0
 
 TEMP_URI_SUFFIX = "__repartitioned"
 
@@ -181,6 +180,19 @@ class RepartitionBudgetExceededError(Exception):
         self.checkpoint_saved = checkpoint_saved
 
 
+class RepartitionStoppedError(Exception):
+    """The rewrite stopped early because its caller asked it to, for example on worker shutdown.
+
+    Not a failure. Temp holds every row of the source files its commits record, and the rewrite
+    checkpoint points at it, so the next attempt copies only the other files. `rows_written` counts
+    the rows this attempt committed.
+    """
+
+    def __init__(self, message: str, *, rows_written: int = 0) -> None:
+        super().__init__(message)
+        self.rows_written = rows_written
+
+
 class RepartitionSchemePersistError(Exception):
     """The swap re-bucketed the table in S3 but the new scheme could not be saved to the schema row.
 
@@ -239,24 +251,42 @@ class RepartitionTarget:
         return cls(**{k: v for k, v in data.items() if k in fields})
 
 
+# Delta's fixed marker for a Hive-style partition directory whose column value is null.
+_HIVE_NULL_PARTITION = "__HIVE_DEFAULT_PARTITION__"
+
+
+def _partition_key_from_add_path(path: str) -> str | None:
+    """Recover the `_ph_partition_key` value from a Hive-style partitioned add-action file path.
+
+    Every value this pipeline actually partitions by — an md5 bucket index, a numerical bucket or the
+    `null` sentinel, or a datetime tier like "2024-01" — is plain ASCII with nothing that needs
+    percent-encoding, so splitting the path recovers the same value `get_add_actions`'s
+    `partition.<key>` column would give.
+    """
+    prefix = f"{PARTITION_KEY}="
+    for segment in path.split("/"):
+        if segment.startswith(prefix):
+            value = segment[len(prefix) :]
+            return None if value == _HIVE_NULL_PARTITION else value
+    return None
+
+
 def measure_partition_bytes(delta_table: deltalake.DeltaTable) -> dict[str | None, int]:
     """At-rest bytes per partition, read from the Delta log (no S3 LIST, no data scan).
 
     Unpartitioned tables collapse to a single `None` bucket. Keyed by the `_ph_partition_key` value.
-    """
-    actions = delta_table.get_add_actions(flatten=True)
-    columns = actions.schema.names
-    sizes = actions.column("size_bytes").to_pylist()
 
-    partition_column = f"partition.{PARTITION_KEY}"
-    keys: list[str | None]
-    if partition_column in columns:
-        keys = list(actions.column(partition_column).to_pylist())
-    else:
-        keys = [None] * len(sizes)
+    Reads `get_add_file_sizes` (file path -> size only), not `get_add_actions`: the latter also
+    materializes every column's min/max/null-count stats into Arrow arrays, and a table with enough
+    files can push a single stats column past Arrow's 2^31-byte offset limit for a default
+    (32-bit-offset) string array, raising `Offset overflow error` and aborting detection for an
+    otherwise healthy table.
+    """
+    partitioned = PARTITION_KEY in (delta_table.metadata().partition_columns or [])
 
     totals: dict[str | None, int] = defaultdict(int)
-    for key, size in zip(keys, sizes):
+    for path, size in delta_table._table.get_add_file_sizes().items():
+        key = _partition_key_from_add_path(path) if partitioned else None
         totals[key] += size or 0
     return dict(totals)
 
@@ -410,6 +440,64 @@ async def _purge_stale_temp_tables(s3: Any, live_uri: str) -> None:
     files = await s3._find(parent, prefix=f"{table_dir}{TEMP_URI_SUFFIX}")
     if files:
         await s3._rm([f"s3://{f.lstrip('/')}" for f in files])
+
+
+# A temp table sits beside its live table: the live URI, the suffix, then at most the 8 characters of
+# a claim token (see `_temp_uri_for`). No path separator can follow, so a match is never the live
+# table, a path inside it, or a path above it.
+_TEMP_URI_CLAIM_PART = re.compile(r"(_[0-9a-f]{1,8})?")
+
+
+def is_temp_uri_of(live_uri: str, temp_uri: str) -> bool:
+    """Whether `temp_uri` is a repartition temp table of the table at `live_uri`, and nothing else."""
+    live = live_uri.rstrip("/")
+    prefix = f"{live}{TEMP_URI_SUFFIX}"
+    # The live URI must name a table directory below a bucket, not a bucket or an empty path.
+    if "/" not in live.rpartition("://")[2].strip("/"):
+        return False
+    if not temp_uri.startswith(prefix):
+        return False
+    return _TEMP_URI_CLAIM_PART.fullmatch(temp_uri[len(prefix) :]) is not None
+
+
+async def purge_abandoned_rewrite_temp(
+    table_ref: DeltaTableRef,
+    schema: ExternalDataSchema,
+    temp_uri: str | None,
+    logger: FilteringBoundLogger,
+    *,
+    claim_token: str | None,
+) -> bool:
+    """Delete the temp table of a rewrite that will not continue. Returns whether it deleted.
+
+    Deletes one exact prefix, not every temp variant of the table. A wildcard sweep can remove the
+    temp table of a newer attempt, and the database claim cannot fence a delete that is in progress.
+    A newer attempt builds under its own claim token, so it never writes to this prefix again.
+
+    The caller clears the checkpoint that names `temp_uri` after this returns, not before. If the
+    delete fails, the checkpoint still records the temp table, and a later run deletes it.
+    """
+    if not temp_uri:
+        return False
+    live_uri = await table_ref.get_table_uri()
+    if not is_temp_uri_of(live_uri, temp_uri):
+        await logger.awarning(
+            f"repartition: refusing to delete a path that is not a temp table of this table schema_id={schema.id}",
+            schema_id=str(schema.id),
+        )
+        return False
+    await _ensure_claim(schema, claim_token)
+    swap = schema.repartition_swap
+    if swap is not None and swap.get("temp_uri") == temp_uri:
+        # A staged swap makes temp the only intact copy.
+        return False
+    async with aget_s3_client(fresh_instance=True) as s3:
+        await _purge_s3_prefix(s3, temp_uri)
+    await logger.ainfo(
+        f"repartition: deleted the temp table of an abandoned rewrite schema_id={schema.id}",
+        schema_id=str(schema.id),
+    )
+    return True
 
 
 def _temp_uri_for(live_uri: str, claim_token: str | None) -> str:
@@ -660,7 +748,7 @@ _DATETIME_KEY_FORMATS: dict[PartitionFormat, str] = {
 # Coarser tiers each partition can merge into, coarsest first. Every tier here contains the finer one
 # whole, so a row's new bucket follows from its old key, except week into month: ISO weeks straddle
 # month boundaries, and how a week's bytes divide between two months is not recoverable from the key.
-# That one is sized by upper bound instead (see `_simulate_datetime_coarsening`) rather than left
+# That one is sized by upper bound instead (see `simulate_datetime_coarsening`) rather than left
 # unreachable, because the finer path's first step is month into week, so without it a table this
 # controller wrongly split could never be merged back.
 _COARSER_DATETIME_TIERS: dict[PartitionFormat, tuple[PartitionFormat, ...]] = {
@@ -700,7 +788,7 @@ def _merged_keys(parsed: datetime, current_format: PartitionFormat, new_format: 
     return [parsed.strftime(_DATETIME_KEY_FORMATS[new_format])]
 
 
-def _simulate_datetime_coarsening(
+def simulate_datetime_coarsening(
     partition_bytes: dict[str | None, int],
     current_format: PartitionFormat,
     new_format: PartitionFormat,
@@ -804,7 +892,7 @@ def select_coarsen_target(
             return None, "datetime_at_coarsest_tier"
         # Coarsest tier first: fewer, larger partitions is the goal, and the size ceiling is what stops it.
         for new_format in candidate_formats:
-            if acceptable(_simulate_datetime_coarsening(partition_bytes, current_format, new_format)):
+            if acceptable(simulate_datetime_coarsening(partition_bytes, current_format, new_format)):
                 return RepartitionTarget(
                     partition_keys=keys,
                     trigger_reason="",
@@ -859,61 +947,6 @@ def select_coarsen_target(
     return None, "unsupported_mode"
 
 
-def _rows_per_source_file(old_delta: deltalake.DeltaTable) -> dict[str, int]:
-    """Row count per data file, keyed by file name, read from the Delta log (metadata only)."""
-    actions = old_delta.get_add_actions(flatten=True)
-    names = actions.schema.names
-    if "path" not in names or "num_records" not in names:
-        return {}
-    paths = actions.column("path").to_pylist()
-    counts = actions.column("num_records").to_pylist()
-    return {path.rsplit("/", 1)[-1]: count or 0 for path, count in zip(paths, counts) if path}
-
-
-def _drop_copied_source_files(
-    old_delta: deltalake.DeltaTable, dataset: pads.Dataset, skip_rows: int
-) -> tuple[pads.Dataset, int]:
-    """Trim the source files a resumed rewrite already copied, returning the rows left to skip.
-
-    The scan hands batches over one file at a time in the order `get_fragments` lists them, so the
-    `skip_rows` prefix temp already holds is exactly the leading whole files whose row counts sum
-    under it, plus part of the file that straddles the boundary. Dropping those files costs one
-    Delta-log read; discarding their rows batch by batch costs a full decode of every one of them, on
-    the same activity budget as the rows the attempt still has to write. So on a table that needs
-    several budgets the prefix grows until re-reading it fills a budget on its own, and an attempt that
-    appends nothing is what the controller counts against its give-up cap.
-
-    Only whole files are dropped, so the boundary file is still skipped row by row.
-    """
-    if not isinstance(dataset, pads.FileSystemDataset):
-        return dataset, skip_rows
-
-    per_file = _rows_per_source_file(old_delta)
-    fragments = list(dataset.get_fragments())
-    copied = 0
-    boundary = 0
-    for fragment in fragments:
-        rows = per_file.get(fragment.path.rsplit("/", 1)[-1])
-        if rows is None:
-            rows = fragment.count_rows()
-        if copied + rows > skip_rows:
-            break
-        copied += rows
-        boundary += 1
-
-    if boundary == 0:
-        return dataset, skip_rows
-    trimmed = pads.FileSystemDataset(fragments[boundary:], dataset.schema, dataset.format, dataset.filesystem)
-    return trimmed, skip_rows - copied
-
-
-def _read_next_batch(reader: pa.RecordBatchReader) -> pa.RecordBatch | None:
-    try:
-        return reader.read_next_batch()
-    except StopIteration:
-        return None
-
-
 def _format_scheme(target: RepartitionTarget) -> str:
     """`datetime/month`, `md5/64`, `numerical/1000000` — the scheme in one readable token."""
     knob = target.partition_format or target.partition_count or target.partition_size
@@ -924,79 +957,132 @@ def _format_fields(fields: dict[str, Any]) -> str:
     return " ".join(f"{key}={value}" for key, value in fields.items() if value is not None)
 
 
+def rewrite_budget() -> StreamBudget:
+    """The rewrite's byte budget: one memory-governor slot, the same share a concurrent upsert gets."""
+    slot_mb = get_governor().slot_budget_mb()
+    budget = int(slot_mb * 1024 * 1024) if slot_mb else DEFAULT_REWRITE_BUDGET_BYTES
+    return StreamBudget.from_budget(min(max(budget, MIN_REWRITE_BUDGET_BYTES), MAX_REWRITE_BUDGET_BYTES))
+
+
+async def _delete_uncommitted(temp_uri: str, storage_options: dict[str, str], paths: list[str]) -> None:
+    """Best effort: files no commit references are invisible, but the swap copies the whole prefix."""
+    if not paths:
+        return
+
+    def delete() -> None:
+        filesystem = storage_filesystem(temp_uri, storage_options)
+        for path in paths:
+            try:
+                filesystem.delete_file(path)
+            except Exception:
+                pass
+
+    await asyncio.to_thread(delete)
+
+
 async def _rewrite_into_temp(
     *,
     old_delta: deltalake.DeltaTable,
     temp_uri: str,
     storage_options: dict[str, str],
     target: RepartitionTarget,
-    batch_size: int,
     logger: FilteringBoundLogger,
+    budget: StreamBudget | None = None,
     ensure_claim: Callable[[], Awaitable[None]] | None = None,
     claim_recheck_interval_seconds: float = CLAIM_RECHECK_INTERVAL_SECONDS,
     save_checkpoint: Callable[[int, RepartitionTarget], Awaitable[None]] | None = None,
     checkpoint_interval_seconds: float = CHECKPOINT_INTERVAL_SECONDS,
     deadline: float | None = None,
     total_rows: int | None = None,
-    skip_rows: int = 0,
+    copied_files: frozenset[str] = frozenset(),
+    should_stop: Callable[[], bool] | None = None,
+    stop_grace_seconds: float = STOP_GRACE_SECONDS,
 ) -> tuple[int, RepartitionTarget]:
     """Stream the live table into a temp table under the new partition scheme.
 
-    Returns (rows_written, resolved_target) — `rows_written` counts only the rows written by *this*
+    Returns (rows_written, resolved_target) — `rows_written` counts only the rows committed by *this*
     call. The first processed batch resolves any auto-detected mode/format/keys so every subsequent
     batch is bucketed identically (a per-batch auto-detect could disagree). `ensure_claim` runs before
     the first batch and then at most once per `claim_recheck_interval_seconds`, so a superseded attempt
     stops within that window rather than paying a database round-trip per batch (see
     `CLAIM_RECHECK_INTERVAL_SECONDS`).
 
+    Memory is bounded by `budget` alone (see `repartition_stream`): the rewrite plans from the log of
+    the loaded version, reads one source file at a time by row group, and writes through a capped set
+    of open files. It commits only at a source-file boundary, and each commit records the source
+    files it completes.
+
     `deadline` is a `time.monotonic()` value past which the rewrite gives up with
     `RepartitionBudgetExceededError` rather than run until Temporal kills it. None runs unbounded.
 
     `total_rows` is the source row count, used only to report progress as a percentage and an ETA.
 
-    `skip_rows` resumes a prior attempt that ran out of budget: temp already holds a scan-ordered
-    prefix of `skip_rows` rows, so this call skips that many source rows (the source is immutable
-    during the rewrite, so the scan order is stable) and appends only the remainder. Whole source files
-    inside the prefix are dropped from the scan on their recorded row counts, so only the file that
-    straddles the boundary is read-and-discarded. The rewrite writes in `append` mode, so resuming
-    builds on the existing temp rather than replacing it.
+    `copied_files` resumes a prior attempt: temp already holds every row of these source files (see
+    `copied_source_files`), so this call skips them and appends only the rest.
+
+    `should_stop` asks the rewrite to stop early, for example because the worker is shutting down.
+    Once it returns True the rewrite commits at the next source-file boundary, saves a checkpoint and
+    raises `RepartitionStoppedError`. A source file that is still not finished `stop_grace_seconds`
+    later is abandoned with the other uncommitted rows, and the next attempt reads it again.
     """
+    budget = budget or rewrite_budget()
     await logger.ainfo(
         f"repartition: rewrite starting target_scheme={_format_scheme(target)} total_rows={total_rows} "
-        f"batch_size={batch_size} temp_uri={temp_uri}",
+        f"batch_bytes={budget.batch_bytes} max_open_files={budget.max_open_files} temp_uri={temp_uri}",
         target_scheme=_format_scheme(target),
         total_rows=total_rows,
-        batch_size=batch_size,
         temp_uri=temp_uri,
+        **budget.to_dict(),
     )
+
+    try:
+        check_source_supported(old_delta)
+    except UnsupportedSourceTableError as e:
+        raise RepartitionUnpartitionableError(str(e)) from e
 
     # The live table's properties travel with its rows. A buffered CDC lane reads its resume
     # point from a statistic one of them declares, and a rebuilt table that lost it would report
     # no position at all.
-    table_configuration = dict(old_delta.metadata().configuration or {}) or None
-    dataset = await asyncio.to_thread(old_delta.to_pyarrow_dataset)
-    if skip_rows:
-        dataset, skip_rows = await asyncio.to_thread(_drop_copied_source_files, old_delta, dataset, skip_rows)
-        await logger.ainfo(
-            f"repartition: resume dropped the source files already copied, {skip_rows} rows left to skip",
-            rows_to_skip=skip_rows,
-        )
-    reader = await asyncio.to_thread(
-        lambda: dataset.scanner(
-            batch_size=batch_size,
-            batch_readahead=REWRITE_BATCH_READAHEAD,
-        ).to_reader()
-    )
+    table_configuration = dict(old_delta.metadata().configuration or {})
     live_schema = await asyncio.to_thread(old_delta.schema)
+    live_arrow_schema = arrow_schema_of(live_schema)
+    plan = await asyncio.to_thread(plan_source_files, old_delta)
+    inherited_rows = 0
+    if copied_files:
+        inherited_rows = sum(source.num_records or 0 for source in plan if source.path in copied_files)
+        plan = [source for source in plan if source.path not in copied_files]
+        await logger.ainfo(
+            f"repartition: resume skips the {len(copied_files)} source files already copied, {len(plan)} left to copy",
+            files_already_copied=len(copied_files),
+            files_left=len(plan),
+        )
+
+    reader = SourceReader(
+        filesystem=storage_filesystem(
+            old_delta.table_uri, storage_options, known_sizes={source.path: source.size for source in plan}
+        ),
+        schema=live_arrow_schema,
+        batch_bytes=budget.batch_bytes,
+    )
+    committer = TempTableCommitter(
+        temp_uri=temp_uri, storage_options=storage_options, configuration=table_configuration
+    )
+    writer: PartitionedFileWriter | None = None
+
+    async def run_io(function: Callable[..., Any], *args: Any) -> Any:
+        """Do not let task cancellation abandon a native I/O call that still owns these objects."""
+        task = asyncio.create_task(asyncio.to_thread(function, *args))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            try:
+                await asyncio.shield(task)
+            except BaseException:
+                pass
+            raise
 
     resolved: RepartitionTarget | None = None
     rows_written = 0
-
-    buffered: list[pa.Table] = []
-    buffered_rows = 0
-    buffered_bytes = 0
-    buffer_opened_at: float | None = None
-
     started_at = time.monotonic()
     commits = 0
 
@@ -1019,8 +1105,8 @@ async def _rewrite_into_temp(
 
     last_checkpoint_at: float | None = None
 
-    async def maybe_checkpoint() -> None:
-        """Persist resumable progress, at most once per `checkpoint_interval_seconds`.
+    async def maybe_checkpoint(force: bool = False) -> None:
+        """Persist resumable progress, at most once per `checkpoint_interval_seconds` unless forced.
 
         Called after a commit lands, so the recorded row count is always backed by data actually in
         temp. Failing to checkpoint must not fail the rewrite: the attempt is still making progress,
@@ -1030,7 +1116,7 @@ async def _rewrite_into_temp(
         if save_checkpoint is None:
             return
         now = time.monotonic()
-        if last_checkpoint_at is not None and now - last_checkpoint_at < checkpoint_interval_seconds:
+        if not force and last_checkpoint_at is not None and now - last_checkpoint_at < checkpoint_interval_seconds:
             return
         last_checkpoint_at = now
         try:
@@ -1040,76 +1126,30 @@ async def _rewrite_into_temp(
         except Exception:
             await logger.awarning("repartition: could not save rewrite checkpoint", exc_info=True)
 
-    async def flush() -> None:
-        """Write the buffered batches as one Delta commit, then report progress."""
-        nonlocal buffered, buffered_rows, buffered_bytes, rows_written, commits, buffer_opened_at
-        if not buffered:
+    completed_sources: list[str] = []
+    last_commit_at = time.monotonic()
+
+    async def commit() -> None:
+        """Close the open files and commit them, with the source files whose rows they now hold."""
+        nonlocal rows_written, commits, completed_sources, last_commit_at
+        await write_staged()
+        last_commit_at = time.monotonic()
+        if writer is None or not completed_sources:
             return
-        buffer_opened_at = None
-        # Every buffered table was already aligned to `live_schema`, so they concat without promotion.
-        combined = buffered[0] if len(buffered) == 1 else pa.concat_tables(buffered)
-        buffered = []
-        buffered_rows = 0
-        buffered_bytes = 0
-        await asyncio.to_thread(
-            deltalake.write_deltalake,
-            temp_uri,
-            combined,
-            partition_by=PARTITION_KEY,
-            mode="append",
-            schema_mode="merge",
-            storage_options=storage_options,
-            configuration=table_configuration,
-        )
-        rows_written += combined.num_rows
+        written = await run_io(writer.finish)
+        await run_io(committer.commit, written, completed_sources)
+        completed_sources = []
+        rows_written += sum(file.num_records for file in written)
         commits += 1
         report_buffer_bytes(0)
         await maybe_checkpoint()
         fields = progress()
         await logger.ainfo(f"repartition: rewrite progress {_format_fields(fields)}", **fields)
 
-    last_claim_check: float | None = None
-    source_rows_read = 0
-
-    while True:
-        if ensure_claim is not None:
-            now = time.monotonic()
-            if last_claim_check is None or now - last_claim_check >= claim_recheck_interval_seconds:
-                await ensure_claim()
-                last_claim_check = now
-        batch = await asyncio.to_thread(_read_next_batch, reader)
-        if batch is None:
-            break
-        # Deliberately after the read, so exhausting the reader always beats the deadline. Checking
-        # first would let a rewrite that has already copied every row be discarded and charged an
-        # attempt because it happened to cross the deadline on the iteration that would have hit
-        # EOF, which is likeliest for a table whose rewrite lands near the budget: exactly the ones
-        # this deadline exists to rescue.
-        if deadline is not None and time.monotonic() >= deadline:
-            raise RepartitionBudgetExceededError(
-                f"rewrite exceeded its activity budget after {rows_written} rows written to {temp_uri}",
-                rows_written=rows_written,
-                resolved=resolved,
-                resumed_from=skip_rows,
-            )
-
-        # Resume: temp already holds the first `skip_rows` rows in scan order, so read past them and
-        # only append the remainder. The boundary batch is sliced so no row is written twice or lost.
-        if source_rows_read < skip_rows:
-            to_skip = min(batch.num_rows, skip_rows - source_rows_read)
-            source_rows_read += batch.num_rows
-            if to_skip == batch.num_rows:
-                continue
-            batch = batch.slice(to_skip)
-        else:
-            source_rows_read += batch.num_rows
-
-        table = pa.Table.from_batches([batch])
-        if table.num_rows == 0:
-            continue
+    def prepare(table: pa.Table) -> pa.Table:
+        nonlocal resolved
         if PARTITION_KEY in table.column_names:
             table = table.drop([PARTITION_KEY])
-
         # After the first batch resolves, later batches must use the *resolved* keys too: datetime
         # auto-detect swaps the key from the primary key to the detected timestamp column, and pairing
         # the resolved mode with the original (e.g. UUID) key would fail to parse it as a date.
@@ -1124,8 +1164,6 @@ async def _rewrite_into_temp(
         )
         if result is None:
             raise RepartitionUnpartitionableError(f"No supported partition mode for keys={target.partition_keys}")
-
-        partitioned_table = result.table
         if resolved is None:
             resolved = dataclasses.replace(
                 target,
@@ -1133,48 +1171,129 @@ async def _rewrite_into_temp(
                 partition_format=result.partition_format,
                 partition_keys=result.partition_keys,
             )
-
         # Align each batch against the live table's own declared schema before writing. Without
-        # this, whichever batch happens to build temp's schema on the first write fixes its
-        # nullability from what that one batch's data looked like. So if a column the live schema
-        # already declares non-nullable slips through with a real null (e.g. a source NOT NULL
-        # constraint later relaxed upstream), the write aborts with "declared as non-nullable but
-        # contains null values" partway through the rewrite. Every other Delta write path in this
-        # pipeline runs incoming data through this same alignment first, so the rewrite must too.
-        partitioned_table = evolve_pyarrow_schema(partitioned_table, live_schema)
-        partitioned_table = realign_decimal_buffers(partitioned_table)
+        # this, a column the live schema already declares non-nullable that slips through with a
+        # real null (e.g. a source NOT NULL constraint later relaxed upstream) reaches the temp
+        # table as a null in a non-nullable column. Every other Delta write path in this pipeline
+        # runs incoming data through this same alignment first, so the rewrite must too.
+        return realign_decimal_buffers(evolve_pyarrow_schema(result.table, live_schema))
 
-        # Coalesce before writing, so commits scale with data size rather than source file count
-        # (see `CLAIM_RECHECK_INTERVAL_SECONDS`). Bound the buffer by bytes as well as rows: a row
-        # count says nothing about width once `evolve_pyarrow_schema` has flattened struct and list
-        # columns into JSON strings. Flush *before* appending whatever would overflow, never after,
-        # or a nearly-full buffer could still take a further full-sized batch. Peak residency is this
-        # buffer plus the batch in hand, which `REWRITE_BUFFER_MAX_BYTES` budgets for.
-        table_bytes = table_payload_bytes(partitioned_table)
-        # Age closes the buffer as well as size. The scan yields at least one batch per source file,
-        # so on an over-fragmented table — the kind a coarsening rewrite exists to fix — filling the
-        # buffer can take longer than the worker survives. Nothing commits, so nothing checkpoints,
-        # and every attempt resumes from the same row until the attempt cap abandons the table.
-        buffer_held_too_long = (
-            buffer_opened_at is not None and time.monotonic() - buffer_opened_at >= checkpoint_interval_seconds
-        )
-        if buffered and (
-            buffered_rows + partitioned_table.num_rows > REWRITE_BUFFER_MAX_ROWS
-            or buffered_bytes + table_bytes > REWRITE_BUFFER_MAX_BYTES
-            or buffer_held_too_long
-        ):
-            await flush()
-        if save_checkpoint is not None and buffer_opened_at is None:
-            # Only tracked when there is a checkpoint to protect, so a caller that cannot resume
-            # keeps the size-only commits it had.
-            buffer_opened_at = time.monotonic()
-        buffered.append(partitioned_table)
-        buffered_rows += partitioned_table.num_rows
-        buffered_bytes += table_bytes
+    # Over-fragmented sources hand over a few rows per file. Partitioning, aligning and routing
+    # each of those on its own costs more than the copy, so the reads are coalesced up to one batch
+    # budget first.
+    staged: list[pa.Table] = []
+    staged_bytes = 0
+
+    async def write_staged() -> None:
+        nonlocal writer, staged, staged_bytes
+        if not staged:
+            return
+        combined = staged[0] if len(staged) == 1 else pa.concat_tables(staged)
+        staged = []
+        staged_bytes = 0
+        prepared = await run_io(prepare, combined)
+        if writer is None:
+            file_schema = await run_io(committer.open_or_create, prepared.schema)
+            writer = PartitionedFileWriter(
+                filesystem=storage_filesystem(temp_uri, storage_options),
+                schema=file_schema,
+                budget=budget,
+                configuration=table_configuration,
+            )
+        await run_io(writer.write, prepared)
         # Feeds the workload reporter bound by the repartition activity; no-op everywhere else.
-        report_buffer_bytes(buffered_bytes)
+        report_buffer_bytes(writer.buffered_bytes)
 
-    await flush()
+    stop_requested_at: float | None = None
+
+    def stop_requested() -> bool:
+        nonlocal stop_requested_at
+        if should_stop is None or not should_stop():
+            return False
+        if stop_requested_at is None:
+            stop_requested_at = time.monotonic()
+        return True
+
+    async def stop() -> NoReturn:
+        # The throttled checkpoint can be older than the last commit. The next attempt resumes only
+        # from a checkpoint, so save one now. Without a commit from this attempt there is nothing new
+        # to record, and temp may not exist yet.
+        if commits:
+            await maybe_checkpoint(force=True)
+        fields = progress()
+        await logger.ainfo(f"repartition: rewrite stopped early {_format_fields(fields)}", **fields)
+        raise RepartitionStoppedError(
+            f"rewrite stopped early after {rows_written} rows written to {temp_uri}", rows_written=rows_written
+        )
+
+    last_claim_check: float | None = None
+    files_left = len(plan)
+    sources = reader.iter_sources(plan)
+    try:
+        while True:
+            entry = await run_io(next, sources, None)
+            if entry is None:
+                break
+            source, tables = entry
+            while True:
+                if ensure_claim is not None:
+                    now = time.monotonic()
+                    if last_claim_check is None or now - last_claim_check >= claim_recheck_interval_seconds:
+                        await ensure_claim()
+                        last_claim_check = now
+                table = await run_io(next, tables, None)
+                if table is None:
+                    break
+                # Deliberately after the read, so exhausting the last file always beats the deadline.
+                # Checking first would let a rewrite that has already copied every row be discarded
+                # and charged an attempt because it happened to cross the deadline on the iteration
+                # that would have hit EOF, which is likeliest for a table whose rewrite lands near the
+                # budget: exactly the ones this deadline exists to rescue.
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise RepartitionBudgetExceededError(
+                        f"rewrite exceeded its activity budget after {rows_written} rows written to {temp_uri}",
+                        rows_written=rows_written,
+                        resolved=resolved,
+                        resumed_from=inherited_rows,
+                    )
+                if (
+                    stop_requested()
+                    and stop_requested_at is not None
+                    and time.monotonic() - stop_requested_at >= stop_grace_seconds
+                ):
+                    await stop()
+                staged.append(table)
+                staged_bytes += table.nbytes
+                if staged_bytes >= budget.batch_bytes:
+                    await write_staged()
+            completed_sources.append(source.path)
+            files_left -= 1
+            # After the last file only the final commit is left, so finishing costs less than a stop
+            # and a new attempt.
+            stopping = files_left > 0 and stop_requested()
+            if (
+                (writer is not None and writer.bytes_since_commit >= budget.commit_bytes)
+                or len(completed_sources) >= budget.max_source_files_per_commit
+                or time.monotonic() - last_commit_at >= checkpoint_interval_seconds
+                or stopping
+            ):
+                await commit()
+            if stopping:
+                await stop()
+        await commit()
+    except BaseException:
+        if writer is not None:
+            try:
+                paths = await run_io(writer.abort)
+                await _delete_uncommitted(temp_uri, storage_options, paths)
+            except BaseException:
+                await logger.awarning("repartition: could not clean up uncommitted files", exc_info=True)
+        raise
+    finally:
+        try:
+            await run_io(sources.close)
+        except BaseException:
+            await logger.awarning("repartition: could not close the source reader", exc_info=True)
 
     if resolved is None:
         # Empty source table — nothing to rewrite.
@@ -1186,6 +1305,13 @@ async def _rewrite_into_temp(
         **fields,
     )
     return rows_written, resolved
+
+
+async def _copied_source_files(temp_uri: str, storage_options: dict[str, str]) -> frozenset[str] | None:
+    try:
+        return await asyncio.to_thread(copied_source_files, temp_uri, storage_options)
+    except (deltalake.exceptions.DeltaError, FileNotFoundError, ValueError):
+        return None
 
 
 def _restart_would_run_out_of_budget(checkpoint: dict[str, Any], live_rows: int) -> bool:
@@ -1202,19 +1328,59 @@ def _restart_would_run_out_of_budget(checkpoint: dict[str, Any], live_rows: int)
     return 0 < covered < live_rows
 
 
+async def defer_repartition_to_full_refresh(
+    table_ref: DeltaTableRef,
+    schema: ExternalDataSchema,
+    target: RepartitionTarget,
+    logger: FilteringBoundLogger,
+    *,
+    claim_token: str | None = None,
+) -> dict[str, Any]:
+    """Apply `target` through the next full refresh instead of rewriting the table.
+
+    A full-refresh sync deletes the table and writes every row again, so a rewrite only copies data
+    the next sync throws away. Its live version also moves on every sync. The scheme is staged for
+    that sync to write (see `stage_partition_scheme_for_full_refresh`). Temp tables are not swept
+    here: a newer claimant can begin a recovery while this activity awaits S3, and wildcard cleanup
+    cannot be fenced by the database claim for the duration of that operation.
+    """
+
+    def _write() -> bool:
+        return stage_partition_scheme_for_full_refresh(
+            schema,
+            partitioning_keys=target.partition_keys,
+            partition_count=target.partition_count,
+            partition_size=target.partition_size,
+            partition_mode=target.partition_mode,
+            partition_format=target.partition_format,
+            claim_token=claim_token,
+        )
+
+    if not await asyncio.to_thread(retry_on_db_connection_drop, _write):
+        raise RepartitionSupersededError(f"repartition claim lost before full-refresh deferral schema_id={schema.id}")
+    await logger.ainfo(
+        f"repartition: full-refresh table, staged scheme={_format_scheme(target)} for the next sync to write "
+        f"schema_id={schema.id}",
+        scheme=_format_scheme(target),
+        schema_id=str(schema.id),
+    )
+    return {"outcome": "deferred", "reason": "full_refresh_rewrites_the_table"}
+
+
 async def repartition_table_in_place(
     table_ref: DeltaTableRef,
     schema: ExternalDataSchema,
     target: RepartitionTarget,
     logger: FilteringBoundLogger,
     *,
-    batch_size: int = DEFAULT_REPARTITION_BATCH_SIZE,
+    budget: StreamBudget | None = None,
     claim_token: str | None = None,
     deadline: float | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Rewrite the schema's Delta table under `target`'s finer partition scheme, in place, from S3.
 
-    Memory is bounded by `batch_size`; the source is never re-read. Crash-safe via the
+    Memory is bounded by `budget` (one memory-governor slot by default); the source is read once. Crash-safe via the
     `repartition_swap` marker (resume re-drives the swap from the intact temp table). On success,
     persists the new partition settings and clears the controller markers in one row-locked write.
     Returns a stats dict for observability. Raises `RepartitionUnpartitionableError` (terminal) if no
@@ -1231,6 +1397,10 @@ async def repartition_table_in_place(
     `deadline` (a `time.monotonic()` value) bounds the rewrite phase only. The swap that follows
     needs no bound of its own: it records `repartition_swap` before touching live, so a swap cut
     short by the activity timeout resumes from the intact temp table on a later run.
+
+    `should_stop` also applies to the rewrite phase only. When it returns True the rewrite stops after
+    its next commit and raises `RepartitionStoppedError`, with the temp table and its checkpoint kept
+    for the next attempt (see `_rewrite_into_temp`).
     """
     live_uri = await table_ref.get_table_uri()
     storage_options = table_ref.get_storage_options()
@@ -1350,20 +1520,50 @@ async def repartition_table_in_place(
 
     if not resuming:
         skip_rows = 0
+        copied: frozenset[str] = frozenset()
         rewrite_target = target
         if resuming_rewrite:
-            # A prior attempt ran out of budget with temp holding a scan-ordered prefix of the table.
-            # Resuming skips that prefix and appends the rest, which is only correct while live is
-            # byte-identical to when the checkpoint was written: the sync's merge runs after a
-            # swallowed repartition failure, so on any run where that merge committed, live has grown
-            # and the recorded prefix no longer lines up with the current scan. The Delta version is
-            # the fence — equal means no commit has touched live since, so the prefix still holds.
-            # A checkpoint whose temp is unreadable, larger than live, or built against a different
-            # live version is unusable: discard it and rebuild fresh from the still-intact live table.
+            # A prior attempt stopped with temp holding every row of some source files, which its
+            # commits record. Resuming skips those files and copies the rest. The sync's merge runs
+            # after a swallowed repartition failure, so live may have moved on since the checkpoint.
+            # That only matters when the move removed a copied file or added a column (see
+            # `resume_blocker`); appended files are simply copied with the rest. A temp that is
+            # unreadable, larger than live, or out of step with its record is unusable: discard it
+            # and rebuild fresh from the still-intact live table.
             live_version = await asyncio.to_thread(old_delta.version)
             checkpoint_version = (rewrite_checkpoint or {}).get("live_version")
             temp_rows = await _valid_delta_row_count(temp_uri, storage_options)
-            if temp_rows is None or temp_rows > old_row_count or checkpoint_version != live_version:
+            recorded = await _copied_source_files(temp_uri, storage_options) if temp_rows is not None else None
+            blocker: str | None
+            if temp_rows is None:
+                blocker = "temp_unreadable"
+            elif temp_rows > old_row_count:
+                blocker = "temp_larger_than_live"
+            elif recorded is None:
+                blocker = None
+            else:
+                live_sources = await asyncio.to_thread(plan_source_files, old_delta)
+                blocker = await asyncio.to_thread(
+                    resume_blocker,
+                    live_sources=live_sources,
+                    live_schema=arrow_schema_of(old_delta.schema()),
+                    temp_uri=temp_uri,
+                    storage_options=storage_options,
+                    copied=recorded,
+                    temp_rows=temp_rows,
+                )
+            if blocker is None and recorded is None:
+                # A temp an older rewrite wrote records rows, not source files, so it cannot be
+                # resumed. That says nothing about the budget, so rebuild without the give-up check.
+                await logger.awarning(
+                    f"repartition: rewrite checkpoint does not record its source files, rebuilding fresh "
+                    f"schema_id={schema.id}",
+                    schema_id=str(schema.id),
+                )
+                await asyncio.to_thread(schema.clear_repartition_rewrite)
+                resuming_rewrite = False
+                temp_uri = _temp_uri_for(live_uri, claim_token)
+            elif blocker is not None:
                 if _restart_would_run_out_of_budget(rewrite_checkpoint or {}, old_row_count):
                     raise RepartitionTooLargeForBudgetError(
                         f"a full activity budget covered {(rewrite_checkpoint or {}).get('rows_written')} of "
@@ -1371,16 +1571,18 @@ async def repartition_table_in_place(
                         f"cannot finish either (schema_id={schema.id})"
                     )
                 await logger.awarning(
-                    f"repartition: rewrite checkpoint is unusable (temp_rows={temp_rows} live={old_row_count} "
-                    f"checkpoint_version={checkpoint_version} live_version={live_version}), discarding and "
-                    f"rebuilding fresh schema_id={schema.id}",
+                    f"repartition: rewrite checkpoint is unusable reason={blocker} (temp_rows={temp_rows} "
+                    f"live={old_row_count} checkpoint_version={checkpoint_version} live_version={live_version}), "
+                    f"discarding and rebuilding fresh schema_id={schema.id}",
                     schema_id=str(schema.id),
+                    reason=blocker,
                 )
                 await asyncio.to_thread(schema.clear_repartition_rewrite)
                 resuming_rewrite = False
                 temp_uri = _temp_uri_for(live_uri, claim_token)
             else:
-                skip_rows = temp_rows
+                skip_rows = temp_rows or 0
+                copied = recorded or frozenset()
                 checkpoint_target = (rewrite_checkpoint or {}).get("target")
                 if checkpoint_target:
                     # Pin the scheme the prior attempt resolved, so a resumed auto-detect can't pick a
@@ -1433,12 +1635,13 @@ async def repartition_table_in_place(
                 storage_options=storage_options,
                 target=rewrite_target,
                 save_checkpoint=save_checkpoint,
-                batch_size=batch_size,
+                budget=budget,
                 logger=logger,
                 ensure_claim=ensure_claim,
                 deadline=deadline,
                 total_rows=old_row_count,
-                skip_rows=skip_rows,
+                copied_files=copied,
+                should_stop=should_stop,
             )
         except RepartitionBudgetExceededError as e:
             # Only a checkpoint this attempt could build on marks a restart. One the resume path
@@ -1477,7 +1680,7 @@ async def repartition_table_in_place(
                     },
                 )
             raise
-        except (RepartitionSupersededError, RepartitionUnpartitionableError):
+        except (RepartitionSupersededError, RepartitionUnpartitionableError, RepartitionStoppedError):
             raise
         except Exception as e:
             missing_path = _missing_live_object_path(e, live_uri)

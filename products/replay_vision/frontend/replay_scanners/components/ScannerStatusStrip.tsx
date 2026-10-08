@@ -13,8 +13,10 @@ import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCreditsRange } from '../../utils/credits'
 import { quotaBannerState } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
+import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import { scanDrought } from '../scanDrought'
 import { LIMIT_REACHED_TOOLTIP } from '../scannerCopy'
+import { scannerEditUrl } from '../scannerEditorSceneLogic'
 import { ScannerStatus, SWEEP_INTERVAL_MINUTES, scannerStatus, spendAgainstLimit } from '../scannerStatus'
 
 type StatusTone = 'success' | 'warning' | 'danger' | 'muted'
@@ -200,7 +202,7 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                             No limit set. This scanner keeps scanning until your organization's credits run out.{' '}
                             {!editDisabledReason && (
                                 <Link
-                                    to={urls.replayVisionScannerConfigure(scannerId)}
+                                    to={scannerEditUrl(scannerId, ReplayScannerTab.Overview)}
                                     data-attr="vision-scanner-status-set-limit"
                                 >
                                     Set a limit

@@ -17,7 +17,7 @@ from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from . import model
 
 if TYPE_CHECKING:
-    from products.workflows.backend.providers import SESProvider
+    from products.workflows.backend.facade.contracts import EmailDomainVerification
 
 
 class EmailIntegration:
@@ -27,14 +27,6 @@ class EmailIntegration:
         if integration.kind != "email":
             raise Exception("EmailIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
-
-    @property
-    def ses_provider(self) -> "SESProvider":
-        from products.workflows.backend.providers import (
-            SESProvider,  # noqa: PLC0415 — keeps the heavy dep off the import path
-        )
-
-        return SESProvider()
 
     @classmethod
     def create_native_integration(
@@ -60,13 +52,12 @@ class EmailIntegration:
 
         # Create domain in the appropriate provider
         if provider == "ses":
-            from products.workflows.backend.providers import (
-                SESProvider,  # noqa: PLC0415 — keeps the heavy dep off the import path
+            from products.workflows.backend.facade.api import (
+                create_ses_email_domain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
             )
 
-            ses = SESProvider()
             org_team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
-            ses.create_email_domain(
+            create_ses_email_domain(
                 domain,
                 mail_from_subdomain=mail_from_subdomain,
                 team_id=team_id,
@@ -111,12 +102,11 @@ class EmailIntegration:
 
         # Update domain in the appropriate provider
         if provider == "ses":
-            from products.workflows.backend.providers import (
-                SESProvider,  # noqa: PLC0415 — keeps the heavy dep off the import path
+            from products.workflows.backend.facade.api import (
+                update_ses_mail_from_subdomain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
             )
 
-            ses = SESProvider()
-            ses.update_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
+            update_ses_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:
@@ -132,24 +122,29 @@ class EmailIntegration:
 
         return self.integration
 
-    def verify(self):
+    def verify(self) -> "EmailDomainVerification":
         domain = self.integration.config.get("domain")
         provider = self.integration.config.get("provider", "ses")
         mail_from_subdomain = self.integration.config.get("mail_from_subdomain", "feedback")
 
+        verification_result: EmailDomainVerification
         # Use the appropriate provider for verification
         if provider == "ses":
-            verification_result = self.ses_provider.verify_email_domain(
+            from products.workflows.backend.facade.api import (
+                verify_ses_email_domain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+            )
+
+            verification_result = verify_ses_email_domain(
                 domain, mail_from_subdomain=mail_from_subdomain, team_id=self.integration.team_id
             )
         elif provider == "maildev":
-            from products.workflows.backend.providers import (
-                MAILDEV_MOCK_DNS_RECORDS,  # noqa: PLC0415 — keeps the heavy dep off the import path
+            from products.workflows.backend.facade.api import (
+                get_maildev_mock_dns_records,  # noqa: PLC0415 — keeps the workflows facade off the model import path
             )
 
             verification_result = {
                 "status": "success",
-                "dnsRecords": MAILDEV_MOCK_DNS_RECORDS,
+                "dnsRecords": get_maildev_mock_dns_records(),
             }
         else:
             raise ValueError(f"Invalid provider: {provider}")

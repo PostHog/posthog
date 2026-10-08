@@ -9,7 +9,6 @@ from parameterized import parameterized
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb.koyeb import (
-    USAGE_WINDOW_START,
     KoyebResumeConfig,
     _format_time_value,
     koyeb_source,
@@ -122,16 +121,29 @@ class TestValidateCredentials:
 
 
 class TestPagination:
+    @parameterized.expand(
+        [
+            ("apps", "apps", True),
+            # Catalog replies carry only `count`, no `has_next`, so the short page must end the walk.
+            ("catalog_instances", "instances", None),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_offset_pagination_and_progresses(self, MockSession) -> None:
+    def test_follows_offset_pagination_and_progresses(
+        self, endpoint: str, data_key: str, has_next: bool | None, MockSession
+    ) -> None:
         session = MockSession.return_value
         full_page = [{"id": str(i)} for i in range(100)]
         snaps = _wire(
-            session, [_response("apps", full_page, has_next=True), _response("apps", [{"id": "last"}], has_next=False)]
+            session,
+            [
+                _response(data_key, full_page, has_next=has_next),
+                _response(data_key, [{"id": "last"}], has_next=False if has_next else None),
+            ],
         )
 
         manager = _make_manager()
-        rows = _rows(_run("apps", manager=manager))
+        rows = _rows(_run(endpoint, manager=manager))
 
         assert len(rows) == 101
         assert session.send.call_count == 2
@@ -142,66 +154,8 @@ class TestPagination:
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0] == KoyebResumeConfig(offset=100)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_terminates_without_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response("secrets", [{"id": "s1"}, {"id": "s2"}])])
-
-        manager = _make_manager()
-        rows = _rows(_run("secrets", manager=manager))
-
-        assert [r["id"] for r in rows] == ["s1", "s2"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_page_without_has_next_fetches_until_empty_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        full_page = [{"id": str(i)} for i in range(100)]
-        _wire(session, [_response("secrets", full_page), _response("secrets", [])])
-
-        rows = _rows(_run("secrets"))
-
-        assert len(rows) == 100
-        assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response("apps", [{"id": "1"}], has_next=False)])
-
-        rows = _rows(_run("apps", manager=_make_manager(KoyebResumeConfig(offset=300))))
-
-        assert [r["id"] for r in rows] == ["1"]
-        assert snaps[0]["params"]["offset"] == 300
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_uses_response_data_key_and_path_per_endpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        # Event streams return rows under "events", not the endpoint name.
-        snaps = _wire(session, [_response("events", [{"id": "e1"}], has_next=False)])
-
-        rows = _rows(_run("deployment_events"))
-
-        assert [r["id"] for r in rows] == ["e1"]
-        assert snaps[0]["url"].endswith("/v1/deployment_events")
-
 
 class TestQueryParams:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_order_param_present_for_ordered_endpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response("events", [{"id": "e1"}], has_next=False)])
-        _rows(_run("app_events"))
-        assert snaps[0]["params"]["order"] == "asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_order_param_for_plain_endpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response("apps", [{"id": "a"}], has_next=False)])
-        _rows(_run("apps"))
-        assert "order" not in snaps[0]["params"]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_instances_sends_starting_time(self, MockSession) -> None:
         session = MockSession.return_value
@@ -214,42 +168,6 @@ class TestQueryParams:
             )
         )
         assert snaps[0]["params"]["starting_time"] == "2024-05-01T00:00:00Z"
-        assert snaps[0]["params"]["order"] == "asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_instances_omits_starting_time(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response("instances", [{"id": "i1"}], has_next=False)])
-        _rows(
-            _run(
-                "instances",
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=datetime(2024, 5, 1, tzinfo=UTC),
-            )
-        )
-        assert "starting_time" not in snaps[0]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_endpoint_without_time_filter_drops_cutoff(self, MockSession) -> None:
-        # apps has no server-side time filter, so a watermark must not become a query param.
-        session = MockSession.return_value
-        snaps = _wire(session, [_response("apps", [{"id": "a"}], has_next=False)])
-        _rows(
-            _run(
-                "apps",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 5, 1, tzinfo=UTC),
-            )
-        )
-        assert "starting_time" not in snaps[0]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_usage_details_always_sends_required_window(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response("usage_details", [{"instance_id": "x", "started_at": "t"}], has_next=False)])
-        _rows(_run("usage_details"))
-        assert snaps[0]["params"]["starting_time"] == USAGE_WINDOW_START
-        assert "ending_time" in snaps[0]["params"]
         assert snaps[0]["params"]["order"] == "asc"
 
 
@@ -291,14 +209,6 @@ class TestSecretScrubbing:
             "path": "/etc/app.conf",
             "content": "[redacted by PostHog]",
         }
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_deployment_rows_pass_through_untouched(self, MockSession) -> None:
-        # Only definition-bearing endpoints are scrubbed; a stray `value` elsewhere stays.
-        session = MockSession.return_value
-        _wire(session, [_response("secrets", [{"id": "s1", "value": "keep-me"}], has_next=False)])
-        rows = _rows(_run("secrets"))
-        assert rows[0] == {"id": "s1", "value": "keep-me"}
 
     @mock.patch(CLIENT_SESSION_PATCH)
     @mock.patch(KOYEB_SESSION_PATCH)

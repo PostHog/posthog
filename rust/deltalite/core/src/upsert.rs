@@ -9,8 +9,10 @@
 //! up to `max_parallel_files` concurrent readers feeding one writer task through a
 //! channel; every surviving batch holds byte-budget permits from decode until it has
 //! been handed to the write buffer, so decompressed survivor data in flight never
-//! exceeds the budget no matter what the product of the parallelism knobs is. All three
-//! budgets are enforced twice: per call (the `UpsertOptions` knobs) and per process
+//! exceeds the budget no matter what the product of the parallelism knobs is. Before a
+//! reader fetches anything it also takes a fetch-budget permit for the largest
+//! compressed row group it will pull from storage, which the decode budget cannot see.
+//! All budgets are enforced twice: per call (the `UpsertOptions` knobs) and per process
 //! ([`ProcessLimits`]), because production runs many upserts concurrently as threads in
 //! one worker process.
 //!
@@ -19,8 +21,9 @@
 //! only inside its worker -- transiently for the PK set (narrow columns) and the final
 //! write. Peak memory is bounded by `source (1x, shared with the caller)
 //!  + max_parallel_partitions * (one partition's slice + PK set + write buffer)
-//!  + max_buffered_bytes + in-flight read batches`, and the source term is guarded by
-//! [`crate::limits::check_source_size`].
+//!  + max_buffered_bytes + max_fetch_bytes`, and the source term is guarded by
+//! [`crate::limits::check_source_size`]. The write buffer is about one
+//! `target_file_size` per partition worker (see `crate::writer`).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -31,15 +34,18 @@ use arrow_cast::{cast_with_options, CastOptions};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use arrow_select::filter::filter_record_batch;
 use arrow_select::take::{take, take_record_batch};
+use delta_kernel::expressions::Scalar;
 use deltalake::kernel::transaction::{CommitBuilder, CommitProperties};
-use deltalake::kernel::{Action, MetadataExt as _, Remove, StructType};
+use deltalake::kernel::{Action, LogicalFileView, MetadataExt as _, Remove, StructType};
 use deltalake::protocol::checkpoints::{cleanup_metadata, create_checkpoint};
 use deltalake::protocol::{DeltaOperation, SaveMode};
 use deltalake::table::config::TablePropertiesExt;
-use deltalake::writer::{DeltaWriter, RecordBatchWriter};
+use deltalake::table::state::DeltaTableState;
+use deltalake::writer::RecordBatchWriter;
 use deltalake::{DeltaTable, ObjectStore, PartitionFilter, PartitionValue, Path};
 use futures::{StreamExt, TryStreamExt};
 use metrics::{counter, histogram};
+use parquet::arrow::arrow_reader::ArrowReaderMetadata;
 use parquet::arrow::async_reader::ParquetObjectReader;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::ProjectionMask;
@@ -55,15 +61,28 @@ use crate::limits::{
 };
 use crate::pkset::PkSet;
 use crate::schema::{cast_to_schema, unknown_columns};
+use crate::smallfile::{fetch_small_file, reads_whole, SmallFileStore};
+use crate::writer::StreamingWriter;
 
 /// One logical group of work: a partition value (or the whole table when unpartitioned).
 const WHOLE_TABLE: &str = "__deltalite_whole_table__";
 
 /// First-iteration pre-decode budget reservation for full-width row groups; adapts to
 /// the observed batch size after the first decode.
-const INITIAL_DECODE_ESTIMATE_BYTES: usize = 4 * 1024 * 1024;
+pub(crate) const INITIAL_DECODE_ESTIMATE_BYTES: usize = 4 * 1024 * 1024;
 /// First-iteration pre-decode reservation for narrow PK-column probe batches.
 const INITIAL_PROBE_ESTIMATE_BYTES: usize = 256 * 1024;
+
+/// Default per-call fetch budget. Readers of ordinary files (a few MB per row group)
+/// never wait on it at the default `max_parallel_files`; readers of files whose single
+/// row group is tens of MB do.
+pub const DEFAULT_MAX_FETCH_BYTES: usize = 128 * 1024 * 1024;
+
+/// Tail bytes fetched when a data file is opened. Without a hint parquet reads the
+/// 8-byte trailer first and the metadata second: two round trips per open. 64 KiB covers
+/// the footer of a file with on the order of a hundred columns, and over-fetching on a
+/// small file costs bytes, which are cheap, not a round trip, which is not.
+const FOOTER_SIZE_HINT: usize = 64 * 1024;
 
 /// Read batch size (in rows) that keeps a decoded batch near `target_bytes`, derived from
 /// the widest row group's average *uncompressed* bytes/row.
@@ -74,7 +93,11 @@ const INITIAL_PROBE_ESTIMATE_BYTES: usize = 256 * 1024;
 /// compressible rows can't inflate a single decoded batch far past the pre-decode reservation
 /// (which would otherwise sit unaccounted while the reader tops its permit up). Clamped to
 /// `[1, cap]`; falls back to `cap` when metadata carries no usable sizes.
-fn byte_bounded_batch_rows(meta: &ParquetMetaData, target_bytes: usize, cap: usize) -> usize {
+pub(crate) fn byte_bounded_batch_rows(
+    meta: &ParquetMetaData,
+    target_bytes: usize,
+    cap: usize,
+) -> usize {
     let max_bytes_per_row = meta
         .row_groups()
         .iter()
@@ -98,6 +121,28 @@ fn batch_rows_for_bytes_per_row(
         return cap;
     }
     (target_bytes / max_bytes_per_row).clamp(1, cap)
+}
+
+/// Compressed bytes the async reader fetches for the largest row group of a file,
+/// counting only the leaf columns under the projected root columns (`None` = all). The
+/// reader requests every projected column chunk of a row group at once and keeps them
+/// until the row group is decoded, so this is what one reader holds.
+pub(crate) fn max_row_group_fetch_bytes(meta: &ParquetMetaData, roots: Option<&[usize]>) -> usize {
+    let schema = meta.file_metadata().schema_descr();
+    meta.row_groups()
+        .iter()
+        .map(|rg| {
+            rg.columns()
+                .iter()
+                .enumerate()
+                .filter(|(leaf, _)| {
+                    roots.is_none_or(|r| r.contains(&schema.get_column_root_idx(*leaf)))
+                })
+                .map(|(_, c)| c.byte_range().1 as usize)
+                .sum::<usize>()
+        })
+        .max()
+        .unwrap_or(0)
 }
 
 /// How the set of existing files to rewrite is chosen within each affected partition.
@@ -173,6 +218,13 @@ pub struct UpsertOptions {
     /// call's partition workers and file readers. The process-wide cap in
     /// [`ProcessLimits`] applies on top.
     pub max_buffered_bytes: usize,
+    /// Per-call cap (bytes) on compressed row-group data that this call's readers hold
+    /// after fetching it from storage and before it is decoded. A reader reserves its
+    /// file's largest projected row group before fetching, so a table of large
+    /// single-row-group files runs fewer readers at once instead of holding
+    /// `max_parallel_files` whole files. A row group larger than the cap still runs, alone.
+    /// The process-wide cap in [`ProcessLimits`] applies on top.
+    pub max_fetch_bytes: usize,
     /// Commit retry budget handed to `CommitBuilder`.
     pub commit_max_retries: usize,
     /// Row-count granularity for Parquet reads and source-slice writes.
@@ -208,6 +260,7 @@ impl Default for UpsertOptions {
             probe_concurrency: 8,
             max_parallel_files: 4,
             max_buffered_bytes: 64 * 1024 * 1024,
+            max_fetch_bytes: DEFAULT_MAX_FETCH_BYTES,
             commit_max_retries: 15,
             read_batch_size: 8192,
             target_file_size: None,
@@ -321,11 +374,14 @@ impl RelaxCache {
 }
 
 /// A file selected for rewrite, with the metadata needed to tombstone it.
-struct TargetFile {
-    path: String,
-    size: u64,
-    stats: Option<String>,
-    remove: Remove,
+pub(crate) struct TargetFile {
+    pub(crate) path: String,
+    pub(crate) size: u64,
+    pub(crate) stats: Option<String>,
+    pub(crate) remove: Remove,
+    /// Footer the probe parsed, handed to the rewrite so a hit file is opened once. Lives
+    /// only as long as this partition's rewrite: the reader task consumes it.
+    pub(crate) metadata: Option<Arc<ParquetMetaData>>,
 }
 
 /// Which rows of one source batch belong to a partition. Chosen so the common shapes
@@ -446,7 +502,7 @@ struct PartitionOutcome {
 /// A unit of byte budget: one permit from the per-call budget and one from the
 /// process-global budget. Both ride with a batch from decode until the writer has
 /// copied it into its buffer.
-struct BudgetPermit {
+pub(crate) struct BudgetPermit {
     /// `None` only transiently inside `top_up`, while the estimate's permits have been
     /// released and the grown permits are being re-acquired.
     local: Option<OwnedSemaphorePermit>,
@@ -457,23 +513,74 @@ struct BudgetPermit {
     held_global_kb: u32,
 }
 
+/// Fetch-budget permits held by one reader from before its first data fetch until its
+/// stream is dropped.
+pub(crate) struct FetchPermit {
+    _local: OwnedSemaphorePermit,
+    _global: OwnedSemaphorePermit,
+}
+
 /// Per-call view of the budget semaphores plus their process-global counterparts.
 #[derive(Clone)]
-struct Budgets {
+pub(crate) struct Budgets {
     local: Arc<Semaphore>,
     local_cap_kb: u32,
+    fetch_local: Arc<Semaphore>,
+    fetch_local_cap_kb: u32,
     limits: Arc<ProcessLimits>,
 }
 
 impl Budgets {
+    pub(crate) fn new(
+        max_buffered_bytes: usize,
+        max_fetch_bytes: usize,
+        limits: Arc<ProcessLimits>,
+    ) -> Self {
+        // KiB units: tokio's acquire_many takes u32.
+        let local_cap_kb = (max_buffered_bytes / 1024).clamp(1, u32::MAX as usize) as u32;
+        let fetch_local_cap_kb = (max_fetch_bytes / 1024).clamp(1, u32::MAX as usize) as u32;
+        Self {
+            local: Arc::new(Semaphore::new(local_cap_kb as usize)),
+            local_cap_kb,
+            fetch_local: Arc::new(Semaphore::new(fetch_local_cap_kb as usize)),
+            fetch_local_cap_kb,
+            limits,
+        }
+    }
+
     fn kb(bytes: usize) -> u64 {
         (bytes / 1024).max(1) as u64
+    }
+
+    /// Reserve fetch budget for `bytes` of compressed row-group data, capped at each
+    /// budget's capacity so a row group larger than the whole budget still runs: it
+    /// takes all of it and runs alone. Local before global, as everywhere.
+    ///
+    /// Deadlock freedom: a reader takes this once per file, before it holds any decode
+    /// budget, and keeps it while it takes decode permits. Decode permits are released
+    /// by the writer task, which never waits on the fetch budget, so every fetch holder
+    /// can always finish and release.
+    pub(crate) async fn acquire_fetch(&self, bytes: usize) -> Result<FetchPermit> {
+        let want = Self::kb(bytes);
+        let local_kb = want.min(self.fetch_local_cap_kb as u64) as u32;
+        let global_kb = want.min(self.limits.fetch_cap_kb() as u64) as u32;
+        let local = self
+            .fetch_local
+            .clone()
+            .acquire_many_owned(local_kb)
+            .await
+            .map_err(|_| Error::Generic("fetch-budget semaphore closed".into()))?;
+        let global = self.limits.acquire_fetch_kb(global_kb).await?;
+        Ok(FetchPermit {
+            _local: local,
+            _global: global,
+        })
     }
 
     /// Acquire byte budget for `bytes`, capped at both budgets' capacities so a batch
     /// larger than either budget still makes progress. Local before global, the fixed
     /// order used everywhere (see `crate::limits` module docs).
-    async fn acquire_bytes(&self, bytes: usize) -> Result<BudgetPermit> {
+    pub(crate) async fn acquire_bytes(&self, bytes: usize) -> Result<BudgetPermit> {
         let want = Self::kb(bytes);
         let local_kb = want.min(self.local_cap_kb as u64) as u32;
         let global_kb = want.min(self.limits.buffer_cap_kb() as u64) as u32;
@@ -505,7 +612,7 @@ impl Budgets {
     /// while holding any of it, so some waiter can always make progress. The decoded batch
     /// stays resident during the brief re-acquire gap, but it is already allocated and the
     /// wait is bounded by the budget draining as writers flush.
-    async fn top_up(&self, permit: &mut BudgetPermit, total_bytes: usize) -> Result<()> {
+    pub(crate) async fn top_up(&self, permit: &mut BudgetPermit, total_bytes: usize) -> Result<()> {
         let want = Self::kb(total_bytes);
         let want_local = want.min(self.local_cap_kb as u64) as u32;
         let want_global = want.min(self.limits.buffer_cap_kb() as u64) as u32;
@@ -579,6 +686,22 @@ pub async fn upsert_cached(
     opts: UpsertOptions,
     relax_cache: &mut RelaxCache,
 ) -> Result<UpsertStats> {
+    upsert_cached_with_state(table, source_batches, source_schema, opts, relax_cache)
+        .await
+        .map(|(stats, _)| stats)
+}
+
+/// [`upsert_cached`] that also returns the table state delta-rs derived for the commit
+/// it wrote (what every delta-rs operation returns as its resulting table), so a
+/// long-lived handle can adopt it instead of reading the log again. When delta-rs had to
+/// retry the commit behind another writer, the state includes that writer's commit.
+pub async fn upsert_cached_with_state(
+    table: &DeltaTable,
+    source_batches: Vec<RecordBatch>,
+    source_schema: SchemaRef,
+    opts: UpsertOptions,
+    relax_cache: &mut RelaxCache,
+) -> Result<(UpsertStats, DeltaTableState)> {
     let started = Instant::now();
     let strategy = opts.prune_strategy.as_str();
     let result = upsert_with_relax(table, source_batches, source_schema, opts, relax_cache).await;
@@ -586,7 +709,7 @@ pub async fn upsert_cached(
     // Static label values only -- no per-call allocation (rust/CLAUDE.md).
     histogram!("deltalite_upsert_duration_seconds").record(started.elapsed().as_secs_f64());
     match &result {
-        Ok(stats) => {
+        Ok((stats, _)) => {
             counter!("deltalite_upserts_total", "outcome" => "ok", "prune_strategy" => strategy)
                 .increment(1);
             counter!("deltalite_files_added_total").increment(stats.files_added as u64);
@@ -628,12 +751,12 @@ async fn upsert_with_relax(
     source_schema: SchemaRef,
     opts: UpsertOptions,
     relax_cache: &mut RelaxCache,
-) -> Result<UpsertStats> {
+) -> Result<(UpsertStats, DeltaTableState)> {
     let relax_started = Instant::now();
     let relax = columns_needing_relax(table, &source_batches, &source_schema, relax_cache).await?;
     if relax.is_empty() {
         let relax_ms = relax_started.elapsed().as_millis() as u64;
-        let mut stats = upsert_inner(table, source_batches, source_schema, opts).await?;
+        let (mut stats, state) = upsert_inner(table, source_batches, source_schema, opts).await?;
         stats.relax_ms = relax_ms;
         // Our own commit added no nulls to the verified-clean columns (the source was
         // checked above; existing rows only move between files), so the memo may follow
@@ -642,19 +765,20 @@ async fn upsert_with_relax(
         if let Ok(committed) = u64::try_from(stats.version) {
             relax_cache.advance_own_commit(committed);
         }
-        return Ok(stats);
+        return Ok((stats, state));
     }
 
     relax_columns_to_nullable(table, &relax).await?;
     // Re-read the log so the writer (and every schema derived from the table) observes
-    // the relaxed metadata; the borrowed handle still sees the old snapshot.
+    // the relaxed metadata; the borrowed handle still sees the old snapshot. The state
+    // the upsert's commit then yields sits on top of the relax commit, so it is complete.
     let mut fresh = table.clone();
     fresh.update_incremental(None).await?;
     let relax_ms = relax_started.elapsed().as_millis() as u64;
-    let mut stats = upsert_inner(&fresh, source_batches, source_schema, opts).await?;
+    let (mut stats, state) = upsert_inner(&fresh, source_batches, source_schema, opts).await?;
     stats.columns_relaxed = relax.len();
     stats.relax_ms = relax_ms;
-    Ok(stats)
+    Ok((stats, state))
 }
 
 /// Non-nullable table columns that verifiably contain nulls -- in the incoming batch
@@ -785,7 +909,7 @@ async fn upsert_inner(
     mut source_batches: Vec<RecordBatch>,
     source_schema: SchemaRef,
     opts: UpsertOptions,
-) -> Result<UpsertStats> {
+) -> Result<(UpsertStats, DeltaTableState)> {
     if opts.primary_keys.is_empty() {
         return Err(Error::Generic(
             "primary_keys must not be empty for an upsert".into(),
@@ -872,9 +996,10 @@ async fn upsert_inner(
     let pk0_idx = table_schema.index_of(&opts.primary_keys[0]).ok();
 
     let plan_started = Instant::now();
-    let mut work = Vec::new();
-    for (value, source) in groups {
-        let files = list_partition_files(table, partition_col.as_deref(), &value).await?;
+    let values: Vec<&str> = groups.iter().map(|(v, _)| v.as_str()).collect();
+    let files_by_group = list_files_by_partition(table, partition_col.as_deref(), &values).await?;
+    let mut work = Vec::with_capacity(groups.len());
+    for ((value, source), files) in groups.into_iter().zip(files_by_group) {
         // Stats-based pruning is free (the Add-action stats are already in memory), so
         // both `Stats` and `Probe` apply it; `Probe` then verifies the survivors by
         // reading their PK columns inside the partition worker.
@@ -902,14 +1027,12 @@ async fn upsert_inner(
     let rewrite_started = Instant::now();
     let partitions_touched = work.len();
     let semaphore = Arc::new(Semaphore::new(opts.max_parallel_partitions.max(1)));
-    // Per-call byte budget in KiB units (tokio's acquire_many takes u32); the
-    // process-global budget in `opts.limits` applies on top of it.
-    let local_cap_kb: u32 = (opts.max_buffered_bytes / 1024).clamp(1, u32::MAX as usize) as u32;
-    let budgets = Budgets {
-        local: Arc::new(Semaphore::new(local_cap_kb as usize)),
-        local_cap_kb,
-        limits: opts.limits.clone(),
-    };
+    // Per-call budgets; the process-global ones in `opts.limits` apply on top.
+    let budgets = Budgets::new(
+        opts.max_buffered_bytes,
+        opts.max_fetch_bytes,
+        opts.limits.clone(),
+    );
     let opts = Arc::new(opts);
     let mut handles = Vec::new();
 
@@ -1043,7 +1166,7 @@ async fn upsert_inner(
         commit_ms = stats.commit_ms,
         "upsert committed"
     );
-    Ok(stats)
+    Ok((stats, finalized.snapshot))
 }
 
 /// Checkpoint and expired-log cleanup after a durable commit, tolerating failure: the
@@ -1052,7 +1175,11 @@ async fn upsert_inner(
 /// `checkpoint_interval` boundary; cleanup therefore also runs per boundary rather than
 /// per commit (as delta-rs's hook does) -- cleanup can only delete logs behind a
 /// checkpoint anyway, and gating it cuts the bulk-delete traffic by the interval factor.
-async fn best_effort_log_maintenance(table: &DeltaTable, version: u64, cleanup_enabled: bool) {
+pub(crate) async fn best_effort_log_maintenance(
+    table: &DeltaTable,
+    version: u64,
+    cleanup_enabled: bool,
+) {
     let result: std::result::Result<(), (&'static str, deltalake::DeltaTableError)> = async {
         let mut post = table.clone();
         post.update_incremental(None)
@@ -1119,7 +1246,7 @@ fn source_footprint(
 }
 
 /// Refuse tables whose features would make a blind file rewrite unsafe.
-fn ensure_supported_table(table: &DeltaTable) -> Result<()> {
+pub(crate) fn ensure_supported_table(table: &DeltaTable) -> Result<()> {
     let snapshot = table.snapshot()?;
     let protocol = snapshot.protocol();
 
@@ -1349,6 +1476,134 @@ fn source_pk_range(source: &PartitionSource, col_idx: usize) -> Result<Option<(V
     Ok(acc)
 }
 
+/// Live files of each partition in `values` (aligned with it), from ONE pass over the
+/// snapshot's live files. Filtering the snapshot once per partition costs O(partitions x
+/// live files): seconds of planning for a sync that touches a thousand partitions of a
+/// table with ten thousand files.
+///
+/// Each list keeps the snapshot's file order, as the per-partition filter did. Where
+/// the index cannot reproduce the filter's equality exactly, this falls back to it.
+async fn list_files_by_partition(
+    table: &DeltaTable,
+    partition_col: Option<&str>,
+    values: &[&str],
+) -> Result<Vec<Vec<TargetFile>>> {
+    if let Some(col) = partition_col {
+        if let Some(files) = index_partition_files(table, col, values).await? {
+            return Ok(files);
+        }
+        debug!(
+            partition_col = col,
+            "partition file index not applicable, filtering the snapshot per partition"
+        );
+    }
+    let mut out = Vec::with_capacity(values.len());
+    for value in values {
+        out.push(list_partition_files(table, partition_col, value).await?);
+    }
+    Ok(out)
+}
+
+/// The one-pass index behind [`list_files_by_partition`]. A file belongs to a partition
+/// value exactly when the delta-rs partition filter `col = value` keeps it: both sides
+/// are parsed into typed scalars by the kernel's own `parse_scalar` (the filter's parser),
+/// and a value that parses to NULL (the empty string) selects the NULL partition, as the
+/// filter's `IS NULL` rewrite does. Only the touched partitions' files are materialised.
+///
+/// Returns `None` when the index cannot reproduce the filter exactly: a floating-point
+/// or non-primitive partition column, a value that does not parse (the filter then
+/// raises the same error), or a file without parsed partition values.
+async fn index_partition_files(
+    table: &DeltaTable,
+    col: &str,
+    values: &[&str],
+) -> Result<Option<Vec<Vec<TargetFile>>>> {
+    let schema = table.snapshot()?.schema();
+    let Some(ptype) = schema
+        .field(col)
+        .and_then(|f| f.data_type().as_primitive_opt())
+    else {
+        return Ok(None);
+    };
+
+    // Distinct source strings can parse to the same scalar ("7" and "07" on a long
+    // column); each still gets the files, exactly as separate filter calls would.
+    let mut wanted: HashMap<PartitionKey, Vec<usize>> = HashMap::with_capacity(values.len());
+    for (i, value) in values.iter().enumerate() {
+        let Ok(scalar) = ptype.parse_scalar(value) else {
+            return Ok(None);
+        };
+        let Some(key) = PartitionKey::from_scalar(&scalar) else {
+            return Ok(None);
+        };
+        wanted.entry(key).or_default().push(i);
+    }
+
+    note_snapshot_scan();
+    let mut out: Vec<Vec<TargetFile>> = values.iter().map(|_| Vec::new()).collect();
+    let mut views = table.get_active_add_actions_by_partitions(&[]);
+    while let Some(view) = views.try_next().await? {
+        let Some(key) = file_partition_key(&view, col) else {
+            return Ok(None);
+        };
+        if let Some(slots) = wanted.get(&key) {
+            for &i in slots {
+                out[i].push(target_file(&view));
+            }
+        }
+    }
+    Ok(Some(out))
+}
+
+fn file_partition_key(view: &LogicalFileView, col: &str) -> Option<PartitionKey> {
+    let parsed = view.partition_values()?;
+    let idx = parsed.fields().iter().position(|f| f.name() == col)?;
+    PartitionKey::from_scalar(parsed.values().get(idx)?)
+}
+
+/// Hashable form of a parsed partition value, for the types whose SQL equality is plain
+/// value equality. Floats are left out: SQL equality has `-0.0 = 0.0` and `NaN != NaN`,
+/// which a bitwise key would get wrong. All values of one column share a type, so
+/// collapsing the integer-backed types into one variant cannot conflate two values.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum PartitionKey {
+    Null,
+    Int(i64),
+    Bool(bool),
+    Str(String),
+    Bytes(Vec<u8>),
+    Decimal(i128),
+}
+
+impl PartitionKey {
+    fn from_scalar(scalar: &Scalar) -> Option<Self> {
+        Some(match scalar {
+            Scalar::Null(_) => Self::Null,
+            Scalar::Byte(v) => Self::Int(i64::from(*v)),
+            Scalar::Short(v) => Self::Int(i64::from(*v)),
+            Scalar::Integer(v) | Scalar::Date(v) => Self::Int(i64::from(*v)),
+            Scalar::Long(v) | Scalar::Timestamp(v) | Scalar::TimestampNtz(v) => Self::Int(*v),
+            Scalar::Boolean(v) => Self::Bool(*v),
+            Scalar::String(v) => Self::Str(v.clone()),
+            Scalar::Binary(v) => Self::Bytes(v.clone()),
+            Scalar::Decimal(d) => Self::Decimal(d.bits()),
+            _ => return None,
+        })
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static SNAPSHOT_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Counts full passes over the snapshot's files, so a test can assert planning makes
+/// one per upsert rather than one per touched partition.
+fn note_snapshot_scan() {
+    #[cfg(test)]
+    SNAPSHOT_SCANS.with(|c| c.set(c.get() + 1));
+}
+
 async fn list_partition_files(
     table: &DeltaTable,
     partition_col: Option<&str>,
@@ -1362,20 +1617,72 @@ async fn list_partition_files(
         None => vec![],
     };
 
+    note_snapshot_scan();
     let views: Vec<_> = table
         .get_active_add_actions_by_partitions(&filters)
         .try_collect()
         .await?;
 
-    Ok(views
-        .into_iter()
-        .map(|v| TargetFile {
-            path: v.path().to_string(),
-            size: v.size() as u64,
-            stats: v.stats(),
-            remove: v.remove_action(true),
-        })
-        .collect())
+    Ok(views.iter().map(target_file).collect())
+}
+
+fn target_file(v: &LogicalFileView) -> TargetFile {
+    TargetFile {
+        path: v.path().to_string(),
+        size: v.size() as u64,
+        stats: v.stats(),
+        remove: v.remove_action(true),
+        metadata: None,
+    }
+}
+
+/// Open a Parquet stream builder for `f`. A footer the probe already parsed is reused
+/// without I/O; otherwise the footer is read with [`FOOTER_SIZE_HINT`] so it arrives in
+/// one round trip.
+///
+/// A file no larger than the hint is read whole in one request (see
+/// `crate::smallfile`). The fetch permit for those bytes is taken before the request and
+/// returned with the builder; it is the reader's one fetch permit for this file, so the
+/// caller must not take another.
+pub(crate) async fn open_builder(
+    store: &Arc<dyn ObjectStore>,
+    f: &TargetFile,
+    budgets: &Budgets,
+) -> Result<(
+    ParquetRecordBatchStreamBuilder<ParquetObjectReader>,
+    Option<FetchPermit>,
+)> {
+    let path = Path::parse(&f.path)
+        .map_err(|e| Error::Generic(format!("bad data file path {:?}: {e}", f.path)))?;
+    if let Some(meta) = &f.metadata {
+        let reader = ParquetObjectReader::new(store.clone(), path).with_file_size(f.size);
+        let arrow_meta = ArrowReaderMetadata::try_new(meta.clone(), Default::default())?;
+        return Ok((
+            ParquetRecordBatchStreamBuilder::new_with_metadata(reader, arrow_meta),
+            None,
+        ));
+    }
+    if reads_whole(f.size, FOOTER_SIZE_HINT as u64) {
+        let fetch = budgets.acquire_fetch(f.size as usize).await?;
+        if let Some(file) = fetch_small_file(store, &path, f.size).await? {
+            let store: Arc<dyn ObjectStore> =
+                Arc::new(SmallFileStore::new(store.clone(), path.clone(), file));
+            let reader = ParquetObjectReader::new(store, path).with_file_size(f.size);
+            return Ok((
+                ParquetRecordBatchStreamBuilder::new(
+                    reader.with_footer_size_hint(FOOTER_SIZE_HINT),
+                )
+                .await?,
+                Some(fetch),
+            ));
+        }
+    }
+    let reader = ParquetObjectReader::new(store.clone(), path).with_file_size(f.size);
+    Ok((
+        ParquetRecordBatchStreamBuilder::new(reader.with_footer_size_hint(FOOTER_SIZE_HINT))
+            .await?,
+        None,
+    ))
 }
 
 /// Drop files whose Add-action stats prove they hold no match: min/max disjointness on
@@ -1605,11 +1912,9 @@ async fn probe_file(
     partition_value: &str,
     opts: &UpsertOptions,
     budgets: &Budgets,
-) -> Result<bool> {
-    let path = Path::parse(&f.path)
-        .map_err(|e| Error::Generic(format!("bad data file path {:?}: {e}", f.path)))?;
-    let reader = ParquetObjectReader::new(store.clone(), path).with_file_size(f.size);
-    let builder = ParquetRecordBatchStreamBuilder::new(reader).await?;
+) -> Result<(bool, Arc<ParquetMetaData>)> {
+    let (builder, held_fetch) = open_builder(store, f, budgets).await?;
+    let metadata = builder.metadata().clone();
     let file_schema = builder.schema().clone();
 
     let mut pk_types: Vec<DataType> = Vec::with_capacity(opts.primary_keys.len());
@@ -1634,7 +1939,7 @@ async fn probe_file(
         } else {
             // The column is physically absent (file predates schema evolution): every
             // row has NULL for this PK component, and NULL never matches.
-            return Ok(false);
+            return Ok((false, metadata));
         }
     }
 
@@ -1649,9 +1954,21 @@ async fn probe_file(
             partition_value,
             &pk_types,
         )?;
-        return pkset.contains_any_columns(&cols, 1);
+        return Ok((pkset.contains_any_columns(&cols, 1)?, metadata));
     }
 
+    // Fetch budget before any data is fetched; held until the stream is gone.
+    let fetch = match held_fetch {
+        Some(fetch) => fetch,
+        None => {
+            budgets
+                .acquire_fetch(max_row_group_fetch_bytes(
+                    builder.metadata(),
+                    Some(&projection),
+                ))
+                .await?
+        }
+    };
     let mask = ProjectionMask::roots(builder.parquet_schema(), projection);
     let batch_rows = byte_bounded_batch_rows(
         builder.metadata(),
@@ -1686,14 +2003,20 @@ async fn probe_file(
         let hit = pkset.contains_any_columns(&cols, batch.num_rows())?;
         drop(permit);
         if hit {
-            return Ok(true);
+            drop(stream);
+            drop(fetch);
+            return Ok((true, metadata));
         }
     }
-    Ok(false)
+    drop(stream);
+    drop(fetch);
+    Ok((false, metadata))
 }
 
 /// Probe `files` with bounded concurrency, splitting them into (files that contain at
-/// least one match, count of files proven match-free). Order is preserved.
+/// least one match, count of files proven match-free). Order is preserved. Up to one
+/// reader wave of kept files carries the footer its probe parsed; retaining every hit
+/// footer would make memory grow with the partition's file count before rewrites start.
 #[allow(clippy::too_many_arguments)]
 async fn probe_files(
     store: &Arc<dyn ObjectStore>,
@@ -1705,10 +2028,10 @@ async fn probe_files(
     opts: &UpsertOptions,
     budgets: &Budgets,
 ) -> Result<(Vec<TargetFile>, usize)> {
-    let results: Vec<(TargetFile, bool)> = futures::stream::iter(files.into_iter().map(|f| {
+    let results = futures::stream::iter(files.into_iter().map(|f| {
         let store = store.clone();
         async move {
-            let hit = probe_file(
+            let (hit, metadata) = probe_file(
                 &store,
                 &f,
                 pkset,
@@ -1719,17 +2042,20 @@ async fn probe_files(
                 budgets,
             )
             .await?;
-            Ok::<_, Error>((f, hit))
+            Ok::<_, Error>((f, hit, metadata))
         }
     }))
-    .buffered(opts.probe_concurrency.max(1))
-    .try_collect()
-    .await?;
+    .buffered(opts.probe_concurrency.max(1));
+    futures::pin_mut!(results);
 
+    let retained_footer_limit = opts.max_parallel_files.max(1);
     let mut keep = Vec::new();
     let mut skipped = 0usize;
-    for (f, hit) in results {
+    while let Some((mut f, hit, metadata)) = results.try_next().await? {
         if hit {
+            if keep.len() < retained_footer_limit {
+                f.metadata = Some(metadata);
+            }
             keep.push(f);
         } else {
             skipped += 1;
@@ -1762,10 +2088,17 @@ async fn filter_file(
     budgets: Budgets,
     tx: mpsc::UnboundedSender<(RecordBatch, BudgetPermit)>,
 ) -> Result<FileOutcome> {
-    let path = Path::parse(&f.path)
-        .map_err(|e| Error::Generic(format!("bad data file path {:?}: {e}", f.path)))?;
-    let reader = ParquetObjectReader::new(store, path).with_file_size(f.size);
-    let builder = ParquetRecordBatchStreamBuilder::new(reader).await?;
+    let (builder, held_fetch) = open_builder(&store, &f, &budgets).await?;
+    // Reserve the compressed bytes the reader will hold before it fetches any data.
+    // Taken once per file and before any decode budget (see `Budgets::acquire_fetch`).
+    let fetch = match held_fetch {
+        Some(fetch) => fetch,
+        None => {
+            budgets
+                .acquire_fetch(max_row_group_fetch_bytes(builder.metadata(), None))
+                .await?
+        }
+    };
     let batch_rows = byte_bounded_batch_rows(
         builder.metadata(),
         INITIAL_DECODE_ESTIMATE_BYTES,
@@ -1817,6 +2150,9 @@ async fn filter_file(
         tx.send((survivors, permit))
             .map_err(|_| Error::Generic("writer task ended before its readers".into()))?;
     }
+    // The fetched row-group bytes live in the stream; release the budget only after it.
+    drop(stream);
+    drop(fetch);
 
     Ok(FileOutcome {
         rows_updated,
@@ -1882,7 +2218,7 @@ async fn rewrite_partition(
     // Insert phase done; from here the set is read-only and shared by every reader.
     let pkset = Arc::new(pkset);
 
-    let writer = RecordBatchWriter::for_table(table)?;
+    let writer = StreamingWriter::for_table(table)?;
     let store: Arc<dyn ObjectStore> = table.object_store();
 
     // Content-based file selection: keep only files that actually contain a matched
@@ -1921,13 +2257,13 @@ async fn rewrite_partition(
         let mut writer = writer;
         let mut adds = Vec::new();
         while let Some((batch, permit)) = rx.recv().await {
-            writer.write(batch).await?;
-            // The batch now lives (compressed) in the write buffer; release its budget.
+            writer.write(batch)?;
+            // The batch now lives (encoded) in the writer; release its budget.
             drop(permit);
 
-            // Bound resident memory: RecordBatchWriter buffers the whole partition as
-            // compressed Parquet until flushed, so flush on a size threshold instead of
-            // once at the end. Each flush yields Add actions and resets the buffer.
+            // Bound resident memory: the writer holds the open file until flushed, so
+            // flush on a size threshold instead of once at the end. Each flush yields
+            // Add actions and starts a new file.
             if writer.buffer_len() >= target_file_size {
                 adds.extend(writer.flush().await?);
             }
@@ -2012,7 +2348,7 @@ async fn rewrite_partition(
         let mut offset = 0usize;
         while offset < selected.num_rows() {
             let n = (selected.num_rows() - offset).min(opts.read_batch_size.max(1));
-            writer.write(selected.slice(offset, n)).await?;
+            writer.write(selected.slice(offset, n))?;
             offset += n;
             if writer.buffer_len() >= target_file_size {
                 adds.extend(writer.flush().await?);
@@ -2257,11 +2593,8 @@ mod tests {
     #[tokio::test]
     async fn budget_permit_tops_up_and_caps_at_capacity() {
         let limits = Arc::new(crate::limits::ProcessLimits::new(1, 1, 1024 * 1024));
-        let budgets = Budgets {
-            local: Arc::new(Semaphore::new(512)), // 512 KiB per-call budget
-            local_cap_kb: 512,
-            limits: limits.clone(),
-        };
+        // 512 KiB per-call budget.
+        let budgets = Budgets::new(512 * 1024, DEFAULT_MAX_FETCH_BYTES, limits.clone());
         // Pre-acquire a small estimate, then top up to something bigger.
         let mut p = budgets.acquire_bytes(64 * 1024).await.unwrap();
         assert_eq!(p.held_local_kb, 64);
@@ -2309,11 +2642,8 @@ mod tests {
         // estimate and none could grow -- a permanent wedge. Release-and-reacquire makes
         // them serialize instead, so every reader completes.
         let limits = Arc::new(crate::limits::ProcessLimits::new(1, 1, 100 * 1024));
-        let budgets = Budgets {
-            local: Arc::new(Semaphore::new(100)), // 100 KiB per-call budget
-            local_cap_kb: 100,
-            limits,
-        };
+        // 100 KiB per-call budget.
+        let budgets = Budgets::new(100 * 1024, DEFAULT_MAX_FETCH_BYTES, limits);
         let tasks: Vec<_> = (0..8)
             .map(|_| {
                 let budgets = budgets.clone();
@@ -2347,6 +2677,45 @@ mod tests {
         assert!(matches!(err, Error::SchemaMismatch(_)), "{err}");
     }
 
+    // ---- small files ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn a_small_file_is_fetched_only_under_its_fetch_permit() {
+        let batch = int_batch(&[1, 2, 3]);
+        let mut encoded = Vec::new();
+        let mut writer =
+            parquet::arrow::ArrowWriter::try_new(&mut encoded, batch.schema(), None).unwrap();
+        writer.write(&batch).unwrap();
+        writer.close().unwrap();
+        let store: Arc<dyn ObjectStore> = Arc::new(object_store::memory::InMemory::new());
+        let file = TargetFile {
+            size: encoded.len() as u64,
+            ..target_file(None)
+        };
+        object_store::ObjectStoreExt::put(
+            store.as_ref(),
+            &Path::from(file.path.as_str()),
+            encoded.into(),
+        )
+        .await
+        .unwrap();
+        let limits = Arc::new(ProcessLimits::with_fetch(1, 1, 1 << 20, 1 << 20));
+        let budgets = Budgets::new(1 << 20, 8 * 1024, limits);
+
+        let whole_budget = budgets.acquire_fetch(usize::MAX).await.unwrap();
+        let blocked = tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            open_builder(&store, &file, &budgets),
+        )
+        .await;
+        assert!(blocked.is_err(), "the open must wait for the fetch budget");
+
+        drop(whole_budget);
+        let (builder, fetch) = open_builder(&store, &file, &budgets).await.unwrap();
+        assert!(fetch.is_some(), "the reader holds the permit for the file");
+        assert_eq!(builder.metadata().file_metadata().num_rows(), 3);
+    }
+
     // ---- stats-based pruning ---------------------------------------------------------
 
     fn target_file(stats: Option<&str>) -> TargetFile {
@@ -2355,6 +2724,7 @@ mod tests {
             size: 1,
             stats: stats.map(|s| s.to_string()),
             remove: Remove::default(),
+            metadata: None,
         }
     }
 
@@ -2478,5 +2848,324 @@ mod tests {
         assert!(fp.pk_set_bytes >= b.column(1).get_array_memory_size());
         // Unknown PK column errors.
         assert!(source_footprint(&[b], &schema, &["nope".to_string()]).is_err());
+    }
+
+    // ---- partition file index --------------------------------------------------------
+
+    use arrow_array::{ArrayRef, Date32Array, Float64Array};
+    use deltalake::kernel::{DataType as KernelType, StructField};
+    use deltalake::operations::create::CreateBuilder;
+    use deltalake::writer::DeltaWriter;
+
+    fn scans() -> usize {
+        SNAPSHOT_SCANS.with(|c| c.get())
+    }
+
+    fn arrow_type(t: &KernelType) -> DataType {
+        match t {
+            t if *t == KernelType::STRING => DataType::Utf8,
+            t if *t == KernelType::LONG => DataType::Int64,
+            t if *t == KernelType::DATE => DataType::Date32,
+            t if *t == KernelType::DOUBLE => DataType::Float64,
+            other => panic!("no fixture mapping for {other:?}"),
+        }
+    }
+
+    fn fixture_schema(ptype: Option<&KernelType>) -> SchemaRef {
+        let mut fields = vec![
+            AField::new("pk", DataType::Utf8, false),
+            AField::new("v", DataType::Int64, true),
+        ];
+        if let Some(t) = ptype {
+            fields.push(AField::new("p", arrow_type(t), true));
+        }
+        Arc::new(Schema::new(fields))
+    }
+
+    fn fixture_rows(
+        schema: &SchemaRef,
+        tag: &str,
+        parts: Option<ArrayRef>,
+        n: usize,
+    ) -> RecordBatch {
+        let pks: Vec<String> = (0..n).map(|i| format!("{tag}-{i}")).collect();
+        let mut cols: Vec<ArrayRef> = vec![
+            Arc::new(StringArray::from(pks)),
+            Arc::new(Int64Array::from((0..n as i64).collect::<Vec<_>>())),
+        ];
+        cols.extend(parts);
+        RecordBatch::try_new(schema.clone(), cols).unwrap()
+    }
+
+    /// A table with one file per distinct partition value per commit, so partitions
+    /// listed in several commits hold several live files.
+    async fn fixture_table(
+        dir: &std::path::Path,
+        ptype: Option<KernelType>,
+        commits: Vec<ArrayRef>,
+    ) -> DeltaTable {
+        let mut create = CreateBuilder::new()
+            .with_location(dir.to_str().unwrap())
+            .with_columns(vec![
+                StructField::new("pk", KernelType::STRING, false),
+                StructField::new("v", KernelType::LONG, true),
+            ]);
+        if let Some(t) = &ptype {
+            create = create
+                .with_columns(vec![StructField::new("p", t.clone(), true)])
+                .with_partition_columns(vec!["p".to_string()]);
+        }
+        let mut table = create.await.unwrap();
+        let schema = fixture_schema(ptype.as_ref());
+        for (c, parts) in commits.into_iter().enumerate() {
+            let n = parts.len();
+            let p = ptype.is_some().then_some(parts);
+            let mut w = RecordBatchWriter::for_table(&table).unwrap();
+            w.write(fixture_rows(&schema, &format!("c{c}"), p, n))
+                .await
+                .unwrap();
+            w.flush_and_commit(&mut table).await.unwrap();
+        }
+        table
+    }
+
+    /// Update the given commit-0 rows through `upsert`, so the table carries tombstoned
+    /// files that the listing must not return.
+    async fn tombstone_rows(
+        table: &mut DeltaTable,
+        ptype: Option<&KernelType>,
+        commit0: &ArrayRef,
+        rows: &[u32],
+    ) {
+        let schema = fixture_schema(ptype);
+        let pks: Vec<String> = rows.iter().map(|i| format!("c0-{i}")).collect();
+        let mut cols: Vec<ArrayRef> = vec![
+            Arc::new(StringArray::from(pks)),
+            Arc::new(Int64Array::from(vec![-1; rows.len()])),
+        ];
+        if ptype.is_some() {
+            cols.push(take(commit0.as_ref(), &UInt32Array::from(rows.to_vec()), None).unwrap());
+        }
+        let stats = upsert(
+            table,
+            vec![RecordBatch::try_new(schema.clone(), cols).unwrap()],
+            schema,
+            UpsertOptions {
+                primary_keys: vec!["pk".to_string()],
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(stats.rows_updated, rows.len());
+        assert!(stats.files_removed > 0);
+        table.load().await.unwrap();
+    }
+
+    type Fingerprint = Vec<(String, u64, Option<String>, String)>;
+
+    fn fingerprint(files: &[TargetFile]) -> Fingerprint {
+        files
+            .iter()
+            .map(|f| {
+                (
+                    f.path.clone(),
+                    f.size,
+                    f.stats.clone(),
+                    f.remove.path.clone(),
+                )
+            })
+            .collect()
+    }
+
+    /// The index must return, for every lookup value, exactly the files (in order) the
+    /// per-partition filter returns, using `expected_scans` passes over the snapshot.
+    async fn assert_index_matches_filter(
+        table: &DeltaTable,
+        col: Option<&str>,
+        lookups: &[&str],
+        expected_scans: usize,
+    ) -> Vec<Fingerprint> {
+        let before = scans();
+        let indexed = list_files_by_partition(table, col, lookups).await.unwrap();
+        assert_eq!(scans() - before, expected_scans, "snapshot passes");
+        assert_eq!(indexed.len(), lookups.len());
+        let mut out = Vec::new();
+        for (value, got) in lookups.iter().zip(&indexed) {
+            let want = list_partition_files(table, col, value).await.unwrap();
+            assert_eq!(fingerprint(got), fingerprint(&want), "partition {value:?}");
+            out.push(fingerprint(got));
+        }
+        out
+    }
+
+    fn strs(v: &[Option<&str>]) -> ArrayRef {
+        Arc::new(StringArray::from(v.to_vec()))
+    }
+
+    #[tokio::test]
+    async fn partition_index_matches_filter_for_encoded_and_null_string_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = [
+            Some("a"),
+            Some("a b"),
+            Some("a/b"),
+            Some("100%"),
+            Some("x=y"),
+            Some("é"),
+            Some("#?&"),
+            Some("it's"),
+            Some("A"),
+            None,
+        ];
+        let commit0 = strs(&first);
+        let mut table = fixture_table(
+            dir.path(),
+            Some(KernelType::STRING),
+            vec![commit0.clone(), strs(&[Some("a"), Some("100%"), None])],
+        )
+        .await;
+        tombstone_rows(&mut table, Some(&KernelType::STRING), &commit0, &[0, 2, 5]).await;
+
+        let lookups = [
+            "a", "a b", "a/b", "100%", "x=y", "é", "#?&", "it's", "A", "", "zzz", "a ", "a%2Fb",
+        ];
+        let got = assert_index_matches_filter(&table, Some("p"), &lookups, 1).await;
+        let count = |v: &str| got[lookups.iter().position(|l| *l == v).unwrap()].len();
+        // Commit 1 added a second file to "a"; the tombstoned commit-0 file is gone and its
+        // rewrite is live.
+        assert_eq!(count("a"), 2);
+        assert_eq!(count("zzz"), 0);
+        assert_eq!(count("a%2Fb"), 0);
+        assert_eq!(count("a/b"), 1);
+        // The empty string parses to NULL, which the filter turns into `p IS NULL`.
+        assert_eq!(count(""), 2);
+    }
+
+    #[tokio::test]
+    async fn partition_index_matches_filter_for_typed_partition_columns() {
+        let dir = tempfile::tempdir().unwrap();
+        let longs = |v: &[Option<i64>]| -> ArrayRef { Arc::new(Int64Array::from(v.to_vec())) };
+        let commit0 = longs(&[Some(1), Some(2), Some(7), Some(-3), None]);
+        let mut table = fixture_table(
+            dir.path(),
+            Some(KernelType::LONG),
+            vec![commit0.clone(), longs(&[Some(7), None])],
+        )
+        .await;
+        tombstone_rows(&mut table, Some(&KernelType::LONG), &commit0, &[1, 2]).await;
+        // "07" and "+7" parse to the same long as "7": each gets the same files.
+        let lookups = ["1", "2", "7", "07", "+7", "-3", "", "99"];
+        let got = assert_index_matches_filter(&table, Some("p"), &lookups, 1).await;
+        assert_eq!(got[2].len(), 2);
+        assert_eq!(got[2], got[3]);
+        assert_eq!(got[6].len(), 2);
+
+        // A value the column type cannot parse: the filter raises, and so does the index.
+        assert!(list_files_by_partition(&table, Some("p"), &["7", "x"])
+            .await
+            .is_err());
+        assert!(list_partition_files(&table, Some("p"), "x").await.is_err());
+
+        let dir = tempfile::tempdir().unwrap();
+        let dates = |v: &[Option<i32>]| -> ArrayRef { Arc::new(Date32Array::from(v.to_vec())) };
+        let table = fixture_table(
+            dir.path(),
+            Some(KernelType::DATE),
+            vec![
+                dates(&[Some(19723), Some(19724), None]),
+                dates(&[Some(19724)]),
+            ],
+        )
+        .await;
+        let lookups = ["2024-01-01", "2024-01-02", "", "2023-12-31"];
+        let got = assert_index_matches_filter(&table, Some("p"), &lookups, 1).await;
+        assert_eq!(got[1].len(), 2);
+    }
+
+    #[tokio::test]
+    async fn partition_index_falls_back_to_the_filter_for_float_columns() {
+        let dir = tempfile::tempdir().unwrap();
+        let doubles = |v: &[Option<f64>]| -> ArrayRef { Arc::new(Float64Array::from(v.to_vec())) };
+        let table = fixture_table(
+            dir.path(),
+            Some(KernelType::DOUBLE),
+            vec![doubles(&[Some(0.5), Some(1.0), None])],
+        )
+        .await;
+        let lookups = ["0.5", "1", "1.0", ""];
+        assert_index_matches_filter(&table, Some("p"), &lookups, lookups.len()).await;
+    }
+
+    #[tokio::test]
+    async fn partition_index_matches_filter_for_unpartitioned_tables() {
+        let dir = tempfile::tempdir().unwrap();
+        let dummy = || -> ArrayRef { Arc::new(StringArray::from(vec!["-"; 3])) };
+        let mut table = fixture_table(dir.path(), None, vec![dummy(), dummy()]).await;
+        tombstone_rows(&mut table, None, &dummy(), &[0]).await;
+        let got = assert_index_matches_filter(&table, None, &[WHOLE_TABLE], 1).await;
+        assert_eq!(got[0].len(), 2);
+    }
+
+    fn many_parts(n: usize, step: usize) -> ArrayRef {
+        let v: Vec<String> = (0..n).step_by(step).map(|i| format!("p{i:04}")).collect();
+        Arc::new(StringArray::from(v))
+    }
+
+    #[tokio::test]
+    async fn partition_index_matches_filter_across_many_partitions() {
+        let dir = tempfile::tempdir().unwrap();
+        let commit0 = many_parts(300, 1);
+        let mut table = fixture_table(
+            dir.path(),
+            Some(KernelType::STRING),
+            vec![commit0.clone(), many_parts(300, 7)],
+        )
+        .await;
+        let rows: Vec<u32> = (0..300).step_by(11).collect();
+        tombstone_rows(&mut table, Some(&KernelType::STRING), &commit0, &rows).await;
+        let mut values: Vec<String> = (0..300).map(|i| format!("p{i:04}")).collect();
+        values.push("p9999".to_string());
+        let lookups: Vec<&str> = values.iter().map(String::as_str).collect();
+        let got = assert_index_matches_filter(&table, Some("p"), &lookups, 1).await;
+        assert_eq!(
+            got.iter().map(Vec::len).sum::<usize>(),
+            300 + 300_usize.div_ceil(7)
+        );
+    }
+
+    #[tokio::test]
+    async fn upsert_planning_passes_over_the_snapshot_once_whatever_it_touches() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut table = fixture_table(
+            dir.path(),
+            Some(KernelType::STRING),
+            vec![many_parts(200, 1)],
+        )
+        .await;
+        let schema = fixture_schema(Some(&KernelType::STRING));
+        for touched in [1usize, 100] {
+            let parts = many_parts(touched, 1);
+            let before = scans();
+            let stats = upsert(
+                &table,
+                vec![fixture_rows(
+                    &schema,
+                    &format!("new{touched}"),
+                    Some(parts),
+                    touched,
+                )],
+                schema.clone(),
+                UpsertOptions {
+                    primary_keys: vec!["pk".to_string()],
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(stats.partitions_touched, touched);
+            assert_eq!(scans() - before, 1, "touched {touched} partitions");
+            table.load().await.unwrap();
+        }
     }
 }

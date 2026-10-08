@@ -1,8 +1,8 @@
 // Analytics event types and properties
 
-import type { Adapter, ModelAccess } from "./adapter";
-import type { EffortLevel } from "./domain-types";
-import type { SourceProduct } from "./inbox-types";
+import type { Adapter, ModelAccess } from "@posthog/agent-contracts/adapter";
+import type { EffortLevel } from "@posthog/agent-contracts/domain-types";
+import type { SourceProduct } from "@posthog/agent-contracts/inbox-types";
 
 export interface PromptHistoryOpenedProperties {
   entry_count: number;
@@ -144,6 +144,7 @@ export interface TaskRunStartedProperties {
   model?: string;
   initial_mode?: string;
   adapter?: string;
+  gateway_mode?: "legacy" | "go";
 }
 
 export interface TaskRunCompletedProperties {
@@ -1351,6 +1352,12 @@ export interface CanvasViewedProperties {
   template_id: string;
 }
 
+export interface CanvasUnavailableProperties {
+  dashboard_id: string;
+  /** `no_access`: the canvas is in a space not shared with the viewer. `missing`: any other miss. */
+  reason: "no_access" | "missing";
+}
+
 export interface CanvasRuntimeErrorProperties {
   channel_id?: string;
   dashboard_id?: string;
@@ -1364,6 +1371,22 @@ export interface CanvasRuntimeErrorProperties {
   error_type: string;
   /** CSP directive only; blocked URLs never cross into analytics. */
   csp_directive?: string;
+}
+
+export interface CanvasDataRequestRejectedProperties {
+  /** Which host bridge refused it: the authoring sandbox or a published build. */
+  surface: "freeform" | "built";
+  /**
+   * Why the host refused it. The request method only — never the payload, which
+   * is agent-authored and can carry query results.
+   */
+  reason:
+    | "payload-too-large"
+    | "data-queue-full"
+    | "connector-queue-full"
+    | "needs-user-action"
+    | "agent-needs-user-action";
+  method: string;
 }
 
 export type ContextActionType =
@@ -1409,7 +1432,11 @@ export type UpgradePromptClickedSurface =
   | "billing_announcement"
   | "model_picker";
 
-type UpgradePromptCause = "model_gate" | "model_unavailable" | "org_limit";
+type UpgradePromptCause =
+  | "model_gate"
+  | "model_unavailable"
+  | "org_limit"
+  | "user_limit";
 
 export interface UpgradePromptShownProperties {
   surface: UpgradePromptShownSurface;
@@ -1608,6 +1635,7 @@ export interface AnnouncementProperties {
 export interface EvidencePreviewShownProperties {
   kind: string;
   cache: "hit" | "miss";
+  reference_source: "link" | "tag";
 }
 
 export interface EvidencePreviewReadyProperties {
@@ -1830,8 +1858,10 @@ export const ANALYTICS_EVENTS = {
   DASHBOARD_ACTION: "Dashboard action",
   CANVAS_PROMPT_SENT: "Canvas prompt sent",
   CANVAS_VIEWED: "Canvas viewed",
+  CANVAS_UNAVAILABLE: "Canvas unavailable",
   CANVAS_RENDERED: "Canvas rendered",
   CANVAS_RUNTIME_ERROR: "Canvas runtime error",
+  CANVAS_DATA_REQUEST_REJECTED: "Canvas data request rejected",
   CONTEXT_ACTION: "Context action",
   PROJECT_MENU_ACTION: "Project menu action",
 
@@ -2053,8 +2083,10 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.DASHBOARD_ACTION]: DashboardActionProperties;
   [ANALYTICS_EVENTS.CANVAS_PROMPT_SENT]: CanvasPromptSentProperties;
   [ANALYTICS_EVENTS.CANVAS_VIEWED]: CanvasViewedProperties;
+  [ANALYTICS_EVENTS.CANVAS_UNAVAILABLE]: CanvasUnavailableProperties;
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
   [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
+  [ANALYTICS_EVENTS.CANVAS_DATA_REQUEST_REJECTED]: CanvasDataRequestRejectedProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
   [ANALYTICS_EVENTS.PROJECT_MENU_ACTION]: ProjectMenuActionProperties;
 

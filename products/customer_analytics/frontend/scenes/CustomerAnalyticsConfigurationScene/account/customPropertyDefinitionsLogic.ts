@@ -244,6 +244,7 @@ export interface customPropertyDefinitionsLogicValues {
     customPropertyFormValidationErrors: DeepPartialMap<CustomPropertyFormValues, ValidationErrorType>
     definitions: CustomPropertyDefinitionApi[]
     definitionsInitialLoading: boolean
+    definitionsLoadFailed: boolean
     definitionsLoading: boolean
     editingDefinition: CustomPropertyDefinitionApi | null
     editingHasWorkflowReference: boolean
@@ -639,6 +640,14 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         pollRunsStatus: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
     }),
     reducers({
+        definitionsLoadFailed: [
+            false,
+            {
+                loadDefinitions: () => false,
+                loadDefinitionsSuccess: () => false,
+                loadDefinitionsFailure: () => true,
+            },
+        ],
         searchTerm: [
             '',
             {

@@ -10,12 +10,18 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.scoping.manager import resolve_effective_team_id
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.review_hog.backend.models import ReviewUserSettings
 from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_authoring
 from products.stamphog.backend.facade.api import has_reviewable_repo_config
 
 logger = logging.getLogger(__name__)
+
+
+def has_internal_features(team_id: int) -> bool:
+    """Whether a project gets Flash and the automation settings: only the first configured ReviewHog team."""
+    return bool(settings.REVIEWHOG_TEAM_IDS and team_id == settings.REVIEWHOG_TEAM_IDS[0])
 
 
 class ReviewUserSettingsSerializer(serializers.ModelSerializer):
@@ -43,6 +49,12 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
         "branch, and reply on every thread. On by default; turning it off makes reviews stop at "
         "publishing.",
     )
+    celebrate_clean_reviews = serializers.BooleanField(
+        required=False,
+        help_text="Show a fun image in the review comment when a review of this user's pull requests "
+        "finds nothing to raise. On by default; turning it off makes clean reviews end with the "
+        "text summary only.",
+    )
     review_authored_prs = serializers.BooleanField(
         required=False,
         help_text="Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. "
@@ -63,8 +75,10 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
         "blocking issues.",
     )
     can_trigger_reviews = serializers.SerializerMethodField(
-        help_text="Whether reviews can be started from this project's Code review page (the UI trigger "
-        "is limited to the designated ReviewHog teams while the product is in alpha).",
+        help_text="Whether reviews can be started from this project's Code review page.",
+    )
+    show_internal_features = serializers.SerializerMethodField(
+        help_text="Whether to show Flash mode and settings for automatic, label-triggered, and Inbox reviews.",
     )
     stamphog_connected = serializers.SerializerMethodField(
         help_text="Whether this project has at least one synced, enabled Stamphog repository. When "
@@ -79,19 +93,27 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
             "stamphog_review_inbox_prs",
             "review_labeled_prs",
             "resolve_comments",
+            "celebrate_clean_reviews",
             "review_authored_prs",
             "flash_reasoning_effort",
             "urgency_threshold",
             "can_trigger_reviews",
+            "show_internal_features",
             "stamphog_connected",
         ]
 
     @extend_schema_field(serializers.BooleanField())
     def get_can_trigger_reviews(self, instance: ReviewUserSettings) -> bool:
-        return instance.team_id in settings.REVIEWHOG_TEAM_IDS
+        return True
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_show_internal_features(self, instance: ReviewUserSettings) -> bool:
+        return has_internal_features(instance.team_id)
 
     @extend_schema_field(serializers.BooleanField())
     def get_stamphog_connected(self, instance: ReviewUserSettings) -> bool:
+        if not self.get_show_internal_features(instance):
+            return False
         # This reads the stamphog product DB, which can fail fast on its own circuit breaker. An
         # informational UI flag must not fail the settings endpoint, so fall back to False.
         try:
@@ -107,10 +129,12 @@ class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     Sibling of the perspective/validator/blind-spots config viewsets: skills control *how* a review
     runs, this controls *what gets reviewed* (trigger opt-outs) and *how strict publishing is*
     (urgency threshold). Per-user like the skill configs — the workflow reads the PR author's row.
-    Deliberately not staff-gated (the alpha gate is UI visibility only): every row is self-scoped.
+    Every row is self-scoped, and the review-hog feature flag controls project access.
     """
 
     scope_object = "INTERNAL"
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = "review-hog"
     # Unscoped only to satisfy the router/introspection; every real query goes through `for_team`.
     queryset = ReviewUserSettings.objects.unscoped()
     serializer_class = ReviewUserSettingsSerializer

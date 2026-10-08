@@ -752,6 +752,14 @@ export const SelectionModeEnumApi = {
     Multiple: 'multiple',
 } as const
 
+export interface CategoricalScorePassingRuleApi {
+    /**
+     * Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.
+     * @items.maxLength 128
+     */
+    categories: string[]
+}
+
 export interface CategoricalScoreDefinitionConfigApi {
     /** Ordered categorical options available to the scorer. */
     options: CategoricalScoreOptionApi[]
@@ -772,6 +780,30 @@ export interface CategoricalScoreDefinitionConfigApi {
      * @nullable
      */
     max_selections?: number | null
+    /** Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
+    passing_rule?: CategoricalScorePassingRuleApi | null
+}
+
+/**
+ * * `gte` - At or above
+ * * `lte` - At or below
+ */
+export type NumericScorePassingRuleSerializerOperatorEnumApi =
+    (typeof NumericScorePassingRuleSerializerOperatorEnumApi)[keyof typeof NumericScorePassingRuleSerializerOperatorEnumApi]
+
+export const NumericScorePassingRuleSerializerOperatorEnumApi = {
+    Gte: 'gte',
+    Lte: 'lte',
+} as const
+
+export interface NumericScorePassingRuleApi {
+    /** Pass at or above (gte), or at or below (lte), the threshold.
+     *
+     * * `gte` - At or above
+     * * `lte` - At or below */
+    operator: NumericScorePassingRuleSerializerOperatorEnumApi
+    /** Finite passing threshold within any configured score bounds. */
+    threshold: number
 }
 
 export interface NumericScoreDefinitionConfigApi {
@@ -790,9 +822,16 @@ export interface NumericScoreDefinitionConfigApi {
      * @nullable
      */
     step?: number | null
+    /** Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
+    passing_rule?: NumericScorePassingRuleApi | null
 }
 
 export interface BooleanScoreDefinitionConfigApi {
+    /**
+     * Whether true means failure. False, omitted, or null means true passes in offline evaluations.
+     * @nullable
+     */
+    true_is_failure?: boolean | null
     /** Optional label for a true value. */
     true_label?: string
     /** Optional label for a false value. */
@@ -956,6 +995,13 @@ export interface OfflineResultPageApi {
     results: OfflineResultReadApi[]
 }
 
+export interface OfflineResultCellsApi {
+    /** Selected authorized versions, including versions with no results for these items. */
+    scorer_versions: OfflineScorerVersionReadApi[]
+    /** Submitted results for the exact selected items and versions; at most 1,000 cells. */
+    results: OfflineResultCellApi[]
+}
+
 /**
  * @nullable
  */
@@ -1056,6 +1102,21 @@ export interface OfflineScorerSummaryApi {
      * @nullable
      */
     true_rate: number | null
+    /**
+     * Successful results passing the pinned rule. Boolean scores default to true passing; null for unconfigured numeric or categorical scorers.
+     * @nullable
+     */
+    pass_count: number | null
+    /**
+     * Successful results failing the pinned rule; null for unconfigured numeric or categorical scorers.
+     * @nullable
+     */
+    fail_count: number | null
+    /**
+     * Passing fraction among successful results; null without successful results or an applicable rule. Boolean scores default to true passing. Excludes errors, skipped, not-applicable, and missing results.
+     * @nullable
+     */
+    pass_rate: number | null
     /** Pinned categorical distribution; multiselect rates may sum above one. */
     categories: OfflineCategorySummaryApi[]
 }
@@ -1209,6 +1270,64 @@ export interface OfflineHistoryPageApi {
     next_cursor: string | null
     /** Experiment/scorer-version history page. */
     results: OfflineHistoryPointApi[]
+}
+
+export interface TracePersonApi {
+    distinctId: string
+    label: string
+}
+
+export interface TraceNodeStatsApi {
+    costUsd: number | null
+    inputTokens: number | null
+    outputTokens: number | null
+    cacheReadTokens: number | null
+    cacheWriteTokens: number | null
+    latencyMs: number | null
+}
+
+export type TraceNodeKindEnumApi = (typeof TraceNodeKindEnumApi)[keyof typeof TraceNodeKindEnumApi]
+
+export const TraceNodeKindEnumApi = {
+    Trace: 'trace',
+    Span: 'span',
+    Generation: 'generation',
+    Embedding: 'embedding',
+} as const
+
+export interface TraceNodeApi {
+    id: string
+    kind: TraceNodeKindEnumApi
+    name: string
+    model: string | null
+    stats: TraceNodeStatsApi
+    hasError: boolean
+    children: TraceNodeApi[]
+}
+
+export interface TraceTimelineRowApi {
+    id: string
+    kind: TraceNodeKindEnumApi
+    name: string
+    depth: number
+    startMs: number
+    durationMs: number | null
+    hasError: boolean
+}
+
+export interface TraceApi {
+    id: string
+    name: string | null
+    createdAt: string
+    sessionId: string | null
+    person: TracePersonApi | null
+    totals: TraceNodeStatsApi
+    hasError: boolean
+    errorCount: number
+    tree: TraceNodeApi[]
+    timeline: TraceTimelineRowApi[]
+    totalMs: number
+    threadNodeIds: string[]
 }
 
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
@@ -1701,6 +1820,7 @@ export const EvaluationStatusEnumApi = {
  * * `provider_key_quota_exceeded` - Provider API key quota exceeded
  * * `provider_key_rate_limited` - Provider API key is rate limited
  * * `model_not_found` - Model not found
+ * * `model_not_supported` - Model does not support chat completions
  * * `hog_error` - Hog evaluation code failed
  */
 export type EvaluationStatusReasonEnumApi =
@@ -1715,6 +1835,7 @@ export const EvaluationStatusReasonEnumApi = {
     ProviderKeyQuotaExceeded: 'provider_key_quota_exceeded',
     ProviderKeyRateLimited: 'provider_key_rate_limited',
     ModelNotFound: 'model_not_found',
+    ModelNotSupported: 'model_not_supported',
     HogError: 'hog_error',
 } as const
 
@@ -1801,6 +1922,7 @@ export const EvaluationTargetEnumApi = {
  * * `together_ai` - Together AI
  * * `minimax` - MiniMax
  * * `zeabur` - Zeabur AI Hub
+ * * `system_one` - System One
  * * `openai_compatible` - OpenAI-compatible
  */
 export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
@@ -1815,6 +1937,7 @@ export const LLMProviderEnumApi = {
     TogetherAi: 'together_ai',
     Minimax: 'minimax',
     Zeabur: 'zeabur',
+    SystemOne: 'system_one',
     OpenaiCompatible: 'openai_compatible',
 } as const
 
@@ -1898,12 +2021,12 @@ export type EvaluationApiOutputConfig = {
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -2219,12 +2342,12 @@ export type PatchedEvaluationApiOutputConfig = {
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -2398,12 +2521,12 @@ export type TestHogRequestApiOutputConfig = {
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -2772,6 +2895,23 @@ export interface LLMProviderKeyApi {
     readonly error_message: string | null
     api_key?: string
     readonly api_key_masked: string
+    /** Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before /systemone. */
+    base_url?: string
+    /**
+     * Model ID served by the System One endpoint.
+     * @maxLength 100
+     */
+    system_one_model?: string
+    /**
+     * Configured provider base URL (read-only, for display)
+     * @nullable
+     */
+    readonly base_url_display: string | null
+    /**
+     * Configured System One model ID.
+     * @nullable
+     */
+    readonly system_one_model_display: string | null
     /** Azure OpenAI endpoint URL */
     azure_endpoint?: string
     /**
@@ -2789,13 +2929,6 @@ export interface LLMProviderKeyApi {
      * @nullable
      */
     readonly api_version_display: string | null
-    /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
-    base_url?: string
-    /**
-     * OpenAI-compatible base URL (read-only, for display)
-     * @nullable
-     */
-    readonly base_url_display: string | null
     set_as_active?: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -3120,12 +3253,12 @@ export type EvaluationReportMetricsApiOutputConfig = {
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -3402,6 +3535,23 @@ export interface PatchedLLMProviderKeyApi {
     readonly error_message?: string | null
     api_key?: string
     readonly api_key_masked?: string
+    /** Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before /systemone. */
+    base_url?: string
+    /**
+     * Model ID served by the System One endpoint.
+     * @maxLength 100
+     */
+    system_one_model?: string
+    /**
+     * Configured provider base URL (read-only, for display)
+     * @nullable
+     */
+    readonly base_url_display?: string | null
+    /**
+     * Configured System One model ID.
+     * @nullable
+     */
+    readonly system_one_model_display?: string | null
     /** Azure OpenAI endpoint URL */
     azure_endpoint?: string
     /**
@@ -3419,13 +3569,6 @@ export interface PatchedLLMProviderKeyApi {
      * @nullable
      */
     readonly api_version_display?: string | null
-    /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
-    base_url?: string
-    /**
-     * OpenAI-compatible base URL (read-only, for display)
-     * @nullable
-     */
-    readonly base_url_display?: string | null
     set_as_active?: boolean
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -3583,6 +3726,16 @@ export interface PatchedScoreDefinitionMetadataApi {
 }
 
 export interface ScoreDefinitionNewVersionApi {
+    /**
+     * Updated scorer name, saved with this version.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Updated scorer description, saved with this version.
+     * @nullable
+     */
+    description?: string | null
     /** Next immutable scorer configuration. */
     config: ScoreDefinitionConfigApi
     /**
@@ -3662,6 +3815,8 @@ export interface SummarizeRequestApi {
     data?: unknown
     /** Force regenerate summary, bypassing cache */
     force_refresh?: boolean
+    /** Bound the input to a cost-conscious size instead of the full model context window. Use it when you summarize many traces at once and need only a short result such as the title. */
+    compact_context?: boolean
     /**
      * LLM model to use (defaults based on provider)
      * @nullable
@@ -4296,6 +4451,34 @@ export interface TaggerConditionApi {
 }
 
 /**
+ * * `openai` - Openai
+ * * `anthropic` - Anthropic
+ * * `gemini` - Gemini
+ * * `openrouter` - Openrouter
+ * * `fireworks` - Fireworks
+ * * `azure_openai` - Azure OpenAI
+ * * `together_ai` - Together AI
+ * * `minimax` - MiniMax
+ * * `zeabur` - Zeabur AI Hub
+ * * `openai_compatible` - OpenAI-compatible
+ */
+export type LLMCompletionProviderEnumApi =
+    (typeof LLMCompletionProviderEnumApi)[keyof typeof LLMCompletionProviderEnumApi]
+
+export const LLMCompletionProviderEnumApi = {
+    Openai: 'openai',
+    Anthropic: 'anthropic',
+    Gemini: 'gemini',
+    Openrouter: 'openrouter',
+    Fireworks: 'fireworks',
+    AzureOpenai: 'azure_openai',
+    TogetherAi: 'together_ai',
+    Minimax: 'minimax',
+    Zeabur: 'zeabur',
+    OpenaiCompatible: 'openai_compatible',
+} as const
+
+/**
  * Nested serializer for model configuration.
  */
 export interface TaggerModelConfigurationApi {
@@ -4311,7 +4494,7 @@ export interface TaggerModelConfigurationApi {
      * * `minimax` - MiniMax
      * * `zeabur` - Zeabur AI Hub
      * * `openai_compatible` - OpenAI-compatible */
-    provider: LLMProviderEnumApi
+    provider: LLMCompletionProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
      * @maxLength 100
@@ -4366,7 +4549,7 @@ export interface TaggerModelConfigurationWriteApi {
      * * `minimax` - MiniMax
      * * `zeabur` - Zeabur AI Hub
      * * `openai_compatible` - OpenAI-compatible */
-    provider: LLMProviderEnumApi
+    provider: LLMCompletionProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
      * @maxLength 100
@@ -4675,6 +4858,21 @@ export type AiObservabilityOfflineExperimentsItemsResultsListParams = {
     scorer_version_ids?: string
 }
 
+export type AiObservabilityOfflineExperimentsResultCellsRetrieveParams = {
+    /**
+     * Comma-separated list of 1 to 50 distinct item UUIDs belonging to this experiment.
+     * @minLength 1
+     * @maxLength 1849
+     */
+    item_ids: string
+    /**
+     * Comma-separated list of 1 to 20 distinct authorized scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids: string
+}
+
 export type AiObservabilityOfflineExperimentsScorerSummariesListParams = {
     /**
      * Continuation cursor returned by the previous page.
@@ -4787,6 +4985,13 @@ export type AiObservabilityOfflineScorersHistoryListParams = {
      * @maxLength 255
      */
     suite_key?: string
+}
+
+export type AiObservabilityTracesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
 }
 
 export type DatasetItemsListParams = {
@@ -5044,6 +5249,7 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     Openai: 'openai',
     OpenaiCompatible: 'openai_compatible',
     Openrouter: 'openrouter',
+    SystemOne: 'system_one',
     TogetherAi: 'together_ai',
     Zeabur: 'zeabur',
 } as const

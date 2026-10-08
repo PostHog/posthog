@@ -15,7 +15,7 @@ from rest_framework import status
 
 from posthog.auth import MCP_USER_AGENT_MARKER
 from posthog.constants import AvailableFeature
-from posthog.models import Tag, TaggedItem
+from posthog.models import PropertyDefinition, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
@@ -65,7 +65,8 @@ from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.facade.contracts import WorkflowSummary
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 
 class TestCustomerProfileConfigViewSet(APIBaseTest):
@@ -485,18 +486,20 @@ class TestAccountViewSet(APIBaseTest):
         self.assertIsNone(data["churned_at"])
         self.assertIsNone(data["ignored_at"])
 
-    def test_create_with_churned_at(self):
+    @parameterized.expand([("churned_at",), ("ignored_at",)])
+    def test_create_with_status_date(self, field: str) -> None:
         response = self.client.post(
             self.endpoint_base,
-            {"name": "Former customer", "churned_at": "2026-08-01T12:30:00Z"},
+            {"name": "Former customer", field: "2026-08-01T12:30:00Z"},
             format="json",
         )
 
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
-        self.assertEqual(response.json()["churned_at"], "2026-08-01T12:30:00Z")
+        self.assertEqual(response.json()[field], "2026-08-01T12:30:00Z")
         account = Account.objects.unscoped().get(id=response.json()["id"])  # nosemgrep: idor-lookup-without-team
-        assert account.churned_at is not None
-        self.assertEqual(account.churned_at.isoformat(), "2026-08-01T12:30:00+00:00")
+        status_date = getattr(account, field)
+        assert status_date is not None
+        self.assertEqual(status_date.isoformat(), "2026-08-01T12:30:00+00:00")
 
     def test_list(self):
         a1 = self._create_account(name="Account 1")
@@ -542,6 +545,23 @@ class TestAccountViewSet(APIBaseTest):
 
         self.assertEqual(status.HTTP_200_OK, response.status_code)
         self.assertEqual({account["name"] for account in response.json()["results"]}, expected_names)
+
+    def test_list_inactive_last_puts_churned_and_ignored_accounts_after_active_ones(self) -> None:
+        self._create_account(name="A churned", churned_at=timezone.now())
+        self._create_account(name="B ignored", ignored_at=timezone.now())
+        self._create_account(name="C active")
+        self._create_account(name="D active")
+
+        response = self.client.get(
+            self.endpoint_base,
+            data={"include_churned": "true", "include_ignored": "true", "inactive_last": "true", "ordering": "name"},
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(
+            [account["name"] for account in response.json()["results"]],
+            ["C active", "D active", "A churned", "B ignored"],
+        )
 
     def test_retrieve(self):
         ignored_at = timezone.now()
@@ -759,33 +779,24 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(account.properties.sfdc_id, "001xx")
         self.assertEqual(account.properties.website_domain, "acme.example")
 
-    def test_update_does_not_accept_ignored_at(self):
-        ignored_at = timezone.now()
-        account = self._create_account(ignored_at=ignored_at)
-
-        response = self.client.patch(f"{self.endpoint_base}{account.id}/", {"ignored_at": None}, format="json")
-
-        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
-        account.refresh_from_db()
-        self.assertEqual(account.ignored_at, ignored_at)
-
-    def test_update_and_clear_churned_at(self):
+    @parameterized.expand([("churned_at",), ("ignored_at",)])
+    def test_update_and_clear_status_date(self, field: str) -> None:
         account = self._create_account()
         url = f"{self.endpoint_base}{account.id}/"
 
-        response = self.client.patch(url, {"churned_at": "2026-08-02T09:00:00Z"}, format="json")
+        response = self.client.patch(url, {field: "2026-08-02T09:00:00Z"}, format="json")
 
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
-        self.assertEqual(response.json()["churned_at"], "2026-08-02T09:00:00Z")
+        self.assertEqual(response.json()[field], "2026-08-02T09:00:00Z")
         account.refresh_from_db()
-        self.assertEqual(account.churned_at.isoformat(), "2026-08-02T09:00:00+00:00")
+        self.assertEqual(getattr(account, field).isoformat(), "2026-08-02T09:00:00+00:00")
 
-        response = self.client.patch(url, {"churned_at": None}, format="json")
+        response = self.client.patch(url, {field: None}, format="json")
 
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
-        self.assertIsNone(response.json()["churned_at"])
+        self.assertIsNone(response.json()[field])
         account.refresh_from_db()
-        self.assertIsNone(account.churned_at)
+        self.assertIsNone(getattr(account, field))
 
     @parameterized.expand(
         [
@@ -2075,9 +2086,9 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
             organization_member=membership,
         )
 
-    def _create_workflow_reference(self, *, name: str) -> HogFlow:
-        return HogFlow.objects.create(
-            team=self.team,
+    def _create_workflow_reference(self, *, name: str) -> WorkflowSummary:
+        return create_workflow_for_test(
+            team_id=self.team.id,
             name=name,
             status="active",
             actions=[
@@ -2415,7 +2426,16 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert listed.status_code == status.HTTP_200_OK
         assert [s["id"] for s in listed.json()["results"]] == [source_id]
 
-        toggled = self.client.patch(f"{self.endpoint}{source_id}/", {"is_enabled": False}, format="json")
+        detail_endpoint = f"{self.endpoint}{source_id}/"
+        retrieved = self.client.get(detail_endpoint)
+        assert retrieved.status_code == status.HTTP_200_OK
+        assert retrieved.json()["column_property_map"] is None
+        assert retrieved.json()["column_descriptions"] is None
+
+        round_tripped = self.client.patch(detail_endpoint, retrieved.json(), format="json")
+        assert round_tripped.status_code == status.HTTP_200_OK, round_tripped.content
+
+        toggled = self.client.patch(detail_endpoint, {"is_enabled": False}, format="json")
         assert toggled.status_code == status.HTTP_200_OK
         assert toggled.json()["is_enabled"] is False
 
@@ -2448,6 +2468,30 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert body["external_data_schema"] == str(schema.id)
         assert body["column_property_map"] == {"plan": "plan_tier"}
         assert body["saved_query"] is None
+
+    def test_patch_person_source_mapping_round_trip_and_validation(self):
+        source_id = self._create_person_source()
+
+        patched = self.client.patch(
+            f"{self.endpoint}{source_id}/",
+            {
+                "column_property_map": {"plan": "plan_tier", "seats": "seat_count"},
+                "column_descriptions": {"seats": " Seat count "},
+            },
+            format="json",
+        )
+
+        assert patched.status_code == status.HTTP_200_OK, patched.content
+        assert patched.json()["id"] == source_id
+        assert patched.json()["column_property_map"] == {"plan": "plan_tier", "seats": "seat_count"}
+        assert patched.json()["column_descriptions"] == {"seats": "Seat count"}
+
+        invalid = self.client.patch(f"{self.endpoint}{source_id}/", {"column_property_map": {}}, format="json")
+        assert invalid.status_code == status.HTTP_400_BAD_REQUEST, invalid.content
+
+        cleared = self.client.patch(f"{self.endpoint}{source_id}/", {"column_descriptions": None}, format="json")
+        assert cleared.status_code == status.HTTP_200_OK, cleared.content
+        assert cleared.json()["column_descriptions"] == {}
 
     @patch("products.customer_analytics.backend.presentation.views.views.report_user_action")
     def test_mapping_lifecycle_emits_usage_events(self, report_user_action):
@@ -2525,7 +2569,7 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_person_source_actions_when_enabled(self, _flag, mock_trigger_sync, mock_start_backfill):
         # Wiring guard: the actions route through the facade to the temporal seam, return the typed
-        # response, and the backfill pre-creates a running run the runs feed then surfaces.
+        # response, and an in-flight sync still sends the manual latest-revision follow-up.
         source_id = self._create_person_source()
 
         synced = self.client.post(f"{self.endpoint}{source_id}/sync/")
@@ -2535,7 +2579,7 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
 
         backfilled = self.client.post(f"{self.endpoint}{source_id}/backfill/")
         assert backfilled.status_code == status.HTTP_202_ACCEPTED, backfilled.content
-        assert backfilled.json() == {"status": "started", "already_running": False}
+        assert backfilled.json() == {"status": "already_running", "already_running": True}
         mock_start_backfill.assert_called_once()
 
         runs = self.client.get(f"{self.endpoint}{source_id}/runs/")
@@ -2564,13 +2608,46 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
             {
                 "definition": definition.json()["id"],
                 "external_data_schema": str(schema.id),
-                "column_property_map": {"plan": "plan_tier"},
+                "column_property_map": {"plan": "plan_tier_pending"},
                 "key_column": "org_id",
             },
             format="json",
         )
         assert created.status_code == status.HTTP_201_CREATED, created.content
         assert created.json()["external_data_schema"] == str(schema.id)
+
+        # Settle the mapping to its tested value via an update. Provenance is stamped as soon as an
+        # enabled source's effective mapping changes, without waiting for a value backfill.
+        settled = self.client.patch(
+            f"{self.endpoint}{created.json()['id']}/",
+            {"column_property_map": {"plan": "plan_tier"}},
+            format="json",
+        )
+        assert settled.status_code == status.HTTP_200_OK, settled.content
+        old_definition = PropertyDefinition.objects.get(
+            team_id=self.team.id, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="plan_tier"
+        )
+        assert old_definition.warehouse_origin is not None
+        assert old_definition.warehouse_origin["custom_property_source_id"] == created.json()["id"]
+
+        patched = self.client.patch(
+            f"{self.endpoint}{created.json()['id']}/",
+            {"column_property_map": {"plan": "group_plan_tier"}},
+            format="json",
+        )
+        assert patched.status_code == status.HTTP_200_OK, patched.content
+        assert patched.json()["id"] == created.json()["id"]
+        assert patched.json()["column_property_map"] == {"plan": "group_plan_tier"}
+
+        # Regression: renaming a mapped column must not leave the old property definition claiming
+        # this source indefinitely once it no longer produces that property.
+        old_definition.refresh_from_db()
+        assert old_definition.warehouse_origin is None
+        new_definition = PropertyDefinition.objects.get(
+            team_id=self.team.id, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="group_plan_tier"
+        )
+        assert new_definition.warehouse_origin is not None
+        assert new_definition.warehouse_origin["custom_property_source_id"] == created.json()["id"]
 
     @parameterized.expand(
         [
@@ -3848,6 +3925,43 @@ class TestAccountMeetingViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
         self.assertEqual(response.json()["results"][0]["id"], str(meeting.id))
         self.assertEqual(response.json()["results"][0]["gong_url"], "https://app.gong.io/call?id=123")
+
+    @time_machine.travel("2026-08-10T12:00:00Z", tick=False)
+    def test_list_collapses_upcoming_occurrences_of_a_recurring_series(self):
+        account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-recurring")
+
+        def occurrence(start: str, status: str = "confirmed") -> Meeting:
+            return Meeting.objects.unscoped().create(
+                team=self.team,
+                account=account,
+                ical_uid="uid-weekly",
+                recurrence_instance_id=start,
+                start_time=start,
+                status=status,
+                title="Weekly sync",
+            )
+
+        past_1 = occurrence("2026-08-03T15:00:00Z")
+        past_2 = occurrence("2026-08-06T15:00:00Z")
+        occurrence("2026-08-13T15:00:00Z", status="cancelled")
+        next_up = occurrence("2026-08-20T15:00:00Z")
+        occurrence("2026-08-27T15:00:00Z")
+        one_off = Meeting.objects.unscoped().create(
+            team=self.team, account=account, ical_uid="uid-one-off", start_time="2026-09-01T15:00:00Z"
+        )
+
+        payload = self.client.get(f"/api/environments/{self.team.id}/accounts/{account.id}/meetings/").json()
+
+        self.assertEqual(payload["count"], 4)
+        self.assertEqual(
+            [(m["id"], m["is_recurring"]) for m in payload["results"]],
+            [
+                (str(one_off.id), False),
+                (str(next_up.id), True),
+                (str(past_2.id), True),
+                (str(past_1.id), True),
+            ],
+        )
 
     def test_search_filters_by_title_or_attendee(self):
         account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-2")

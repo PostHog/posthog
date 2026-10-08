@@ -22,6 +22,7 @@ import type {
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { UserType } from '../../../../frontend/src/types'
+import { turnSuggestionsStateRetrieve } from '../generated/api'
 import { deliverPermissionResponse, isPermissionTargetEnded } from '../policy/permissionDelivery'
 import { isPlanPermissionRequest } from '../policy/permissionUtils'
 import { parseSandboxQuestions } from '../policy/questionUtils'
@@ -50,6 +51,7 @@ import type {
     ToolStreamEvent,
     ToolStreamPhase,
     TurnCompleteEvent,
+    TurnSuggestion,
 } from '../types/streamTypes'
 import {
     type PermissionOption,
@@ -73,7 +75,9 @@ import {
     parseAvailableCommands,
 } from '../types/wireTypes'
 import { extractContextBlockLines } from '../utils/posthogContextBlock'
+import { reconcileThreadItems, reconcileToolInvocations } from '../utils/reconcileFoldedThread'
 import { extractAgentToolName, getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
+import { parseTurnSuggestionParams } from '../utils/turnSuggestions'
 import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
 import { debugLogsLogic } from './debugLogsLogic'
@@ -653,11 +657,12 @@ export function extractDenialReason(meta: unknown): string | undefined {
  * assistant-message and agent-thought streams, which both buffer incremental chunks this way.
  */
 function findLastBufferIndex(state: ThreadItem[], id: string, type: ThreadItemType, incompleteOnly: boolean): number {
+    const prefix = `${id}@`
     for (let i = state.length - 1; i >= 0; i--) {
         const item = state[i]
         if (
             item.type === type &&
-            (item.id === id || item.id.startsWith(`${id}@`)) &&
+            (item.id === id || item.id.startsWith(prefix)) &&
             (!incompleteOnly || !item.complete)
         ) {
             return i
@@ -673,14 +678,28 @@ function findLastBufferIndex(state: ThreadItem[], id: string, type: ThreadItemTy
  * send the agent has not taken up yet sinks below the whole answer before it renders, so it splits
  * the halves the same way and is passed over too.
  */
-function onlyDebugRowsFollow(state: ThreadItem[], idx: number, waitingIds: ReadonlySet<string>): boolean {
-    for (let i = idx + 1; i < state.length; i++) {
-        if (state[i].type !== 'debug' && !waitingIds.has(state[i].id)) {
-            return false
+function findContinuableBuffer(
+    state: ThreadItem[],
+    id: string,
+    type: ThreadItemType,
+    waitingIds: ReadonlySet<string>
+): number {
+    const prefix = `${id}@`
+    for (let i = state.length - 1; i >= 0; i--) {
+        const item = state[i]
+        if (item.type === type && (item.id === id || item.id.startsWith(prefix))) {
+            return item.complete ? -1 : i
+        }
+        if (item.type !== 'debug' && !waitingIds.has(item.id)) {
+            return -1
         }
     }
-    return true
+    return -1
 }
+
+// The agent takes a queued or steering send up at the next turn boundary, so a placeholder that
+// outlives a second boundary has missed the window its echo could arrive in.
+const SETTLED_AFTER_TURNS = 2
 
 /** The in-progress spinner for a long-running status — retired when it completes, fails, or its boundary lands. */
 function isPendingStatus(item: ThreadItem, status: string): boolean {
@@ -1457,9 +1476,34 @@ function invocationFromToolCallUpdate(
     }
 }
 
+// Log entries are append-only, so a frame's params object is stable across folds; caching on it keeps
+// the offer's identity stable and the memoized trailer rows from re-rendering on every streamed frame.
+const TURN_SUGGESTION_LEDGER_ATTEMPTS = 3
+const TURN_SUGGESTION_LEDGER_RETRY_MS = 1000
+
+const parsedTurnSuggestions = new WeakMap<object, TurnSuggestion | null>()
+function parseTurnSuggestionFrame(params: object): TurnSuggestion | null {
+    if (!parsedTurnSuggestions.has(params)) {
+        parsedTurnSuggestions.set(params, parseTurnSuggestionParams(params))
+    }
+    return parsedTurnSuggestions.get(params) ?? null
+}
+
+export interface TurnSuggestionFold {
+    latest: TurnSuggestion | null
+    outcomes: Map<number, string>
+}
+
 export interface FoldedThread {
     threadItems: ThreadItem[]
     toolInvocations: Map<string, ToolInvocation>
+    turnSuggestions: TurnSuggestionFold
+}
+
+export interface TurnSuggestionLedger {
+    taskId: string
+    muted: boolean
+    resolvedTurns: number[]
 }
 
 export interface PendingRunMessage {
@@ -1482,6 +1526,74 @@ function readPendingRunMessage(state: unknown, runId: string): PendingRunMessage
         : null
 }
 
+const NO_IDS: ReadonlySet<string> = new Set()
+
+export interface FoldOptions {
+    isResumeRun: boolean
+    pendingMessage?: PendingRunMessage | null
+    taskId?: string | null
+}
+
+export interface FoldCheckpoint {
+    entries: StoredEntry[]
+    options: FoldOptions
+    items: ThreadItem[]
+    invocations: Map<string, ToolInvocation>
+    turnSuggestions: TurnSuggestionFold
+    rememberedHumanTexts: Map<string, number>
+    waitingSends: { id: string; text: string; turns: number }[]
+    pairedSends: Map<string, number>
+    toolItemIds: Set<string>
+    counters: {
+        humanCount: number
+        bubbleSeq: number
+        separatorSeq: number
+        errorSeq: number
+        statusSeq: number
+        compactSeq: number
+        clearedSeq: number
+        taskSeq: number
+        consoleSeq: number
+        contextSeq: number
+        openAssistantMessages: number
+    }
+    importedRun: boolean
+    pendingMessageSeen: boolean
+    pendingInsertionIndex: number | undefined
+    bufferedAttachments: ThreadAttachment[]
+}
+
+function sameFoldOptions(a: FoldOptions, b: FoldOptions): boolean {
+    return (
+        a.isResumeRun === b.isResumeRun &&
+        (a.taskId ?? null) === (b.taskId ?? null) &&
+        (a.pendingMessage?.runId ?? null) === (b.pendingMessage?.runId ?? null) &&
+        (a.pendingMessage?.id ?? null) === (b.pendingMessage?.id ?? null) &&
+        (a.pendingMessage?.text ?? null) === (b.pendingMessage?.text ?? null)
+    )
+}
+
+function canResumeFold(checkpoint: FoldCheckpoint, entries: StoredEntry[], options: FoldOptions): boolean {
+    if (checkpoint.entries.length > entries.length || !sameFoldOptions(checkpoint.options, options)) {
+        return false
+    }
+    for (let index = 0; index < checkpoint.entries.length; index++) {
+        if (checkpoint.entries[index] !== entries[index]) {
+            return false
+        }
+    }
+    return true
+}
+
+function lastTurnCompleteIndex(entries: StoredEntry[]): number {
+    for (let index = entries.length - 1; index >= 0; index--) {
+        if (entries[index].entry.notification?.method === '_posthog/turn_complete') {
+            return index
+        }
+    }
+    return -1
+}
+
 /**
  * Pure projection: fold the ordered log into the rendered thread (and the tool-invocation map the
  * renderer looks up). The fold rules (chunk buffering with the tail rule, tool-update merge,
@@ -1489,39 +1601,53 @@ function readPendingRunMessage(state: unknown, runId: string): PendingRunMessage
  * across re-folds. `isResumeRun` drives the §6 resume-context filter; per-entry `source` decides
  * whether a wire user turn renders (replay) or is left to the live echo (live).
  */
-export function foldLogToThread(
+export function foldLogToThread(entries: StoredEntry[], options: FoldOptions): FoldedThread {
+    return foldLogFromCheckpoint(entries, options, null).folded
+}
+
+export function foldLogFromCheckpoint(
     entries: StoredEntry[],
-    options: { isResumeRun: boolean; pendingMessage?: PendingRunMessage | null; taskId?: string | null }
-): FoldedThread {
-    let items: ThreadItem[] = []
-    const invocations = new Map<string, ToolInvocation>()
+    options: FoldOptions,
+    checkpoint: FoldCheckpoint | null
+): { folded: FoldedThread; checkpoint: FoldCheckpoint | null } {
+    const resume = checkpoint && canResumeFold(checkpoint, entries, options) ? checkpoint : null
+    const checkpointIndex = lastTurnCompleteIndex(entries)
+    let nextCheckpoint = resume && resume.entries.length - 1 === checkpointIndex ? resume : null
+    let items: ThreadItem[] = resume ? [...resume.items] : []
+    const invocations = new Map<string, ToolInvocation>(resume?.invocations)
+    const turnSuggestions: TurnSuggestionFold = {
+        latest: resume?.turnSuggestions.latest ?? null,
+        outcomes: new Map(resume?.turnSuggestions.outcomes),
+    }
     // Texts already rendered by a `_posthog/user_message`, so a later identical `user_message_chunk`
     // (resume chains persist the same turn in both forms) is consumed once rather than doubled.
-    const rememberedHumanTexts = new Map<string, number>()
+    const rememberedHumanTexts = new Map<string, number>(resume?.rememberedHumanTexts)
     // Placeholders the composer drew for sends the agent has not taken up, in send order. A queued or
     // steering send is echoed only when the agent takes it up, which is a turn later than the bubble,
     // so the pairing outlives that turn. Text is what an echo matches on, because a client echo
     // carries no id, and send order keeps repeated sends of one text apart.
-    const waitingSends: { id: string; text: string }[] = []
+    const waitingSends: { id: string; text: string; turns: number }[] = resume
+        ? resume.waitingSends.map((send) => ({ ...send }))
+        : []
     // Sends this turn already paired, counted per text so the same send's second wire form takes no
     // further placeholder while a second send of that text still takes its own.
-    const pairedSends = new Map<string, number>()
-    let humanCount = 0
-    let bubbleSeq = 0
-    let separatorSeq = 0
-    let errorSeq = 0
-    let statusSeq = 0
-    let compactSeq = 0
-    let clearedSeq = 0
-    let taskSeq = 0
-    let consoleSeq = 0
-    let contextSeq = 0
+    const pairedSends = new Map<string, number>(resume?.pairedSends)
+    let humanCount = resume?.counters.humanCount ?? 0
+    let bubbleSeq = resume?.counters.bubbleSeq ?? 0
+    let separatorSeq = resume?.counters.separatorSeq ?? 0
+    let errorSeq = resume?.counters.errorSeq ?? 0
+    let statusSeq = resume?.counters.statusSeq ?? 0
+    let compactSeq = resume?.counters.compactSeq ?? 0
+    let clearedSeq = resume?.counters.clearedSeq ?? 0
+    let taskSeq = resume?.counters.taskSeq ?? 0
+    let consoleSeq = resume?.counters.consoleSeq ?? 0
+    let contextSeq = resume?.counters.contextSeq ?? 0
     let timestamp: number | undefined
-    let importedRun = false
+    let importedRun = resume?.importedRun ?? false
     let entryRunId: string | undefined
-    let pendingMessageSeen = false
-    let pendingInsertionIndex: number | undefined
-    let bufferedAttachments: ThreadAttachment[] = []
+    let pendingMessageSeen = resume?.pendingMessageSeen ?? false
+    let pendingInsertionIndex: number | undefined = resume?.pendingInsertionIndex
+    let bufferedAttachments: ThreadAttachment[] = resume ? [...resume.bufferedAttachments] : []
 
     /**
      * A wire turn opens with its message, so that is where a message goes by default. A send the
@@ -1584,10 +1710,42 @@ export function foldLogToThread(
         }
     }
 
-    const waitingSendIds = (): ReadonlySet<string> => new Set(waitingSends.map((send) => send.id))
+    const waitingSendIds = (): ReadonlySet<string> =>
+        new Set(waitingSends.filter((send) => send.turns < SETTLED_AFTER_TURNS).map((send) => send.id))
+    const toolItemIds = new Set<string>(resume?.toolItemIds)
+    let openAssistantMessages = resume?.counters.openAssistantMessages ?? 0
+
+    const takeCheckpoint = (index: number): FoldCheckpoint => ({
+        entries: entries.slice(0, index + 1),
+        options,
+        items: [...items],
+        invocations: new Map(invocations),
+        turnSuggestions: { latest: turnSuggestions.latest, outcomes: new Map(turnSuggestions.outcomes) },
+        rememberedHumanTexts: new Map(rememberedHumanTexts),
+        waitingSends: waitingSends.map((send) => ({ ...send })),
+        pairedSends: new Map(pairedSends),
+        toolItemIds: new Set(toolItemIds),
+        counters: {
+            humanCount,
+            bubbleSeq,
+            separatorSeq,
+            errorSeq,
+            statusSeq,
+            compactSeq,
+            clearedSeq,
+            taskSeq,
+            consoleSeq,
+            contextSeq,
+            openAssistantMessages,
+        },
+        importedRun,
+        pendingMessageSeen,
+        pendingInsertionIndex,
+        bufferedAttachments: [...bufferedAttachments],
+    })
 
     const appendChunk = (id: string, type: ThreadItemType, delta: string): void => {
-        const idx = findLastBufferIndex(items, id, type, false)
+        const idx = findContinuableBuffer(items, id, type, waitingSends.length > 0 ? waitingSendIds() : NO_IDS)
         // Continue the matched buffer only while it's incomplete and only debug rows followed it;
         // otherwise (no buffer, a finalized one, or one interrupted by a tool call/separator) start
         // a fresh bubble so text resuming after an interruption renders in chronological order.
@@ -1595,7 +1753,10 @@ export function foldLogToThread(
         // the S3 replay always does, since the backend drops chunks), so the bare fallback id would
         // collide as a React key across messages. The continuation lookup matches the `${id}@`
         // prefix, so it still works.
-        if (idx === -1 || items[idx].complete || !onlyDebugRowsFollow(items, idx, waitingSendIds())) {
+        if (idx === -1) {
+            if (type === 'assistant_message') {
+                openAssistantMessages++
+            }
             items.push({
                 id: `${id}@${bubbleSeq++}`,
                 type,
@@ -1613,8 +1774,8 @@ export function foldLogToThread(
     }
 
     const finalizeMessage = (id: string, text: string): void => {
-        let idx = findLastBufferIndex(items, id, 'assistant_message', true)
-        if (idx === -1) {
+        let idx = openAssistantMessages > 0 ? findLastBufferIndex(items, id, 'assistant_message', true) : -1
+        if (idx === -1 && openAssistantMessages > 0) {
             // The wire isn't consistent about carrying `messageId` across a message's chunks and its
             // closing `agent_message` (the chunks often have one, the finalize doesn't, or vice
             // versa), so an id-keyed lookup can miss the buffer the chunks opened. Fall back to the
@@ -1644,11 +1805,13 @@ export function foldLogToThread(
             })
             return
         }
+        openAssistantMessages--
         items[idx] = { ...items[idx], text, complete: true, ...(timestamp !== undefined && { endedAt: timestamp }) }
     }
 
     const upsertInvocationItem = (toolCallId: string, hasStart = true): void => {
-        if (!items.some((item) => item.type === 'tool_invocation' && item.toolCallId === toolCallId)) {
+        if (!toolItemIds.has(toolCallId)) {
+            toolItemIds.add(toolCallId)
             items.push({
                 id: toolCallId,
                 type: 'tool_invocation',
@@ -1747,8 +1910,12 @@ export function foldLogToThread(
         if (!existing && !subagentParentToolCallId(update._meta)) {
             upsertInvocationItem(next.toolCallId, false)
         }
-        if (timestamp !== undefined && (next.status === 'completed' || next.status === 'failed')) {
-            const index = items.findIndex((item) => item.toolCallId === next.toolCallId)
+        if (
+            timestamp !== undefined &&
+            (next.status === 'completed' || next.status === 'failed') &&
+            toolItemIds.has(next.toolCallId)
+        ) {
+            const index = items.findLastIndex((item) => item.toolCallId === next.toolCallId)
             if (index !== -1) {
                 items[index] = { ...items[index], endedAt: timestamp }
             }
@@ -1784,7 +1951,8 @@ export function foldLogToThread(
             ...(sourceRunId ? { sourceRunId } : {}),
         })
     }
-    for (const { entry, source } of entries) {
+    for (let index = resume ? resume.entries.length : 0; index < entries.length; index++) {
+        const { entry, source } = entries[index]
         entryRunId = entry.source_run_id ?? options.pendingMessage?.runId
         if (
             options.pendingMessage &&
@@ -1806,7 +1974,7 @@ export function foldLogToThread(
         if (method === '_client/human_message') {
             const optimisticText = String(params.content ?? '')
             const id = pushHuman(optimisticText, optimisticAttachments(params.attachments), { atFoot: true })
-            waitingSends.push({ id, text: optimisticText })
+            waitingSends.push({ id, text: optimisticText, turns: 0 })
             continue
         }
         if (method === '_client/error') {
@@ -1826,6 +1994,16 @@ export function foldLogToThread(
             )
             continue
         }
+        if (method === '_posthog/turn_suggestion') {
+            turnSuggestions.latest = parseTurnSuggestionFrame(params) ?? turnSuggestions.latest
+            continue
+        }
+        if (method === '_posthog/turn_suggestion_resolved') {
+            if (typeof params.turnIndex === 'number' && typeof params.outcome === 'string') {
+                turnSuggestions.outcomes.set(params.turnIndex, params.outcome)
+            }
+            continue
+        }
         if (method === '_posthog/turn_complete') {
             const traceId = typeof params.traceId === 'string' ? params.traceId : undefined
             items.push({
@@ -1835,6 +2013,10 @@ export function foldLogToThread(
                 ...(timestamp !== undefined && { startedAt: timestamp }),
             })
             pairedSends.clear()
+            waitingSends.forEach((send) => (send.turns += 1))
+            if (index === checkpointIndex) {
+                nextCheckpoint = takeCheckpoint(index)
+            }
             continue
         }
         if (method === '_posthog/progress') {
@@ -2058,7 +2240,8 @@ export function foldLogToThread(
     }
 
     // A send the agent has not taken up sits below everything that has landed, in send order, however
-    // much arrived after the composer drew it.
+    // much arrived after the composer drew it. A settled one leaves the sink, so a send whose echo
+    // can no longer pair cannot walk the thread for the rest of the run.
     const waiting = waitingSendIds()
     if (waiting.size > 0) {
         items = [...items.filter((item) => !waiting.has(item.id)), ...items.filter((item) => waiting.has(item.id))]
@@ -2073,7 +2256,10 @@ export function foldLogToThread(
             complete: true,
         })
     }
-    return { threadItems: items, toolInvocations: invocations }
+    return {
+        folded: { threadItems: items, toolInvocations: invocations, turnSuggestions },
+        checkpoint: nextCheckpoint,
+    }
 }
 
 /**
@@ -2153,6 +2339,11 @@ export interface runStreamLogicValues {
     toolInvocations: Map<string, ToolInvocation>
     traceId: string | null
     turnComplete: boolean
+    turnSuggestion: TurnSuggestion | null
+    turnSuggestionAcceptedHere: number | null
+    turnSuggestionLedger: TurnSuggestionLedger | null
+    turnSuggestionOutcomesHere: Record<number, string>
+    turnSuggestionsMuted: boolean
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -2266,6 +2457,13 @@ export interface runStreamLogicActions {
         record: PermissionRequestRecord
         replayedFromHistory: boolean
     }
+    loadTurnSuggestionLedger: (
+        taskId: string,
+        attempt?: number
+    ) => {
+        attempt: number
+        taskId: string
+    }
     markBootstrapResumeRun: (value: boolean) => {
         value: boolean
     }
@@ -2283,6 +2481,9 @@ export interface runStreamLogicActions {
     }
     markTurnStarted: () => {
         value: true
+    }
+    markTurnSuggestionAccepted: (turnIndex: number) => {
+        turnIndex: number
     }
     mergeRunArtifacts: (partial: Partial<RunArtifacts>) => {
         partial: Partial<RunArtifacts>
@@ -2318,6 +2519,13 @@ export interface runStreamLogicActions {
     ) => {
         content: string
         stagedAttachments: StagedAttachment[] | undefined
+    }
+    recordTurnSuggestionOutcome: (
+        turnIndex: number,
+        outcome: string
+    ) => {
+        outcome: string
+        turnIndex: number
     }
     recoveryProgress: (
         phase: RecoveryPhase,
@@ -2397,6 +2605,9 @@ export interface runStreamLogicActions {
     setStreamHasEnded: (ended: boolean) => {
         ended: boolean
     }
+    setTurnSuggestionLedger: (ledger: TurnSuggestionLedger) => {
+        ledger: TurnSuggestionLedger
+    }
     sseConnecting: () => {
         value: true
     }
@@ -2443,6 +2654,20 @@ export interface runStreamLogicMeta {
             bootstrappedTaskId: string | null
         ) => FoldedThread
         errorTraceIds: (threadItems: ThreadItem[]) => Map<string, string>
+        turnSuggestionsMuted: (
+            foldedThread: FoldedThread,
+            turnSuggestionLedger: TurnSuggestionLedger | null,
+            turnSuggestionOutcomesHere: Record<number, string>
+        ) => boolean
+        turnSuggestion: (
+            foldedThread: FoldedThread,
+            threadItems: ThreadItem[],
+            turnSuggestionLedger: TurnSuggestionLedger | null,
+            turnSuggestionOutcomesHere: Record<number, string>,
+            turnSuggestionAcceptedHere: number | null,
+            turnSuggestionsMuted: boolean,
+            bootstrappedTaskId: string | null
+        ) => TurnSuggestion | null
         latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
         threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
         hasThreadItems: (threadItems: ThreadItem[]) => boolean
@@ -2678,6 +2903,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
         /** Records the agent's `/clear` capability, read off each `_posthog/run_started` frame. */
         setConversationClearSupported: (supported: boolean) => ({ supported }),
         markTurnComplete: (isReplay: boolean = false) => ({ isReplay }),
+        setTurnSuggestionLedger: (ledger: TurnSuggestionLedger) => ({ ledger }),
+        loadTurnSuggestionLedger: (taskId: string, attempt: number = 0) => ({ taskId, attempt }),
+        /** Records an outcome this tab sent to the server, so the card closes before the frame echoes back. */
+        recordTurnSuggestionOutcome: (turnIndex: number, outcome: string) => ({ turnIndex, outcome }),
+        markTurnSuggestionAccepted: (turnIndex: number) => ({ turnIndex }),
         /**
          * Reopens the turn for a follow-up that started outside this composer, such as one sent from Slack
          * or from another tab. Dispatched from a user turn seen on the wire, and from the agent's first
@@ -3050,6 +3280,31 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 setConversationClearSupported: (_, { supported }) => supported,
             },
         ],
+        turnSuggestionLedger: [
+            null as TurnSuggestionLedger | null,
+            {
+                setTurnSuggestionLedger: (_, { ledger }) => ledger,
+                reset: () => null,
+            },
+        ],
+        // Kept apart from the ledger because the ledger read can land after this tab resolved a card,
+        // and replacing the ledger then must not drop the outcome.
+        turnSuggestionOutcomesHere: [
+            {} as Record<number, string>,
+            {
+                recordTurnSuggestionOutcome: (state, { turnIndex, outcome }) => ({ ...state, [turnIndex]: outcome }),
+                reset: () => ({}),
+            },
+        ],
+        // The turn whose card this tab accepted. That card stays up to show what it created, while
+        // every other tab hides it so a second accept cannot create a duplicate.
+        turnSuggestionAcceptedHere: [
+            null as number | null,
+            {
+                markTurnSuggestionAccepted: (_, { turnIndex }) => turnIndex,
+                reset: () => null,
+            },
+        ],
         turnComplete: [
             false,
             {
@@ -3104,7 +3359,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             },
         ],
     }),
-    selectors({
+    selectors(({ cache }) => ({
         respondingToPermission: [
             (s) => [s.permissionResponseRequestIds, s.pendingPermissionRequest],
             (ids: Set<string>, record: PermissionRequestRecord | null): boolean =>
@@ -3121,7 +3376,30 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 isResumeRun: boolean,
                 pendingMessage: PendingRunMessage | null,
                 taskId: string | null
-            ): FoldedThread => foldLogToThread(log.entries, { isResumeRun, pendingMessage, taskId }),
+            ): FoldedThread => {
+                const previousCheckpoint: FoldCheckpoint | null = cache.foldCheckpoint ?? null
+                const { folded, checkpoint } = foldLogFromCheckpoint(
+                    log.entries,
+                    { isResumeRun, pendingMessage, taskId },
+                    previousCheckpoint
+                )
+                const previous: FoldedThread | undefined = cache.previousFoldedThread
+                const reconciled: FoldedThread = {
+                    threadItems: reconcileThreadItems(previous?.threadItems, folded.threadItems),
+                    toolInvocations: reconcileToolInvocations(previous?.toolInvocations, folded.toolInvocations),
+                    turnSuggestions: folded.turnSuggestions,
+                }
+                if (checkpoint && checkpoint !== previousCheckpoint) {
+                    checkpoint.items = reconcileThreadItems(reconciled.threadItems, checkpoint.items)
+                    checkpoint.invocations = reconcileToolInvocations(
+                        reconciled.toolInvocations,
+                        checkpoint.invocations
+                    )
+                }
+                cache.foldCheckpoint = checkpoint
+                cache.previousFoldedThread = reconciled
+                return reconciled
+            },
         ],
         errorTraceIds: [
             (s) => [s.threadItems],
@@ -3147,6 +3425,58 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     }
                 })
                 return result
+            },
+        ],
+        turnSuggestionsMuted: [
+            (s) => [s.foldedThread, s.turnSuggestionLedger, s.turnSuggestionOutcomesHere],
+            (
+                foldedThread: FoldedThread,
+                ledger: TurnSuggestionLedger | null,
+                outcomesHere: Record<number, string>
+            ): boolean =>
+                !!ledger?.muted ||
+                [...foldedThread.turnSuggestions.outcomes.values(), ...Object.values(outcomesHere)].includes(
+                    'dismissed'
+                ),
+        ],
+        turnSuggestion: [
+            (s) => [
+                s.foldedThread,
+                s.threadItems,
+                s.turnSuggestionLedger,
+                s.turnSuggestionOutcomesHere,
+                s.turnSuggestionAcceptedHere,
+                s.turnSuggestionsMuted,
+                s.bootstrappedTaskId,
+            ],
+            (
+                foldedThread: FoldedThread,
+                threadItems: ThreadItem[],
+                ledger: TurnSuggestionLedger | null,
+                outcomesHere: Record<number, string>,
+                acceptedHere: number | null,
+                muted: boolean,
+                taskId: string | null
+            ): TurnSuggestion | null => {
+                const offer = foldedThread.turnSuggestions.latest
+                // The classifier runs after the answer, so an offer can land once the user already sent
+                // the next message; it belongs to the answer above it and closes when the thread moves on.
+                const latestPromptIndex = threadItems.filter((item) => item.type === 'human_message').length - 1
+                if (!offer || offer.turnIndex !== latestPromptIndex) {
+                    return null
+                }
+                if (acceptedHere === offer.turnIndex) {
+                    return offer
+                }
+                // Resolutions reach the log only while a tab is open, so a replayed offer waits for the ledger.
+                if (!ledger || (taskId !== null && ledger.taskId !== taskId)) {
+                    return null
+                }
+                const resolved =
+                    foldedThread.turnSuggestions.outcomes.has(offer.turnIndex) ||
+                    offer.turnIndex in outcomesHere ||
+                    ledger.resolvedTurns.includes(offer.turnIndex)
+                return muted || resolved ? null : offer
             },
         ],
         latestTurnTraceId: [
@@ -3347,7 +3677,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 return null
             },
         ],
-    }),
+    })),
     listeners(({ values, actions, cache, props }) => {
         const sessionNow = (): RunStreamRecovery | undefined => cache.recoverySession
         const endedKey = (projectId: number, taskId: string, runId: string): string => `${projectId}:${taskId}:${runId}`
@@ -3675,6 +4005,39 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 actions.resetRecoveryBudget()
                 cache.recoveryStartedAt = Date.now()
                 actions.bootstrapRun({ taskId: previous.taskId, runId: previous.runId })
+            },
+            loadTurnSuggestionLedger: async ({ taskId, attempt }) => {
+                const projectId = values.currentProjectId
+                if (!projectId || values.bootstrappedTaskId !== taskId) {
+                    return
+                }
+                // The first read and a visibility refresh can overlap, and an older snapshot that lands
+                // last would bring back a card the newer one resolved.
+                const request = (cache.turnSuggestionLedgerRequest = (cache.turnSuggestionLedgerRequest ?? 0) + 1)
+                try {
+                    const state = await turnSuggestionsStateRetrieve(String(projectId), { task_id: taskId })
+                    if (request !== cache.turnSuggestionLedgerRequest) {
+                        return
+                    }
+                    if (values.bootstrappedTaskId === taskId) {
+                        actions.setTurnSuggestionLedger({
+                            taskId,
+                            muted: state.muted,
+                            resolvedTurns: state.resolved_turns,
+                        })
+                    }
+                } catch {
+                    // The card stays hidden while the ledger is unknown, so a failed read retries a few times.
+                    if (attempt + 1 < TURN_SUGGESTION_LEDGER_ATTEMPTS && values.bootstrappedTaskId === taskId) {
+                        cache.disposables.add(() => {
+                            const timer = setTimeout(
+                                () => actions.loadTurnSuggestionLedger(taskId, attempt + 1),
+                                TURN_SUGGESTION_LEDGER_RETRY_MS * 2 ** attempt
+                            )
+                            return () => clearTimeout(timer)
+                        }, 'turnSuggestionLedgerRetry')
+                    }
+                }
             },
             openSseForRun: ({ taskId, runId }) => {
                 if (props.replayOnly) {
@@ -4335,6 +4698,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // `log` clears via its own reducer on `reset`, so the projection empties with it. The
                 // per-frame invocation tracker mirrors the log, so it must clear alongside it.
                 cache.trackedToolInvocations = undefined
+                cache.turnSuggestionLedgerTaskId = null
+                cache.disposables.dispose('turnSuggestionLedgerRetry')
+                cache.disposables.dispose('turnSuggestionLedgerRefresh')
                 cache.permissionRunId = undefined
                 cache.activeRun = undefined
                 cache.turnStartedAtMs = undefined
@@ -4541,6 +4907,35 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     )
                     cache.isBootstrapping = false
                     actions.markRunStarted()
+                    return
+                }
+                if (method === '_posthog/turn_suggestion') {
+                    // The log holds only outcomes this tab saw live; the ledger adds the ones sent while
+                    // no tab of this conversation was open. Read once per task, when it first has an offer.
+                    const taskId = values.bootstrappedTaskId
+                    if (taskId && cache.turnSuggestionLedgerTaskId !== taskId) {
+                        cache.turnSuggestionLedgerTaskId = taskId
+                        actions.loadTurnSuggestionLedger(taskId)
+                        // Another tab's resolution reaches this one only as a live frame, which can be
+                        // lost, so a returning tab rereads the ledger while it shows a card.
+                        cache.disposables.add(
+                            () => {
+                                const onVisibilityChange = (): void => {
+                                    if (
+                                        document.visibilityState === 'visible' &&
+                                        values.turnSuggestion &&
+                                        values.bootstrappedTaskId === taskId
+                                    ) {
+                                        actions.loadTurnSuggestionLedger(taskId)
+                                    }
+                                }
+                                document.addEventListener('visibilitychange', onVisibilityChange)
+                                return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+                            },
+                            'turnSuggestionLedgerRefresh',
+                            { pauseOnPageHidden: false }
+                        )
+                    }
                     return
                 }
                 if (method === '_posthog/turn_complete') {

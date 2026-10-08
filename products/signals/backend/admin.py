@@ -99,7 +99,7 @@ class SignalScoutConfigAdmin(admin.ModelAdmin):
         "updated_at",
     )
     list_display_links = ("id",)
-    list_filter = ("enabled", "status", "emit")
+    list_filter = ("enabled", "status", "emit", "managed_by")
     search_fields = ("id", "skill_name", "team__name", "team__organization__name")
     raw_id_fields = ("team", "created_by", "enabled_by")
     # The status cluster is read-only here: admin's lifecycle control stays the `enabled`

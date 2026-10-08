@@ -247,3 +247,40 @@ def reset_state():
 
     make_ch_pool.cache_clear()
     set_default_clickhouse_workload_type(Workload.ONLINE)
+
+
+@pytest.mark.parametrize(
+    "registered,ch_user,expected_user,expected_password",
+    [
+        (True, ClickHouseUser.ALERTS_PLATFORM_LOGS, "alerts_platform_logs", "logs-token"),
+        (False, ClickHouseUser.ALERTS_PLATFORM_LOGS, "logs-user", "logs-static"),
+        (True, ClickHouseUser.DEFAULT, "logs-user", "logs-static"),
+        (True, ClickHouseUser.APP, "logs-user", "logs-static"),
+    ],
+)
+def test_logs_workload_uses_a_named_user_only_when_registered(
+    settings, monkeypatch, tmp_path, registered, ch_user, expected_user, expected_password
+):
+    settings.CLICKHOUSE_LOGS_CLUSTER_USER = "logs-user"
+    settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD = "logs-static"
+    default_token = tmp_path / "default-token"
+    default_token.write_text("default-token")
+    logs_token = tmp_path / "logs-token"
+    logs_token.write_text("logs-token")
+    users = {
+        ClickHouseUser.DEFAULT: ClickHouseCredentials(user="default", password="x", password_file=str(default_token))
+    }
+    if registered:
+        users[ClickHouseUser.ALERTS_PLATFORM_LOGS] = ClickHouseCredentials(
+            user="alerts_platform_logs", password="fallback", password_file=str(logs_token)
+        )
+        users[ClickHouseUser.APP] = ClickHouseCredentials(user="app", password="app-static")
+    monkeypatch.setattr(connection, "__user_dict", users)
+
+    kwargs = get_http_kwargs(Workload.LOGS, ch_user=ch_user)
+
+    assert (kwargs["host"], kwargs["user"], kwargs["password"]) == (
+        settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
+        expected_user,
+        expected_password,
+    )

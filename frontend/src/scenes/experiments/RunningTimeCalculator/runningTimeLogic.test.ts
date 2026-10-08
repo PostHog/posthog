@@ -2,13 +2,17 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
+import { experimentMetricsLogic } from '../experimentMetricsLogic'
+import { modalsLogic } from '../modalsLogic'
 import { runningTimeLogic } from './runningTimeLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
@@ -166,6 +170,82 @@ describe('runningTimeLogic', () => {
             // just resync so the tab stops being stale and the estimate recomputes from fresh state.
             expect(lemonToast.error).not.toHaveBeenCalled()
             expect(experimentLogicInstance.values.unmodifiedExperiment?.version).toEqual(9)
+        })
+    })
+
+    describe('save', () => {
+        it('keeps the modal open with the edited config when the experiment save fails', async () => {
+            // A failed estimate request stops the automatic estimate from saving anything on mount.
+            calculateRunningTimeMock.mockRejectedValue(new Error('backend unavailable'))
+            api.update.mockRejectedValueOnce(new Error('network down'))
+
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            modalsLogic.actions.openRunningTimeConfigModal()
+            logic.actions.setConfig({ mde: 7 })
+
+            await expectLogic(logic, () => logic.actions.save()).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledTimes(1)
+            expect(modalsLogic.values.isRunningTimeConfigModalOpen).toBe(true)
+            expect(logic.values.configOverrides).toEqual({ mde: 7 })
+            // The experiment save reports the failure itself, so the modal adds no second toast.
+            expect(lemonToast.error).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('isCalculating', () => {
+        it('stays true while the automatic estimate is in flight, then settles on success', async () => {
+            let resolveCalc: (value: unknown) => void = () => {}
+            calculateRunningTimeMock.mockReturnValue(
+                new Promise((resolve) => {
+                    resolveCalc = resolve
+                })
+            )
+            api.update.mockResolvedValue({ ...experiment, version: 4 })
+
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculation'])
+            expect(logic.values.isCalculating).toBe(true)
+
+            resolveCalc({ recommended_sample_size: 2000, recommended_running_time_days: 20 })
+            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess']).toFinishAllListeners()
+            expect(logic.values.isCalculating).toBe(false)
+        })
+
+        it('clears calculating when the automatic estimate request fails', async () => {
+            // A failed request leaves the result null for good, so calculating must still settle —
+            // otherwise the meta bar hangs on "Calculating…" instead of showing a resting state.
+            calculateRunningTimeMock.mockRejectedValue(new Error('backend unavailable'))
+
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationFailure']).toFinishAllListeners()
+            expect(logic.values.isCalculating).toBe(false)
+        })
+
+        it('follows the recalculation loading state when the recalculation flag is on', async () => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
+                [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+            })
+            const metricsLogicInstance = experimentMetricsLogic({ experiment })
+            metricsLogicInstance.mount()
+
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+
+            metricsLogicInstance.actions.setRecalculationLoading(true)
+            await expectLogic(logic).toMatchValues({ isCalculating: true })
+
+            metricsLogicInstance.actions.setRecalculationLoading(false)
+            await expectLogic(logic).toMatchValues({ isCalculating: false })
+
+            metricsLogicInstance.unmount()
         })
     })
 })
