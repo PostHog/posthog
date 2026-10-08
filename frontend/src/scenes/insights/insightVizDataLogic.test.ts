@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { QuerySourceUpdate, insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -411,44 +412,8 @@ describe('insightVizDataLogic', () => {
             }
         )
 
-        it('clears sampling when adding a data warehouse series to an insight with no other unsupported settings', () => {
-            builtInsightVizDataLogic.actions.updateQuerySource({ samplingFactor: 0.1 } as TrendsQuery)
-            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({ samplingFactor: 0.1 })
-
-            builtInsightVizDataLogic.actions.updateQuerySource({
-                series: [{ ...warehouseSeries, kind: NodeKind.DataWarehouseNode }],
-            } as TrendsQuery)
-
-            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({ samplingFactor: undefined })
-        })
-
-        it.each([
-            ['an event breakdown', { breakdown_type: 'event', breakdown: '$browser' }, undefined],
-            [
-                'multiple breakdowns with an event one',
-                {
-                    breakdowns: [
-                        { type: 'data_warehouse', property: 'status' },
-                        { type: 'event', property: '$browser' },
-                    ],
-                },
-                undefined,
-            ],
-            [
-                'a data warehouse breakdown',
-                { breakdown_type: 'data_warehouse', breakdown: 'status' },
-                { breakdown_type: 'data_warehouse', breakdown: 'status' },
-            ],
-        ])('handles %s when a trends series changes to a data warehouse series', (_, breakdownFilter, expected) => {
-            builtInsightVizDataLogic.actions.updateQuerySource({ breakdownFilter } as TrendsQuery)
-
-            builtInsightVizDataLogic.actions.updateQuerySource({
-                series: [{ ...warehouseSeries, kind: NodeKind.DataWarehouseNode }],
-            } as TrendsQuery)
-
-            expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).breakdownFilter).toEqual(expected)
-        })
-
+        const warehouseTrendsSeries = { ...warehouseSeries, kind: NodeKind.DataWarehouseNode }
+        const pageviewSeries = { kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }
         const flagCallsNode = {
             id: 'posthog.flag_evaluations',
             table_name: 'posthog.flag_evaluations',
@@ -457,6 +422,73 @@ describe('insightVizDataLogic', () => {
             aggregation_target_field: 'person_id',
         }
         const flagCallsEntity = { ...flagCallsNode, type: 'data_warehouse' as const }
+
+        it('clears sampling when adding a data warehouse series to an insight with no other unsupported settings', () => {
+            builtInsightVizDataLogic.actions.updateQuerySource({ samplingFactor: 0.1 } as TrendsQuery)
+            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({ samplingFactor: 0.1 })
+
+            builtInsightVizDataLogic.actions.updateQuerySource({ series: [warehouseTrendsSeries] } as TrendsQuery)
+
+            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({ samplingFactor: undefined })
+        })
+
+        it.each([
+            {
+                name: 'an event breakdown',
+                breakdownFilter: { breakdown_type: 'event', breakdown: '$browser' },
+                series: [warehouseTrendsSeries],
+                expected: undefined,
+                toasts: [expect.stringMatching(/^A data warehouse series doesn't support this breakdown/)],
+            },
+            {
+                name: 'multiple breakdowns with an event one',
+                breakdownFilter: {
+                    breakdowns: [
+                        { type: 'data_warehouse', property: 'status' },
+                        { type: 'event', property: '$browser' },
+                    ],
+                },
+                series: [warehouseTrendsSeries],
+                expected: undefined,
+                toasts: [expect.stringMatching(/^A data warehouse series doesn't support this breakdown/)],
+            },
+            {
+                name: 'a data warehouse breakdown',
+                breakdownFilter: { breakdown_type: 'data_warehouse', breakdown: 'status' },
+                series: [warehouseTrendsSeries],
+                expected: { breakdown_type: 'data_warehouse', breakdown: 'status' },
+                toasts: [],
+            },
+            {
+                name: 'an event breakdown when a flag calls series joins an event series',
+                breakdownFilter: { breakdown_type: 'event', breakdown: '$browser' },
+                series: [pageviewSeries, { ...flagCallsNode, kind: NodeKind.DataWarehouseNode }],
+                expected: undefined,
+                toasts: [expect.stringMatching(/^Feature flag called doesn't support this breakdown/)],
+            },
+            {
+                name: 'a flag calls breakdown when an event series joins a flag calls series',
+                breakdownFilter: { breakdown_type: 'data_warehouse', breakdown: 'flag_key' },
+                series: [pageviewSeries, { ...flagCallsNode, kind: NodeKind.DataWarehouseNode }],
+                expected: undefined,
+                toasts: [
+                    expect.stringMatching(/^Feature flag called can't share a breakdown with event or action series/),
+                ],
+            },
+        ])(
+            'handles $name when a trends series changes to a data warehouse series',
+            ({ breakdownFilter, series, expected, toasts }) => {
+                builtInsightVizDataLogic.actions.updateQuerySource({ breakdownFilter } as TrendsQuery)
+                const infoToast = jest.spyOn(lemonToast, 'info')
+
+                builtInsightVizDataLogic.actions.updateQuerySource({ series } as TrendsQuery)
+
+                expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).breakdownFilter).toEqual(expected)
+                expect(infoToast.mock.calls.map(([message]) => message)).toEqual(toasts)
+                infoToast.mockRestore()
+            }
+        )
+
         it.each([
             {
                 kind: NodeKind.FunnelsQuery,
@@ -486,6 +518,19 @@ describe('insightVizDataLogic', () => {
 
             update({ aggregation_group_type_index: undefined })
             expect(new Set(targets(builtInsightVizDataLogic.values.querySource))).toEqual(new Set(['person_id']))
+        })
+
+        it('does not toast on an edit of a saved trends insight whose mixed series left empty properties', () => {
+            builtInsightDataLogic.actions.setQuery({
+                kind: NodeKind.InsightVizNode,
+                source: { kind: NodeKind.TrendsQuery, series: [pageviewSeries, warehouseTrendsSeries], properties: [] },
+            } as Node)
+            const infoToast = jest.spyOn(lemonToast, 'info')
+
+            builtInsightVizDataLogic.actions.updateQuerySource({ dateRange: { date_from: '-30d' } } as TrendsQuery)
+
+            expect(infoToast).not.toHaveBeenCalled()
+            infoToast.mockRestore()
         })
 
         it('keeps test accounts off when a later edit turns them on for a retention insight with a data warehouse entity', () => {

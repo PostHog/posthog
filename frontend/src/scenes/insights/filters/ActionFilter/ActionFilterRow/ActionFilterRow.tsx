@@ -10,6 +10,7 @@ import { useCallback, useEffect } from 'react'
 
 import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
 
+import { DefinitionView } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { AddBehavioralFilterButton } from 'lib/components/PropertyFilters/components/AddBehavioralFilterButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -17,6 +18,7 @@ import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     DataWarehousePopoverField,
+    DefinitionPopoverRenderer,
     TaxonomicFilterGroupType,
     isQuickFilterItem,
     quickFilterToPropertyFilters,
@@ -57,6 +59,7 @@ import {
 } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 import {
+    FLAG_CALLS_SERIES_DESCRIPTION,
     FLAG_CALLS_SERIES_NAME,
     FLAG_EVALUATIONS_SERIES_FIELDS,
     flagCallsFiltersFromEventFilters,
@@ -100,6 +103,19 @@ const NUMERIC_SCHEMA_FIELD_TYPES: DatabaseSerializedFieldType[] = ['integer', 'f
 // A warehouse series filter without a warehouse values endpoint falls back to the event values endpoint.
 // That endpoint scans recent events for a column that events do not carry, so these filters fetch no values.
 const NO_VALUE_SUGGESTIONS = (): PropValue[] => []
+
+function picksFlagCalledEvent(groupType: TaxonomicFilterGroupType | undefined, value: unknown): boolean {
+    return groupType === TaxonomicFilterGroupType.Events && value === FEATURE_FLAG_CALLED_EVENT
+}
+
+function withFlagCallsDescription(renderer: DefinitionPopoverRenderer | undefined): DefinitionPopoverRenderer {
+    return (props) =>
+        picksFlagCalledEvent(props.group.type, props.group.getValue?.(props.item)) ? (
+            <DefinitionView group={props.group} description={FLAG_CALLS_SERIES_DESCRIPTION} />
+        ) : (
+            (renderer?.(props) ?? props.defaultView)
+        )
+}
 
 // Which warehouse tables a row's picker may offer, by the caller's typeKey. Anything not listed
 // gets the unrestricted data warehouse group.
@@ -161,6 +177,9 @@ export function ActionFilterRow({
 
     const { currentTeam, currentTeamId } = useValues(teamLogic)
     const buildsFlagCallsSeries = !!flagCallsFromFlagEvaluations && readsFlagEvaluationsTable(currentTeam)
+    const rowDefinitionPopoverRenderer = buildsFlagCallsSeries
+        ? withFlagCallsDescription(definitionPopoverRenderer)
+        : definitionPopoverRenderer
     const { entityFilterVisible } = useValues(logic)
     const {
         updateSeriesEntity,
@@ -287,11 +306,7 @@ export function ActionFilterRow({
                 ])
                 return
             }
-            if (
-                buildsFlagCallsSeries &&
-                taxonomicGroupType === TaxonomicFilterGroupType.Events &&
-                changedValue === FEATURE_FLAG_CALLED_EVENT
-            ) {
+            if (buildsFlagCallsSeries && picksFlagCalledEvent(taxonomicGroupType, changedValue)) {
                 updateSeriesEntity(index, {
                     kind: dataWarehouseNodeKind ?? NodeKind.DataWarehouseNode,
                     key: FLAG_EVALUATIONS_TABLE,
@@ -470,7 +485,7 @@ export function ActionFilterRow({
             // The hidden flag-call event shows again, because picking it builds the flag_evaluations series.
             includeHiddenEvents={includeHiddenEvents || flagCallsFromFlagEvaluations}
             allowNonCapturedEvents={allowNonCapturedEvents}
-            definitionPopoverRenderer={definitionPopoverRenderer}
+            definitionPopoverRenderer={rowDefinitionPopoverRenderer}
         />
     )
 

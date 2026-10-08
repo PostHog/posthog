@@ -872,7 +872,12 @@ describe('ActionFilterRow', () => {
                 get: {
                     '/api/projects/:team/event_definitions': ({ request }: { request: Request }) => {
                         const search = new URL(request.url).searchParams.get('search') ?? ''
-                        const flagCalled = { ...eventDefinitions[0], id: 'flag-called', name: '$feature_flag_called' }
+                        const flagCalled = {
+                            ...eventDefinitions[0],
+                            id: 'flag-called',
+                            name: '$feature_flag_called',
+                            description: '',
+                        }
                         const results = [...eventDefinitions, flagCalled].filter((d) => d.name.includes(search))
                         return [200, { results, count: results.length }]
                     },
@@ -896,6 +901,7 @@ describe('ActionFilterRow', () => {
                     id_field: 'uuid',
                     distinct_id_field: 'distinct_id',
                 },
+                description: /Insights include calls from the last 90 days/,
             },
             {
                 insight: 'funnels on mode 2',
@@ -912,6 +918,7 @@ describe('ActionFilterRow', () => {
                     id_field: 'uuid',
                     aggregation_target_field: 'person_id',
                 },
+                description: /Insights include calls from the last 90 days/,
             },
             {
                 insight: 'trends on mode 0',
@@ -919,10 +926,11 @@ describe('ActionFilterRow', () => {
                 mathAvailability: MathAvailability.None,
                 dataWarehousePopoverFields: undefined,
                 expected: { kind: NodeKind.EventsNode, event: '$feature_flag_called' },
+                description: /a saved query built on it will stop returning results/,
             },
         ])(
-            'picking Feature flag called builds the right series for $insight',
-            async ({ mode, mathAvailability, dataWarehousePopoverFields, expected }) => {
+            'describes and picks Feature flag called for $insight',
+            async ({ mode, mathAvailability, dataWarehousePopoverFields, expected, description }) => {
                 teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
                 const { logic, onChange } = setup(undefined, { dataWarehousePopoverFields })
                 renderRow(logic, {
@@ -940,6 +948,8 @@ describe('ActionFilterRow', () => {
                 await userEvent.click(screen.getByTestId('trend-element-subject-0'))
                 await userEvent.type(await screen.findByTestId('taxonomic-filter-searchfield'), '$feature_flag_called')
                 const [entry] = await screen.findAllByText('Feature flag called')
+                await userEvent.hover(entry.closest('[data-attr^="prop-filter-"]') as HTMLElement)
+                expect(await screen.findByText(description)).toBeInTheDocument()
                 await userEvent.click(entry)
 
                 await waitFor(() => {

@@ -115,7 +115,14 @@ export function PropertyStatusControl({
     )
 }
 
-function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element {
+export function DefinitionView({
+    group,
+    description: descriptionOverride,
+}: {
+    group: TaxonomicFilterGroup
+    /** Wins over both the definition's own description and the core one. */
+    description?: string
+}): JSX.Element {
     const {
         definition,
         localDefinition,
@@ -166,6 +173,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     }
 
     const description =
+        descriptionOverride ||
         (definition && 'description' in definition && definition?.description) ||
         (definition?.name ? getCoreFilterDefinition(definition.name, group.type)?.description : undefined)
 
@@ -739,11 +747,10 @@ export function ControlledDefinitionPopover({
         return null
     }
 
-    const isDataWarehouseFunnelWidePopover =
-        group.type === TaxonomicFilterGroupType.DataWarehouse && !!definitionPopoverRenderer
-
     const defaultView = <DefinitionView group={group} />
     const customView = definitionPopoverRenderer?.({ item, group, defaultView }) ?? defaultView
+    const isDataWarehouseFunnelWidePopover =
+        group.type === TaxonomicFilterGroupType.DataWarehouse && customView !== defaultView
 
     return (
         <Popover

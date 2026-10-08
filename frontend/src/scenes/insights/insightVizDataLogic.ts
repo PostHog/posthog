@@ -23,7 +23,11 @@ import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightReachesPastFlagEvaluationsRetention } from 'scenes/feature-flags/flagEvaluationsTable'
-import { readsFlagCalls, withFlagCallsAggregationTarget } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
+import {
+    FLAG_CALLS_SERIES_NAME,
+    readsFlagCalls,
+    withFlagCallsAggregationTarget,
+} from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -3060,12 +3064,12 @@ const handleQuerySourceUpdateSideEffects = (
         !!(nextQuery as TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery).series?.some(
             isAnyDataWarehouseNode
         ) || nextRetentionEntities.some((entity) => entity?.type === 'data_warehouse')
-    const hasFiltersOrTestAccounts = !!(nextQuery.filterTestAccounts || nextQuery.properties)
+    const hasFiltersOrTestAccounts = !!nextQuery.filterTestAccounts || parseProperties(nextQuery.properties).length > 0
     if (hasDataWarehouseSeries && (hasFiltersOrTestAccounts || (nextQuery as TrendsQuery).samplingFactor != null)) {
         if (hasFiltersOrTestAccounts) {
             lemonToast.info(
                 readsFlagCalls(nextQuery)
-                    ? "Feature flag called doesn't support filter groups or test account filtering, so they're turned off."
+                    ? `${FLAG_CALLS_SERIES_NAME} doesn't support filter groups or test account filtering, so they're turned off.`
                     : 'Filter groups and test accounts are not supported for Data Warehouse series and have been disabled.'
             )
         }
@@ -3156,27 +3160,28 @@ const handleQuerySourceUpdateSideEffects = (
         }
     }
 
-    // if mixed, clear breakdown and trends filter
-    if (
+    const breakdownFilter = (('breakdownFilter' in mergedUpdate ? mergedUpdate : currentState) as TrendsQuery)
+        .breakdownFilter
+    // A trends insight that mixes event and data warehouse series cannot have a breakdown.
+    const mixesEventAndDataWarehouseSeries =
         kind === NodeKind.TrendsQuery &&
         (mergedUpdate as TrendsQuery).series?.length >= 0 &&
         (mergedUpdate as TrendsQuery).series.some((series) => isDataWarehouseNode(series)) &&
         (mergedUpdate as TrendsQuery).series.some((series) => isActionsNode(series) || isEventsNode(series))
-    ) {
-        ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
-        mergedUpdate['properties'] = []
-    }
-
     // The trends backend rejects an event-based breakdown on a data warehouse series.
-    if (
+    const hasEventBreakdownOnDataWarehouseSeries =
         kind === NodeKind.TrendsQuery &&
-        maybeChangedSeries?.some((series) => isDataWarehouseNode(series)) &&
-        hasEventBasedBreakdown(
-            'breakdownFilter' in mergedUpdate
-                ? (mergedUpdate as TrendsQuery).breakdownFilter
-                : (currentState as TrendsQuery).breakdownFilter
-        )
-    ) {
+        !!maybeChangedSeries?.some((series) => isDataWarehouseNode(series)) &&
+        hasEventBasedBreakdown(breakdownFilter)
+    if (mixesEventAndDataWarehouseSeries || hasEventBreakdownOnDataWarehouseSeries) {
+        if (hasBreakdownFilter(breakdownFilter)) {
+            const subject = readsFlagCalls(nextQuery) ? FLAG_CALLS_SERIES_NAME : 'A data warehouse series'
+            lemonToast.info(
+                hasEventBreakdownOnDataWarehouseSeries
+                    ? `${subject} doesn't support this breakdown, so it's removed.`
+                    : `${subject} can't share a breakdown with event or action series, so it's removed.`
+            )
+        }
         ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
     }
 
