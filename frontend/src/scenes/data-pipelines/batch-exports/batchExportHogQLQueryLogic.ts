@@ -45,8 +45,8 @@ WHERE timestamp >= {${DATA_INTERVAL_START_PLACEHOLDER}}
 // ClickHouse cannot parse a datetime string with a UTC offset.
 const PLACEHOLDER_VALUE_FORMAT = 'YYYY-MM-DD HH:mm:ss'
 
-/** 'project_setting' leaves `convertToProjectTimezone` unset, so the export follows the project's value. */
-export type TimestampTimezoneChoice = 'project_setting' | 'project_timezone' | 'utc'
+/** 'default' leaves `convertToProjectTimezone` unset, so the export follows the project's default. */
+export type TimestampTimezoneChoice = 'default' | 'project_timezone' | 'utc'
 
 export function batchExportHogQLEditorTabId({ id, service }: BatchExportConfigFormLogicProps): string {
     return `batch-export-hogql-${id ?? `new-${service}`}`
@@ -58,17 +58,18 @@ export interface batchExportHogQLQueryLogicValues {
     queryInput: string | null // sqlEditorLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     projectTimezone: string // teamLogic
+    defaultTimezone: string
     hogqlModifiers: HogQLQueryModifiers | null
     placeholders: SQLEditorPlaceholder[]
     previewEnd: string
     previewInterval: BatchExportDataInterval
     previewStart: string
-    projectConvertsToProjectTimezone: boolean
     queryTimezone: string
     scheduleInterval: BatchExportInterval
     scheduleOffsetDay: number | null
     scheduleOffsetHour: number | null
     scheduleTimezone: string | null
+    teamConvertToProjectTimezone: boolean | null
     timestampTimezoneChoice: TimestampTimezoneChoice
     usesIntervalPlaceholders: boolean
 }
@@ -132,10 +133,15 @@ export interface batchExportHogQLQueryLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         hogqlModifiers: (configuration: Record<string, any>) => HogQLQueryModifiers | null
         timestampTimezoneChoice: (hogqlModifiers: HogQLQueryModifiers | null) => TimestampTimezoneChoice
-        projectConvertsToProjectTimezone: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        teamConvertToProjectTimezone: (currentTeam: TeamPublicType | TeamType | null) => boolean | null
+        defaultTimezone: (
+            teamConvertToProjectTimezone: boolean | null,
+            currentTeam: TeamPublicType | TeamType | null,
+            projectTimezone: string
+        ) => string
         queryTimezone: (
-            hogqlModifiers: HogQLQueryModifiers | null,
-            projectConvertsToProjectTimezone: boolean,
+            timestampTimezoneChoice: TimestampTimezoneChoice,
+            defaultTimezone: string,
             projectTimezone: string
         ) => string
         scheduleInterval: (configuration: Record<string, any>) => BatchExportInterval
@@ -206,29 +212,33 @@ export const batchExportHogQLQueryLogic: LogicWrapper<batchExportHogQLQueryLogic
                 (hogqlModifiers: HogQLQueryModifiers | null): TimestampTimezoneChoice => {
                     const convertToProjectTimezone = hogqlModifiers?.convertToProjectTimezone
                     if (convertToProjectTimezone === undefined || convertToProjectTimezone === null) {
-                        return 'project_setting'
+                        return 'default'
                     }
                     return convertToProjectTimezone ? 'project_timezone' : 'utc'
                 },
             ],
-            // The backend fills in `true` when neither the project nor its defaults set a value
-            projectConvertsToProjectTimezone: [
+            // Only the API sets the team's modifier, so a value here means someone chose it on purpose
+            teamConvertToProjectTimezone: [
                 (s) => [s.currentTeam],
-                (currentTeam: TeamType | TeamPublicType | null): boolean =>
-                    currentTeam?.modifiers?.convertToProjectTimezone ??
-                    currentTeam?.default_modifiers?.convertToProjectTimezone ??
-                    true,
+                (currentTeam: TeamType | TeamPublicType | null): boolean | null =>
+                    currentTeam?.modifiers?.convertToProjectTimezone ?? null,
             ],
-            queryTimezone: [
-                (s) => [s.hogqlModifiers, s.projectConvertsToProjectTimezone, s.projectTimezone],
+            // The backend fills in `true` when neither the project nor its defaults set a value
+            defaultTimezone: [
+                (s) => [s.teamConvertToProjectTimezone, s.currentTeam, s.projectTimezone],
                 (
-                    hogqlModifiers: HogQLQueryModifiers | null,
-                    projectConvertsToProjectTimezone: boolean,
+                    teamConvertToProjectTimezone: boolean | null,
+                    currentTeam: TeamType | TeamPublicType | null,
                     projectTimezone: string
                 ): string =>
-                    (hogqlModifiers?.convertToProjectTimezone ?? projectConvertsToProjectTimezone)
+                    (teamConvertToProjectTimezone ?? currentTeam?.default_modifiers?.convertToProjectTimezone ?? true)
                         ? projectTimezone
                         : 'UTC',
+            ],
+            queryTimezone: [
+                (s) => [s.timestampTimezoneChoice, s.defaultTimezone, s.projectTimezone],
+                (choice: TimestampTimezoneChoice, defaultTimezone: string, projectTimezone: string): string =>
+                    choice === 'default' ? defaultTimezone : choice === 'project_timezone' ? projectTimezone : 'UTC',
             ],
             scheduleInterval: [
                 (s) => [s.configuration],
@@ -318,7 +328,7 @@ export const batchExportHogQLQueryLogic: LogicWrapper<batchExportHogQLQueryLogic
             setTimestampTimezone: ({ choice }) => {
                 // Only this key changes, so modifiers set through the API survive a save from the form
                 const next: HogQLQueryModifiers = { ...values.hogqlModifiers }
-                if (choice === 'project_setting') {
+                if (choice === 'default') {
                     delete next.convertToProjectTimezone
                 } else {
                     next.convertToProjectTimezone = choice === 'project_timezone'

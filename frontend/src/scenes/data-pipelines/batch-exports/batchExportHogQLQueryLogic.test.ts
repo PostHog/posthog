@@ -104,16 +104,16 @@ describe('batchExportHogQLQueryLogic', () => {
     // `team.modifiers`, a team that turned the modifier off through the API sees its project timezone in the form
     // while its exports run in UTC.
     test.each<
-        [string, HogQLQueryModifiers | undefined, HogQLQueryModifiers | null, TimestampTimezoneChoice, boolean, string]
+        [string, HogQLQueryModifiers | undefined, HogQLQueryModifiers | null, TimestampTimezoneChoice, string, string]
     >([
-        ['the team leaves it unset', undefined, null, 'project_setting', true, PROJECT_TIMEZONE],
-        ['the team turns it off', { convertToProjectTimezone: false }, null, 'project_setting', false, 'UTC'],
+        ['the team leaves it unset', undefined, null, 'default', PROJECT_TIMEZONE, PROJECT_TIMEZONE],
+        ['the team turns it off', { convertToProjectTimezone: false }, null, 'default', 'UTC', 'UTC'],
         [
             'the export turns it on over the team',
             { convertToProjectTimezone: false },
             { convertToProjectTimezone: true },
             'project_timezone',
-            false,
+            'UTC',
             PROJECT_TIMEZONE,
         ],
         [
@@ -121,17 +121,17 @@ describe('batchExportHogQLQueryLogic', () => {
             undefined,
             { convertToProjectTimezone: false },
             'utc',
-            true,
+            PROJECT_TIMEZONE,
             'UTC',
         ],
     ])(
         'resolves the query timezone when %s',
-        async (_, teamModifiers, exportModifiers, choice, projectConverts, queryTimezone) => {
+        async (_, teamModifiers, exportModifiers, choice, defaultTimezone, queryTimezone) => {
             await initLogic(teamModifiers, exportModifiers)
 
             await expectLogic(logic).toMatchValues({
                 timestampTimezoneChoice: choice,
-                projectConvertsToProjectTimezone: projectConverts,
+                defaultTimezone,
                 queryTimezone,
             })
             const { start, end } = logic.values.previewInterval
@@ -149,10 +149,10 @@ describe('batchExportHogQLQueryLogic', () => {
         [
             'keeps other modifiers when it unsets the key',
             { personsOnEventsMode: 'person_id_override_properties_joined', convertToProjectTimezone: false },
-            'project_setting',
+            'default',
             { personsOnEventsMode: 'person_id_override_properties_joined' },
         ],
-        ['clears the modifiers once no key is left', { convertToProjectTimezone: false }, 'project_setting', null],
+        ['clears the modifiers once no key is left', { convertToProjectTimezone: false }, 'default', null],
         [
             'keeps other modifiers when it sets the key',
             { personsOnEventsMode: 'person_id_override_properties_joined' },
