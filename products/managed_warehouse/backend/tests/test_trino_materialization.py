@@ -3,11 +3,13 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from parameterized import parameterized
 
 from posthog.schema import HogQLQuery
+
+from posthog.hogql.parser import parse_select
 
 from posthog.models import Team
 
@@ -85,7 +87,7 @@ class TestTrinoShadowMaterialization(BaseTest):
             team=self.team,
             bypass_warehouse_access_control=True,
             expansion_mode=TrinoExpansionMode.DJANGO,
-            select_transform=None,
+            select_transform=ANY,
         )
         connect.assert_called_once_with(
             str(self.organization.pk),
@@ -164,6 +166,52 @@ class TestTrinoShadowMaterialization(BaseTest):
         assert writes[0][1] == ["signup"]
         assert writes[1][0].endswith("LIMIT 75000")
         assert writes[1][1] == ["purchase"]
+
+    @parameterized.expand([("full_build", None), ("merge_stage", dt.datetime(2026, 10, 1, tzinfo=dt.UTC))])
+    def test_names_unaliased_columns_in_create_table_as(self, _name: str, since: dt.datetime | None) -> None:
+        self.query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT event, count(), max(timestamp) AS ts FROM events GROUP BY event",
+        }
+        membership = ManagedWarehouseTeamMembership(
+            team_id=self.team.pk,
+            organization_id=str(self.organization.pk),
+            schema_name="production",
+            enabled=True,
+            backfill_enabled=True,
+            table_names=ManagedWarehouseTableNames(
+                events_table="events_current", persons_table="persons_current", data_imports_schema="imports"
+            ),
+            earliest_event_date=None,
+        )
+        cursor = _ScriptedCursor(table_exists=True, staged=1)
+        self.connection.cursor.return_value = cursor
+        with (
+            patch("products.managed_warehouse.backend.cp_teams.list_org_teams", return_value=[]),
+            patch(
+                "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
+                return_value="org_catalog",
+            ),
+            patch(
+                "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
+                return_value=membership,
+            ),
+            patch(
+                "products.managed_warehouse.backend.trino_materialization.connect_managed_warehouse_trino"
+            ) as connect,
+        ):
+            connect.return_value.__enter__.return_value = self.connection
+            execute_trino_shadow_materialization(
+                organization_id=str(self.organization.pk),
+                team_id=self.team.pk,
+                saved_query_id=self.saved_query_id,
+                source_query=self.query,
+                incremental=TrinoIncrementalWrite(incremental_key="ts", unique_key=("event",), since=since),
+            )
+
+        (write,) = [statement for statement, _ in cursor.statements if statement.startswith("CREATE OR REPLACE TABLE")]
+        assert 'count(*) AS "count()"' in write
+        assert ("__ph_incremental_stage" in write) == (since is not None)
 
     def test_compilation_failure_does_not_connect_or_write(self) -> None:
         with (
@@ -352,7 +400,7 @@ class TestTrinoIncrementalMaterialization(BaseTest):
         assert isinstance(result, DuckLakeTableResult)
         assert (result.row_count, result.watermark, result.merged) == (9, latest, False)
         # The table is rebuilt from the unfiltered query.
-        assert transforms[-1] is None
+        assert transforms[-1](parse_select("SELECT id, ts FROM orders")).where is None
         table = f'"cat"."posthog_data_modeling_team_{self.team.pk}"."model_{self.saved_query_id.hex}"'
         assert f"CREATE OR REPLACE TABLE {table} AS SELECT id, ts FROM orders" in statements
         assert not any("__ph_incremental_stage" in statement for statement in statements)
