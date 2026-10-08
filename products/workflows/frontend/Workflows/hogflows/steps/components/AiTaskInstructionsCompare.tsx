@@ -13,7 +13,7 @@ import { InstructionsDiff } from './InstructionsDiff'
 const DIFF_HEIGHT = 'calc(16rem - 1.25rem - 2px)'
 
 export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): JSX.Element | null {
-    const { logicProps, originalWorkflow, workflow } = useValues(workflowLogic)
+    const { logicProps, originalWorkflow, workflow, externallyEdited } = useValues(workflowLogic)
     const logic = aiTaskInstructionsCompareLogic({ workflowId: logicProps.id ?? 'new', actionId })
     const {
         isOpen,
@@ -32,6 +32,9 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
         return null
     }
 
+    const livePrompt = findAiTaskPrompt(originalWorkflow.actions, actionId)
+    const currentPrompt = findAiTaskPrompt(workflow.actions, actionId) ?? ''
+
     if (!isOpen) {
         return (
             <div>
@@ -39,7 +42,8 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                     size="small"
                     type="secondary"
                     icon={<IconClock />}
-                    onClick={() => setOpen(true)}
+                    // Compared with live, unchanged instructions only say "No differences", so open on a past version.
+                    onClick={() => setOpen(true, currentPrompt === livePrompt ? originalWorkflow.version : null)}
                     data-attr="workflow-ai-task-compare-open"
                 >
                     Compare instructions with another version
@@ -48,9 +52,7 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
         )
     }
 
-    const currentPrompt = findAiTaskPrompt(workflow.actions, actionId) ?? ''
-    const comparedPrompt =
-        selectedVersion === null ? findAiTaskPrompt(originalWorkflow.actions, actionId) : selectedRevisionPrompt
+    const comparedPrompt = selectedVersion === null ? livePrompt : selectedRevisionPrompt
     const versionName = selectedVersion === null ? 'the live version' : `v${selectedVersion}`
     // The editor's live copy can be older than the list, which loads on each open. A newer version is not
     // past, and listing it would sit beside a stale "Live version" label.
@@ -76,6 +78,11 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                     Close
                 </LemonButton>
             </div>
+            {externallyEdited && (
+                <span className="text-xs text-warning">
+                    This workflow changed elsewhere, so the live version here may be out of date.
+                </span>
+            )}
             {revisionsResponse && !revisionsLoadFailed && pastVersionOptions.length === 0 && (
                 <span className="text-xs text-secondary">
                     No past versions yet. One is saved each time the live workflow changes.

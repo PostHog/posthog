@@ -7,7 +7,15 @@ import { initKeaTests } from '~/test/init'
 import type { HogFlowAction } from '../../types'
 import { aiTaskInstructionsCompareLogic } from './aiTaskInstructionsCompareLogic'
 
+const LIST_URL = '/api/environments/:team_id/hog_flows/:id/revisions/'
 const REVISION_URL = '/api/environments/:team_id/hog_flows/:id/revisions/:version/'
+
+const revisionList = (versions: number[]): Record<string, unknown> => ({
+    count: versions.length,
+    next: null,
+    previous: null,
+    results: versions.map((version) => ({ version, created_at: '2026-09-01T10:00:00Z', created_by: null })),
+})
 
 const aiTask = (id: string, prompt: string): HogFlowAction => ({
     id,
@@ -38,13 +46,10 @@ describe('aiTaskInstructionsCompareLogic', () => {
     })
 
     it('reloads the version list on every open, so a version published since the last open shows', async () => {
-        let listCalls = 0
+        let published: number[] = [1]
         useMocks({
             get: {
-                '/api/environments/:team_id/hog_flows/:id/revisions/': () => {
-                    listCalls += 1
-                    return [200, { count: 0, next: null, previous: null, results: [] }]
-                },
+                [LIST_URL]: () => [200, revisionList(published)],
             },
         })
         initKeaTests()
@@ -53,9 +58,29 @@ describe('aiTaskInstructionsCompareLogic', () => {
 
         await expectLogic(logic, () => logic.actions.setOpen(true)).toDispatchActions(['loadRevisionsSuccess'])
         logic.actions.setOpen(false)
+        published = [2, 1]
         await expectLogic(logic, () => logic.actions.setOpen(true)).toDispatchActions(['loadRevisionsSuccess'])
 
-        expect(listCalls).toBe(2)
+        expect(logic.values.revisionOptions.map((option) => option.value)).toEqual([2, 1])
+    })
+
+    it.each([
+        ['the newest version below live', [3, 2, 1], 2],
+        ['live when no version is below live', [3], null],
+    ])('opening with instructions that match live selects %s', async (_, versions, expected) => {
+        useMocks({
+            get: {
+                [LIST_URL]: () => [200, revisionList(versions)],
+                [REVISION_URL]: { version: 2, created_at: '', created_by: null, content: { actions: [] } },
+            },
+        })
+        initKeaTests()
+        const logic = aiTaskInstructionsCompareLogic({ workflowId: 'wf-1', actionId: 'triage' })
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.setOpen(true, 3)).toDispatchActions(['loadRevisionsSuccess'])
+
+        expect(logic.values.selectedVersion).toBe(expected)
     })
 
     it('reports a failed version load, and clears it on switching to the live version', async () => {
