@@ -103,6 +103,34 @@ class TestRecordTurnMarker(BaseTest):
         assert original.version == "reviewhog-flash-2-0"
         assert changed.fingerprint != original.fingerprint
 
+    @parameterized.expand(
+        [
+            (
+                "chunking_pin_leaves_single_agent",
+                "CHUNKING_MODEL",
+                REVIEW_MODE_FLASH,
+                REVIEW_DESIGN_SINGLE_AGENT,
+                False,
+            ),
+            ("chunking_pin_moves_pipeline", "CHUNKING_MODEL", REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE, True),
+            (
+                "flash_dedup_pin_moves_single_agent",
+                "FLASH_DEDUP_MODEL",
+                REVIEW_MODE_FLASH,
+                REVIEW_DESIGN_SINGLE_AGENT,
+                True,
+            ),
+        ]
+    )
+    def test_a_pin_change_moves_only_the_designs_that_use_it(
+        self, _name: str, pin: str, review_mode: str, review_design: str, moves: bool
+    ) -> None:
+        original = self._record(run_index=1, review_mode=review_mode, review_design=review_design)
+        with patch(f"products.review_hog.backend.reviewer.fingerprint.{pin}", "another-model"):
+            changed = self._record(run_index=2, review_mode=review_mode, review_design=review_design)
+
+        assert (changed.fingerprint != original.fingerprint) is moves
+
     def _publish_validation_body(self, body: str, base_version: int) -> None:
         publish_skill_version(
             self.team, user=self.user, skill_name=REVIEW_HOG_VALIDATION_SKILL_NAME, body=body, base_version=base_version

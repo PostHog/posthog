@@ -248,7 +248,8 @@ class TurnFingerprint:
                     "review_mode": review_mode,
                     "review_design": review_design,
                     "review_arm": _arm_payload(review_arm),
-                    "stage_pins": cls._stage_pins(),
+                    # No `stage_pins`: this design runs neither chunking nor the pipeline dedup, so a pin
+                    # change there must not split its cohorts.
                     "flash_dedup": {"model": FLASH_DEDUP_MODEL, "reasoning_effort": FLASH_DEDUP_REASONING_EFFORT},
                     "flash_limits": {
                         "max_findings_base": FLASH_MAX_FINDINGS_BASE,
