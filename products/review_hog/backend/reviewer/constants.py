@@ -69,8 +69,8 @@ REVIEW_MODE_FLASH = "flash"
 # Bump a mode's (major, minor) with a pipeline or design change. Prompt, skill, and model pin edits
 # change the turn fingerprint (`reviewer/fingerprint.py`) instead.
 REVIEWHOG_VERSIONS: dict[str, tuple[int, int]] = {
-    REVIEW_MODE_FULL: (1, 1),
-    REVIEW_MODE_FLASH: (1, 1),
+    REVIEW_MODE_FULL: (1, 2),
+    REVIEW_MODE_FLASH: (1, 2),
 }
 
 
