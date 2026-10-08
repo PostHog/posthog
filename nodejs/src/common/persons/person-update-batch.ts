@@ -29,8 +29,6 @@ export interface PersonUpdate {
     force_update?: boolean
     /** Set on a record a flush re-targeted after its person was merged away; its lanes are then the only carrier. */
     retargeted?: boolean
-    /** Set on a record: the round that issued it, which is the only round whose write out its answer may clear. */
-    issued?: Promise<void>
     /** The one write a flush decided for this entry whose answer is still out; no other is decided until it has. */
     in_flight?: InFlightWrite
 }

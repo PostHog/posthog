@@ -328,7 +328,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     }
 
     /**
-     * Flushes every dirty entry in decision rounds. A round that fails after earlier rounds wrote throws
+     * Flushes every dirty entry in decision rounds. A flush that fails after any write landed throws
      * `PersonFlushAbortedError`, carrying those writes, whose messages are still owed.
      */
     async flush(): Promise<FlushResult[]> {
@@ -377,12 +377,14 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             personFlushLatencyHistogram.observe({ db_write_mode: this.options.dbWriteMode }, flushLatency)
             personFlushOperationsCounter.inc({ db_write_mode: this.options.dbWriteMode, outcome: 'error' })
 
+            const cause = error instanceof PersonFlushAbortedError ? error.cause : error
+            const landed = error instanceof PersonFlushAbortedError ? [...results, ...error.results] : results
             logger.error('Failed to flush person updates', {
-                error,
-                errorMessage: error instanceof Error ? error.message : String(error),
-                errorStack: error instanceof Error ? error.stack : undefined,
+                error: cause,
+                errorMessage: cause instanceof Error ? cause.message : String(cause),
+                errorStack: cause instanceof Error ? cause.stack : undefined,
             })
-            throw results.length > 0 ? new PersonFlushAbortedError(error, results) : error
+            throw landed.length > 0 ? new PersonFlushAbortedError(cause, landed) : cause
         }
     }
 
@@ -434,7 +436,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                         properties_to_set: { ...update.properties_to_set },
                         properties_to_set_once: { ...update.properties_to_set_once },
                         properties_to_unset: [...update.properties_to_unset],
-                        issued: settled,
                     },
                 ])
                 beginWrite(update, settled)
@@ -461,8 +462,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     }
 
     /**
-     * An answer newer than the base replaces it with the row it returned, and the entry's write out is done when it
-     * is this record's; an answer from a round that ended early finds another round's record and leaves it. A
+     * An answer newer than the base replaces it with the row it returned, and the entry's write out is done. A
      * re-targeted write lands on another person's entry, which keeps its own write out and retires only what the
      * record carried, unless it holds a newer change for that key.
      */
@@ -478,7 +478,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
         if (record.retargeted) {
             retireCarried(entry, record)
-        } else if (entry.in_flight?.settled === record.issued) {
+        } else {
             entry.in_flight = undefined
         }
     }
@@ -576,7 +576,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             })
 
             const limit = pLimit(this.options.maxConcurrentUpdates)
-            const fallbackResults = await Promise.all(
+            const fallbackResults = await this.settleWrites(
                 failedUpdates.map((update) =>
                     limit(async (): Promise<FlushResult[]> => {
                         try {
@@ -604,12 +604,30 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                             return this.handleIndividualUpdateError(error, update)
                         }
                     })
-                )
+                ),
+                allKafkaMessages
             )
-            allKafkaMessages.push(...fallbackResults.flat())
+            allKafkaMessages.push(...fallbackResults)
         }
 
         return allKafkaMessages
+    }
+
+    /**
+     * Waits for every write to answer, so none is still running when its round hands records back. When one fails,
+     * throws the first failure carrying every write that landed, those in `landedBefore` included.
+     */
+    private async settleWrites(
+        writes: Promise<FlushResult[]>[],
+        landedBefore: FlushResult[] = []
+    ): Promise<FlushResult[]> {
+        const settled = await Promise.allSettled(writes)
+        const landed = settled.flatMap((write) => (write.status === 'fulfilled' ? write.value : []))
+        const failed = settled.find((write): write is PromiseRejectedResult => write.status === 'rejected')
+        if (failed) {
+            throw new PersonFlushAbortedError(failed.reason, [...landedBefore, ...landed])
+        }
+        return landed
     }
 
     /**
@@ -619,7 +637,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     private async flushIndividualNoAssert(updateEntries: [string, PersonUpdate][]): Promise<FlushResult[]> {
         const limit = pLimit(this.options.maxConcurrentUpdates)
 
-        const results = await Promise.all(
+        const results = await this.settleWrites(
             updateEntries.map(([cacheKey, update]) =>
                 limit(async (): Promise<FlushResult[]> => {
                     try {
@@ -673,7 +691,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             )
         )
 
-        return results.flat()
+        return results
     }
 
     /**
@@ -683,7 +701,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     private async flushIndividualAssertVersion(updateEntries: [string, PersonUpdate][]): Promise<FlushResult[]> {
         const limit = pLimit(this.options.maxConcurrentUpdates)
 
-        const results = await Promise.all(
+        const results = await this.settleWrites(
             updateEntries.map(([cacheKey, update]) =>
                 limit(async (): Promise<FlushResult[]> => {
                     try {
@@ -739,7 +757,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             )
         )
 
-        return results.flat()
+        return results
     }
 
     /**

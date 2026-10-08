@@ -3161,6 +3161,96 @@ describe('BatchWritingPersonStore', () => {
             )
         })
 
+        const landedRows = (updates: any[]) =>
+            new Map(
+                updates.map((u: any) => [
+                    u.uuid,
+                    { success: true, version: u.version + 1, kafkaMessage: {}, person: toInternalPerson(u) },
+                ])
+            )
+
+        it('a round that fails still waits for its other writes before a later flush writes their persons', async () => {
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
+                dbWriteMode: 'NO_ASSERT',
+                useBatchUpdates: false,
+                maxOptimisticUpdateRetries: 1,
+                optimisticUpdateRetryInterval: 0,
+            })
+            const other: InternalPerson = { ...person, id: 'other-id', uuid: 'other-uuid' }
+            let release: () => void = () => {}
+            mockRepo.updatePersonsBatch = jest.fn().mockImplementation((updates: any[]) => {
+                if (updates[0].uuid === other.uuid) {
+                    return Promise.reject(new Error('connection lost'))
+                }
+                if (
+                    mockRepo.updatePersonsBatch.mock.calls.filter(([u]: any[]) => u[0].uuid === person.uuid).length ===
+                    1
+                ) {
+                    return new Promise((resolve) => (release = () => resolve(landedRows(updates))))
+                }
+                return Promise.resolve(landedRows(updates))
+            })
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'pro' }, [], {}, 'distinct_id_1')
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                other,
+                { plan: 'pro' },
+                [],
+                {},
+                'distinct_id_other'
+            )
+            const first = personStore.flush().catch((error: unknown) => error)
+            await new Promise((resolve) => setImmediate(resolve))
+
+            // The other person's write fails while this person's write is still out.
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'max' }, [], {}, 'distinct_id_1')
+            const second = personStore.flush()
+            await new Promise((resolve) => setImmediate(resolve))
+            const writesOf = (uuid: string) =>
+                mockRepo.updatePersonsBatch.mock.calls
+                    .filter(([u]: any[]) => u[0].uuid === uuid)
+                    .map(([u]: any[]) => u[0])
+            expect(writesOf(person.uuid)).toHaveLength(1)
+
+            release()
+            await first
+            await second
+            expect(writesOf(person.uuid).map((u: any) => u.properties_to_set.plan)).toEqual(['pro', 'max'])
+        })
+
+        it('a failed round throws its own landed writes, the batch statement and its fallback alike', async () => {
+            const personStore = getPersonsStore()
+            const second: InternalPerson = { ...person, id: 'second-id', uuid: 'second-uuid' }
+            const third: InternalPerson = { ...person, id: 'third-id', uuid: 'third-uuid' }
+            mockRepo.updatePersonsBatch = jest.fn().mockImplementation((updates: any[]) => {
+                if (updates.length > 1) {
+                    // The statement lands this person and fails the other two, which fall back to single-row writes.
+                    return Promise.resolve(
+                        new Map(
+                            updates.map((u: any) => [
+                                u.uuid,
+                                u.uuid === person.uuid
+                                    ? landedRows([u]).get(u.uuid)
+                                    : { success: false, error: new Error('statement failed') },
+                            ])
+                        )
+                    )
+                }
+                return updates[0].uuid === third.uuid
+                    ? Promise.reject(new Error('connection lost'))
+                    : Promise.resolve(landedRows(updates))
+            })
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'pro' }, [], {}, 'distinct_id_1')
+            await personStore.updatePersonWithPropertiesDiffForUpdate(second, { plan: 'pro' }, [], {}, 'distinct_id_2')
+            await personStore.updatePersonWithPropertiesDiffForUpdate(third, { plan: 'pro' }, [], {}, 'distinct_id_3')
+
+            const error = await personStore.flush().catch((caught: unknown) => caught)
+
+            expect(error).toBeInstanceOf(PersonFlushAbortedError)
+            expect((error as PersonFlushAbortedError).results.map((result) => result.uuid).sort()).toEqual(
+                [person.uuid, second.uuid].sort()
+            )
+        })
+
         it('a round that fails throws the writes the rounds before it landed, so their messages still go out', async () => {
             const personStore = getPersonsStore()
             const other: InternalPerson = { ...person, id: 'other-id', uuid: 'other-uuid' }
@@ -3215,53 +3305,6 @@ describe('BatchWritingPersonStore', () => {
                 properties_to_set_once: {},
                 properties_to_unset: [],
             })
-        })
-
-        it("a straggler answer from a round that ended early does not clear a later round's write out", async () => {
-            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
-                dbWriteMode: 'NO_ASSERT',
-                useBatchUpdates: false,
-                maxOptimisticUpdateRetries: 1,
-                optimisticUpdateRetryInterval: 0,
-            })
-            const other: InternalPerson = { ...person, id: 'other-id', uuid: 'other-uuid' }
-            const success = (updates: any[]) =>
-                new Map(
-                    updates.map((u: any) => [
-                        u.uuid,
-                        { success: true, version: u.version + 1, kafkaMessage: {}, person: toInternalPerson(u) },
-                    ])
-                )
-            const held: (() => void)[] = []
-            mockRepo.updatePersonsBatch = jest.fn().mockImplementation((updates: any[]) => {
-                if (updates[0].uuid === other.uuid) {
-                    return Promise.reject(new Error('boom'))
-                }
-                return new Promise((resolve) => held.push(() => resolve(success(updates))))
-            })
-            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'pro' }, [], {}, 'distinct_id_1')
-            await personStore.updatePersonWithPropertiesDiffForUpdate(
-                other,
-                { plan: 'pro' },
-                [],
-                {},
-                'distinct_id_other'
-            )
-            // The other entry's write fails for good and ends the round while this entry's write is still out.
-            await expect(personStore.flush()).rejects.toThrow('boom')
-            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)?.in_flight).toBeUndefined()
-
-            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'max' }, [], {}, 'distinct_id_1')
-            const second = personStore.flush()
-            await new Promise((resolve) => setImmediate(resolve))
-            held[0]()
-            await new Promise((resolve) => setImmediate(resolve))
-            // The straggler landed; the second round's write is still out and still recorded.
-            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)?.in_flight).toBeDefined()
-
-            held[1]()
-            await second
-            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)?.in_flight).toBeUndefined()
         })
 
         it('a write whose message is too large hands its record back, so the next flush decides it instead of waiting', async () => {
