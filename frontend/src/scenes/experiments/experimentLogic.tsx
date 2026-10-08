@@ -2700,7 +2700,20 @@ export const experimentLogic = kea<experimentLogicType>([
             }
             try {
                 await updatePromise
-            } catch {
+            } catch (error: any) {
+                // A metric list the API rejects as invalid, left in local state, is resent by every
+                // later metrics save and fails the same way until the page reloads. Other failures
+                // keep the local edit for the next save to retry, and a conflict has already rebased
+                // local state on the server's.
+                if (error?.status === 400 && values.unmodifiedExperiment) {
+                    const saved = structuredClone(values.unmodifiedExperiment)
+                    actions.setExperiment({
+                        metrics: saved.metrics,
+                        metrics_secondary: saved.metrics_secondary,
+                        primary_metrics_ordered_uuids: saved.primary_metrics_ordered_uuids,
+                        secondary_metrics_ordered_uuids: saved.secondary_metrics_ordered_uuids,
+                    })
+                }
                 return
             }
 

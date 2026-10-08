@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -437,3 +439,54 @@ class TestExperimentSavedMetricService(APIBaseTest):
             assert updated.description == "Updated description"
         elif field_name == "query":
             assert updated.query["source"]["event"] == "$pageleave"
+
+    def test_create_saved_metric_rejects_conversion_window_without_unit(self) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().create_saved_metric(
+                name="Window without unit",
+                query={**self._valid_experiment_metric(), "conversion_window": 7},
+            )
+
+        assert "conversion_window_unit" in str(ctx.exception)
+
+    def _stored_unitless_window_metric(self, uuid: str | None) -> ExperimentSavedMetric:
+        # Written through the model: the service now refuses this shape, but saved metrics hold it.
+        query = {**self._valid_experiment_metric(), "conversion_window": 7}
+        if uuid is not None:
+            query["uuid"] = uuid
+        return ExperimentSavedMetric.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Original name",
+            query=query,
+        )
+
+    @parameterized.expand(
+        [
+            ("with_uuid", str(uuid4()), {}),
+            # Saved metrics stored before uuids were assigned have none, and must stay editable too.
+            ("without_uuid", None, {}),
+            ("another_field_changed", str(uuid4()), {"source": {"kind": "EventsNode", "event": "$pageleave"}}),
+        ]
+    )
+    def test_update_saved_metric_keeps_stored_unitless_window_editable(
+        self, _: str, uuid: str | None, change: dict
+    ) -> None:
+        saved_metric = self._stored_unitless_window_metric(uuid)
+        query = {**saved_metric.query, **change}
+
+        updated = self._service().update_saved_metric(saved_metric, {"name": "Updated name", "query": query})
+
+        assert updated.name == "Updated name"
+        assert updated.query["conversion_window"] == 7
+        assert updated.query["source"] == query["source"]
+
+    def test_update_saved_metric_rejects_changed_window_without_unit(self) -> None:
+        saved_metric = self._stored_unitless_window_metric(str(uuid4()))
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().update_saved_metric(
+                saved_metric, {"query": {**saved_metric.query, "conversion_window": 14}}
+            )
+
+        assert "conversion_window_unit" in str(ctx.exception)

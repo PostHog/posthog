@@ -11,7 +11,9 @@ from posthog.models.team.team import Team
 
 from products.experiments.backend.metric_utils import without_action_names
 from products.experiments.backend.metric_validation import (
+    UNITLESS_CONVERSION_WINDOW_ERROR,
     extract_entity_nodes,
+    first_unitless_conversion_window,
     parse_and_validate_metric,
     validate_metric_action_ids,
 )
@@ -112,6 +114,14 @@ class ExperimentSavedMetricService:
             # A caller promoting an inline metric sends its uuid; keeping it would make the
             # shared metric and the inline one read each other's results.
             normalized_query["uuid"] = str(uuid4())
+
+        # The skip above covers only a query that comes back unchanged. An edit to another field
+        # resends the stored unit-less window in a changed query, so this rule matches the stored
+        # window itself. The normalized query carries the stored row's identity, so compare under
+        # that identity.
+        stored_for_match = [{**existing_query, "uuid": normalized_query["uuid"]}] if existing_query else []
+        if first_unitless_conversion_window([normalized_query], stored_for_match) is not None:
+            raise ValidationError(f"Invalid metric: {UNITLESS_CONVERSION_WINDOW_ERROR}")
 
         return normalized_query
 
