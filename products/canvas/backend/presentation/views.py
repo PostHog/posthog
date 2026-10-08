@@ -78,6 +78,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasConnectorCallSerializer,
     CanvasConnectorsResponseSerializer,
     CanvasCreateSerializer,
+    CanvasDataCheckSerializer,
     CanvasDraftSerializer,
     CanvasErrorReportResultSerializer,
     CanvasFixRequestResultSerializer,
@@ -387,6 +388,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         "comment",
         "actions",
         "operations",
+        "data_check",
     ]
     scope_object_write_actions = [
         "create",
@@ -1899,6 +1901,16 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         )
         self._report_canvas_action("canvas action invoked", canvas, verb=verb)
         return Response(CanvasActionResultSerializer(instance={"verb": verb, "result": result}).data)
+
+    @extend_schema(
+        operation_id="canvases_data_check_retrieve",
+        responses={200: CanvasDataCheckSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="data_check")
+    def data_check(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """The latest nightly check of the data this canvas declares against the project's current schema."""
+        canvas = self._canvas()
+        return Response(CanvasDataCheckSerializer(instance=canvas_api.data_check_record(self.team_id, canvas.id)).data)
 
     @extend_schema(
         operation_id="canvases_operations_retrieve",

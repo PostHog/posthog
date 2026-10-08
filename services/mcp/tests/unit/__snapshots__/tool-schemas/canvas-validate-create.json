@@ -118,6 +118,51 @@
                                     "maxItems": 100,
                                     "type": "array"
                                 },
+                                "data": {
+                                    "description": "The events, properties, and tables the canvas reads. A nightly check compares them with the project's current schema and flags drift on the canvas, from which a person requests a fix.",
+                                    "properties": {
+                                        "events": {
+                                            "description": "Event names the canvas's queries read.",
+                                            "items": {
+                                                "maxLength": 400,
+                                                "type": "string"
+                                            },
+                                            "maxItems": 100,
+                                            "type": "array"
+                                        },
+                                        "properties": {
+                                            "description": "Properties the canvas's queries read or filter on.",
+                                            "items": {
+                                                "description": "One property a canvas reads, with the kind of property it is.",
+                                                "properties": {
+                                                    "name": {
+                                                        "description": "Property name, e.g. '$current_url' or 'plan'.",
+                                                        "maxLength": 400,
+                                                        "type": "string"
+                                                    },
+                                                    "type": {
+                                                        "description": "Which kind of property the name refers to.\n\n* `event` - event\n* `person` - person\n* `group` - group\n* `session` - session",
+                                                        "enum": ["event", "person", "group", "session"],
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": ["name", "type"],
+                                                "type": "object"
+                                            },
+                                            "type": "array"
+                                        },
+                                        "tables": {
+                                            "description": "Data warehouse table names the canvas's queries read.",
+                                            "items": {
+                                                "maxLength": 400,
+                                                "type": "string"
+                                            },
+                                            "maxItems": 100,
+                                            "type": "array"
+                                        }
+                                    },
+                                    "type": "object"
+                                },
                                 "inlineQueries": {
                                     "type": "boolean"
                                 },

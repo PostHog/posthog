@@ -24,6 +24,7 @@ import { CanvasEditToggle } from '../editing/CanvasEditToggle'
 import { CanvasVersionControls } from '../history/CanvasVersionControls'
 import { CanvasCommentsMenu } from '../sidePanel/comments/CanvasCommentsMenu'
 import { CanvasBuildStatus } from './CanvasBuildStatus'
+import { CanvasDataDriftNotice } from './CanvasDataDriftNotice'
 import { CanvasFullscreenToggle } from './CanvasFullscreenToggle'
 import { CanvasGenerationIndicator } from './CanvasGenerationIndicator'
 import { CanvasNameField } from './CanvasNameField'
@@ -56,6 +57,7 @@ export function CanvasSceneHeader(): JSX.Element {
                     <CanvasGenerationIndicator />
                     <CanvasBuildStatus />
                     <CanvasRuntimeErrorNotice />
+                    <CanvasDataDriftNotice />
                     <CanvasEditSaveStatus />
                     <CanvasEditToggle />
                     <CanvasCommentsMenu />

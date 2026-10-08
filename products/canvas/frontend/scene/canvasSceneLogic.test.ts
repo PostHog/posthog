@@ -13,13 +13,20 @@ import { buildCanvasGenerationPrompt } from './canvasGenerationPrompt'
 import { canvasSceneLogic } from './canvasSceneLogic'
 
 const CANVAS_ID = 'canvas-1'
+const DATA_DRIFT = {
+    status: 'drift',
+    checked_at: '2026-10-05T03:41:00Z',
+    missing: { events: ['signup completed'], properties: [], tables: ['stripe_charges'] },
+}
 
 describe('canvasSceneLogic', () => {
     let releaseTaskRequest: () => void = () => {}
     let patchStatus = 200
     let patchedBody: Record<string, unknown> | null = null
+    let fixRequestBodies: Record<string, unknown>[] = []
 
     beforeEach(() => {
+        fixRequestBodies = []
         const taskRequestReleased = new Promise<void>((resolve) => {
             releaseTaskRequest = resolve
         })
@@ -49,6 +56,7 @@ describe('canvasSceneLogic', () => {
                     sandbox_document_url: null,
                 },
                 '/api/projects/:team_id/canvases/:id/builds/': { builds: [], published_build_id: null },
+                '/api/projects/:team_id/canvases/:id/data_check/': DATA_DRIFT,
                 '/api/projects/:team_id/task_channels/': Object.values(spaces),
                 '/api/projects/:team_id/task_channels/:id/': (req) => [
                     200,
@@ -72,6 +80,10 @@ describe('canvasSceneLogic', () => {
                 },
             },
             post: {
+                '/api/projects/:team_id/canvases/:id/request_fix/': async ({ request }) => {
+                    fixRequestBodies.push((await request.json()) as Record<string, unknown>)
+                    return [200, { task_id: 'task-9', dispatch_outcome: 'dispatched' }]
+                },
                 '/api/projects/:team_id/tasks/:id/run/': [
                     201,
                     { id: 'task-1', title: 'Daily signups', latest_run: { status: 'queued' } },
@@ -291,5 +303,17 @@ describe('canvasSceneLogic', () => {
 
         logic.actions.setAgentTurn('run-1', true)
         expect(logic.values.isGenerating).toBe(true)
+    })
+
+    it('shows the nightly data drift result and sends its fix request as a data drift', async () => {
+        const logic = canvasSceneLogic({ id: CANVAS_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadViewSuccess', 'loadDataCheckSuccess'])
+        expect(logic.values.dataDrift).toEqual(DATA_DRIFT)
+
+        logic.actions.requestFix({ buildId: 'build-1', errorType: 'data_drift' })
+        await expectLogic(logic).toDispatchActions(['requestFixFinished'])
+        expect(fixRequestBodies).toEqual([{ build_id: 'build-1', error_type: 'data_drift' }])
+        expect(logic.values.fixTaskId).toEqual('task-9')
     })
 })
