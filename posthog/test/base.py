@@ -697,6 +697,11 @@ class PostHogTestCase(SimpleTestCase):
             raise ValueError("Test organization must be set before creating a user")
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)
 
+    def create_sibling_environment(self, name: str = "Sibling env") -> Team:
+        # Same row shape as an environment added through the API: same project, no parent_team.
+        # It skips create_with_data, so the environment has no default dashboards or insights.
+        return Team.objects.create(organization=self.organization, project=self.project, name=name)
+
     @classmethod
     def setUpTestData(cls):
         if cls.CLASS_DATA_LEVEL_SETUP:
