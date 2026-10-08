@@ -3118,15 +3118,18 @@ function getSaveQueue(
     }))
 }
 
+// Auto-save can't flush when it is toggled off, when there is no name to save under, or when a schedule
+// change is pending, which only a manual save persists.
+function autoSaveCanFlush(values: workflowLogicType['values']): boolean {
+    return values.autoSaveEnabled && !values.autoSaveBlockedByValidation && values.pendingSchedule === false
+}
+
 // Server wins while auto-save can flush the local buffer: unsaved edits are then at most
 // a few seconds old, so reconcile silently instead of interrupting with a conflict
-// banner. When auto-save can't flush (toggled off, no name to save under, or a pending
-// schedule change, which only a manual save persists), the buffer can hold real work,
-// so the banner lets the user choose.
+// banner. When auto-save can't flush, the buffer can hold real work, so the banner
+// lets the user choose.
 function syncWithServerCopy(values: workflowLogicType['values'], actions: workflowLogicType['actions']): void {
-    const autoSaveCanFlush =
-        values.autoSaveEnabled && !values.autoSaveBlockedByValidation && values.pendingSchedule === false
-    if (values.hasUnsavedChanges && !autoSaveCanFlush) {
+    if (values.hasUnsavedChanges && !autoSaveCanFlush(values)) {
         actions.setExternallyEdited(true)
     } else {
         // Flag the sync first so the editor shows a brief working/disabled overlay and
@@ -4012,17 +4015,15 @@ export const workflowLogic = kea<workflowLogicType>([
             syncWithServerCopy(values, actions)
         },
         publishDraft: async () => {
-            if (
-                !props.id ||
-                props.id === 'new' ||
-                values.draftActionPending ||
-                values.originalWorkflowLoading ||
-                values.isSyncingExternalEdit
-            ) {
+            if (!props.id || props.id === 'new' || values.draftActionPending) {
                 return
             }
             // The "Draft saved" toast offers Publish without the header button's checks, and a preview of
             // a draft that is still changing would not match what the editor shows.
+            if (values.originalWorkflowLoading || values.isSyncingExternalEdit) {
+                lemonToast.info('The workflow is still saving or loading. Publish again in a moment.')
+                return
+            }
             if (values.hasUnsavedChanges) {
                 lemonToast.info('Save your changes first, then publish.')
                 return
@@ -4050,6 +4051,10 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!stagedWorkflow || !isSameTimestamp(preview.draft_updated_at, stagedWorkflow.draft_updated_at)) {
                 // This editor's own auto-save can land while the preview loads. A reload then would drop
                 // edits typed since that save, so wait for the save instead of treating it as an outside edit.
+                if (values.hasUnsavedChanges && !autoSaveCanFlush(values)) {
+                    lemonToast.info('Save your changes first, then publish.')
+                    return
+                }
                 const ownSaveInFlight =
                     values.hasUnsavedChanges ||
                     values.originalWorkflowLoading ||
