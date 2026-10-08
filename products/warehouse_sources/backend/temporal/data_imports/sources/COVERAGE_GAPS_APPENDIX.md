@@ -4879,14 +4879,14 @@ Diffed against: <https://raw.githubusercontent.com/koyeb/koyeb-api-client-go/mai
 
 ## Kubecost — **thin**
 
-Today (4): `allocation_by_controller`, `allocation_by_namespace`, `allocation_by_pod`, `assets`
+Today (8): `allocation_by_cluster`, `allocation_by_controller`, `allocation_by_namespace`, `allocation_by_node`, `allocation_by_pod`, `allocation_by_service`, `assets`, `cloud_costs`
 
 Diffed against: <https://docs.kubecost.com/apis/apis-overview>
 
-- [ ] `GET /model/cloudCost` — cloud provider CUR spend; the entire out-of-cluster half of Kubecost's cost model is absent (high)
-- [ ] `GET /model/allocation?aggregate=cluster` — cluster is the top breakdown dimension and the only aggregation missing from namespace/controller/pod (high)
-- [ ] `GET /model/allocation?aggregate=label:<name>` — label-based chargeback is the standard way teams attribute Kubernetes spend (high)
-- [ ] `GET /model/allocation?aggregate=service and ?aggregate=node` — remaining first-class allocation breakdown dimensions the API documents (medium)
+- [x] `GET /model/cloudCost` — cloud provider CUR spend; the entire out-of-cluster half of Kubecost's cost model is absent (high). Added as `cloud_costs` (unaggregated line items, one-day windows).
+- [x] `GET /model/allocation?aggregate=cluster` — cluster is the top breakdown dimension and the only aggregation missing from namespace/controller/pod (high). Added as `allocation_by_cluster`.
+- [ ] `GET /model/allocation?aggregate=label:<name>` — label-based chargeback is the standard way teams attribute Kubernetes spend (high). Not added: the label name is per deployment, so it is not a fixed table. Pod and controller allocation rows already carry `properties.labels` for label chargeback in SQL.
+- [x] `GET /model/allocation?aggregate=service and ?aggregate=node` — remaining first-class allocation breakdown dimensions the API documents (medium). Added as `allocation_by_service` and `allocation_by_node`.
 - [ ] `GET /model/audit/events (Cost Events Audit API)` — cluster-level change history with estimated cost impact, i.e. why spend moved (medium)
 - [ ] `GET /model/savings and /model/savings/requestSizingV2` — headline savings-opportunity numbers surfaced in the Savings dashboard (medium)
 - [ ] `GET /model/customCost/timeseries (External Costs API)` — third-party service costs joined into total spend (medium)

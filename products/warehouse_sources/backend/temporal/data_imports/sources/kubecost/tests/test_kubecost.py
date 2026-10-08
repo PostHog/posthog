@@ -136,17 +136,31 @@ class TestGetRows:
         with time_machine.travel("2026-07-15T10:00:00Z", tick=False):
             yield
 
+    @pytest.mark.parametrize(
+        "endpoint, data",
+        [
+            ("allocation_by_namespace", [_allocation_set(["__idle__", "argocd"])]),
+            (
+                "cloud_costs",
+                {
+                    "sets": [
+                        {"cloudCosts": _allocation_set(["__idle__", "argocd"])},
+                        {"cloudCosts": None},
+                    ],
+                    "window": {"start": "null", "end": "null"},
+                },
+            ),
+        ],
+    )
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_flattens_result_sets_and_injects_key_and_window(self, mock_session):
-        mock_session.return_value.get.return_value = _response(
-            {"code": 200, "data": [_allocation_set(["__idle__", "argocd"])]}
-        )
+    def test_flattens_result_sets_and_injects_key_and_window(self, mock_session, endpoint, data):
+        mock_session.return_value.get.return_value = _response({"code": 200, "data": data})
 
         batches = list(
             get_rows(
                 "https://k.example.com",
                 "token",
-                "allocation_by_namespace",
+                endpoint,
                 mock.MagicMock(),
                 _make_manager(),
                 should_use_incremental_field=True,
@@ -167,7 +181,11 @@ class TestGetRows:
             ("allocation_by_namespace", "/model/allocation", "namespace"),
             ("allocation_by_controller", "/model/allocation", "controller"),
             ("allocation_by_pod", "/model/allocation", "pod"),
+            ("allocation_by_cluster", "/model/allocation", "cluster"),
+            ("allocation_by_node", "/model/allocation", "node"),
+            ("allocation_by_service", "/model/allocation", "service"),
             ("assets", "/model/assets", None),
+            ("cloud_costs", "/model/cloudCost", None),
         ],
     )
     @mock.patch(f"{_MODULE}.make_tracked_session")
