@@ -383,6 +383,22 @@ function collectWorkflowTreeActionIds(sequence: WorkflowTreeSequence, actionIds:
     }
 }
 
+function collectActionIdsBefore(startActionId: string, stopActionId: string, edges: HogFlowEdge[]): Set<string> {
+    const actionIds = new Set([startActionId])
+    const queue = [startActionId]
+
+    for (let index = 0; index < queue.length; index++) {
+        for (const edge of edges) {
+            if (edge.from === queue[index] && edge.to !== stopActionId && !actionIds.has(edge.to)) {
+                actionIds.add(edge.to)
+                queue.push(edge.to)
+            }
+        }
+    }
+
+    return actionIds
+}
+
 export function computeMoveTreeBranchEdges(
     workflow: Pick<HogFlow, 'actions' | 'edges'>,
     movingActionId: string,
@@ -397,9 +413,17 @@ export function computeMoveTreeBranchEdges(
         return null
     }
 
-    const movedActionIds = new Set([movingActionId])
-    for (const branch of branchNode.branches) {
-        collectWorkflowTreeActionIds(branch.sequence, movedActionIds)
+    // Collect the block from the edges and not from the tree, because a path can end with a link to a step
+    // that renders under another path but still runs before the join.
+    const movedActionIds = collectActionIdsBefore(movingActionId, joinActionId, workflow.edges)
+
+    // A route from outside the block that enters one of its steps would follow that step to the new place and
+    // skip the join, so refuse the move.
+    const enteredFromOutside = workflow.edges.some(
+        (edge) => edge.to !== movingActionId && movedActionIds.has(edge.to) && !movedActionIds.has(edge.from)
+    )
+    if (enteredFromOutside) {
+        return null
     }
 
     if (movedActionIds.has(targetEdge.from) || movedActionIds.has(targetEdge.to)) {

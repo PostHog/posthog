@@ -445,4 +445,32 @@ describe('buildWorkflowTree', () => {
             edge('shared', 'condition'),
         ])
     })
+
+    it('refuses to move a branching action whose path links to a step that another route enters', () => {
+        const workflowWithSharedStep = workflow(
+            [
+                action('trigger', 'trigger'),
+                action('outer', 'conditional_branch'),
+                action('inner', 'conditional_branch'),
+                action('shared'),
+                action('other'),
+                action('join'),
+                action('after'),
+                action('exit', 'exit'),
+            ],
+            [
+                edge('trigger', 'outer'),
+                edge('outer', 'shared', 'branch', 0),
+                edge('outer', 'inner'),
+                edge('inner', 'shared', 'branch', 0),
+                edge('inner', 'other'),
+                edge('shared', 'join'),
+                edge('other', 'join'),
+                edge('join', 'after'),
+                edge('after', 'exit'),
+            ]
+        )
+
+        expect(computeMoveTreeBranchEdges(workflowWithSharedStep, 'inner', edge('join', 'after'), false)).toBeNull()
+    })
 })
