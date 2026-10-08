@@ -441,10 +441,11 @@ def test_can_run_databricks_test_step_for_new_destination(
 
     assert response.status_code == status.HTTP_200_OK, response.json()
 
-    destination_test = response.json()
-
-    assert destination_test["result"]["status"] == "Passed", destination_test
-    assert destination_test["result"]["message"] is None
+    assert response.json() == {
+        "name": DatabricksEstablishConnectionTestStep.name,
+        "description": DatabricksEstablishConnectionTestStep.description,
+        "result": {"status": "Passed", "message": None},
+    }
 
 
 def test_integration_is_required_for_databricks_destination_tests(
