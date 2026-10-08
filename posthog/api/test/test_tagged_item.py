@@ -11,6 +11,7 @@ from posthog.api.tagged_item import (
     BULK_UPDATE_TAGS_MAX_IDS,
     BULK_UPDATE_TAGS_MAX_OPERATIONS,
     BULK_UPDATE_TAGS_MAX_TAGS,
+    BulkTagActivityContext,
     BulkUpdateTagsRequestSerializer,
     BulkUpdateTagsUUIDRequestSerializer,
     apply_bulk_tag_changes,
@@ -225,13 +226,20 @@ class TestBulkUpdateTags(APIBaseTest):
     def test_add_and_remove_ignore_stale_prefetched_tags(self, _name, action, tags, expected_tags):
         dashboard = self._create_dashboard_with_tags("dash", ["existing", "other"])
         # Another request attached both tags after this one loaded the dashboard, so the
-        # prefetched snapshot is stale. add and remove must not write from it.
+        # prefetched snapshot is stale. add and remove must not write or log from it.
         dashboard.prefetched_tags = []
+        activity_context = BulkTagActivityContext(
+            scope="Dashboard", user=self.user, was_impersonated=False, activity="updated"
+        )
 
-        updated = apply_bulk_tag_changes([dashboard], action, tags)
+        updated = apply_bulk_tag_changes([dashboard], action, tags, activity_context=activity_context)
 
         assert updated == [{"id": dashboard.id, "tags": expected_tags}]
         assert sorted(dashboard.tagged_items.values_list("tag__name", flat=True)) == expected_tags
+        log = ActivityLog.objects.get(scope="Dashboard", activity="updated", item_id=str(dashboard.id))
+        assert log.detail is not None
+        assert log.detail["changes"][0]["before"] == ["existing", "other"]
+        assert log.detail["changes"][0]["after"] == expected_tags
 
     def test_bulk_update_tags_logs_activity(self):
         # A silent bulk edit was the reported gap: single-object updates log tag changes, the bulk
