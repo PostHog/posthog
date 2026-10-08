@@ -149,6 +149,8 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
             const response = await performQuery({
                 ...namedSource,
                 select: ['uuid'],
+                // An empty order skips the runner's presorted path, which reads flag_evaluations two times.
+                orderBy: [],
                 limit: 1,
                 tags: { productKey: ProductKey.FEATURE_FLAGS },
             }).catch(() => null)
