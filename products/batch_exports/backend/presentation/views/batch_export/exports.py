@@ -1097,13 +1097,16 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
     def _run_destination_test_step(self, serializer: serializers.BaseSerializer, step: int) -> response.Response:
         destination = serializer.validated_data["destination"]
         integration: Integration | None = destination.get("integration")
-        result = batch_exports_api.run_destination_test_step(
-            self.team_id,
-            destination_type=destination["type"],
-            config=destination["config"],
-            integration_id=integration.id if integration else None,
-            step=step,
-        )
+        try:
+            result = batch_exports_api.run_destination_test_step(
+                self.team_id,
+                destination_type=destination["type"],
+                config=destination["config"],
+                integration_id=integration.id if integration else None,
+                step=step,
+            )
+        except UnsupportedDestinationTestError:
+            raise ValidationError(f"Connection tests aren't available for {destination['type']} destinations.")
         return response.Response(dataclasses.asdict(result))
 
     @action(methods=["GET"], detail=False, required_scopes=["batch_export:read"])

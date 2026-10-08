@@ -56,6 +56,27 @@ def test_get_test_for_destination_without_a_test_is_not_found(client: HttpClient
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
+def test_run_test_step_for_destination_without_a_test_is_rejected(client: HttpClient, organization, team, user):
+    client.force_login(user)
+
+    response = client.post(
+        f"/api/projects/{team.pk}/batch_exports/run_test_step_new",
+        {
+            "step": 0,
+            "name": "my-http-destination",
+            "destination": {
+                "type": "HTTP",
+                "config": {"url": "https://us.i.posthog.com/batch/", "token": "fake-token"},
+            },
+            "interval": "hour",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == "Connection tests aren't available for HTTP destinations."
+
+
 TEST_ROOT_BUCKET = "test-destination-tests"
 SESSION = aioboto3.Session()
 create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
