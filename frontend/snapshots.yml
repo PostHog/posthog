@@ -6642,10 +6642,18 @@ snapshots:
         hash: v1.k794b7964.afaa4c654f2d95f18590c9126b7b17aac88a822dc7bab5094d76d0661cca1eb9.jqTV_gwOgEJZ4kHk1nStIOW2uJSHE_tpv4oYTSCtLeA
     products-dashboards-templates-dashboard-template-item--all-versions--light:
         hash: v1.k794b7964.58a4bbcdd839c5e177c8bccbf79bcdb62f614dba597d5034337683b0a84fd2aa.SYAyuyJdGZe1cb2h88RaMalIuEFo2g1dkuJNADOrbbA
+    products-dashboards-templates-dashboard-templates-table--customer--dark:
+        hash: v1.k794b7964.ec756adbdedeaef8aad8a5548ddb534136265d286264f1d0c7b1ade5c8a2575b.dYUlmxU-aksrtKjE9e8RRiqI9gheOWZhWmcX5HKbUOs
+    products-dashboards-templates-dashboard-templates-table--customer--light:
+        hash: v1.k794b7964.759287925c125ea55c2fc75fd57be12bacc1a36e32876957066ed4514b1d0e93.uInp_-_5jqS5NsA54x7-N0r9xVrbqrZh7f3wHpiCO6w
+    products-dashboards-templates-dashboard-templates-table--customer-with-no-templates--dark:
+        hash: v1.k794b7964.c2a77b438816ff3502bd1760e702290b1d27af3666ad3a6fcbdbf02822993c7f.bXyjwFcTD5N6oL37D9RjPYhGm925oWyw-EUTn-PdlhE
+    products-dashboards-templates-dashboard-templates-table--customer-with-no-templates--light:
+        hash: v1.k794b7964.78213b7d708fafb29b386f7146fa537b00f66f3cb0efb78ce89a5405f7d9de59.3fGGK5ZnuIGzDWyf2aPMoCfzvxw3SwV1lNZhYloaOb4
     products-dashboards-templates-dashboard-templates-table--default--dark:
-        hash: v1.k794b7964.c3299d127a3141feb0668e1d37332e0ece55e90dbee0c7e1db562c23855db31b.dxn6lN-QvqzT6rjjGe6iMouM36QAUVeAc0sC-dFdNxk
+        hash: v1.k794b7964.0fdd80c846ff58c60fb39f781571a19f4fd28082dc3bb64310d288a32841e74f.0hEZP1rr80U3xaOxDxZETVrQ2WwqSQO-GCdIUkryPv8
     products-dashboards-templates-dashboard-templates-table--default--light:
-        hash: v1.k794b7964.7b7b2b8d679f0d373f4433b79e4f9858359471b7ad3ff3b69942a3906321534f.PsGKdz-A5Qe5DV67w49rfJqSyjeNhMt7g-xc9BszWvQ
+        hash: v1.k794b7964.1fb821a9ed0da632cf256e3bd3e819705a09de5b83ff2311cc6e2149b836179c.BEfVLd8JtTYg2ysTnNGhJcxmAasbZ4tXa4haDIscRRo
     products-dashboards-templates-dashboardtemplatemodal--create--dark:
         hash: v1.k794b7964.9a606fa34acff2efb269d60b9bbe3106c3e2031c5fcd2ac871f13c7f3e131a16.ryQ-EeL6jW95KP9CnQqQV-nRlMq1x6uZ_b2obz3v70w
     products-dashboards-templates-dashboardtemplatemodal--create--light:
