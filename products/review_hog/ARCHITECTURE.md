@@ -532,7 +532,8 @@ of all of this: **Flash mode** (`review_mode` on the workflow input, `REVIEW_MOD
 `run_mode=flash`) runs both sandbox seats — the perspective wave with its blind-spot sweep, and the validator — on
 one arm, `FLASH_ARM` (`gpt-6-luna`, Codex with `full-access`), for that turn only.
 `flash_arm_for_effort` selects the acting user's saved `medium` (default) or `xhigh` effort, snapshotted when the turn starts.
-The preference applies to automatic, UI, and CLI Flash requests.
+The preference applies to automatic, UI, and CLI Flash requests that run on the pipeline design.
+The single-agent design ignores it, so the settings page has no control for it: the saved value only matters when the kill switch sends Flash back to the pipeline.
 The report's tier and arm are untouched, so the PR's next normal trigger reviews normally; `review_arm_for_mode` / `validation_arm_for_mode`
 are the two helpers the activities and the analytics events both read, so a flash turn's events name the flash
 arm in both seats. A flash turn never chains the resolution stage. Both modes instruct the agent to fetch pinned
