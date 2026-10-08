@@ -16,7 +16,6 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceDescription,
     SourceKind,
 )
-from products.alerts_platform.backend.temporal.metrics import increment_describer_failures, safe_record
 
 # A source's context names things a user chose, such as services, so its size is unbounded. The
 # bound is set once here, so every transport's own budget starts from the same small print.
@@ -56,6 +55,13 @@ def describe(source: SourceKind, *, project_id: int, transition: AnnouncedTransi
         # The wording is never worth a lost notification. The platform's own wording goes out
         # instead, and the counter makes a source whose alerts all fell back visible.
         logger.exception("alerts_platform.describer_failed", source=source.value)
+        # Imported here because source apps reach this module from ready(), and the metrics module
+        # would load temporalio into every process at startup.
+        from products.alerts_platform.backend.temporal.metrics import (  # noqa: PLC0415 - keeps temporalio off the import path
+            increment_describer_failures,
+            safe_record,
+        )
+
         safe_record(increment_describer_failures, source.value)
         return SourceDescription()
 
