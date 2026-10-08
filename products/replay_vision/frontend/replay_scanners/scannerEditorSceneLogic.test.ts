@@ -54,6 +54,7 @@ describe('scannerEditorSceneLogic', () => {
     })
 
     afterEach(() => {
+        jest.restoreAllMocks()
         logic?.unmount()
     })
 
@@ -67,6 +68,27 @@ describe('scannerEditorSceneLogic', () => {
             [urls.replayVision(), false],
         ])('%s → %s', (pathname, expected) => {
             expect(isScannerEditorPath(pathname)).toBe(expected)
+        })
+    })
+
+    describe('leaveEditor', () => {
+        it('pushes the destination when the unwind lands on a fresh tab’s first entry', () => {
+            // A fresh tab's first entry has no history state, so the first push gets count 1.
+            let count = 0
+            jest.spyOn(window.history, 'state', 'get').mockImplementation(() => (count ? { count } : null))
+            jest.spyOn(window.history, 'go').mockImplementation((delta = 0) => {
+                count += delta
+                window.dispatchEvent(new PopStateEvent('popstate'))
+            })
+            count = 1
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+            count = 2
+            router.actions.push(urls.replayVisionScannerConfigure('new'))
+            const push = jest.spyOn(router.actions, 'push')
+
+            logic.actions.leaveEditor(urls.replayVision('created'))
+
+            expect(push).toHaveBeenCalledWith(urls.replayVision('created'))
         })
     })
 

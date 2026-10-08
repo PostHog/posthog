@@ -348,7 +348,11 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
                     landed.abort()
                     const target = combineUrl(destination)
                     const landedAt = removeProjectIdIfPresent(window.location.pathname) + window.location.search
-                    if (currentHistoryCount() === preEditorCount && landedAt !== target.pathname + target.search) {
+                    // kea-router stores no count on a tab's first entry and numbers the next push 1, so null means 0.
+                    if (
+                        (currentHistoryCount() ?? 0) === preEditorCount &&
+                        landedAt !== target.pathname + target.search
+                    ) {
                         router.actions.push(destination)
                     }
                 },
