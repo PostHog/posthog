@@ -245,6 +245,7 @@ GRANTABLE_API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = tuple(
     obj for obj in API_SCOPE_OBJECTS if obj not in INTERNAL_API_SCOPE_OBJECTS
 )
 
+# llm_gateway:read is staff-only, so ProjectSecretAPIKeySerializer adds it per request.
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [
     ("endpoint", "read"),
     # SDK local evaluation and remote config. The Rust feature-flags service already
@@ -268,8 +269,6 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # experiments into a warehouse don't need a credential tied to one person's account.
     ("experiment", "read"),
     ("offline_evaluation_ingestion", "write"),
-    # Service credential for AI gateway requests.
-    ("llm_gateway", "read"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope

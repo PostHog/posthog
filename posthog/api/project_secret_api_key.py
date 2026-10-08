@@ -126,6 +126,10 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
 
     def validate_scopes(self, scopes):
         allowed = set(PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)
+        # Staff grant llm_gateway:read; a key that already holds it stays saveable by any admin.
+        holds_gateway_scope = self.instance is not None and "llm_gateway:read" in (self.instance.scopes or [])
+        if holds_gateway_scope or self.context["request"].user.is_staff:
+            allowed.add(("llm_gateway", "read"))
 
         for scope in scopes:
             if scope == "*":
