@@ -915,10 +915,11 @@ AUTO_MODEL_CHOICE_VALUE = "on"
 def _auto_model_choice_blocks(enabled: bool) -> list[dict]:
     option = {
         "text": {"type": "mrkdwn", "text": "*Use auto model choice*"},
+        # Slack caps an option description at 150 characters and rejects the whole
+        # `views.publish` call over it, so the caveats go in the context line below.
         "description": {
             "type": "mrkdwn",
-            "text": "PostHog picks the model and reasoning effort for each new task you start. "
-            "A model you name in your message still wins, and follow-ups keep the model of their task.",
+            "text": "PostHog picks the model and reasoning effort for each new task you start.",
         },
         "value": AUTO_MODEL_CHOICE_VALUE,
     }
@@ -932,6 +933,15 @@ def _auto_model_choice_blocks(enabled: bool) -> list[dict]:
     return [
         _subsection_label("Auto model choice"),
         {"type": "actions", "elements": [checkbox]},
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "A model you name in your message still wins, and follow-ups keep the model of their task.",
+                }
+            ],
+        },
     ]
 
 

@@ -286,6 +286,24 @@ def _find_block(view: dict, block_prefix: str) -> dict | None:
     return None
 
 
+def _option_objects(view: dict) -> list[dict]:
+    """Every option object the view hands to Slack, from both `options` and `initial_options`."""
+    out: list[dict] = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in ("options", "initial_options") and isinstance(value, list):
+                    out.extend(option for option in value if isinstance(option, dict))
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(view["blocks"])
+    return out
+
+
 def _all_text(view: dict) -> str:
     """Flatten all `text` fields for substring assertions."""
     out: list[str] = []
@@ -423,11 +441,8 @@ class TestRenderHomeView:
         assert "Claude Opus 4.7" in text_blob
         assert "Your PostHog default" in _all_text(view)
 
-    def test_every_control_the_tab_renders_is_routable(self):
-        # The interactivity endpoint claims region ownership and dispatches off
-        # HOME_ACTION_IDS, so a control missing from it renders as a button that
-        # silently does nothing. Render every card at once and check the whole set.
-        view = render_home_view(
+    def _every_card_view(self, *, auto_model_choice: bool = False) -> dict:
+        return render_home_view(
             is_admin=True,
             run_defaults=RunDefaultsState(model="claude-opus-4-7", runtime_adapter="claude", source="user"),
             account_state=AccountState(enabled=True, link_url="https://app/link"),
@@ -460,13 +475,35 @@ class TestRenderHomeView:
             stats_state=StatsState(tasks_started=4, tasks_with_pr=2, tasks_merged=1, active_people=2),
             untagged_followup_mode=UntaggedFollowupMode.AUTO,
             channel_welcome_mode=ChannelWelcomeMode.CHANNEL,
-            auto_model_choice=False,
+            auto_model_choice=auto_model_choice,
         )
+
+    def test_every_control_the_tab_renders_is_routable(self):
+        # The interactivity endpoint claims region ownership and dispatches off
+        # HOME_ACTION_IDS, so a control missing from it renders as a button that
+        # silently does nothing. Render every card at once and check the whole set.
+        view = self._every_card_view()
 
         # Equality both ways: an unroutable control fails on the left, and a card that
         # stopped rendering fails on the right instead of passing a subset check trivially.
         # Unlink only renders once an account is linked, which this fixture deliberately isn't.
         assert set(_action_ids(view)) == HOME_ACTION_IDS - {ACTION_UNLINK_ACCOUNT}
+
+    @pytest.mark.parametrize("auto_model_choice", [False, True])
+    def test_every_option_stays_within_the_limits_slack_enforces(self, auto_model_choice):
+        # `views.publish` validates the whole payload, so one over-long label or
+        # description costs the entire tab: Slack returns `invalid_arguments` and the
+        # viewer keeps whatever was published last. Checked options carry a second copy
+        # of the option object under `initial_options`, hence both renders.
+        view = self._every_card_view(auto_model_choice=auto_model_choice)
+
+        oversized = [
+            (option["value"], field, len(option[field]["text"]))
+            for option in _option_objects(view)
+            for field, limit in (("text", 75), ("description", 150))
+            if field in option and len(option[field]["text"]) > limit
+        ]
+        assert oversized == []
 
 
 class TestThreadFollowupsCard:
