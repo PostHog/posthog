@@ -24,7 +24,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.quo.quo im
     quo_source,
     validate_credentials as validate_quo_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.quo.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.quo.settings import (
+    DATED_ENDPOINTS_BY_VERSION,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    QUO_API_VERSION_2026_03_30,
+    QUO_API_VERSION_V1,
+    QUO_BASE_URL,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -32,8 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class QuoSource(ResumableSource[QuoSourceConfig, QuoResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
 
-    supported_versions = ("v1",)
-    default_version = "v1"
+    supported_versions = (QUO_API_VERSION_V1, QUO_API_VERSION_2026_03_30)
+    default_version = QUO_API_VERSION_2026_03_30
     api_docs_url = "https://www.quo.com/docs/mdx/api-reference/changelog"
 
     @property
@@ -41,10 +48,18 @@ class QuoSource(ResumableSource[QuoSourceConfig, QuoResumeConfig]):
         return ExternalDataSourceType.QUO
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {
+        errors: dict[str, str | None] = {
             "401 Client Error: Unauthorized for url: https://api.quo.com": "Quo authentication failed. Check that your API key is correct and still active, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.quo.com": "Quo denied access. Check that the API key was created by a workspace owner or admin.",
         }
+        # Dated versions answer a missing or unsupported Quo-Api-Version header with a 400, which no retry fixes.
+        # Keyed per dated path so v1 URLs, which all start with /v1/, never match.
+        for dated_endpoints in DATED_ENDPOINTS_BY_VERSION.values():
+            for config in dated_endpoints.values():
+                errors[f"400 Client Error: Bad Request for url: {QUO_BASE_URL}{config.path}"] = (
+                    "Quo rejected the request. Check that Quo still supports the API version this source uses."
+                )
+        return errors
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.quo.canonical_descriptions import (
@@ -71,7 +86,7 @@ class QuoSource(ResumableSource[QuoSourceConfig, QuoResumeConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_quo_credentials(config.api_key):
+        if validate_quo_credentials(config.api_key, self.resolve_api_version(api_version)):
             return True, None
 
         return False, "Invalid Quo API key"
@@ -91,6 +106,7 @@ class QuoSource(ResumableSource[QuoSourceConfig, QuoResumeConfig]):
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             incremental_field=inputs.incremental_field,

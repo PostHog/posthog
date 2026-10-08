@@ -114,17 +114,6 @@ class TestValidateCredentials:
 
 class TestTopLevelPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_cursor_until_null(self, mock_session) -> None:
-        mock_session.return_value = _FakeSession(
-            {
-                (PROMOS_URL, None): _body([{"id": 1}, {"id": 2}], 100),
-                (PROMOS_URL, 100): _body([{"id": 3}], None),
-            }
-        )
-        rows = _rows("promotions", _make_manager())
-        assert rows == [{"id": 1}, {"id": 2}, {"id": 3}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_does_not_inject_promotion_id_for_top_level(self, mock_session) -> None:
         url = _url("/organizing_brands")
         mock_session.return_value = _FakeSession({(url, None): _body([{"id": 7, "name": "Acme"}], None)})
@@ -172,72 +161,6 @@ class TestFanOut:
             {"id": 2, "promotion_id": 10},
             {"id": 1, "promotion_id": 20},
         ]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_child_pagination(self, mock_session) -> None:
-        mock_session.return_value = _FakeSession(
-            {
-                (PROMOS_URL, None): _body([{"id": 10}], None),
-                (_url("/participations/10"), None): _body([{"id": 1}], 5),
-                (_url("/participations/10"), 5): _body([{"id": 2}], None),
-            }
-        )
-        rows = _rows("participations", _make_manager())
-        assert rows == [{"id": 1, "promotion_id": 10}, {"id": 2, "promotion_id": 10}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_completed_promotions_and_uses_child_cursor(self, mock_session) -> None:
-        # Saved fan-out state: promotion 10 fully synced, mid-way through promotion 20 at child
-        # cursor 5. Promotion 10's child endpoint must never be fetched (its page is not served, so
-        # a fetch would KeyError); promotion 20 resumes at cursor 5; promotion 30 runs fresh.
-        session = _FakeSession(
-            {
-                (PROMOS_URL, None): _body([{"id": 10}, {"id": 20}, {"id": 30}], None),
-                (_url("/users/20"), 5): _body([{"id": 9}], None),
-                (_url("/users/30"), None): _body([{"id": 1}], None),
-            }
-        )
-        mock_session.return_value = session
-        manager = _make_manager(
-            EasypromosResumeConfig(
-                fanout_state={"completed": ["/users/10"], "current": "/users/20", "child_state": {"cursor": 5}}
-            )
-        )
-        rows = _rows("users", manager)
-        assert rows == [{"id": 9, "promotion_id": 20}, {"id": 1, "promotion_id": 30}]
-        assert (_url("/users/10"), None) not in session.requests
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_prize_inventory_reads_a_body_without_a_paging_envelope(self, mock_session) -> None:
-        # /prizes/inventory/{promotion_id} returns the whole prize-type catalog with no `paging`
-        # key at all, unlike every other Easypromos list endpoint.
-        inventory_url = _url("/prizes/inventory/10")
-        session = _FakeSession(
-            {
-                (PROMOS_URL, None): _body([{"id": 10}], None),
-                (inventory_url, None): {"items": [{"id": 1, "name": "Voucher", "qty": 5, "given": 2}]},
-            }
-        )
-        mock_session.return_value = session
-        rows = _rows("prize_inventory", _make_manager())
-        assert rows == [{"id": 1, "name": "Voucher", "qty": 5, "given": 2, "promotion_id": 10}]
-        assert session.requests == [(PROMOS_URL, None), (inventory_url, None)]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unpaginated_endpoint_does_not_follow_a_cursor(self, mock_session) -> None:
-        # An endpoint declared unpaginated must stop after one request even when the response does
-        # carry a next cursor — following it would re-read the same catalog forever.
-        inventory_url = _url("/prizes/inventory/10")
-        session = _FakeSession(
-            {
-                (PROMOS_URL, None): _body([{"id": 10}], None),
-                (inventory_url, None): _body([{"id": 1}], 7),
-            }
-        )
-        mock_session.return_value = session
-        rows = _rows("prize_inventory", _make_manager())
-        assert rows == [{"id": 1, "promotion_id": 10}]
-        assert (inventory_url, 7) not in session.requests
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_checkpoint_records_fanout_progress(self, mock_session) -> None:

@@ -261,7 +261,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     '/code-review': ['CodeReview', 'codeReview'],
     '/inbox': ['Inbox', 'inbox'],
-    '/scout-trials': ['ScoutTrials', 'scoutTrials'],
+    '/inbox/scout-trials': ['ScoutTrials', 'scoutTrials'],
     '/inbox/:tab': ['Inbox', 'inbox'],
     '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
     '/inbox/scouts/findings': ['Inbox', 'inbox'],
@@ -497,6 +497,8 @@ export const productRedirects: Record<
     '/ml-inference/decisions': '/ml-inference/playground',
     '/replay-vision/templates': '/replay-vision/new/template',
     '/replay/vision': '/replay-vision',
+    '/scout-trials': (_params, searchParams, hashParams) =>
+        combineUrl('/inbox/scout-trials', searchParams, hashParams).url,
     '/community-skills': (_params, searchParams, hashParams) =>
         combineUrl(urls.communitySkills(), searchParams, hashParams).url,
     '/prompt-management/skills': (_params, searchParams, hashParams) =>
@@ -1767,7 +1769,7 @@ export const productUrls = {
     inboxScratchpad: (): string => '/inbox/scouts/scratchpad',
     inboxFindings: (): string => '/inbox/scouts/findings',
     inboxRuns: (): string => '/inbox/scouts/runs',
-    inboxScoutTrials: (): string => '/scout-trials',
+    inboxScoutTrials: (): string => '/inbox/scout-trials',
     skills: (): string => '/skills',
     skillsCategoryTab: (categoryTab: string): string => `/skills/${categoryTab}`,
     skill: (
@@ -3153,7 +3155,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconType: 'data_modeling',
         iconColor: ['var(--color-product-models-light)', 'var(--color-product-models-dark)'],
         href: urls.models(),
-        searchKeywords: ['materialized views', 'materialization'],
+        searchKeywords: ['materialized views', 'materialization', 'data modeling'],
         searchTabs: [
             { name: 'Lineage', href: urls.models('lineage') },
             {

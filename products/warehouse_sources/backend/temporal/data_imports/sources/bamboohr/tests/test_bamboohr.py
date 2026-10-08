@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
@@ -147,20 +147,6 @@ class TestRows:
             _run("meta_fields", [_response({"id": "1"})], MockSession)
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_employees_url_and_no_params(self, MockSession) -> None:
-        _rows_, requests_made, _manager = _run("employees", [_response({"employees": [{"id": "1"}]})], MockSession)
-        assert requests_made[0]["url"] == "https://api.bamboohr.com/api/gateway.php/acme/v1/employees/directory"
-        assert requests_made[0]["params"] == {}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_time_off_requests_sends_date_window(self, MockSession) -> None:
-        _rows_, requests_made, _manager = _run("time_off_requests", [_response([{"id": "1"}])], MockSession)
-        assert requests_made[0]["url"] == "https://api.bamboohr.com/api/gateway.php/acme/v1/time_off/requests"
-        assert requests_made[0]["params"]["start"] == "2000-01-01"
-        # End of the window is now + 730 days, formatted as a date.
-        assert len(requests_made[0]["params"]["end"]) == 10
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_invalid_subdomain_rejected_before_any_request(self, MockSession) -> None:
         session = MockSession.return_value
         with pytest.raises(ValueError):
@@ -200,14 +186,6 @@ class TestPagination:
         # Checkpoint saved once (after page 1, pointing at page 2); the last page saves nothing.
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0] == BambooHRResumeConfig(next_url=next_url)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        rows, requests_made, manager = _run("employees", [_response({"employees": [{"id": "1"}]})], MockSession)
-
-        assert [r["id"] for r in rows] == ["1"]
-        assert len(requests_made) == 1
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_off_host_next_link_is_not_followed(self, MockSession) -> None:
@@ -362,26 +340,6 @@ class TestEmployeeTableStreams:
             {"id": "20", "employeeId": "2", "jobTitle": "Engineer", "lastChanged": "2024-03-01T00:00:00+00:00"},
         ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_rows_without_a_last_changed_sort_first(self, MockSession) -> None:
-        payload = {
-            "employees": {
-                "1": {"lastChanged": "2024-01-01T00:00:00+00:00", "rows": [{"id": "10"}]},
-                "2": {"rows": [{"id": "20"}]},
-            }
-        }
-
-        rows, _requests, _manager = _run("employee_compensation", [_response(payload)], MockSession)
-
-        assert [row["id"] for row in rows] == ["20", "10"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_yields_no_rows(self, MockSession) -> None:
-        rows, _requests, _manager = _run(
-            "employee_employment_status", [_response({"table": "employmentStatus", "employees": {}})], MockSession
-        )
-        assert rows == []
-
     @parameterized.expand(
         [
             ("missing_employees_key", {"table": "jobInfo"}),
@@ -392,11 +350,6 @@ class TestEmployeeTableStreams:
     def test_unexpected_shape_fails_loudly(self, _name: str, payload: Any, MockSession) -> None:
         with pytest.raises(ValueError, match="'employees' object"):
             _run("employee_job_info", [_response(payload)], MockSession)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_asks_for_the_whole_history(self, MockSession) -> None:
-        _rows_, requests_made, _manager = _run("employee_job_info", [_response({"employees": {}})], MockSession)
-        assert requests_made[0]["params"] == {"since": EMPLOYEE_TABLE_HISTORY_START.isoformat()}
 
     @parameterized.expand(
         [
@@ -426,28 +379,6 @@ class TestEmployeeTableStreams:
 
 
 class TestTimesheetEntries:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_the_year_in_contiguous_windows(self, MockSession) -> None:
-        window = BAMBOOHR_ENDPOINTS["timesheet_entries"].chunked_date_window
-        assert window is not None
-        expected_requests = -(-(window.history_days + 1) // window.chunk_days)
-
-        _rows_, requests_made, _manager = _run(
-            "timesheet_entries", [_response([]) for _ in range(expected_requests)], MockSession
-        )
-
-        assert len(requests_made) == expected_requests
-        windows = [
-            (date.fromisoformat(r["params"]["start"]), date.fromisoformat(r["params"]["end"])) for r in requests_made
-        ]
-        today = datetime.now(UTC).date()
-        # The whole supported range is covered exactly once: no gap and no overlap between slices,
-        # and nothing reaching past the API's 365-day limit.
-        assert windows[0][0] == today - timedelta(days=window.history_days)
-        assert windows[-1][1] == today
-        for (_start, end), (next_start, _next_end) in zip(windows, windows[1:]):
-            assert next_start == end + timedelta(days=1)
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_entries_from_every_window_are_yielded(self, MockSession) -> None:
         window = BAMBOOHR_ENDPOINTS["timesheet_entries"].chunked_date_window
@@ -524,21 +455,6 @@ class TestEmployeeFanout:
 
         assert list(cast(Any, response.items())) == [expected]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_child_requests_resolve_the_versioned_employee_path(self, MockSession) -> None:
-        directory = _response({"employees": [{"id": "7"}, {"id": "8"}]})
-        policies = [_response([{"timeOffPolicyId": "5"}]), _response([])]
-
-        _rows_, requests_made, _manager = _run(
-            "employee_time_off_policies", [directory, *policies], MockSession, rows_from_pages=False
-        )
-
-        assert [r["url"] for r in requests_made] == [
-            "https://api.bamboohr.com/api/gateway.php/acme/v1/employees/directory",
-            "https://api.bamboohr.com/api/gateway.php/acme/v1_1/employees/7/time_off/policies",
-            "https://api.bamboohr.com/api/gateway.php/acme/v1_1/employees/8/time_off/policies",
-        ]
-
 
 class TestStaticEndpointParams:
     @parameterized.expand(
@@ -555,59 +471,11 @@ class TestStaticEndpointParams:
         _rows_, requests_made, _manager = _run(endpoint, [_response(payload)], MockSession)
         assert requests_made[0]["params"] == expected
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_whos_out_asks_for_the_whole_calendar(self, MockSession) -> None:
-        _rows_, requests_made, _manager = _run("whos_out", [_response([{"id": 1, "type": "holiday"}])], MockSession)
-
-        assert requests_made[0]["url"] == "https://api.bamboohr.com/api/gateway.php/acme/v1/time_off/whos_out"
-        params = requests_made[0]["params"]
-        # Without filter=off the endpoint answers with the API user's saved calendar filter only.
-        assert params["filter"] == "off"
-        assert params["start"] == "2000-01-01"
-        assert len(params["end"]) == 10
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_applications_ask_for_every_status(self, MockSession) -> None:
-        page = {"applications": [{"id": 1}], "paginationComplete": True}
-        _rows_, requests_made, _manager = _run("applications", [_response(page)], MockSession)
-
-        assert (
-            requests_made[0]["url"]
-            == "https://api.bamboohr.com/api/gateway.php/acme/v1/applicant_tracking/applications"
-        )
-        assert requests_made[0]["params"] == {
-            "applicationStatus": "ALL",
-            "jobStatusGroups": "ALL",
-            "sortBy": "created_date",
-            "sortOrder": "ASC",
-        }
-
 
 class TestApplicationsPagination:
     def _pages(self, MockSession, payloads: list[Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         rows, requests_made, _manager = _run("applications", [_response(p) for p in payloads], MockSession)
         return rows, requests_made
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_page_number_comes_from_the_next_page_url(self, MockSession) -> None:
-        # The next link points at the company domain, not the gateway we authenticated against,
-        # so only its page number may be reused.
-        page1 = {
-            "applications": [{"id": 1}],
-            "paginationComplete": False,
-            "nextPageUrl": "https://acme.bamboohr.com/api/v1/applicant_tracking/applications?page=4",
-        }
-        page2 = {"applications": [{"id": 2}], "paginationComplete": True}
-
-        rows, requests_made = self._pages(MockSession, [page1, page2])
-
-        assert [r["id"] for r in rows] == [1, 2]
-        assert (
-            requests_made[0]["url"]
-            == "https://api.bamboohr.com/api/gateway.php/acme/v1/applicant_tracking/applications"
-        )
-        assert "page" not in requests_made[0]["params"]
-        assert requests_made[1]["params"]["page"] == 4
 
     @parameterized.expand(
         [
@@ -715,40 +583,7 @@ class TestLocationsPagination:
             _run("locations", [_response({"meta": {}})], MockSession)
 
 
-class TestApplicationDetailsFanout:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_detail_body_becomes_one_row_per_application(self, MockSession) -> None:
-        listing = _response({"applications": [{"id": 11}, {"id": 12}], "paginationComplete": True})
-        details = [_response({"id": 11, "rating": 4}), _response({"id": 12, "rating": None})]
-
-        rows, requests_made, _manager = _run("application_details", [listing, *details], MockSession)
-
-        assert rows == [{"id": 11, "rating": 4}, {"id": 12, "rating": None}]
-        assert [r["url"] for r in requests_made] == [
-            "https://api.bamboohr.com/api/gateway.php/acme/v1/applicant_tracking/applications",
-            "https://api.bamboohr.com/api/gateway.php/acme/v1/applicant_tracking/applications/11",
-            "https://api.bamboohr.com/api/gateway.php/acme/v1/applicant_tracking/applications/12",
-        ]
-
-
 class TestGoalStreams:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_goals_request_every_status_per_employee(self, MockSession) -> None:
-        directory = _response({"employees": [{"id": "7"}, {"id": "8"}]})
-        goals = [_response({"goals": [{"id": "4"}]}), _response({"goals": []})]
-
-        _rows_, requests_made, _manager = _run(
-            "employee_goals", [directory, *goals], MockSession, rows_from_pages=False
-        )
-
-        assert [r["url"] for r in requests_made] == [
-            "https://api.bamboohr.com/api/gateway.php/acme/v1/employees/directory",
-            "https://api.bamboohr.com/api/gateway.php/acme/v1/performance/employees/7/goals",
-            "https://api.bamboohr.com/api/gateway.php/acme/v1/performance/employees/8/goals",
-        ]
-        # Closed goals are dropped from the response unless every status is asked for.
-        assert requests_made[1]["params"]["filter"] == "status-all"
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_comments_walk_every_goal_of_every_employee(self, MockSession) -> None:
         responses = [

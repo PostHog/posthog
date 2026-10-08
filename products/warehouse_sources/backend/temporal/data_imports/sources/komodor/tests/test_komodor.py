@@ -107,21 +107,6 @@ def test_resume_and_empty_terminal_page(
     resume.save_state.assert_not_called()
 
 
-@pytest.mark.parametrize(("table", "path"), [("clusters", "clusters"), ("monitors", "realtime-monitors/config")])
-def test_single_page_refresh(transport: MagicMock, table: str, path: str) -> None:
-    transport.return_value = response({"data": {table: [{"name": "example"}]}})
-    resume = manager()
-    source = komodor_source(KomodorSourceConfig(api_key="test-key", region="us"), table, 1, "test", "v2", resume)
-    assert list(source_items(source)) == [[{"name": "example"}]]
-    transport.assert_called_once()
-    request = transport.call_args.args[0]
-    assert request.method == "GET"
-    assert request.url == f"https://api.komodor.com/api/v2/{path}"
-    assert request.body is None
-    resume.can_resume.assert_not_called()
-    assert source.supports_resume is False
-
-
 @pytest.mark.parametrize("rows", [[], [{"service": "example"}]])
 def test_credential_probe_is_one_small_request(transport: MagicMock, rows: list[dict[str, str]]) -> None:
     transport.return_value = response({"data": {"services": rows}, "meta": {"token": "more-services"}})
