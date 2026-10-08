@@ -2,15 +2,15 @@
 //!
 //! These tests verify the full server path:
 //!   POST /i/v1/analytics/events -> router -> handler -> process_batch
-//!     -> v1 sink router -> real Kafka -> consumer -> CapturedEvent
+//!     -> outputs -> real Kafka -> consumer -> CapturedEvent
 //!
 //! Requires Docker Kafka (same rig as the other integration tests).
 //!
-//! Scope is deliberately narrow: route gating (404 when no sink is configured)
-//! and the HTTP->Kafka round trip for a single event and a small batch. Payload
-//! shape, header parity, partition keys, and destination routing are already
-//! covered at the sink layer by `v1_sink_integration.rs` — we don't re-test
-//! them here.
+//! Scope is deliberately narrow: route gating (404 while v1 is off) and the
+//! HTTP->Kafka round trip for a single event and a small batch. Payload shape,
+//! header parity, partition keys, and destination routing are already covered
+//! at the outputs layer by `v1_sink_integration.rs` — we don't re-test them
+//! here.
 
 #[path = "common/utils.rs"]
 mod utils;
@@ -47,14 +47,13 @@ async fn parse_body(res: reqwest::Response) -> serde_json::Value {
 }
 
 // ---------------------------------------------------------------------------
-// Route gating: the v1 endpoint is unregistered (404) without a v1 sink
+// Route gating: the v1 endpoint is unregistered (404) while v1 is off
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn v1_route_unregistered_without_sink() {
+async fn v1_route_unregistered_while_v1_is_off() {
     setup_tracing();
-    // DEFAULT_CONFIG has capture_v1_sinks empty -> v1_sink_router is None ->
-    // the route is never merged, so the path 404s rather than 503s.
+    // DEFAULT_CONFIG has capture_v1_enabled off, so the route is never merged.
     let server = ServerHandle::for_config(DEFAULT_CONFIG.clone()).await;
 
     let payload = batch_payload(&[pageview("user-404")]);
@@ -63,7 +62,7 @@ async fn v1_route_unregistered_without_sink() {
     assert_eq!(
         res.status(),
         reqwest::StatusCode::NOT_FOUND,
-        "v1 route must not be registered when no v1 sink is configured"
+        "v1 route must not be registered while v1 is off"
     );
 }
 

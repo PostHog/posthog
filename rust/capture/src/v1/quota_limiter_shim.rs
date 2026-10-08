@@ -213,7 +213,7 @@ mod tests {
             body_chunk_read_timeout_ms: None,
             body_read_chunk_size_kb: 256,
             continuous_profiling: ContinuousProfilingConfig::default(),
-            capture_v1_sinks: String::new(),
+            capture_v1_enabled: false,
             capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
             capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
             capture_v1_scatter_gather_min_batch: 8,

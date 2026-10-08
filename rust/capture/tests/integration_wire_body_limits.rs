@@ -104,11 +104,11 @@ fn make_test_client(mode: CaptureMode) -> (TestClient, CapturingSink) {
         256,
         10 * 1024 * 1024,
         50 * 1024 * 1024,
-        None, // overflow_limiter
-        None, // ai_events_overflow_limiter
-        None, // ai_byte_rate_limiter
-        None, // replay_overflow_limiter
-        None, // v1_sink_router
+        None,  // overflow_limiter
+        None,  // ai_events_overflow_limiter
+        None,  // ai_byte_rate_limiter
+        None,  // replay_overflow_limiter
+        false, // capture_v1_enabled
         8,
         None,
         false,

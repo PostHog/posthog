@@ -138,11 +138,11 @@ fn setup_router_for_mode(
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         overflow_limiter,
         ai_events_overflow_limiter,
-        None, // ai_byte_rate_limiter
-        None, // replay_overflow_limiter
-        None, // v1_sink_router
-        8,    // capture_v1_scatter_gather_min_batch
-        None, // ai_gateway_signing_secret
+        None,  // ai_byte_rate_limiter
+        None,  // replay_overflow_limiter
+        false, // capture_v1_enabled
+        8,     // capture_v1_scatter_gather_min_batch
+        None,  // ai_gateway_signing_secret
         ai_events_overflow_enabled,
         None, // ingestion_warning_emitter
     );
