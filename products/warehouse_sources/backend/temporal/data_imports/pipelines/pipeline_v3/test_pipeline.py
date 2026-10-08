@@ -9,11 +9,21 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pyarrow as pa
+import deltalake
 from asgiref.sync import async_to_sync
 
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
+from products.warehouse_sources.backend.models import external_data_schema as schema_models
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    handle_reset_or_full_refresh,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    append_partition_key_to_table,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.handoff_checkpoint import (
     IncrementalBatchRangeReader,
     IncrementalHandoffCheckpoint,
@@ -24,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import (
     PipelineV3,
+    StagedSchemeWithoutResetError,
     should_coalesce_tables,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
@@ -313,6 +324,255 @@ class TestCDCSourceWiring:
         assert pipeline._is_incremental is False
         assert mock_producer_cls.call_args.kwargs["sync_type"] == "full_refresh"
         assert mock_producer_cls.call_args.kwargs["cdc_write_mode"] is None
+
+
+_PENDING_SCHEME = {
+    "partition_keys": ["id"],
+    "partition_mode": "md5",
+    "partition_count": 7,
+    "partition_size": None,
+    "partition_format": None,
+    "trigger_reason": "proactive_threshold",
+    "attempts": 1,
+}
+# What the table has on disk before the reset, and what the source proposes for a new table.
+_OLD_COUNT = 3
+_SOURCE_COUNT = 5
+
+
+def _in_memory_config_update(schema: ExternalDataSchema):
+    def _update(schema_id, team_id, *, updates=None, removes=None, mutate=None, **_kwargs):
+        config = dict(schema.sync_type_config)
+        config.update(updates or {})
+        for key in removes or []:
+            config.pop(key, None)
+        if mutate is not None:
+            mutate(config)
+        return config
+
+    return _update
+
+
+class TestResetLoadWritesTheQueuedScheme:
+    def _schema(self, sync_type: str = "incremental", **config: Any) -> ExternalDataSchema:
+        return ExternalDataSchema(
+            name="users",
+            team_id=1,
+            sync_type=sync_type,
+            sync_type_config={
+                "partitioning_enabled": True,
+                "partition_mode": "md5",
+                "partition_count": _OLD_COUNT,
+                "partitioning_keys": ["id"],
+                **config,
+            },
+        )
+
+    def _producer_kwargs(
+        self,
+        schema: ExternalDataSchema,
+        *,
+        reset_pipeline: bool,
+        attempt: int = 1,
+        can_resume: bool = False,
+        webhook_only: bool = False,
+    ) -> dict[str, Any]:
+        resource = MagicMock(
+            name="users",
+            primary_keys=["id"],
+            partition_count=_SOURCE_COUNT,
+            partition_size=None,
+            partition_keys=["id"],
+            partition_format=None,
+            partition_mode="md5",
+            cdc_write_mode=None,
+            lanes=None,
+            webhook_only=webhook_only,
+        )
+        manager = MagicMock(can_resume=MagicMock(return_value=True)) if can_resume else None
+        with (
+            patch(f"{_PIPELINE}.current_import_attempt", return_value=attempt),
+            patch(f"{_PIPELINE}.current_workflow_id", return_value="wf-1"),
+            patch(f"{_PIPELINE}.current_workflow_run_id", return_value="wfrun-abc"),
+            patch(f"{_PIPELINE}.S3BatchWriter"),
+            patch(f"{_PIPELINE}.PostgresProducer") as mock_producer_cls,
+            patch(f"{_PIPELINE}.DeltaTableRef"),
+            patch(f"{_PIPELINE}.resolve_resume_manager", return_value=manager),
+        ):
+            PipelineV3(
+                source_response=resource,
+                logger=_make_logger(),
+                job_id="job-1",
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=MagicMock(),
+                resumable_source_manager=manager,
+                models=ImportJobModels(
+                    job=MagicMock(team_id=1, workflow_run_id="wfrun-abc", billable=False, id="job-1"),
+                    schema=schema,
+                    source=MagicMock(source_type="Postgres"),
+                    table=None,
+                ),
+            )
+        return mock_producer_cls.call_args.kwargs
+
+    @pytest.mark.parametrize(
+        "sync_type, config, run, expected_count",
+        [
+            ("incremental", {"repartition_pending": _PENDING_SCHEME}, {"reset_pipeline": True}, 7),
+            ("full_refresh", {"repartition_pending": _PENDING_SCHEME}, {"reset_pipeline": False}, 7),
+            ("incremental", {"repartition_pending": _PENDING_SCHEME}, {"reset_pipeline": False}, _OLD_COUNT),
+            (
+                "incremental",
+                {"repartition_pending": _PENDING_SCHEME},
+                {"reset_pipeline": True, "attempt": 2},
+                _OLD_COUNT,
+            ),
+            (
+                "incremental",
+                {"repartition_pending": _PENDING_SCHEME},
+                {"reset_pipeline": True, "can_resume": True},
+                _OLD_COUNT,
+            ),
+            (
+                "incremental",
+                {"repartition_pending": _PENDING_SCHEME},
+                {"reset_pipeline": True, "webhook_only": True},
+                _OLD_COUNT,
+            ),
+            (
+                "incremental",
+                {"repartition_pending": _PENDING_SCHEME, "repartition_swap": {"state": "ready"}},
+                {"reset_pipeline": True},
+                _OLD_COUNT,
+            ),
+            (
+                "incremental",
+                {"repartition_pending": _PENDING_SCHEME, "partition_count_override": 11},
+                {"reset_pipeline": True},
+                11,
+            ),
+            ("incremental", {"repartition_pending": {"attempts": 2}}, {"reset_pipeline": True}, _OLD_COUNT),
+        ],
+        ids=[
+            "reset_takes_the_queued_scheme",
+            "full_refresh_takes_the_queued_scheme",
+            "no_reset_keeps_the_scheme_on_disk",
+            "retry_does_not_reset_so_keeps_the_scheme_on_disk",
+            "resumed_run_keeps_the_scheme_on_disk",
+            "webhook_only_reset_keeps_the_scheme_on_disk",
+            "staged_swap_owns_the_scheme",
+            "operator_pin_wins",
+            "bookkeeping_only_marker_has_no_scheme",
+        ],
+    )
+    def test_batches_carry_the_queued_scheme_only_when_the_table_is_replaced(
+        self, sync_type: str, config: dict[str, Any], run: dict[str, Any], expected_count: int
+    ) -> None:
+        kwargs = self._producer_kwargs(self._schema(sync_type, **config), **run)
+
+        assert kwargs["partition_count"] == expected_count
+        assert kwargs["partition_mode"] == "md5"
+        assert kwargs["partition_keys"] == ["id"]
+
+    @pytest.mark.asyncio
+    async def test_the_reset_load_writes_the_queued_scheme_and_later_attempts_agree(self, tmp_path) -> None:
+        schema = self._schema(reset_pipeline=True, repartition_pending=_PENDING_SCHEME, repartition_rewrite={"a": 1})
+        first_attempt = self._producer_kwargs(schema, reset_pipeline=True)
+
+        with (
+            patch.object(schema_models, "update_sync_type_config_keys", _in_memory_config_update(schema)),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract.database_sync_to_async_pool",
+                _passthrough_pool,
+            ),
+        ):
+            await handle_reset_or_full_refresh(True, False, schema, MagicMock(reset_table=AsyncMock()), _make_logger())
+
+        # The reset consumed the request and the queued target, so no rewrite of the new table follows.
+        assert "reset_pipeline" not in schema.sync_type_config
+        assert schema.repartition_pending is None
+        assert schema.repartition_rewrite is None
+        assert schema.last_repartition_at is not None
+
+        # An attempt after the reset does not delete the table again. It must use the same scheme.
+        later_attempt = self._producer_kwargs(schema, reset_pipeline=False, attempt=2)
+        for key in ("partition_count", "partition_mode", "partition_keys", "partition_format", "partition_size"):
+            assert later_attempt[key] == first_attempt[key], key
+
+        rows = pa.table({"id": pa.array(range(500), type=pa.int64())})
+        partitioned = append_partition_key_to_table(
+            table=rows,
+            partition_count=first_attempt["partition_count"],
+            partition_size=first_attempt["partition_size"],
+            partition_keys=first_attempt["partition_keys"],
+            partition_mode=first_attempt["partition_mode"],
+            partition_format=first_attempt["partition_format"],
+            logger=_make_logger(),
+        )
+        assert partitioned is not None
+        deltalake.write_deltalake(str(tmp_path / "users"), partitioned.table, partition_by=PARTITION_KEY)
+
+        written = deltalake.DeltaTable(str(tmp_path / "users")).to_pyarrow_table()
+        assert set(written.column(PARTITION_KEY).to_pylist()) == {str(bucket) for bucket in range(7)}
+
+    @pytest.mark.parametrize(
+        "config, expected",
+        [
+            (
+                {"repartition_pending": _PENDING_SCHEME, "repartition_rewrite": {"temp_uri": "x"}},
+                {"partition_count_override": 7, "partition_mode_override": "md5", "partitioning_keys_override": ["id"]},
+            ),
+            (
+                {"repartition_pending": _PENDING_SCHEME, "partition_count_override": 11},
+                {"partition_count_override": 11},
+            ),
+            ({"repartition_pending": {"attempts": 2}, "repartition_rewrite": {"temp_uri": "x"}}, {}),
+            ({}, {}),
+        ],
+        ids=[
+            "queued_target_becomes_the_scheme",
+            "operator_pin_stays",
+            "bookkeeping_only_marker_goes",
+            "nothing_queued",
+        ],
+    )
+    def test_a_reset_retires_the_queued_target(self, config: dict[str, Any], expected: dict[str, Any]) -> None:
+        schema_models.promote_pending_repartition_for_replaced_table(config)
+
+        overrides = {key: config[key] for key in schema_models.PARTITION_SCHEME_OVERRIDE_KEYS if key in config}
+        assert overrides == expected
+        assert "repartition_pending" not in config
+        assert "repartition_rewrite" not in config
+
+    def test_a_reset_leaves_a_staged_swap_and_its_markers(self) -> None:
+        config = {"repartition_pending": _PENDING_SCHEME, "repartition_swap": {"state": "ready", "temp_uri": "x"}}
+        before = json.loads(json.dumps(config))
+
+        schema_models.promote_pending_repartition_for_replaced_table(config)
+
+        assert config == before
+
+    @pytest.mark.asyncio
+    async def test_an_attempt_built_for_a_new_table_stops_when_the_table_stays(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._writes_staged_repartition_scheme = True
+        pipeline._reset_pipeline = False
+        pipeline._schema.sync_type = "incremental"
+        pipeline._resource.webhook_only = False
+
+        with (
+            patch(f"{_PIPELINE}.reset_rows_synced_if_needed", new_callable=AsyncMock),
+            patch(f"{_PIPELINE}.validate_incremental_sync"),
+            patch(f"{_PIPELINE}.persist_primary_keys", new_callable=AsyncMock),
+            patch(f"{_PIPELINE}.setup_row_tracking_with_billing_check", new_callable=AsyncMock),
+            patch(f"{_PIPELINE}.handle_reset_or_full_refresh", new_callable=AsyncMock) as mock_reset,
+            patch(f"{_PIPELINE}.activity") as mock_activity,
+        ):
+            mock_activity.in_activity.return_value = False
+            with pytest.raises(StagedSchemeWithoutResetError):
+                await pipeline.run()
+
+        mock_reset.assert_not_called()
 
 
 class TestCDCSeqProvenanceSurvivesStaging:
