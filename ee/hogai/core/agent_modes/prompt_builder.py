@@ -10,7 +10,9 @@ from posthoganalytics import capture_exception
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
-from products.data_catalog.backend.facade.api import approved_metric_names_for_team
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.data_catalog.backend.facade.api import compute_drift, metrics_visible_to_user
+from products.data_catalog.backend.facade.enums import MetricStatus
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.mixins import AssistantContextMixin
@@ -102,13 +104,25 @@ class BillingPromptMixin:
         return prompt
 
 
+def _visible_approved_metric_names(team: Team, user: User) -> list[str]:
+    # Hides metrics over tables the user cannot read, like the `read_data` metric kinds do.
+    user_access_control = UserAccessControl(user=user, team=team)
+    if not user_access_control.check_access_level_for_resource("data_catalog", "viewer"):
+        return []
+    approved = list(
+        metrics_visible_to_user(team, user, user_access_control).filter(status=MetricStatus.APPROVED).order_by("name")
+    )
+    drift = compute_drift(approved)
+    return [metric.name for metric in approved if not drift[metric.id]]
+
+
 class GovernedMetricsPromptMixin:
     _team: Team
     _user: User
 
     async def _get_governed_metrics_prompt(self) -> str:
         try:
-            names = await database_sync_to_async(approved_metric_names_for_team)(self._team, self._user)
+            names = await database_sync_to_async(_visible_approved_metric_names)(self._team, self._user)
         except Exception as e:
             # The catalog is optional context; a failed read must not block the conversation.
             capture_exception(e)
