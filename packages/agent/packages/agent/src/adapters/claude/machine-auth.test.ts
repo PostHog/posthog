@@ -1,7 +1,10 @@
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
-import { applyMachineClaudeAuth } from "./machine-auth";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  applyMachineClaudeAuth,
+  keepUserClaudeConfigDir,
+} from "./machine-auth";
 
 describe("applyMachineClaudeAuth", () => {
   it("pins the default config dir unless told to keep the user's own", () => {
@@ -23,4 +26,14 @@ describe("applyMachineClaudeAuth", () => {
     applyMachineClaudeAuth(custom, { keepUserConfigDir: true });
     expect(custom).toEqual({ CLAUDE_CONFIG_DIR: "/x" });
   });
+
+  it("keeps the user's dir for every copy of this module once asked", () => {
+    vi.stubEnv("POSTHOG_CLAUDE_USER_CONFIG_DIR", "");
+    keepUserClaudeConfigDir();
+    const env: Record<string, string | undefined> = {};
+    applyMachineClaudeAuth(env, {});
+    expect(env).toEqual({});
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
 });

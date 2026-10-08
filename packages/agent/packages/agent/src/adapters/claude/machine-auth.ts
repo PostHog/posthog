@@ -73,8 +73,12 @@ export function setMachineClaudeConfigDir(configDir: string | undefined): void {
   resolvedMachineAuth = configDir ? { configDir } : {};
 }
 
+// Set on the process as well, because a bundler can give the caller and the agent separate copies of this module.
+const KEEP_USER_CONFIG_DIR_ENV = "POSTHOG_CLAUDE_USER_CONFIG_DIR";
+
 export function keepUserClaudeConfigDir(): void {
   resolvedMachineAuth = { keepUserConfigDir: true };
+  process.env[KEEP_USER_CONFIG_DIR_ENV] = "1";
 }
 
 export function machineClaudeAuth(): MachineClaudeAuth {
@@ -97,7 +101,10 @@ export function applyMachineClaudeAuth(
   }
   if (auth.configDir) {
     env.CLAUDE_CONFIG_DIR = auth.configDir;
-  } else if (!auth.keepUserConfigDir) {
+  } else if (
+    !auth.keepUserConfigDir &&
+    process.env[KEEP_USER_CONFIG_DIR_ENV] !== "1"
+  ) {
     env.CLAUDE_CONFIG_DIR = path.join(os.homedir(), ".claude");
   }
 }
