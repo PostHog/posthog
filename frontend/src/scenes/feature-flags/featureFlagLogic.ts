@@ -1686,11 +1686,11 @@ export interface featureFlagLogicActions {
         errors: any
         filters: FeatureFlagFilters
     }
-    setFeatureFlagManualErrors: (errors: Record<string, any>) => {
-        errors: Record<string, any>
-    }
     setFeatureFlagLoadFailed: () => {
         value: true
+    }
+    setFeatureFlagManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
     }
     setFeatureFlagMissing: () => {
         value: true
@@ -3178,7 +3178,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 if (props.id && props.id !== 'new' && props.id !== 'link') {
                     // Get the flag first to check if it has an experiment
                     const flagId = props.id
-                    const retrievedFlag = await getFlag(() => api.featureFlags.get(flagId))
+                    const retrievedFlag = await getFlag(
+                        async () =>
+                            (await featureFlagsRetrieve(
+                                String(values.currentProjectId),
+                                flagId
+                            )) as unknown as FeatureFlagType
+                    )
 
                     // If there's an experiment, load it concurrently before returning to prevent UI flicker
                     if (retrievedFlag.experiment_set && retrievedFlag.experiment_set.length > 0) {
