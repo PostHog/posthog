@@ -7,7 +7,7 @@ Use them when you build a dashboard from a blueprint.
 ## Dashboard description
 
 Open the description with the question the dashboard answers. Then say who is counted and who is excluded. Then say how to read it.
-Example: "Is the product growing, and do new signups become regular users? Counts accounts, with internal and test users excluded, over the last 12 complete weeks. The headline numbers show the last complete week."
+Example: "Is the product growing, and do new signups become regular users? Counts accounts, with internal and test users excluded, in complete weeks over the last 90 days. The headline numbers show the last complete week."
 
 ## Order the page: summary first, evidence last
 
@@ -23,11 +23,11 @@ A section with no headline number is fine when it answers part of the dashboard'
 - Use 3 or 4 number tiles in the first row: four tiles of `w: 3, h: 3` or three of `w: 4, h: 3`.
 - Use a TrendsQuery with `trendsFilter.display: "Metric"`. The tile shows the number, a change, and a sparkline.
   Set `metricColorByDirection: true` so the sparkline shows direction.
-- Name each headline tile in three words at most. A longer name is cut off.
+- Keep each headline tile name to about 20 characters. A longer name is cut off.
 - Put the overall number first. The other tiles are its parts, or the next numbers the reader asks about.
 - **Every headline number must be exact.** If a number can only be estimated, leave it out of the row and let its section carry the exact version.
 - **Use one kind of change for the whole row,** so that every pill means the same thing:
-  - **The last complete period.** Set the interval to the dashboard's rhythm and `metricSummary: "latest"`. The tile shows the last complete week or day, and the change from the first period in the range to the last. This is the only correct form for unique users and for rates, and it also works for counts.
+  - **The last complete period.** Use the dashboard's interval and `metricSummary: "latest"`. The tile shows the last complete week or day, and the change from the first period in the range to the last. This is the only correct form for unique users and for rates, and it also works for counts.
   - **This period against the previous one.** Set `compareFilter.compare: true` with `metricSummary: "total"`. Use it only when every tile in the row counts events. A total of daily unique users counts the same person once per day, and a total of daily rates means nothing.
 - A rate belongs in the headline row only when both parts come from the same events in the same interval, such as an error rate.
   Show it with `metricSummary: "latest"`, which is exact for that one period. Do not use `"average"`: it gives every interval the same weight, whatever its volume.
@@ -69,28 +69,14 @@ y=9   one chart           x=0        w=12 h=5
 y=14  next heading        x=0        w=12 h=1
 ```
 
-## Choose each chart
-
-- Change over time: a line chart. This is the default tile.
-- A rate over time: a line chart with a percent axis.
-- Categories compared as totals ("top pages", "failures by reason"): `ActionsBarValue`.
-- Step conversion: a funnel with `funnelVizType: "steps"`. Conversion over time: the same funnel with `funnelVizType: "trends"`.
-- Whether people come back: a retention insight.
-- A table: only for rows a person reads, such as a top-10 list or recent records. Put it beside the chart it explains.
-- Use one breakdown per chart, and limit it to the values a reader can tell apart (5-10).
-- Prefer a rate to a count when the denominator moves: percent of users, per active user, per 1,000 calls, conversion.
-  A count that rises because traffic rose says nothing about quality.
-- For durations and latency, show a high percentile (p95) beside the mean or median. The mean hides the slow tail.
-- Do not use a pie chart for more than 4 values or for anything that changes over time.
-- Use SQL only when no native insight can express the calculation. A SQL tile must read the dashboard date range through `{filters.dateRange.from}` and `{filters.dateRange.to}`, or it ignores the date picker.
-
 ## Show complete periods only
 
 A period that is still in progress looks like a sudden drop, and the reader cannot tell it from a real one.
 
-- Set a date range of whole periods on the dashboard: `date_from: "-12wStart"`, `date_to: "-1wEnd"` for weekly charts, or `date_from: "-29d"`, `date_to: "-1d"` for daily ones.
-- On a funnel shown over time, set `hideIncompleteConversionWindowPeriods: true`.
-- If the reader needs the period in progress, keep it and say in the dashboard description that the last point is partial.
+- Set `dateRange.excludeIncompletePeriods: true` on every insight. It leaves out a first or last period that is not complete.
+- On a funnel shown over time, also set `funnelsFilter.hideIncompleteConversionWindowPeriods: true`. It leaves out the recent periods whose conversion window is still open.
+
+The query tools ignore both fields, so a test run still shows the partial period. `posthog:insight-create` keeps them, and the saved tile is correct.
 
 ## Finish every tile
 
@@ -99,13 +85,11 @@ A period that is still in progress looks like a sudden drop, and the reader cann
 - Description: two sentences at most. Give the definition (what is counted, or what is divided by what) and anything that is true only for this tile.
   Example: "Share of checkout attempts that returned an error, per day. Attempts retried within a minute count once."
   Scope that applies to every tile (production only, internal users excluded, the date range) goes in the dashboard description once. Do not repeat it on each tile.
-- Hide the description on the tile. A description shown on a tile takes the room the chart needs, and on a headline tile it pushes the number out of view.
-  Set `show_description: false` for every insight tile in the `posthog:dashboard-update` call that sets the layout. The text stays available from the tile's info popover.
+- Hide the description on every insight tile: set `show_description: false` in the `posthog:dashboard-update` call that sets the layout. A description shown on a headline tile pushes the number out of view. The text stays in the tile's info popover.
 - Series labels: set `custom_name` to plain words, for example "Server error (500)" instead of an event name with a filter.
 - Units: format the axis as percent, duration, or currency, and set decimal places. See the `formatting-insight-axes` skill.
 - Legend: show it when a line chart has a breakdown or more than one named series. Hide it for one series, and for a bar chart of totals, where each bar has its own label.
 - Goal line: add one when there is a target or a known normal value, and label it.
-- Noisy daily lines: use a weekly interval or `smoothingIntervals: 7`.
 
 ## One scope for the whole dashboard
 
@@ -114,6 +98,7 @@ A period that is still in progress looks like a sudden drop, and the reader cann
 - Count one thing: people or accounts, not people in one tile and accounts in the next.
 - Set the default date range once, on the dashboard, with `posthog:dashboard-update` `filters`. It replaces each tile's own range, so every tile shows the same window.
 - Use one interval for the tiles in a row.
+- A SQL insight must read the dashboard date range through `{filters.dateRange.from}` and `{filters.dateRange.to}`, or it ignores the date picker.
 - State the scope in the dashboard description, so the reader does not have to open a tile to learn it.
 
 ## Size
@@ -144,7 +129,6 @@ Dashboards are often built right after the events were added to the code.
 - The description opens with the question and states the scope.
 - The first row is 3-4 exact numbers with short names, and every pill in it means the same thing.
 - Every section has a heading, and every row fills 12 columns with no overlap.
-- No chart ends in a period that is still in progress, unless the description says so.
+- No chart ends in a period that is still in progress.
 - Every tile has a plain name, a short description that is hidden on the tile, labeled series, and a formatted axis.
-- Rates are shown as rates, and each one is exact.
 - `posthog:dashboard-insights-run` returned data, or the description says why a tile is empty.
