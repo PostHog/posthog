@@ -39,10 +39,6 @@ export function MemberMultiSelect({
         return meFirstMembers.filter((member) => value.includes(member.user.id)).map((member) => member.user)
     }, [value, meFirstMembers])
 
-    const _onChange = (newValues: number[]): void => {
-        onChange(newValues)
-    }
-
     const handleVisibilityChange = (visible: boolean): void => {
         setShowPopover(visible)
         if (visible) {
@@ -61,7 +57,7 @@ export function MemberMultiSelect({
 
     const selectedCount = value?.length || 0
     const buttonClass = selectedCount > 0 ? 'min-w-26' : 'w-26'
-    const { triggerRef, sideAction } = useMemberFilterClearAction(selectedCount > 0, () => _onChange([]))
+    const { triggerRef, sideAction } = useMemberFilterClearAction(selectedCount > 0, () => onChange([]))
 
     const buttonLabel = ((): string => {
         if (selectedCount === 0) {
@@ -85,7 +81,7 @@ export function MemberMultiSelect({
             overlay={
                 <MemberSelectMultipleOptions
                     value={value || []}
-                    onChange={_onChange}
+                    onChange={onChange}
                     excludedMembers={excludedMembers}
                 />
             }
