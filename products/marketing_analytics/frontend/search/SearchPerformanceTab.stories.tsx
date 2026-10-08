@@ -723,7 +723,8 @@ function conversionLoadingMock(state: 'loading' | 'error'): MockSignature {
         const { query } = (await info.request.clone().json()) as { query: MarketingAnalyticsSearchQuery }
         if (query.includePostHogConversions) {
             if (state === 'loading') {
-                return new Promise(() => {})
+                await new Promise<void>((resolve) => pendingLoadingQueries.add(resolve))
+                return { results: [] }
             }
             return [500, { detail: 'Could not calculate conversions' }]
         }
@@ -757,8 +758,10 @@ async function showPostHogConversionColumns(canvasElement: HTMLElement): Promise
 
 export const PostHogConversionsLoading: Story = {
     ...PostHogConversions,
+    beforeEach: Loading.beforeEach,
     parameters: {
         ...PostHogConversions.parameters,
+        testOptions: { waitForLoadersToDisappear: false },
         msw: {
             mocks: {
                 ...MOCKS,
