@@ -484,7 +484,6 @@ class ShadowDriftConfig(dagster.Config):
     shadow_db_env_var: str = SHADOW_DB_URL_ENV_VAR
     sample_size: int = 10
     property_diff_sample_size: int = 500
-    # Each comparison query scans both stores' tables in full, so a long run needs more than the default.
     statement_timeout_minutes: int = Field(default=30, gt=0)
 
 

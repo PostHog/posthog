@@ -364,6 +364,8 @@ def shadow_kafka_admin() -> AdminClient:
         {
             "bootstrap.servers": bootstrap_servers,
             "security.protocol": os.environ.get(SHADOW_KAFKA_SECURITY_PROTOCOL_ENV_VAR, "SSL"),
+            # The wheel's bundled OpenSSL does not read the system CA store unless told to probe for it.
+            "ssl.ca.location": "probe",
         }
     )
 
