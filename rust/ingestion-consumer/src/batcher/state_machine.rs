@@ -563,6 +563,7 @@ fn key_acks(runs: &[SentRun]) -> Vec<KeyAck> {
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
+    use std::num::NonZeroUsize;
 
     use super::*;
     use crate::batcher::packer::PackTargets;
@@ -590,8 +591,8 @@ mod tests {
         now: Instant,
     ) -> BatcherStateMachine {
         let packer = Packer::new(PackTargets {
-            events,
-            bytes: 0,
+            events: NonZeroUsize::new(events),
+            bytes: None,
             latency_budget: budget,
         });
         let assigner = WorkerAssigner::new(

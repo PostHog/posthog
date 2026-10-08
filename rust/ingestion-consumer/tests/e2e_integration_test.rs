@@ -6,6 +6,7 @@
 mod common;
 
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -70,8 +71,8 @@ async fn create_topic(name: &str, partitions: i32) {
 }
 
 const PRODUCTION_PACK_TARGETS: PackTargets = PackTargets {
-    events: 500,
-    bytes: 0,
+    events: NonZeroUsize::new(500),
+    bytes: None,
     latency_budget: Duration::ZERO,
 };
 

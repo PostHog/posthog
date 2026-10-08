@@ -382,6 +382,7 @@ async fn sleep_until(wakeup: Option<Instant>) {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
     use std::time::Duration;
 
     use tokio::sync::oneshot;
@@ -487,8 +488,8 @@ mod tests {
             let retry = RetryPolicy::new(FAULT_DELAY, BUSY_DELAY, NO_WORKER_DELAY)
                 .expect("valid retry policy");
             let packer = Packer::new(PackTargets {
-                events: 1,
-                bytes: 0,
+                events: NonZeroUsize::new(1),
+                bytes: None,
                 latency_budget: Duration::ZERO,
             });
             let state = BatcherStateMachine::new(

@@ -2,6 +2,7 @@
 //! this module separately and uses part of it.
 #![allow(dead_code)]
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -17,8 +18,8 @@ use ingestion_consumer::scheduler::SchedulerKind;
 use lifecycle::Handle;
 
 pub const ONE_KEY_PER_REQUEST: PackTargets = PackTargets {
-    events: 1,
-    bytes: 0,
+    events: NonZeroUsize::new(1),
+    bytes: None,
     latency_budget: Duration::ZERO,
 };
 

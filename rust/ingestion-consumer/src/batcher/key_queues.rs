@@ -2,6 +2,7 @@
 //! out, and its later messages wait until that run settles.
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -287,17 +288,17 @@ impl KeyQueues {
     }
 
     /// Claims ready runs of `class` in ready order until they hold
-    /// `max_messages` messages or `max_bytes` bytes. `0` lifts that limit.
-    /// Ready keys of other classes keep their place.
+    /// `max_messages` messages or `max_bytes` bytes. Ready keys of other
+    /// classes keep their place.
     pub fn take_runs(
         &mut self,
         class: RequestClass,
-        max_messages: usize,
-        max_bytes: usize,
+        max_messages: Option<NonZeroUsize>,
+        max_bytes: Option<NonZeroUsize>,
     ) -> Vec<ReadyRun> {
         let reached = |size: ReadySize| {
-            (max_messages > 0 && size.messages >= max_messages)
-                || (max_bytes > 0 && size.bytes >= max_bytes)
+            max_messages.is_some_and(|max| size.messages >= max.get())
+                || max_bytes.is_some_and(|max| size.bytes >= max.get())
         };
         let mut taken = ReadySize::default();
         let mut runs = Vec::new();
@@ -493,7 +494,7 @@ mod tests {
         queues.promote_due(now);
         let mut runs = Vec::new();
         while let Some(class) = queues.oldest_ready_class() {
-            runs.extend(queues.take_runs(class, 0, 0));
+            runs.extend(queues.take_runs(class, None, None));
         }
         runs
     }
@@ -549,7 +550,7 @@ mod tests {
         }
 
         assert_eq!(
-            claimed(&queues.take_runs(FRESH, 1, 0)),
+            claimed(&queues.take_runs(FRESH, NonZeroUsize::new(1), None)),
             vec![("a", vec![1], false)]
         );
         assert_eq!(queues.claimed_keys(), 1);
@@ -851,7 +852,7 @@ mod tests {
         };
         assert_eq!(queues.ready_sizes(), &[(epoch(1), size(2))]);
 
-        queues.take_runs(epoch(1), 0, 0);
+        queues.take_runs(epoch(1), None, None);
         assert!(!queues.has_ready(), "a's epoch-2 run waits for its claim");
 
         queues
@@ -873,7 +874,7 @@ mod tests {
             replay: false,
         };
         assert_eq!(
-            claimed(&queues.take_runs(older_epoch, 0, 0)),
+            claimed(&queues.take_runs(older_epoch, None, None)),
             vec![("b", vec![2], false)]
         );
         assert_eq!(

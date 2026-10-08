@@ -1,6 +1,7 @@
 //! Packs ready key runs into requests near a target size, one request per
 //! free worker slot.
 
+use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
 use metrics::counter;
@@ -10,16 +11,15 @@ use super::request::{Request, RequestClass};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PackTargets {
-    /// `0` disables the event target.
-    pub events: usize,
-    /// `0` disables the byte target.
-    pub bytes: usize,
+    pub events: Option<NonZeroUsize>,
+    pub bytes: Option<NonZeroUsize>,
     pub latency_budget: Duration,
 }
 
 impl PackTargets {
     fn reached(&self, events: usize, bytes: usize) -> bool {
-        (self.events > 0 && events >= self.events) || (self.bytes > 0 && bytes >= self.bytes)
+        self.events.is_some_and(|target| events >= target.get())
+            || self.bytes.is_some_and(|target| bytes >= target.get())
     }
 }
 
@@ -128,8 +128,8 @@ mod tests {
 
     fn targets(events: usize) -> PackTargets {
         PackTargets {
-            events,
-            bytes: 0,
+            events: NonZeroUsize::new(events),
+            bytes: None,
             latency_budget: BUDGET,
         }
     }
@@ -188,8 +188,8 @@ mod tests {
         let mut keys = KeyQueues::new();
         push(&mut keys, "a", 0, &[1], now);
         let mut packer = Packer::new(PackTargets {
-            events: 0,
-            bytes: payload_bytes(&[message("a", 0, 1)]) * 2,
+            events: None,
+            bytes: NonZeroUsize::new(payload_bytes(&[message("a", 0, 1)]) * 2),
             latency_budget: BUDGET,
         });
         assert!(packer.pack(&mut keys, now, 1, false).is_empty());

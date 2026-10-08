@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
@@ -438,8 +439,8 @@ impl Config {
     /// for every retry, and the deferred-flush timeout as its stall timeout.
     pub fn batcher_state_machine(&self) -> Result<BatcherStateMachine, String> {
         let packer = Packer::new(PackTargets {
-            events: self.pack_target_events,
-            bytes: self.pack_target_bytes,
+            events: NonZeroUsize::new(self.pack_target_events),
+            bytes: NonZeroUsize::new(self.pack_target_bytes),
             latency_budget: Duration::from_millis(self.pack_latency_budget_ms),
         });
         let assigner = WorkerAssigner::new(
