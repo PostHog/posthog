@@ -25,6 +25,7 @@ import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
 import { MessagingSetup } from './MessagingSetup'
 import { MessagingTabActions } from './MessagingTabActions'
 import { isMessagingSetupTab, messagingNavTabs } from './messagingTabs'
+import { MessagingSetupTabLabel } from './setupGuide/MessagingSetupTabLabel'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { workflowTemplatesLogic } from './Workflows/templates/workflowTemplatesLogic'
@@ -158,6 +159,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab: routeTab } = useValues(workflowsSceneLogic(props))
     const { featureFlags } = useValues(featureFlagLogic)
     const newNavigationEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_NEW_NAVIGATION]
+    const guidedOnboardingEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_GUIDED_ONBOARDING]
     // The workflow templates page exists only in the new navigation.
     const currentTab: WorkflowsSceneTab = !newNavigationEnabled && routeTab === 'templates' ? 'workflows' : routeTab
     const { startNewWorkflow } = useActions(newWorkflowLogic)
@@ -229,7 +231,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                             content: <WorkflowsTemplates tab={currentTab === 'templates' ? 'templates' : 'library'} />,
                         },
                         {
-                            label: 'Messaging',
+                            label: guidedOnboardingEnabled ? <MessagingSetupTabLabel /> : 'Messaging',
                             key: 'messaging-setup',
                             link: urls.workflows('channels'),
                             content: (
