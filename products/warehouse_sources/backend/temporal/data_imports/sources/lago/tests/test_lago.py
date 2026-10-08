@@ -250,3 +250,42 @@ class TestRedirectAndHostGuards:
                 _rows(_source(_make_manager()))
         # The SSRF pre-check fires before any request leaves the process.
         session.send.assert_not_called()
+
+
+class TestFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_charges_walk_every_plan_and_child_page(self, MockSession):
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _page(
+                    [{"lago_id": "p1", "code": "pro/annual"}, {"lago_id": "p2", "code": "basic"}],
+                    data_key="plans",
+                ),
+                _page([{"lago_id": "c1"}], total_pages=2, next_page=2, data_key="charges"),
+                _page([{"lago_id": "c2"}], total_pages=2, data_key="charges"),
+                _page([{"lago_id": "c3"}], data_key="charges"),
+            ],
+        )
+        manager = _make_manager()
+
+        rows = _rows(_source(manager, endpoint="charges"))
+
+        urls = [c.args[0].url for c in session.prepare_request.call_args_list]
+        assert urls == [
+            "https://api.getlago.com/api/v1/plans",
+            # A user-defined plan code is percent-encoded so it stays one path segment.
+            "https://api.getlago.com/api/v1/plans/pro%2Fannual/charges",
+            "https://api.getlago.com/api/v1/plans/pro%2Fannual/charges",
+            "https://api.getlago.com/api/v1/plans/basic/charges",
+        ]
+        assert [p.get("page") for p in params] == [1, 1, 2, 1]
+        assert [(r["lago_id"], r["lago_plan_id"], r["plan_code"]) for r in rows] == [
+            ("c1", "p1", "pro/annual"),
+            ("c2", "p1", "pro/annual"),
+            ("c3", "p2", "basic"),
+        ]
+        assert all("_path_code" not in r for r in rows)
+        saved = [c.args[0] for c in manager.save_state.call_args_list]
+        assert saved and all(s.fanout_state is not None and s.next_page is None for s in saved)
