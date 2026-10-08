@@ -937,6 +937,14 @@ class Database(BaseModel):
         alias_target = self._models_aliases.get(table_name)
         return alias_target is not None and ".".join(alias_target) in self._denied_tables
 
+    def _models_alias_node(self, table_name: list[str]) -> TableNode | None:
+        # The deny check comes before the alias, so a denied query stored as `models.x` is never
+        # answered by the alias of an allowed `x`.
+        alias_target = self._models_aliases.get(".".join(table_name))
+        if alias_target is None or self.is_table_access_denied(table_name):
+            return None
+        return self.tables.get_child(alias_target)
+
     def get_table_node(self, table_name: str | list[str]) -> TableNode:
         if isinstance(table_name, str):
             table_name = table_name.split(".")
@@ -945,14 +953,18 @@ class Database(BaseModel):
             table_name = table_name[0].split(".")
 
         try:
-            return self.tables.get_child(table_name)
+            node = self.tables.get_child(table_name)
         except ResolutionError:
-            # The deny check comes before the alias, so a denied query stored as `models.x` is never
-            # answered by the alias of an allowed `x`.
-            alias_target = self._models_aliases.get(".".join(table_name))
-            if alias_target is None or self.is_table_access_denied(table_name):
+            alias_node = self._models_alias_node(table_name)
+            if alias_node is None:
                 raise
-            return self.tables.get_child(alias_target)
+            return alias_node
+        # A stored `models.x.y` puts a node with no table at `models.x`. That node must not hide the alias of `x`.
+        if node.table is None:
+            alias_node = self._models_alias_node(table_name)
+            if alias_node is not None:
+                return alias_node
+        return node
 
     def get_table(self, table_name: str | list[str]) -> Table:
         try:

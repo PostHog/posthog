@@ -240,6 +240,16 @@ class TestModelsNamespaceDualRegistration(BaseTest):
         assert cast(SavedQuery, database.get_table("arr")).id == str(legacy.id)
         assert "models.arr" in database.get_view_names()
 
+    def test_a_stored_model_nested_under_a_derived_name_does_not_hide_it(self) -> None:
+        revenue = self._create("revenue")
+        monthly = self._create("models.revenue.monthly")
+
+        database = Database.create_for(team=self.team)
+
+        assert database.has_table("models.revenue")
+        assert cast(SavedQuery, database.get_table("models.revenue")).id == str(revenue.id)
+        assert cast(SavedQuery, database.get_table("models.revenue.monthly")).id == str(monthly.id)
+
     def test_a_legacy_model_named_models_keeps_its_slot(self) -> None:
         root = self._create("root_placeholder")
         DataWarehouseSavedQuery.objects.filter(pk=root.pk).update(name="models")
