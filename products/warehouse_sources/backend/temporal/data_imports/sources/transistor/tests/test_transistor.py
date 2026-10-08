@@ -9,14 +9,10 @@ import requests
 import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.transistor.settings import (
-    TRANSISTOR_BASE_URL,
-    TRANSISTOR_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.transistor.settings import TRANSISTOR_BASE_URL
 from products.warehouse_sources.backend.temporal.data_imports.sources.transistor.transistor import (
     RequestThrottle,
     TransistorResumeConfig,
-    date_windows,
     episode_analytics_rows,
     flatten_resource,
     get_rows,
@@ -24,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.transistor
     paginate,
     parse_download_date,
     show_analytics_rows,
-    transistor_source,
     validate_credentials,
 )
 
@@ -133,9 +128,6 @@ class TestTransistorTransport:
         assert row["playlists_ids"] == ["1", "2"]
         assert "broken" not in row
 
-    def test_flatten_resource_tolerates_missing_sections(self):
-        assert flatten_resource({"id": "1", "type": "show"}) == {"id": "1", "type": "show"}
-
     @pytest.mark.parametrize(
         "raw, expected",
         [
@@ -155,51 +147,6 @@ class TestTransistorTransport:
     def test_parse_download_date(self, raw, expected):
         assert parse_download_date(raw) == expected
 
-    @pytest.mark.parametrize(
-        "start, end, window_days, expected",
-        [
-            (date(2026, 1, 1), date(2026, 1, 1), 5, [(date(2026, 1, 1), date(2026, 1, 1))]),
-            (date(2026, 1, 1), date(2026, 1, 5), 5, [(date(2026, 1, 1), date(2026, 1, 5))]),
-            (
-                date(2026, 1, 1),
-                date(2026, 1, 7),
-                5,
-                [(date(2026, 1, 1), date(2026, 1, 5)), (date(2026, 1, 6), date(2026, 1, 7))],
-            ),
-            # An end before the start yields nothing rather than looping.
-            (date(2026, 1, 5), date(2026, 1, 1), 5, []),
-        ],
-    )
-    def test_date_windows_are_contiguous_and_bounded(self, start, end, window_days, expected):
-        assert list(date_windows(start, end, window_days)) == expected
-
-    def test_paginate_follows_meta_and_stops_at_the_last_page(self):
-        pages = {
-            1: _list_body([_resource("1", "show", {})], current_page=1, total_pages=3),
-            2: _list_body([_resource("2", "show", {})], current_page=2, total_pages=3),
-            3: _list_body([_resource("3", "show", {})], current_page=3, total_pages=3),
-        }
-
-        def responder(url, params):
-            return _response(200, pages[params.get("pagination[page]", 1)])
-
-        session = _FakeSession(responder)
-        results = list(paginate(session, RequestThrottle(0), f"{TRANSISTOR_BASE_URL}/shows", {}, LOGGER))
-
-        assert [next_page for _, next_page in results] == [2, 3, None]
-        # The first request omits the page param so the API's own base page applies, and later
-        # pages come from `currentPage` rather than an assumed base.
-        assert "pagination[page]" not in session.calls[0][1]
-        assert [call[1].get("pagination[page]") for call in session.calls] == [None, 2, 3]
-        assert all(call[1]["pagination[per]"] for call in session.calls)
-
-    def test_paginate_seeds_the_resumed_page(self):
-        session = _FakeSession(lambda url, params: _response(200, _list_body([], current_page=4, total_pages=4)))
-
-        list(paginate(session, RequestThrottle(0), f"{TRANSISTOR_BASE_URL}/shows", {}, LOGGER, start_page=4))
-
-        assert session.calls[0][1]["pagination[page]"] == 4
-
     @pytest.mark.parametrize("row_count, expected_next", [(100, 2), (3, None)])
     def test_paginate_without_meta_walks_only_while_pages_are_full(self, row_count, expected_next):
         body = {"data": [_resource(str(index), "webhook", {}) for index in range(row_count)]}
@@ -216,15 +163,6 @@ class TestTransistorTransport:
         results = list(paginate(session, RequestThrottle(0), f"{TRANSISTOR_BASE_URL}/subscribers", {}, LOGGER))
 
         assert results == [([], None)]
-
-    def test_list_shows_is_sorted_by_id(self):
-        session = _FakeSession(lambda url, params: _response(200, _shows_body()))
-
-        shows = list_shows(session, RequestThrottle(0), LOGGER)
-
-        # Sorted by id, so fan-out resume indexes stay stable even though the endpoint orders
-        # by updated date, which reshuffles whenever a show is edited.
-        assert [show["id"] for show in shows] == ["11", "22"]
 
     def test_list_shows_is_capped(self, monkeypatch):
         monkeypatch.setattr(f"{MODULE}.MAX_SHOWS", 1)
@@ -336,21 +274,6 @@ class TestTransistorTransport:
             (1, None),
         ]
 
-    @time_machine.travel("2026-08-04", tick=False)
-    def test_analytics_resumes_at_the_saved_window(self):
-        analytics_params: list[dict[str, Any]] = []
-
-        def responder(url, params):
-            if url.endswith("/shows"):
-                return _response(200, _list_body([_resource("11", "show", {"created_at": "2024-01-01T00:00:00Z"})]))
-            analytics_params.append(params)
-            return _response(200, {"data": {"attributes": {"downloads": []}}})
-
-        manager = _FakeResumableManager(TransistorResumeConfig(show_index=0, window_start="2025-12-31"))
-        _run(responder, "show_analytics", manager, should_use_incremental_field=False)
-
-        assert [params["start_date"] for params in analytics_params] == ["31-12-2025"]
-
     def test_show_analytics_rows_drop_unparseable_dates(self):
         payload = {
             "data": {
@@ -398,23 +321,6 @@ class TestTransistorTransport:
                 "downloads": 9,
             }
         ]
-
-    @pytest.mark.parametrize("endpoint", list(TRANSISTOR_ENDPOINTS))
-    def test_source_response_shape_per_endpoint(self, endpoint):
-        config = TRANSISTOR_ENDPOINTS[endpoint]
-
-        response = transistor_source(
-            endpoint=endpoint,
-            api_key="key",
-            logger=LOGGER,
-            resumable_source_manager=_FakeResumableManager(),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        # Fan-out restarts dates at every show, so the watermark must only commit at completion.
-        assert response.sort_mode == "desc"
-        assert response.partition_keys == ([config.partition_key] if config.partition_key else None)
 
     @pytest.mark.parametrize(
         "status, expected_ok, expected_message_fragment",

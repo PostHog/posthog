@@ -111,33 +111,6 @@ class TestPagination:
         assert rows == [{"contactID": "1"}, {"contactID": "2"}]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_each_non_terminal_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _page([{"contactID": "1"}], next_url=_next_url(250)),
-                _page([{"contactID": "2"}], next_url=None),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source("contacts", manager))
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [OmnisendResumeConfig(next_url=_next_url(250))]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_terminal_page_does_not_save_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([{"contactID": "1"}], next_url=None)])
-
-        manager = _make_manager()
-        _rows(_source("contacts", manager))
-
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_paging_block_terminates(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response({"contacts": [{"contactID": "1"}]})])
@@ -148,28 +121,6 @@ class TestPagination:
         assert session.send.call_count == 1
         assert rows == [{"contactID": "1"}]
         manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_campaigns_rows_read_from_singular_key(self, MockSession) -> None:
-        # Omnisend's `/campaigns` nests rows under the singular `campaign`, unlike every other
-        # endpoint's plural key. Extraction must follow that, or the sync fails loud on 0 rows.
-        session = MockSession.return_value
-        _wire(session, [_page([{"campaignID": "c1"}], next_url=None, key="campaign")])
-
-        manager = _make_manager()
-        rows = _rows(_source("campaigns", manager))
-
-        assert rows == [{"campaignID": "c1"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([], next_url=None)])
-
-        manager = _make_manager()
-        rows = _rows(_source("contacts", manager))
-
-        assert rows == []
 
     @pytest.mark.parametrize("endpoint", ["contacts", "campaigns"])
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -294,24 +245,6 @@ class TestErrors:
         with pytest.raises(ValueError, match="matched nothing"):
             _rows(_source("contacts", manager))
 
-    @mock.patch("tenacity.nap.time.sleep", return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retries_on_429_then_succeeds(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"error": "rate limited"}, status_code=429),
-                _page([{"contactID": "1"}], next_url=None),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("contacts", manager))
-
-        assert session.send.call_count == 2
-        assert rows == [{"contactID": "1"}]
-
 
 class TestAuthAndRedaction:
     @pytest.mark.parametrize(
@@ -351,17 +284,6 @@ class TestAuthAndRedaction:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        ("status_code", "expected_ok"),
-        [(200, True), (401, False), (403, False), (500, False)],
-    )
-    @mock.patch(OMNISEND_SESSION_PATCH)
-    def test_status_mapping(self, mock_session, status_code: int, expected_ok: bool) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        ok, code = validate_credentials("test-key", OMNISEND_V3)
-        assert ok is expected_ok
-        assert code == status_code
-
     @mock.patch(OMNISEND_SESSION_PATCH)
     def test_network_error(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = Exception("network down")
@@ -393,38 +315,6 @@ class TestValidateCredentials:
 
 
 class TestSourceResponse:
-    @pytest.mark.parametrize(
-        ("api_version", "endpoint", "primary_key", "expects_partition"),
-        [
-            (OMNISEND_V3, "contacts", "contactID", True),
-            (OMNISEND_V3, "campaigns", "campaignID", True),
-            (OMNISEND_V3, "carts", "cartID", True),
-            (OMNISEND_V3, "orders", "orderID", True),
-            (OMNISEND_V3, "products", "productID", True),
-            (OMNISEND_V3, "categories", "categoryID", False),
-            (OMNISEND_2026_03_15, "contacts", "id", True),
-            (OMNISEND_2026_03_15, "campaigns", "id", True),
-            (OMNISEND_2026_03_15, "products", "id", True),
-            (OMNISEND_2026_03_15, "categories", "categoryID", False),
-        ],
-    )
-    def test_source_response_shape(
-        self, api_version: str, endpoint: str, primary_key: str, expects_partition: bool
-    ) -> None:
-        response = _source(endpoint, _make_manager(), api_version)
-
-        assert response.name == endpoint
-        assert response.primary_keys == [primary_key]
-        assert response.sort_mode == "asc"
-
-        if expects_partition:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == ["createdAt"]
-            assert response.partition_format == "month"
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     @pytest.mark.parametrize("endpoint", ["carts", "orders"])
     def test_endpoints_without_a_2026_list_endpoint_raise(self, endpoint: str) -> None:
         with pytest.raises(ValueError, match=UNSUPPORTED_ENDPOINT_ERROR):

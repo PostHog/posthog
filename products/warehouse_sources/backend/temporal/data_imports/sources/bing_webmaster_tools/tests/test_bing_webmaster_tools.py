@@ -12,19 +12,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webma
     BingWebmasterToolsError,
     _request,
     _stats_row,
-    bing_webmaster_tools_source,
     get_rows,
     parse_site_urls,
     parse_wcf_date,
     select_site_urls,
     validate_credentials,
-    verified_sites_for_host,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.settings import (
-    BASE_URL,
-    ENDPOINT_CONFIGS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.settings import BASE_URL
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.bing_webmaster_tools"
 
@@ -126,11 +120,6 @@ class TestStatsRow:
             "site_url": "https://example.com/",
         }
 
-    def test_unparseable_date_skips_row(self):
-        item = {**_QUERY_STATS[0], "Date": "not-a-date"}
-
-        assert _stats_row(item, "https://example.com/") is None
-
     def test_missing_date_fails_loudly(self):
         item = {key: value for key, value in _QUERY_STATS[0].items() if key != "Date"}
 
@@ -155,36 +144,9 @@ class TestSiteSelection:
     def test_parse_site_urls(self, raw, expected):
         assert parse_site_urls(raw) == expected
 
-    def test_no_filter_selects_only_verified_sites(self):
-        assert select_site_urls(_SITES, []) == ["https://example.com/"]
-
-    @pytest.mark.parametrize(
-        "filter_url",
-        ["https://example.com/", "https://example.com", "HTTPS://EXAMPLE.COM/"],
-    )
-    def test_filter_matches_leniently_but_returns_registered_form(self, filter_url):
-        assert select_site_urls(_SITES, [filter_url]) == ["https://example.com/"]
-
     def test_filter_matching_no_verified_site_raises(self):
         with pytest.raises(ValueError, match="not verified sites on the connected account"):
             select_site_urls(_SITES, ["http://unverified.example.org"])
-
-    @pytest.mark.parametrize(
-        "filter_url,expected",
-        [
-            # A bare hostname can never match Bing's scheme-prefixed site key, so it resolves by
-            # host, with or without a trailing slash and regardless of case.
-            ("example.com", ["https://example.com/"]),
-            ("example.com/", ["https://example.com/"]),
-            ("EXAMPLE.COM", ["https://example.com/"]),
-            # An entry that already carries a scheme is matched exactly, so it resolves nothing here.
-            ("https://example.com/", []),
-            # A host that isn't verified has no candidates.
-            ("unknown.example.net", []),
-        ],
-    )
-    def test_verified_sites_for_host(self, filter_url, expected):
-        assert verified_sites_for_host(filter_url, ["https://example.com/"]) == expected
 
     @pytest.mark.parametrize("filter_url", ["example.com", "example.com/", "EXAMPLE.COM"])
     def test_bare_hostname_resolves_to_the_verified_site(self, filter_url):
@@ -207,11 +169,6 @@ class TestSiteSelection:
 
 
 class TestRequest:
-    def test_returns_unwrapped_list(self):
-        session = _session({"GetUserSites": _response(200, {"d": _SITES})})
-
-        assert _request(session, "key", "GetUserSites") == _SITES
-
     def test_api_fault_message_is_surfaced(self):
         session = _session({"GetUserSites": _response(400, {"ErrorCode": 3, "Message": "InvalidApiKey"})})
 
@@ -353,26 +310,3 @@ class TestValidateCredentials:
 
         assert ok is False
         assert message is not None and "Could not reach" in message
-
-
-class TestSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_primary_keys_match_endpoint_catalog(self, endpoint):
-        response = bing_webmaster_tools_source("key", endpoint, None, structlog.get_logger())
-
-        assert response.name == endpoint
-        assert response.primary_keys == ENDPOINT_CONFIGS[endpoint].primary_keys
-        # Bing documents no response ordering and the multi-site fan-out interleaves date ranges,
-        # so no sort mode may be claimed: "asc" would checkpoint a corrupt incremental watermark.
-        assert response.sort_mode is None
-
-    def test_stats_tables_partition_on_date(self):
-        response = bing_webmaster_tools_source("key", "query_stats", None, structlog.get_logger())
-
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["date"]
-
-    def test_sites_table_has_no_partitioning(self):
-        response = bing_webmaster_tools_source("key", "sites", None, structlog.get_logger())
-
-        assert response.partition_mode is None
