@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -15,7 +15,7 @@ from products.data_modeling.backend.facade.api import (
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 
 from ...facade.contracts import MaterializePayload, SourceRef
-from ...facade.enums import WarehouseSuggestionKind, WarehouseSuggestionSubjectKind
+from ...facade.enums import WarehouseSuggestionAssetOutcome, WarehouseSuggestionKind, WarehouseSuggestionSubjectKind
 from ..reads import Subject, SubjectReads
 from .base import DAYS_PER_MONTH, MILLISECONDS_PER_SECOND, Candidate, CandidateContext, CandidateResult, Rejection
 
@@ -72,6 +72,17 @@ class MaterializeCandidate(Candidate):
                 )
             )
         return CandidateResult(drafts=tuple(drafts), rejections=tuple(rejections))
+
+    def asset_outcome(
+        self, context: CandidateContext, subject: Subject, accepted_at: datetime | None
+    ) -> WarehouseSuggestionAssetOutcome:
+        saved_query = context.inventory.saved_queries.get(subject.id)
+        if saved_query is None or not saved_query.materializes:
+            return WarehouseSuggestionAssetOutcome.DELETED
+        reads = context.reads.reads_of(subject)
+        if reads is not None and (accepted_at is None or reads.last_read_at > accepted_at):
+            return WarehouseSuggestionAssetOutcome.LIVE
+        return WarehouseSuggestionAssetOutcome.UNUSED
 
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool:
         saved_query = context.inventory.saved_queries.get(subject.id)

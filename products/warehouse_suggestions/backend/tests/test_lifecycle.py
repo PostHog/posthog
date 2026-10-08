@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -16,6 +17,7 @@ from products.warehouse_suggestions.backend.facade.contracts import (
     SuggestionPayload,
 )
 from products.warehouse_suggestions.backend.facade.enums import (
+    WarehouseSuggestionAssetOutcome,
     WarehouseSuggestionDismissalReason,
     WarehouseSuggestionKind,
     WarehouseSuggestionStatus,
@@ -25,7 +27,9 @@ from products.warehouse_suggestions.backend.logic.candidates.registry import CAN
 from products.warehouse_suggestions.backend.logic.lifecycle import _pick_in_turns, apply_run
 from products.warehouse_suggestions.backend.logic.suggestions import transition_to
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion
-from products.warehouse_suggestions.backend.tests.factories import context, team_reads, view, view_subject
+from products.warehouse_suggestions.backend.tests.factories import busy_reads, context, team_reads, view, view_subject
+
+from .test_accept import REPORT
 
 NOW = datetime(2026, 10, 7, 9, tzinfo=UTC)
 PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
@@ -79,6 +83,7 @@ class TestApplyRun(BaseTest):
             old_id = uuid4()
             apply_run(
                 self._context(old_id),
+                self.team,
                 [self._draft(self._context(old_id), WarehouseSuggestionKind.DEPRECATE, old_id, 1)],
                 NOW - timedelta(days=10),
                 surface=True,
@@ -91,8 +96,8 @@ class TestApplyRun(BaseTest):
             *(self._draft(ctx, WarehouseSuggestionKind.MATERIALIZE, view_id, 1) for view_id in view_ids[4:]),
         ]
 
-        apply_run(ctx, drafts, NOW, surface=True)
-        apply_run(ctx, drafts, NOW + timedelta(hours=1), surface=True)
+        apply_run(ctx, self.team, drafts, NOW, surface=True)
+        apply_run(ctx, self.team, drafts, NOW + timedelta(hours=1), surface=True)
 
         surfaced = self._surfaced_kinds()
         if surfaced_before:
@@ -118,17 +123,38 @@ class TestApplyRun(BaseTest):
         view_id = uuid4()
         ctx = self._context(view_id)
         apply_run(
-            ctx, [self._draft(ctx, WarehouseSuggestionKind.CERTIFY, view_id, dismissed_score)], NOW, surface=False
+            ctx,
+            self.team,
+            [self._draft(ctx, WarehouseSuggestionKind.CERTIFY, view_id, dismissed_score)],
+            NOW,
+            surface=False,
         )
         row = WarehouseSuggestion.objects.for_team(self.team.pk).get()
         transition_to(row.id, self.team.pk, WarehouseSuggestionStatus.DISMISSED, user_id=self.user.id, reason=reason)
 
-        apply_run(ctx, [self._draft(ctx, WarehouseSuggestionKind.CERTIFY, view_id, new_score)], NOW, surface=False)
+        with patch(REPORT) as report:
+            with self.captureOnCommitCallbacks() as on_commit:
+                apply_run(
+                    ctx,
+                    self.team,
+                    [self._draft(ctx, WarehouseSuggestionKind.CERTIFY, view_id, new_score)],
+                    NOW,
+                    surface=False,
+                )
+            reports_before_commit = report.call_count
+            for callback in on_commit:
+                callback()
 
         row.refresh_from_db()
+        reported_counts = [
+            call.args[1]["reproposed_count"]
+            for call in report.call_args_list
+            if call.args[0] == "warehouse suggestion reproposed"
+        ]
         assert (row.status, row.reproposed_count) == (
             (WarehouseSuggestionStatus.PROPOSED, 1) if expect_reproposed else (WarehouseSuggestionStatus.DISMISSED, 0)
         )
+        assert (reports_before_commit, reported_counts) == (0, [1] if expect_reproposed else [])
 
     @parameterized.expand(
         [
@@ -141,10 +167,10 @@ class TestApplyRun(BaseTest):
     ) -> None:
         view_id = uuid4()
         ctx = self._context(view_id, recent_days_with_data=recent_days_with_data)
-        apply_run(ctx, [self._draft(ctx, WarehouseSuggestionKind.DEPRECATE, view_id, 1)], NOW, surface=False)
+        apply_run(ctx, self.team, [self._draft(ctx, WarehouseSuggestionKind.DEPRECATE, view_id, 1)], NOW, surface=False)
         WarehouseSuggestion.objects.for_team(self.team.pk).update(last_seen_at=NOW - timedelta(days=8))
 
-        apply_run(ctx, [], NOW, surface=False)
+        apply_run(ctx, self.team, [], NOW, surface=False)
 
         assert WarehouseSuggestion.objects.for_team(self.team.pk).get().status == expected
 
@@ -157,10 +183,10 @@ class TestApplyRun(BaseTest):
         view_id = uuid4()
         ctx = self._context(view_id)
         draft = self._draft(ctx, WarehouseSuggestionKind.DEPRECATE, view_id, 1)
-        apply_run(ctx, [draft], NOW - timedelta(days=10), surface=True)
+        apply_run(ctx, self.team, [draft], NOW - timedelta(days=10), surface=True)
         WarehouseSuggestion.objects.for_team(self.team.pk).update(status=closed_status)
 
-        apply_run(ctx, [draft], NOW, surface=False)
+        apply_run(ctx, self.team, [draft], NOW, surface=False)
 
         revived = WarehouseSuggestion.objects.for_team(self.team.pk).get()
         assert (revived.status, revived.surfaced_at) == (WarehouseSuggestionStatus.PROPOSED, None)
@@ -170,6 +196,7 @@ class TestApplyRun(BaseTest):
         ctx = self._context(deleted_id, materialized_id)
         apply_run(
             ctx,
+            self.team,
             [
                 self._draft(ctx, WarehouseSuggestionKind.CERTIFY, deleted_id, 1),
                 self._draft(ctx, WarehouseSuggestionKind.MATERIALIZE, materialized_id, 1),
@@ -178,11 +205,44 @@ class TestApplyRun(BaseTest):
             surface=False,
         )
 
-        apply_run(self._context(materialized_id), [], NOW, surface=False)
+        apply_run(self._context(materialized_id), self.team, [], NOW, surface=False)
 
         assert set(WarehouseSuggestion.objects.for_team(self.team.pk).values_list("status", flat=True)) == {
             WarehouseSuggestionStatus.AUTO_RESOLVED
         }
+
+    @parameterized.expand(
+        [
+            ("read_after_acceptance", True, NOW - timedelta(days=1), WarehouseSuggestionAssetOutcome.LIVE),
+            ("read_only_before_acceptance", True, NOW - timedelta(days=3), WarehouseSuggestionAssetOutcome.UNUSED),
+            ("never_read", True, None, WarehouseSuggestionAssetOutcome.UNUSED),
+            ("materialization_turned_off", False, NOW - timedelta(days=1), WarehouseSuggestionAssetOutcome.DELETED),
+        ]
+    )
+    def test_records_what_became_of_an_accepted_materialization(
+        self,
+        _name: str,
+        materialized: bool,
+        last_read_at: datetime | None,
+        expected: WarehouseSuggestionAssetOutcome,
+    ) -> None:
+        view_id = uuid4()
+        ctx = self._context(view_id)
+        apply_run(
+            ctx, self.team, [self._draft(ctx, WarehouseSuggestionKind.MATERIALIZE, view_id, 1)], NOW, surface=False
+        )
+        WarehouseSuggestion.objects.for_team(self.team.pk).update(
+            status=WarehouseSuggestionStatus.ACCEPTED, reviewed_at=NOW - timedelta(days=2)
+        )
+        later = context(
+            team_reads({view_subject(view_id): busy_reads(last_read_at=last_read_at)} if last_read_at else {}),
+            views=[view(view_id, materializes=materialized)],
+            team_id=self.team.pk,
+        )
+
+        apply_run(later, self.team, [], NOW, surface=False)
+
+        assert WarehouseSuggestion.objects.for_team(self.team.pk).get().asset_outcome == expected
 
 
 CERTIFY = WarehouseSuggestionKind.CERTIFY

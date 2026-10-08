@@ -1,7 +1,11 @@
+from datetime import datetime
+
+from products.data_catalog.backend.facade.enums import CertificationStatus
+
 from ...facade.contracts import CertifyPayload
-from ...facade.enums import WarehouseSuggestionKind, WarehouseSuggestionSubjectKind
+from ...facade.enums import WarehouseSuggestionAssetOutcome, WarehouseSuggestionKind, WarehouseSuggestionSubjectKind
 from ..reads import Subject, SubjectReads
-from .base import Candidate, CandidateContext, CandidateResult, Rejection
+from .base import Candidate, CandidateContext, CandidateResult, Rejection, certification_outcome
 
 
 class CertifyCandidate(Candidate):
@@ -36,8 +40,13 @@ class CertifyCandidate(Candidate):
             )
         return CandidateResult(drafts=tuple(drafts), rejections=tuple(rejections))
 
+    def asset_outcome(
+        self, context: CandidateContext, subject: Subject, accepted_at: datetime | None
+    ) -> WarehouseSuggestionAssetOutcome:
+        return certification_outcome(context, subject, CertificationStatus.CERTIFIED)
+
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool:
-        return context.inventory.name_of(subject) is None or subject in context.inventory.certified
+        return context.inventory.name_of(subject) is None or subject in context.inventory.certifications
 
     def _is_certifiable(self, context: CandidateContext, subject: Subject) -> bool:
         if subject.kind == WarehouseSuggestionSubjectKind.TABLE:
@@ -52,7 +61,7 @@ class CertifyCandidate(Candidate):
         min_days = context.scaled_floor(rules.min_days)
         if not in_top_share:
             return f"outside the top {rules.top_share:.0%} by requests times people"
-        if subject in context.inventory.certified:
+        if subject in context.inventory.certifications:
             return "already has a certification"
         users_needed = rules.users_needed(context.reads.readers)
         if reads.human_users < users_needed:

@@ -232,6 +232,15 @@ export interface PaginatedWarehouseSuggestionListApi {
     results: WarehouseSuggestionApi[]
 }
 
+export interface AcceptWarehouseSuggestionApi {
+    /**
+     * Materialize only: refresh interval to use instead of the proposed one, in seconds.
+     * @minimum 1
+     * @maximum 2592000
+     */
+    refresh_interval_seconds?: number
+}
+
 export interface DismissWarehouseSuggestionApi {
     /** Why the suggestion is dismissed.
      *

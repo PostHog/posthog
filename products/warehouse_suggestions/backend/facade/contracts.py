@@ -124,6 +124,20 @@ class Suggestion:
 
 
 @frozen
+class CertificationAsset:
+    certification_id: str
+
+
+@frozen
+class MaterializationAsset:
+    saved_query_id: str
+    refresh_interval_seconds: int
+
+
+CreatedAsset = CertificationAsset | MaterializationAsset
+
+
+@frozen
 class SuggestionStatus:
     enabled: bool
     eligible: bool
@@ -149,6 +163,10 @@ class SubjectEditAccessRequiredError(Exception):
         self.subject_kind = subject_kind
 
 
+class CatalogEditAccessRequiredError(Exception):
+    pass
+
+
 class SuggestionAlreadyDecidedError(Exception):
     def __init__(self, current: WarehouseSuggestionStatus, requested: WarehouseSuggestionStatus) -> None:
         super().__init__(f"This suggestion is {current.label.lower()} and cannot become {requested.label.lower()}.")
@@ -157,3 +175,23 @@ class SuggestionAlreadyDecidedError(Exception):
 class UnsupportedPayloadVersionError(Exception):
     def __init__(self, payload_version: int) -> None:
         super().__init__(f"Suggestion payload version {payload_version} is not supported.")
+
+
+class SuggestionSubjectGoneError(Exception):
+    def __init__(self, subject_kind: WarehouseSuggestionSubjectKind) -> None:
+        super().__init__(subject_kind)
+        self.subject_kind = subject_kind
+
+
+class SubjectAlreadyCertifiedError(Exception):
+    def __init__(self, subject_kind: WarehouseSuggestionSubjectKind) -> None:
+        super().__init__(subject_kind)
+        self.subject_kind = subject_kind
+
+
+class RefreshIntervalRefusedError(Exception):
+    pass
+
+
+class AcceptFailedError(Exception):
+    pass

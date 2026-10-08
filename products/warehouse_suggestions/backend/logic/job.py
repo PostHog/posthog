@@ -8,8 +8,10 @@ from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from ..facade.contracts import SuggestionDraft
 from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus
 from ..models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
+from .analytics import report_candidates
 from .candidates.base import CandidateContext, CandidateResult
 from .candidates.registry import evaluate_candidates
 from .inventory import load_inventory
@@ -48,16 +50,16 @@ def run_team(
     reads = read_team_reads(team_id, ReadWindow.ending(today, rules), rules, rollup_days)
     eligible = is_eligible(reads, rules.eligibility)
     status = TeamRunStatus.PROCESSED if eligible else TeamRunStatus.NOT_ELIGIBLE
-    if not eligible and not _has_open_suggestions(team_id):
+    if not eligible and not _has_suggestions_to_maintain(team_id):
         with transaction.atomic():
             _record_run(_locked_config(team_id), reads, eligible=False, now=now)
         return TeamRunResult(team_id=team_id, status=status)
     context = build_context(team, reads, run_id=run_id, rules=rules)
-    drafts = [draft for result in evaluate_candidates(context).values() for draft in result.drafts] if eligible else []
+    drafts = _evaluate_and_report(context) if eligible else []
     with transaction.atomic():
         config = _locked_config(team_id)
         _record_run(config, reads, eligible=eligible, now=now)
-        lifecycle = apply_run(context, drafts, now, surface=eligible and config.paused_reason is None)
+        lifecycle = apply_run(context, team, drafts, now, surface=eligible and config.paused_reason is None)
     return TeamRunResult(team_id=team_id, status=status, drafts=len(drafts), lifecycle=lifecycle)
 
 
@@ -71,6 +73,13 @@ def explain_team(
     return context, evaluate_candidates(context)
 
 
+def _evaluate_and_report(context: CandidateContext) -> list[SuggestionDraft]:
+    results = evaluate_candidates(context)
+    for kind, result in results.items():
+        report_candidates(kind, len(result.drafts))
+    return [draft for result in results.values() for draft in result.drafts]
+
+
 def is_eligible(reads: TeamReads, rules: EligibilityRules) -> bool:
     return reads.view_reads >= rules.min_view_reads or bool(reads.refreshes)
 
@@ -79,8 +88,12 @@ def build_context(team: Team, reads: TeamReads, *, run_id: str, rules: Rules) ->
     return CandidateContext(team_id=team.pk, reads=reads, inventory=load_inventory(team), rules=rules, run_id=run_id)
 
 
-def _has_open_suggestions(team_id: int) -> bool:
-    return WarehouseSuggestion.objects.for_team(team_id).filter(status=WarehouseSuggestionStatus.PROPOSED).exists()
+def _has_suggestions_to_maintain(team_id: int) -> bool:
+    return (
+        WarehouseSuggestion.objects.for_team(team_id)
+        .filter(status__in=[WarehouseSuggestionStatus.PROPOSED, WarehouseSuggestionStatus.ACCEPTED])
+        .exists()
+    )
 
 
 def _locked_config(team_id: int) -> WarehouseSuggestionTeamConfig:

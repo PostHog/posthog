@@ -271,6 +271,15 @@ export namespace Schemas {
       human_readable_error?: string | null;
     }
 
+    export interface AcceptWarehouseSuggestion {
+      /**
+         * Materialize only: refresh interval to use instead of the proposed one, in seconds.
+         * @minimum 1
+         * @maximum 2592000
+         */
+      refresh_interval_seconds?: number;
+    }
+
     export interface AccessControlResourceDefault {
       /**
          * The stored default level for this resource type. Null when the PostHog default applies.

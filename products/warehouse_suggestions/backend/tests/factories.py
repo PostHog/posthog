@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionSubjectKind
 from products.warehouse_suggestions.backend.logic.candidates.base import CandidateContext
@@ -86,7 +87,7 @@ def context(
     *,
     views: Sequence[SavedQueryDefinition] = (),
     table_names: Mapping[UUID, str] | None = None,
-    certified: frozenset[Subject] = frozenset(),
+    certifications: Mapping[Subject, CertificationStatus] | None = None,
     direct_table_ids: frozenset[UUID] = frozenset(),
     team_id: int = 1,
     rules: Rules = RULES,
@@ -97,7 +98,7 @@ def context(
         inventory=TeamInventory(
             saved_queries={saved_query.id: saved_query for saved_query in views},
             table_names=table_names or {},
-            certified=certified,
+            certifications=certifications or {},
             direct_table_ids=direct_table_ids,
         ),
         rules=rules,

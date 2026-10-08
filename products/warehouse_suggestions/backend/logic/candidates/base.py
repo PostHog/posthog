@@ -1,15 +1,17 @@
 import hashlib
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
+from datetime import datetime
 from math import ceil
 from typing import Any, ClassVar
 
 from posthog.dataclasses import frozen
 
+from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 
 from ...facade.contracts import PAYLOAD_VERSION, SuggestionDraft, SuggestionPayload
-from ...facade.enums import WarehouseSuggestionKind
+from ...facade.enums import WarehouseSuggestionAssetOutcome, WarehouseSuggestionKind
 from ..inventory import TeamInventory
 from ..reads import Subject, TeamReads
 from ..rules import Rules, rules_version
@@ -67,6 +69,11 @@ class Candidate(ABC):
     @abstractmethod
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool: ...
 
+    @abstractmethod
+    def asset_outcome(
+        self, context: CandidateContext, subject: Subject, accepted_at: datetime | None
+    ) -> WarehouseSuggestionAssetOutcome: ...
+
     def draft(
         self,
         context: CandidateContext,
@@ -110,3 +117,14 @@ def evidence_of(context: CandidateContext, subject: Subject) -> dict[str, Any]:
         "requests_by_surface": {surface.value: count for surface, count in reads.requests_by_surface.items()},
         "last_read_at": reads.last_read_at.isoformat(),
     }
+
+
+def certification_outcome(
+    context: CandidateContext, subject: Subject, expected_status: CertificationStatus
+) -> WarehouseSuggestionAssetOutcome:
+    status = context.inventory.certifications.get(subject)
+    if status is None:
+        return WarehouseSuggestionAssetOutcome.DELETED
+    if status == expected_status:
+        return WarehouseSuggestionAssetOutcome.LIVE
+    return WarehouseSuggestionAssetOutcome.UNUSED

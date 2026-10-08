@@ -162,6 +162,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         [
             ("dismiss_a_dismissed_one", WarehouseSuggestionStatus.DISMISSED, "dismiss"),
             ("resume_an_expired_one", WarehouseSuggestionStatus.EXPIRED, "resume"),
+            ("accept_a_dismissed_one", WarehouseSuggestionStatus.DISMISSED, "accept"),
         ]
     )
     def test_a_move_people_may_not_make_conflicts(
@@ -298,17 +299,26 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         assert [row["id"] for row in listed.json()["results"]] == [str(suggestion.id)]
         assert dismissed.status_code == expected_dismiss_status, dismissed.json()
 
-    def test_a_viewer_of_the_subject_cannot_dismiss_its_suggestion(self) -> None:
+    @parameterized.expand(
+        [
+            ("dismiss_as_view_viewer", "dismiss", "warehouse_view", False),
+            ("accept_as_view_viewer", "accept", "warehouse_view", False),
+            ("certify_as_catalog_viewer", "accept", "data_catalog", True),
+        ]
+    )
+    def test_a_viewer_cannot_decide_the_suggestion(
+        self, _name: str, action: str, restricted_resource: str, expected_can_act: bool
+    ) -> None:
         suggestion = self._suggest(self.view.id)
-        self._restrict("warehouse_view", self.view.id, "viewer")
+        self._restrict(restricted_resource, self.view.id if restricted_resource == "warehouse_view" else None, "viewer")
 
         listed = self.client.get(f"{self.url}/")
-        dismissed = self.client.post(
-            f"{self.url}/{suggestion.id}/dismiss/", {"reason": WarehouseSuggestionDismissalReason.NOT_USEFUL}
+        decided = self.client.post(
+            f"{self.url}/{suggestion.id}/{action}/", {"reason": WarehouseSuggestionDismissalReason.NOT_USEFUL}
         )
 
-        assert listed.json()["results"][0]["can_act"] is False
-        assert dismissed.status_code == status.HTTP_403_FORBIDDEN, dismissed.json()
+        assert listed.json()["results"][0]["can_act"] is expected_can_act
+        assert decided.status_code == status.HTTP_403_FORBIDDEN, decided.json()
         suggestion.refresh_from_db()
         assert suggestion.status == WarehouseSuggestionStatus.PROPOSED
 
