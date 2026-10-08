@@ -716,6 +716,9 @@ export class PushNotificationService {
             client.get(cacheKey)
         )
         if (cached) {
+            if (this.apnsJwtLocalCache.get(cacheKey)?.jwt !== cached) {
+                this.rememberApnsJwtLocally(cacheKey, cached)
+            }
             return cached
         }
 

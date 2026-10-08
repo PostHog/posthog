@@ -750,6 +750,47 @@ describe('PushNotificationService', () => {
             expect(authHeaders[1]).not.toBe(`bearer ${fortyMinutesOld}`)
         })
 
+        it('keeps presenting the shared APNS token after a read misses it during a Valkey fault', async () => {
+            const b64 = (o: object): string => Buffer.from(JSON.stringify(o)).toString('base64url')
+            const shared = `${b64({ alg: 'ES256', kid: 'KEY123' })}.${b64({ iss: 'TEAM456', iat: Math.floor(Date.now() / 1000) })}.sig`
+            const cacheKey = `@posthog/apns-provider-jwt/${createHash('sha256').update(`TEAM456:KEY123:${testEcKey}`).digest('hex')}`
+            valkeyStore.set(cacheKey, shared)
+
+            // The first send misses both reads, loses SET NX to the shared token and falls back to its own.
+            const readUp = [false, false, true, false]
+            const flakyValkey = {
+                useClient: jest.fn((opts: { name: string }, fn: any) => {
+                    if (opts.name === 'apns-jwt-read' && !readUp.shift()) {
+                        return null
+                    }
+                    return fn({ get: (key: string) => valkeyStore.get(key) ?? null, set: mockValkeySet })
+                }),
+            } as any
+            const pod = new PushNotificationService(integrationManager, encryptedFields, fetchUtils, flakyValkey)
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 15,
+            })
+            mockTrackedFetch.mockClear()
+            const send = (): Promise<any> =>
+                pod.executeSendPushNotification(
+                    createSendPushNotificationInvocation({
+                        '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+                    })
+                )
+
+            await send()
+            await send()
+            await send()
+
+            const authHeaders = mockTrackedFetch.mock.calls.map(
+                (call: any) => call[0].fetchParams.headers.Authorization
+            )
+            expect(authHeaders[0]).not.toBe(`bearer ${shared}`)
+            expect(authHeaders.slice(1)).toEqual([`bearer ${shared}`, `bearer ${shared}`])
+        })
+
         it('reuses the pod-local APNS token when Valkey is unavailable', async () => {
             // Both Valkey calls are failOpen, so an outage makes the read return null. Without the
             // pod-local fallback every send mints a token and Apple answers 429 TooManyProviderTokenUpdates.
