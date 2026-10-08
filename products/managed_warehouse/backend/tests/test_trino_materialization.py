@@ -169,19 +169,40 @@ class TestTrinoShadowMaterialization(BaseTest):
 
     @parameterized.expand(
         [
-            ("full_build", "event", None),
-            ("merge_stage", "event", dt.datetime(2026, 10, 1, tzinfo=dt.UTC)),
-            ("columns_regex", "COLUMNS('^event$')", None),
-            ("columns_list", "COLUMNS(event)", dt.datetime(2026, 10, 1, tzinfo=dt.UTC)),
+            ("full_build", "SELECT event, count(), max(timestamp) AS ts FROM events GROUP BY event", None),
+            (
+                "merge_stage",
+                "SELECT event, count(), max(timestamp) AS ts FROM events GROUP BY event",
+                dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+            ),
+            (
+                "columns_regex",
+                "SELECT COLUMNS('^event$'), count(), max(timestamp) AS ts FROM events GROUP BY event",
+                None,
+            ),
+            (
+                "columns_list",
+                "SELECT COLUMNS(event), count(), max(timestamp) AS ts FROM events GROUP BY event",
+                dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+            ),
+            (
+                "union_repeats_expressions",
+                "SELECT event, count(), count() AS hits, max(timestamp) AS ts FROM events GROUP BY event "
+                "UNION ALL SELECT event, count(), count(), max(timestamp) FROM events GROUP BY event",
+                None,
+            ),
+            (
+                "union_by_name",
+                "SELECT event, count(), max(timestamp) AS ts, 1 FROM events GROUP BY event "
+                "UNION ALL BY NAME SELECT 1, max(timestamp) AS ts, count(), event FROM events GROUP BY event",
+                dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+            ),
         ]
     )
     def test_names_unaliased_columns_in_create_table_as(
-        self, _name: str, event_column: str, since: dt.datetime | None
+        self, _name: str, query: str, since: dt.datetime | None
     ) -> None:
-        self.query = {
-            "kind": "HogQLQuery",
-            "query": f"SELECT {event_column}, count(), max(timestamp) AS ts FROM events GROUP BY event",
-        }
+        self.query = {"kind": "HogQLQuery", "query": query}
         membership = ManagedWarehouseTeamMembership(
             team_id=self.team.pk,
             organization_id=str(self.organization.pk),
