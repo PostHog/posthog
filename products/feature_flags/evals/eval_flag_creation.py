@@ -13,7 +13,7 @@ FLAG_KEY = "bulk-file-export-preview"
 
 
 def seed_flag_creation(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    if FeatureFlag.objects.for_team(context.team_id).filter(key=FLAG_KEY).exists():
+    if FeatureFlag.objects.filter(team_id=context.team_id, key=FLAG_KEY).exists():
         raise ValueError("Flag creation eval requires an unused key")
     return {"team_id": context.team_id}
 

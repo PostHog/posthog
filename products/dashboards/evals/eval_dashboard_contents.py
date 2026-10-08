@@ -20,7 +20,7 @@ UPLOADS_NAME = "Saved daily file uploads"
 
 
 def seed_saved_insights(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    if Dashboard.objects.for_team(context.team_id).filter(name=DASHBOARD_NAME, deleted=False).exists():
+    if Dashboard.objects.filter(team_id=context.team_id, name=DASHBOARD_NAME, deleted=False).exists():
         raise ValueError("Dashboard eval requires an unused name")
     insights: dict[str, dict[str, object]] = {}
     for name, event in [(SIGNUPS_NAME, "signed_up"), (UPLOADS_NAME, "uploaded_file")]:
@@ -42,9 +42,9 @@ def seed_saved_insights(context: CustomPromptSandboxContext) -> dict[str, Any]:
     return {
         "team_id": context.team_id,
         "insights": insights,
-        "initial_insight_ids": list(Insight.objects.for_team(context.team_id).values_list("id", flat=True)),
+        "initial_insight_ids": list(Insight.objects.filter(team_id=context.team_id).values_list("id", flat=True)),
         "initial_dashboard_ids": list(
-            Dashboard.objects.for_team(context.team_id).filter(deleted=False).values_list("id", flat=True)
+            Dashboard.objects.filter(team_id=context.team_id, deleted=False).values_list("id", flat=True)
         ),
     }
 

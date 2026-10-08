@@ -14,7 +14,7 @@ class SavedDashboardContents(AsyncOnlyScorerMixin, Scorer):
 
     @staticmethod
     def _read_state(team_id: int, name: str) -> dict[str, Any]:
-        dashboards = Dashboard.objects.for_team(team_id).filter(deleted=False)
+        dashboards = Dashboard.objects.filter(team_id=team_id, deleted=False)
         matching = list(dashboards.filter(name=name))
         return {
             "dashboard_ids": list(dashboards.values_list("id", flat=True)),
@@ -23,7 +23,7 @@ class SavedDashboardContents(AsyncOnlyScorerMixin, Scorer):
                 for dashboard in matching
             ],
             "insights": {
-                str(row["id"]): row["query"] for row in Insight.objects.for_team(team_id).values("id", "query")
+                str(row["id"]): row["query"] for row in Insight.objects.filter(team_id=team_id).values("id", "query")
             },
         }
 

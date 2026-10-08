@@ -13,7 +13,7 @@ class CreatedFlagConfiguration(AsyncOnlyScorerMixin, Scorer):
 
     @staticmethod
     def _read_flags(team_id: int, key: str) -> list[dict[str, Any]]:
-        return list(FeatureFlag.objects.for_team(team_id).filter(key=key).values("active", "archived", "filters"))
+        return list(FeatureFlag.objects.filter(team_id=team_id, key=key).values("active", "archived", "filters"))
 
     async def _run_eval_async(
         self, output: dict[str, Any] | None, expected: dict[str, Any] | None = None, **kwargs: Any
