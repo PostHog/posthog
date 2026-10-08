@@ -342,7 +342,7 @@
   SELECT DISTINCT persons.is_identified AS is_identified
   FROM
     (SELECT person.id AS id,
-            person.is_identified AS is_identified
+            toBool(person.is_identified) AS is_identified
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -396,7 +396,7 @@
   SELECT persons.id AS id
   FROM
     (SELECT person.id AS id,
-            person.is_identified AS is_identified
+            toBool(person.is_identified) AS is_identified
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version

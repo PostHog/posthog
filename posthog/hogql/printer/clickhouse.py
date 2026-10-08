@@ -20,6 +20,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
+from posthog.hogql.database.schema.persons import RawPersonsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     extract_uuid_constants,
     get_events_session_id_table_type,
@@ -540,6 +541,13 @@ class ClickHousePrinter(BasePrinter):
 
     def visit_field_type(self, type: ast.FieldType):
         field_sql = super().visit_field_type(type)
+        if (
+            type.name == "is_identified"
+            and isinstance(type.table_type, ast.BaseTableType)
+            and isinstance(type.table_type.resolve_database_table(self.context), RawPersonsTable)
+        ):
+            # Person records store this Boolean as Int8, which ClickHouse rejects in -If aggregates.
+            field_sql = f"toBool({field_sql})"
         if (
             self.context.uses_new_events_schema()
             and isinstance(type.table_type, ast.BaseTableType)

@@ -561,6 +561,31 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
+    @parameterized.expand(
+        [
+            ("v1", "persons", "is_identified", PersonsArgMaxVersion.V1),
+            ("v2", "persons", "is_identified", PersonsArgMaxVersion.V2),
+            ("raw", "raw_persons", "is_identified", PersonsArgMaxVersion.V1),
+            ("joined", "events", "person.is_identified", PersonsArgMaxVersion.V1),
+        ]
+    )
+    def test_is_identified_as_aggregate_condition(
+        self, _name: str, table: str, condition: str, version: PersonsArgMaxVersion
+    ) -> None:
+        _create_person(team_id=self.team.pk, distinct_ids=["identified-person"], is_identified=True)
+        _create_event(team=self.team, distinct_id="identified-person", event="$pageview")
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            f"SELECT count(), countIf({condition}), sumIf(7, {condition}) FROM {table}",
+            self.team,
+            modifiers=HogQLQueryModifiers(
+                personsArgMaxVersion=version, personsOnEventsMode=PersonsOnEventsMode.DISABLED
+            ),
+        )
+
+        self.assertEqual(response.results, [(2, 1, 7)])
+
     def test_virtual_person_properties(self):
         response = execute_hogql_query(
             parse_select("select $virt_initial_channel_type from persons where id = {person_id}"),
