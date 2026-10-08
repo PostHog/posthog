@@ -241,11 +241,11 @@ export interface runInteractionLogicValues {
     selectedEffort: ReasoningEffortEnumApi
     selectedMode: PermissionMode
     selectedModel: string
-    sessionBaseline: SessionBaseline
     sending: boolean
     sentEffort: string | null
     sentMode: PermissionMode | null
     sentModel: string | null
+    sessionBaseline: SessionBaseline
     showComposerFormErrors: boolean
     startingRun: boolean
     steerPending: boolean

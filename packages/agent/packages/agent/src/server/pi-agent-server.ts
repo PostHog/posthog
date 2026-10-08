@@ -197,7 +197,7 @@ export class PiAgentServer {
   >();
   private readonly pendingExtensionDialogs = new Map<
     string,
-    { dialog: PiExtensionDialog; timer: ReturnType<typeof setTimeout> | null }
+    { dialog: PiExtensionDialog; timer?: ReturnType<typeof setTimeout> }
   >();
   private rtkSavingsAttempted = false;
   private runUsage = new RunUsageAccumulator();
@@ -324,9 +324,7 @@ export class PiAgentServer {
     this.runUsage = new RunUsageAccumulator();
     this.pendingMcpPermissions.clear();
     for (const { timer } of this.pendingExtensionDialogs.values()) {
-      if (timer) {
-        clearTimeout(timer);
-      }
+      clearTimeout(timer);
     }
     this.pendingExtensionDialogs.clear();
     await this.flushConversationLog({ final: true }).catch((error) =>
@@ -916,7 +914,7 @@ export class PiAgentServer {
               () => this.expireExtensionDialog(dialog.id),
               dialog.timeout,
             )
-          : null,
+          : undefined,
       });
     }
     this.broadcast({ ...event });
@@ -941,10 +939,7 @@ export class PiAgentServer {
     if (!runtime) {
       throw new Error("No active Pi runtime");
     }
-    const pending = this.pendingExtensionDialogs.get(response.id);
-    if (pending?.timer) {
-      clearTimeout(pending.timer);
-    }
+    clearTimeout(this.pendingExtensionDialogs.get(response.id)?.timer);
     this.pendingExtensionDialogs.delete(response.id);
     await runtime.client.respondToExtensionUI(response);
     this.broadcast({ ...response });
@@ -1279,7 +1274,10 @@ export class PiAgentServer {
   }
 
   private async persistSettledTurn(): Promise<void> {
-    await Promise.all([this.syncTaskSession(), this.flushConversationLog({ final: true })]);
+    await Promise.all([
+      this.syncTaskSession(),
+      this.flushConversationLog({ final: true }),
+    ]);
   }
 
   private syncTaskSession(): Promise<void> {
@@ -1464,7 +1462,9 @@ export class PiAgentServer {
 
   private flushConversationLog({
     final = false,
-  }: { final?: boolean } = {}): Promise<void> {
+  }: {
+    final?: boolean;
+  } = {}): Promise<void> {
     if (final) {
       this.logFlushFinalRequested = true;
     }
@@ -1490,30 +1490,25 @@ export class PiAgentServer {
         const { wire, carry } = this.acpConversation
           ? piAcpLogEntries(entries, { final })
           : { wire: entries, carry: [] };
+        if (wire.length > 0) {
+          try {
+            await this.posthogAPI.appendTaskRunLog(
+              this.config.taskId,
+              this.config.runId,
+              wire,
+            );
+          } catch (error) {
+            this.pendingLogEntries = [
+              ...entries,
+              ...this.pendingLogEntries,
+            ].slice(-MAX_PENDING_LOG_ENTRIES);
+            throw error;
+          }
+        }
+        this.pendingLogEntries = [...carry, ...this.pendingLogEntries];
         if (wire.length === 0) {
-          this.pendingLogEntries = [
-            ...(carry as StoredLogEntry[]),
-            ...this.pendingLogEntries,
-          ];
           return;
         }
-        try {
-          await this.posthogAPI.appendTaskRunLog(
-            this.config.taskId,
-            this.config.runId,
-            wire,
-          );
-        } catch (error) {
-          this.pendingLogEntries = [
-            ...entries,
-            ...this.pendingLogEntries,
-          ].slice(-MAX_PENDING_LOG_ENTRIES);
-          throw error;
-        }
-        this.pendingLogEntries = [
-          ...(carry as StoredLogEntry[]),
-          ...this.pendingLogEntries,
-        ];
       } while (
         this.logFlushRequested ||
         this.pendingLogEntries.length >= LOG_FLUSH_ENTRY_COUNT
