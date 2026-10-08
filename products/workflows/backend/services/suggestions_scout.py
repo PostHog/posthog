@@ -23,9 +23,9 @@ _LOCK_NAMESPACE = 72_031
 def sync_suggestions_scout(team: Team, *, acting_user: User | None, may_grant: bool) -> None:
     """Switch the scout on or off to match the project's live opted-in workflows.
 
-    Switching it on grants `hog_flow_proposal:write` with `acting_user` as the person its runs act as,
-    so it only happens when that person may grant the scope. Without one, a project that still needs
-    the scout keeps whatever it has, and one that no longer needs it loses it.
+    Switching it on grants `hog_flow_proposal:write` and makes `acting_user` the person its runs act as,
+    so it happens only with an `acting_user` and `may_grant` set. Switching it off needs neither.
+    When the project still needs the scout but nobody here may grant it, the scout config stays as it is.
     """
     # Scouts belong to the project's main environment, while workflows can live in any of its environments.
     project = team.parent_team or team

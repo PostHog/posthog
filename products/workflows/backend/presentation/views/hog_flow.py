@@ -80,7 +80,12 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
-from posthog.permissions import AccessControlPermission, get_authenticator_scopes, is_service_auth, posthog_feature_flag_enabled
+from posthog.permissions import (
+    AccessControlPermission,
+    get_authenticator_scopes,
+    is_service_auth,
+    posthog_feature_flag_enabled,
+)
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
@@ -4696,6 +4701,14 @@ class HogFlowViewSet(
             current=result.current,
         )
         self._emit_resource_edited(serializer.instance)
+
+        # A workflow that kept suggestions on while it was off needs its scout back when it goes live again.
+        if (
+            result.previous.get("status") != HogFlowState.ACTIVE
+            and serializer.instance.status == HogFlowState.ACTIVE
+            and is_optimization_enabled(serializer.instance.id)
+        ):
+            self._sync_suggestions_scout(self.request)
 
         # PostHog capture for hog_flow activated (draft -> active)
         if result.previous.get("status") == HogFlowState.DRAFT and serializer.instance.status == HogFlowState.ACTIVE:

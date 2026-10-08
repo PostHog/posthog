@@ -658,16 +658,21 @@ class TestWorkflowProposals(APIBaseTest):
         scout = self._suggestions_scout()
         assert scout is not None and scout.status == SignalScoutConfig.Status.PAUSED_BY_USER
 
-    def test_archiving_the_last_opted_in_workflow_stops_the_suggestions_scout(self, _mock_flag):
+    @parameterized.expand([("archived",), ("draft",)])
+    def test_the_suggestions_scout_follows_the_last_opted_in_workflow_leaving_live(self, _mock_flag, status):
         flow_id = self._create_active_flow(optimize=False)
         self._toggle(flow_id, True)
         assert self._suggestions_scout() is not None
 
         with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "archived"})
+            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": status})
         assert response.status_code == 200, response.json()
-
         assert self._suggestions_scout() is None
+
+        if status == "draft":
+            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+            assert response.status_code == 200, response.json()
+            assert self._suggestions_scout() is not None
 
     def test_a_retry_after_opt_out_returns_the_suggestion_it_already_made(self, _mock_flag):
         flow_id = self._create_active_flow()
