@@ -12,11 +12,16 @@ all give the same answer. The loaders below read the rows it needs.
 """
 
 from collections.abc import Iterable, Mapping, Sequence
+from typing import Any
 from uuid import UUID
 
-from django.db import models
+from django.core.cache import cache
+from django.db import models, transaction
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
 
 from posthog.dataclasses import frozen
+from posthog.utils import safe_cache_delete
 
 from products.review_hog.backend.models import (
     ReviewRepository,
@@ -132,6 +137,53 @@ class RepositoryReviewRule:
 
 def find_repository(team_id: int, full_name: str) -> ReviewRepository | None:
     return ReviewRepository.objects.for_team(team_id).filter(full_name__iexact=full_name).first()
+
+
+class AddedRepositoryNames:
+    """A cached set of a project's added repository names, lowercased.
+
+    The webhook handler uses it to drop pull request events of repositories nobody added, so it
+    queues no task for them. `find_repository` stays the source of truth: the cache is only a
+    prefilter. The receivers below delete the key on every change, and the TTL caps staleness for
+    writes that bypass the ORM signals.
+    """
+
+    TTL_SECONDS = 5 * 60
+
+    @staticmethod
+    def cache_key(team_id: int) -> str:
+        return f"review_hog:added_repositories:{team_id}"
+
+    @classmethod
+    def load(cls, team_id: int) -> frozenset[str]:
+        names = ReviewRepository.objects.for_team(team_id).values_list("full_name", flat=True)
+        return frozenset(name.lower() for name in names)
+
+    @classmethod
+    def get(cls, team_id: int) -> frozenset[str]:
+        names = cache.get_or_set(cls.cache_key(team_id), lambda: cls.load(team_id), cls.TTL_SECONDS)
+        return names if isinstance(names, frozenset) else cls.load(team_id)
+
+    @classmethod
+    def invalidate(cls, team_id: int) -> None:
+        key = cls.cache_key(team_id)
+        safe_cache_delete(key)
+        # A reader between this delete and the commit can cache the old rows again.
+        transaction.on_commit(lambda: safe_cache_delete(key))
+
+
+@receiver(post_save, sender=ReviewRepository)
+def _invalidate_added_repositories_on_save(
+    sender: type[ReviewRepository], instance: ReviewRepository, **kwargs: Any
+) -> None:
+    AddedRepositoryNames.invalidate(instance.team_id)
+
+
+@receiver(post_delete, sender=ReviewRepository)
+def _invalidate_added_repositories_on_delete(
+    sender: type[ReviewRepository], instance: ReviewRepository, **kwargs: Any
+) -> None:
+    AddedRepositoryNames.invalidate(instance.team_id)
 
 
 def load_repository_people(team_id: int, repository_ids: Iterable[UUID]) -> dict[UUID, list[ReviewRepositoryPerson]]:

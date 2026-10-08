@@ -12,6 +12,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.otel_metrics import OtelInstrumentFactory
 
 from products.review_hog.backend.automatic_review_rules import (
+    AddedRepositoryNames,
     AutomaticReviewMode,
     AutomaticReviewReason,
     decide_automatic_review,
@@ -95,9 +96,8 @@ class AuthoredPRReview:
             return None
         head = _mapping(pull_request.get("head"))
         base = _mapping(pull_request.get("base"))
-        # The webhook handler stays free of database reads, so whether the repository is added is
-        # checked in the task. Here the PR must only come from a branch of the same repository,
-        # because a fork's head cannot be trusted.
+        # The PR must come from a branch of the same repository, because a fork's head cannot be
+        # trusted.
         names = [_repository_name(repo) for repo in (payload.get("repository"), head.get("repo"), base.get("repo"))]
         repository = names[0]
         if repository is None or any(name is None or name.lower() != repository.lower() for name in names):
@@ -142,10 +142,10 @@ class AuthoredPRReview:
             _observe_dispatch("no_team")
             return
         team_id = settings.REVIEWHOG_TEAM_IDS[0]
-        # Pull request events of every repository the GitHub App is installed on reach this task, so
-        # a repository nobody added is the high-volume branch. It runs before the installation check,
-        # so "installation_mismatch" still means a misconfigured deploy. The counter carries the
-        # signal, so this branch stays out of the logs.
+        # The webhook handler drops repositories nobody added with a cached prefilter, so this
+        # branch counts only a repository removed while the task waited, or a stale cache. It runs
+        # before the installation check, so "installation_mismatch" still means a misconfigured
+        # deploy. The counter carries the signal, so this branch stays out of the logs.
         repository = find_repository(team_id, self.repository)
         if repository is None:
             _observe_dispatch("repository_not_added")
@@ -197,9 +197,21 @@ class AuthoredPRReview:
         _observe_dispatch("started")
 
 
+def _repository_may_be_added(repository: str) -> bool:
+    if not settings.REVIEWHOG_TEAM_IDS:
+        return False
+    try:
+        added = AddedRepositoryNames.get(settings.REVIEWHOG_TEAM_IDS[0])
+    except Exception:
+        # Fail open: the task checks the repository again, and a Redis blip must not stop reviews.
+        logger.warning("Could not read the added ReviewHog repositories; queueing the event", exc_info=True)
+        return True
+    return repository.lower() in added
+
+
 def enqueue_authored_pr_review(payload: Mapping[str, object]) -> None:
     review = AuthoredPRReview.from_payload(payload)
-    if review is None:
+    if review is None or not _repository_may_be_added(review.repository):
         return
     from products.review_hog.backend.tasks import (  # noqa: PLC0415 - keeps Celery off the registry import path
         process_authored_pr_event,
