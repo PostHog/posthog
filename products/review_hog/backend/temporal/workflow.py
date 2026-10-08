@@ -28,6 +28,7 @@ from temporalio.workflow import ParentClosePolicy
 from products.review_hog.backend.reviewer.constants import (
     BLIND_SPOT_PASS_NUMBER,
     FAN_OUT_FAILURE_FLOOR,
+    FLASH_LENSES,
     MAX_CONCURRENT_SANDBOXES,
     REVIEW_DESIGN_PIPELINE,
     REVIEW_DESIGN_SINGLE_AGENT,
@@ -43,6 +44,7 @@ from products.review_hog.backend.temporal.activities import (
     DedupResult,
     FetchPRDataInput,
     GenerateSchemasInput,
+    LensReviewInput,
     LoadBlindSpotsInput,
     LoadedBlindSpotsSkillDTO,
     LoadedPerspectiveDTO,
@@ -73,6 +75,7 @@ from products.review_hog.backend.temporal.activities import (
     fetch_pr_data_activity,
     finalize_status_comment_activity,
     generate_schemas_activity,
+    lens_review_activity,
     load_blind_spots_skill_activity,
     load_perspectives_activity,
     load_validation_skill_activity,
@@ -628,14 +631,7 @@ class ReviewPRWorkflow:
             )
 
             if review_design == REVIEW_DESIGN_SINGLE_AGENT:
-                workflow.logger.info("STAGE 2-3/7 · Single-agent review of the whole PR")
-                await workflow.execute_activity(
-                    single_agent_review_activity,
-                    stage,
-                    start_to_close_timeout=_SANDBOX_TIMEOUT,
-                    heartbeat_timeout=_SANDBOX_HEARTBEAT,
-                    retry_policy=_RETRY,
-                )
+                await self._review_with_single_agent(stage, meta.lens_chunk_count)
             else:
                 await self._review_with_pipeline(stage, acting_user_id)
 
@@ -871,6 +867,72 @@ class ReviewPRWorkflow:
 
         workflow.logger.info(f"ReviewHog complete · report stored on ReviewReport {report_id}")
         return report_id
+
+    @staticmethod
+    async def _review_with_single_agent(stage: SandboxStageInput, lens_chunk_count: int) -> None:
+        """Stages 2 and 3 of the single-agent design: the main session and every lens session in parallel.
+
+        A failed lens session costs only its own findings. A failed main session fails the turn.
+        """
+        if not workflow.patched("flash-lens-sessions-2026-10"):
+            workflow.logger.info("STAGE 2-3/7 · Single-agent review of the whole PR")
+            await workflow.execute_activity(
+                single_agent_review_activity,
+                stage,
+                start_to_close_timeout=_SANDBOX_TIMEOUT,
+                heartbeat_timeout=_SANDBOX_HEARTBEAT,
+                retry_policy=_RETRY,
+            )
+            return
+
+        lens_units = [(lens, chunk_id) for lens in FLASH_LENSES for chunk_id in range(1, lens_chunk_count + 1)]
+        workflow.logger.info(
+            f"STAGE 2-3/7 · Single-agent review: the main session and {len(lens_units)} lens session(s)"
+        )
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)
+
+        async def _main_session() -> None:
+            async with semaphore:
+                await workflow.execute_activity(
+                    single_agent_review_activity,
+                    stage,
+                    start_to_close_timeout=_SANDBOX_TIMEOUT,
+                    heartbeat_timeout=_SANDBOX_HEARTBEAT,
+                    retry_policy=_RETRY,
+                )
+
+        async def _lens_session(lens: str, chunk_id: int) -> None:
+            async with semaphore:
+                await workflow.execute_activity(
+                    lens_review_activity,
+                    LensReviewInput(
+                        team_id=stage.team_id,
+                        user_id=stage.user_id,
+                        report_id=stage.report_id,
+                        head_sha=stage.head_sha,
+                        repository=stage.repository,
+                        branch=stage.branch,
+                        run_index=stage.run_index,
+                        review_mode=stage.review_mode,
+                        flash_reasoning_effort=stage.flash_reasoning_effort,
+                        review_design=stage.review_design,
+                        lens=lens,
+                        chunk_id=chunk_id,
+                    ),
+                    start_to_close_timeout=_SANDBOX_TIMEOUT,
+                    heartbeat_timeout=_SANDBOX_HEARTBEAT,
+                    retry_policy=_RETRY,
+                )
+
+        # The main session goes first, so it never waits for a semaphore slot behind a lens session.
+        main_result, *lens_results = await asyncio.gather(
+            _main_session(), *(_lens_session(lens, chunk_id) for lens, chunk_id in lens_units), return_exceptions=True
+        )
+        if isinstance(main_result, BaseException):
+            raise main_result
+        failed = sum(1 for result in lens_results if isinstance(result, BaseException))
+        if failed:
+            workflow.logger.warning(f"{failed}/{len(lens_units)} lens session(s) failed; their findings are missing")
 
     @staticmethod
     async def _review_with_pipeline(stage: SandboxStageInput, acting_user_id: int) -> None:

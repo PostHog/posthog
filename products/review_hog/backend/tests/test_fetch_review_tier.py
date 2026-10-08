@@ -8,8 +8,8 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, REVIEW_MODE_FLASH
-from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
+from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, REVIEW_MODE_FLASH, REVIEW_MODE_FULL
+from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.persistence import load_review_arm
 from products.review_hog.backend.temporal.activities import FetchPRDataInput, _fetch_and_persist
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_UI
@@ -69,6 +69,37 @@ class TestFetchDecidesTheTier(BaseTest):
         assert meta.pr_open is (state == "open")
         expected_status = "closed" if state == "closed" else "idle" if complete else "active"
         assert report.status == expected_status
+
+    @parameterized.expand([("flash", REVIEW_MODE_FLASH, 1), ("full", REVIEW_MODE_FULL, 0)])
+    @patch(f"{_MODULE}.flash_pipeline_kill_switch_on", return_value=False)
+    @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
+    @patch(f"{_MODULE}.PRFetcher")
+    def test_fetch_records_the_lens_parts_of_a_single_agent_turn(
+        self,
+        _name: str,
+        review_mode: str,
+        expected_parts: int,
+        mock_fetcher: MagicMock,
+        _auth: MagicMock,
+        _kill_switch: MagicMock,
+    ) -> None:
+        # The workflow fans the lens sessions out over this count, so a fetch that leaves it at the
+        # default runs every Flash turn without its lenses and no error shows it.
+        pr_file = PRFile(filename="a.py", status="modified", additions=10, deletions=0)
+        mock_fetcher.return_value.fetch_pr_data.return_value = (_pr_metadata(), [], [pr_file], "")
+        meta = _fetch_and_persist(
+            FetchPRDataInput(
+                team_id=self.team.id,
+                user_id=self.user.id,
+                repository="o/r",
+                owner="o",
+                repo="r",
+                pr_number=9,
+                review_mode=review_mode,
+            )
+        )
+
+        assert meta.lens_chunk_count == expected_parts
 
     @patch(f"{_MODULE}._installation_auth", return_value=("tok", "9876543"))
     @patch(f"{_MODULE}.PRFetcher")

@@ -30,6 +30,7 @@ from products.review_hog.backend.temporal.activities import (
     DedupResult,
     FetchPRDataInput,
     GenerateSchemasInput,
+    LensReviewInput,
     LoadBlindSpotsInput,
     LoadedBlindSpotsSkillDTO,
     LoadedPerspectiveDTO,
@@ -126,6 +127,9 @@ async def _run_full_review_pr_workflow(
     already_completed: bool = False,
     pr_open: bool = True,
     review_design: str = "pipeline",
+    lens_chunk_count: int = 0,
+    fail_lens_units: frozenset[tuple[str, int]] = frozenset(),
+    fail_main_session: bool = False,
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
@@ -167,6 +171,7 @@ async def _run_full_review_pr_workflow(
 
     design_calls: dict[str, set[str]] = {}
     single_agent_calls: list[str] = []
+    lens_calls: list[tuple[str, int]] = []
 
     def _saw_design(stage: str, design: str) -> None:
         design_calls.setdefault(stage, set()).add(design)
@@ -194,6 +199,7 @@ async def _run_full_review_pr_workflow(
             already_completed=already_completed,
             pr_open=pr_open,
             review_design=review_design,
+            lens_chunk_count=lens_chunk_count,
         )
 
     @activity.defn(name="resolve_acting_user_activity")
@@ -273,6 +279,14 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="single_agent_review_activity")
     async def single_agent_review(input: SandboxStageInput) -> None:
         single_agent_calls.append(input.review_design)
+        if fail_main_session:
+            raise ApplicationError("main session died", non_retryable=True)
+
+    @activity.defn(name="lens_review_activity")
+    async def lens_review(input: LensReviewInput) -> None:
+        lens_calls.append((input.lens, input.chunk_id))
+        if (input.lens, input.chunk_id) in fail_lens_units:
+            raise ApplicationError("lens session died", non_retryable=True)
 
     @activity.defn(name="dedup_activity")
     async def dedup(input: SandboxStageInput) -> DedupResult:
@@ -390,6 +404,7 @@ async def _run_full_review_pr_workflow(
                 load_blind_spots,
                 review,
                 single_agent_review,
+                lens_review,
                 dedup,
                 load_validation,
                 validate_chunk,
@@ -462,6 +477,7 @@ async def _run_full_review_pr_workflow(
         "markers": marker_calls,
         "designs": design_calls,
         "single_agent": single_agent_calls,
+        "lens": lens_calls,
     }
 
 
@@ -630,14 +646,48 @@ async def test_review_pr_workflow_flash_turn_threads_its_mode_and_never_chains_r
 
 @pytest.mark.asyncio
 async def test_review_pr_workflow_single_agent_design_replaces_chunking_review_and_validation():
-    recorded = await _run_full_review_pr_workflow(publish=True, review_mode="flash", review_design="single_agent")
+    recorded = await _run_full_review_pr_workflow(
+        publish=True, review_mode="flash", review_design="single_agent", lens_chunk_count=2
+    )
 
     assert recorded["single_agent"] == ["single_agent"]
+    assert sorted(recorded["lens"]) == [
+        ("contracts-security", 1),
+        ("contracts-security", 2),
+        ("performance-reliability", 1),
+        ("performance-reliability", 2),
+    ]
     assert recorded["split"] == []
     assert recorded["review"] == []
     assert recorded["validate"] == []
     assert recorded["publish"] == [7]
     assert recorded["designs"] == {stage: {"single_agent"} for stage in ("dedup", "body", "publish", "status", "track")}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fail_lens_units,fail_main_session,expect_failed",
+    [
+        (frozenset({("contracts-security", 1), ("performance-reliability", 1)}), False, False),
+        (frozenset(), True, True),
+    ],
+)
+async def test_review_pr_workflow_single_agent_fails_only_on_the_main_session(
+    fail_lens_units: frozenset[tuple[str, int]], fail_main_session: bool, expect_failed: bool
+) -> None:
+    # Lens sessions only add breadth, so losing every one of them must still publish the main
+    # findings, while a turn without its main review must fail instead of posting a partial review.
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        review_mode="flash",
+        review_design="single_agent",
+        lens_chunk_count=1,
+        fail_lens_units=fail_lens_units,
+        fail_main_session=fail_main_session,
+    )
+
+    assert recorded["failed"] is expect_failed
+    assert recorded["publish"] == ([] if expect_failed else [7])
 
 
 @pytest.mark.asyncio

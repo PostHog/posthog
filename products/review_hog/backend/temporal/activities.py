@@ -40,6 +40,7 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_REASONING_EFFORT,
     CHUNKING_RUNTIME_ADAPTER,
     DEFAULT_URGENCY_THRESHOLD,
+    FLASH_LENSES,
     REVIEW_DESIGN_PIPELINE,
     REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
@@ -144,13 +145,16 @@ from products.review_hog.backend.reviewer.tools.select_perspectives import (
 from products.review_hog.backend.reviewer.tools.single_agent_review import (
     SingleAgentPrompt,
     issues_from_review,
+    lens_prompt_path,
     load_core_prompt,
+    load_prompt_file,
 )
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     CHUNKING_SYSTEM_PROMPT,
     count_reviewable_additions,
     generate_chunking_prompt,
     plan_deterministic_chunks,
+    plan_lens_chunks,
     reconcile_chunks,
 )
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
@@ -231,6 +235,8 @@ class ReviewMeta:
     review_design: str = REVIEW_DESIGN_PIPELINE
     # Why the design was chosen, for the started event. Empty on histories from before it existed.
     review_design_reason: str = ""
+    # Recorded here, so a replay fans out over the same lens parts. Older histories decode as no lens sessions.
+    lens_chunk_count: int = 0
 
 
 @dataclass
@@ -348,6 +354,13 @@ class ReviewChunkInput(SandboxStageInput):
     # wave — fed every wave finding for the chunk, and told (below) which lenses ran on THIS chunk.
     blind_spot_check: bool = False
     wave_perspectives: list[LoadedPerspectiveDTO] = field(default_factory=list)
+
+
+@dataclass(frozen=False)
+class LensReviewInput(SandboxStageInput):
+    # A key of `FLASH_LENSES`, and the 1-based index of the lens part in `plan_lens_chunks`.
+    lens: str
+    chunk_id: int
 
 
 @dataclass
@@ -724,6 +737,9 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_open=pr_metadata.state == "open",
         review_design=design_choice.design,
         review_design_reason=design_choice.reason,
+        lens_chunk_count=(
+            len(plan_lens_chunks(pr_files).chunks) if design_choice.design == REVIEW_DESIGN_SINGLE_AGENT else 0
+        ),
     )
 
 
@@ -1177,28 +1193,45 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
     return True
 
 
-# --- Single-agent review (the Flash design for PRs that fit one prompt) ---------------------------
+# --- Single-agent review (the main Flash session and its lens sessions) ---------------------------
 
 
-def _prepare_single_agent_prompt(team_id: int, report_id: str, head_sha: str, run_index: int, repository: str) -> str:
-    snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
+def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_lens: bool) -> str:
+    """The task prompt of the main session, or of one lens session on lens part `chunk_id`."""
+    snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
     if snapshot is None:
         raise ApplicationError("PR snapshot missing for the single-agent review", non_retryable=True)
+    scope_files: list[str] | None = None
+    if for_lens:
+        chunks = plan_lens_chunks(snapshot.pr_files).chunks
+        if not 1 <= chunk_id <= len(chunks):
+            raise ApplicationError(f"Lens part {chunk_id} is not in the plan of {len(chunks)}", non_retryable=True)
+        scope_files = chunks[chunk_id - 1]
     return SingleAgentPrompt(
-        repository=repository,
+        repository=input.repository,
         pr_metadata=snapshot.pr_metadata,
         pr_files=snapshot.pr_files,
-        prior_findings=load_prior_findings(team_id=team_id, report_id=report_id, before_run_index=run_index),
+        prior_findings=load_prior_findings(
+            team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index
+        ),
+        scope_files=scope_files,
+        for_lens=for_lens,
     ).render()
 
 
-@activity.defn
-@scoped_temporal()
-@close_db_connections
-async def single_agent_review_activity(input: SandboxStageInput) -> None:
-    """Review the whole PR in one sandbox session and persist the findings as one review result (idempotent).
+async def _run_single_agent_session(
+    input: SandboxStageInput,
+    *,
+    pass_number: int,
+    chunk_id: int,
+    source: str,
+    system_prompt: str,
+    step_name: str,
+    for_lens: bool,
+) -> None:
+    """Run one single-agent session and persist its findings as one review result (idempotent).
 
-    The result persists under the reserved `SINGLE_AGENT_PASS_NUMBER`, stamped with the session's arm,
+    The result persists under its reserved `(pass_number, chunk_id)`, stamped with the session's arm,
     so the shared dedup activity combines it like any perspective result and a retry at the same head
     reuses it instead of opening another session.
     """
@@ -1206,13 +1239,12 @@ async def single_agent_review_activity(input: SandboxStageInput) -> None:
     done = await database_sync_to_async(load_perspective_results, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, review_arm=arm
     )
-    if (SINGLE_AGENT_PASS_NUMBER, SINGLE_AGENT_CHUNK_ID) in done:
-        logger.info("Reusing the persisted single-agent review for this turn")
+    if (pass_number, chunk_id) in done:
+        logger.info("Reusing the persisted %s result for this turn", step_name)
         return
     prompt = await database_sync_to_async(_prepare_single_agent_prompt, thread_sensitive=False)(
-        input.team_id, input.report_id, input.head_sha, input.run_index, input.repository
+        input, chunk_id, for_lens
     )
-    step_name = "single-agent-review"
     async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         review = await run_sandbox_review(
             team_id=input.team_id,
@@ -1220,7 +1252,7 @@ async def single_agent_review_activity(input: SandboxStageInput) -> None:
             repository=input.repository,
             branch=input.branch,
             prompt=prompt,
-            system_prompt=load_core_prompt(),
+            system_prompt=system_prompt,
             model_to_validate=SingleAgentReview,
             step_name=step_name,
             workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
@@ -1229,28 +1261,49 @@ async def single_agent_review_activity(input: SandboxStageInput) -> None:
             reasoning_effort=arm.reasoning_effort,
             initial_permission_mode=arm.initial_permission_mode,
         )
-    logger.info(
-        "Single-agent review returned %s finding(s); overall: %s",
-        len(review.findings),
-        review.overall_correctness,
-    )
+    logger.info("%s returned %s finding(s); overall: %s", step_name, len(review.findings), review.overall_correctness)
+    issues = issues_from_review(review, pass_number=pass_number, chunk_id=chunk_id, source=source)
     await database_sync_to_async(persist_perspective_results, thread_sensitive=False)(
         team_id=input.team_id,
         report_id=input.report_id,
         head_sha=input.head_sha,
-        results={
-            (SINGLE_AGENT_PASS_NUMBER, SINGLE_AGENT_CHUNK_ID): IssuesReview(
-                issues=issues_from_review(
-                    review,
-                    pass_number=SINGLE_AGENT_PASS_NUMBER,
-                    chunk_id=SINGLE_AGENT_CHUNK_ID,
-                    source=SINGLE_AGENT_SOURCE,
-                )
-            )
-        },
+        results={(pass_number, chunk_id): IssuesReview(issues=issues)},
         review_arm=arm,
     )
     await _refresh_status_comment(input.team_id, input.report_id, input.review_mode, input.review_design)
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def single_agent_review_activity(input: SandboxStageInput) -> None:
+    """Review the whole PR in the main single-agent session (idempotent)."""
+    await _run_single_agent_session(
+        input,
+        pass_number=SINGLE_AGENT_PASS_NUMBER,
+        chunk_id=SINGLE_AGENT_CHUNK_ID,
+        source=SINGLE_AGENT_SOURCE,
+        system_prompt=load_core_prompt(),
+        step_name="single-agent-review",
+        for_lens=False,
+    )
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def lens_review_activity(input: LensReviewInput) -> None:
+    """Review one lens part of the PR through one lens (idempotent)."""
+    lens = FLASH_LENSES[input.lens]
+    await _run_single_agent_session(
+        input,
+        pass_number=lens.pass_number,
+        chunk_id=input.chunk_id,
+        source=lens.source,
+        system_prompt=load_prompt_file(lens_prompt_path(lens.prompt_file)),
+        step_name=f"flash-lens-{input.lens}-c{input.chunk_id}",
+        for_lens=True,
+    )
 
 
 # --- Combine + scope-clean + dedup -----------------------------------------------------------------
