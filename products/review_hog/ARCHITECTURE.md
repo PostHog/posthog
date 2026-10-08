@@ -306,11 +306,9 @@ priority, and the main session first on ties, before anything persists. Every mu
 times the cap, and P2 and then P3 findings fill the slots left under the cap, `flash_max_findings(parts)` (4 plus 2 per
 lens part past the first, up to 10). No validator runs, so dedup writes an
 accept-as-found verdict per survivor. P0/P1 store as `must_fix`, P2 as `should_fix`, P3 as `consider`, and the
-finding's `reported_priority` keeps the reviewer's P0-P3, so P0 and P1 stay apart for analysis. Findings publish
-inline; an
-optional `suggestion_code` posts as a GitHub suggestion block only when the inline comment covers exactly the finding's
-range and the code is at most `SUGGESTION_CODE_MAX_CHARS` long. The block's fence is longer than any backtick run in the
-code, so the code cannot close it early. A PR past the lens part cap gets one line in the status comment that says the review ran in larger parts
+finding's `reported_priority` keeps the reviewer's P0-P3, so P0 and P1 stay apart for analysis. One exception: a dedup survivor takes a more severe duplicate's level when both fold into the same stored priority (a P0 merged into a P1); the `dropped_finding` record keeps the duplicate's own level. Findings publish
+inline. An
+optional `suggestion_code` is stored on the finding but never posted. A PR past the lens part cap gets one line in the status comment that says the review ran in larger parts
 (`ReviewMeta.lens_chunks_capped`). The note goes there because a clean turn posts no review.
 
 Every finding the turn drops after scope cleaning persists as a `dropped_finding` artefact (`DroppedFindingArtefact`,
@@ -429,7 +427,10 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     A clean flash turn shows the plain line "Nothing worth raising." and never the clean-review media; a full turn follows the `celebrate_clean_reviews` setting.
     Flash comments posted before reviewhog-flash-1-1 open with a banner line (`LEGACY_FLASH_MODE_MESSAGE_PREFIX`); the publish-idempotency scan and the outcome comment matcher still recognize it.
     The promo, the review body, and the inline comments carry no flash label, so one review shows the label once.
-    An inline comment holds the title, a plain-text severity line, the issue, and the suggested fix, then the hidden `REVIEW_HOG_FINDING_MARKER`.
+    An inline comment is one plain-text line, `**P{n} · {title}**`, then one paragraph with the issue and its fix (a pipeline finding's `suggestion` joins the body with one space), then the hidden `REVIEW_HOG_FINDING_MARKER`. No GitHub suggestion block is posted.
+    A single-agent finding shows its `reported_priority` while that level still folds into the effective priority; otherwise `must_fix` shows P1, `should_fix` P2, and `consider` P3 (`display_level`).
+    The body's Other-findings section uses the same heading, then the file and lines, then the same paragraph.
+    The outcome sweep (`find_finding_comment`) matches a finding to its comment by the whole first line, for any P level and for the older `### {title}` heading.
     The validator's argumentation stays out of GitHub; the reviews API returns it as `validator_note`.
     When every publishable finding posts inline, the review body is only the hidden publish marker, because the tally repeats the comments.
     The body-only fallback always posts the full body.
