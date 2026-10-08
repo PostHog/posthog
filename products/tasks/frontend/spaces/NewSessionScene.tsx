@@ -1,13 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    Button,
-    Empty,
-    EmptyContent,
-    EmptyDescription,
-    EmptyHeader,
-    EmptyTitle,
-} from '@posthog/quill'
+import { Button, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
