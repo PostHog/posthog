@@ -771,7 +771,7 @@ const LogsSparklineQuerySchema = () => {
 
 const logsSparklineQuery = (): ToolBase<
     ReturnType<typeof LogsSparklineQuerySchema>,
-    Schemas._LogsSparklineResponse
+    Schemas._LogsSparklineBucket[]
 > => ({
     name: 'logs-sparkline-query',
     schema: LogsSparklineQuerySchema(),
@@ -781,13 +781,12 @@ const logsSparklineQuery = (): ToolBase<
         if (params.query !== undefined) {
             body['query'] = params.query
         }
-        const result = await context.api.request<Schemas._LogsSparklineResponse>({
+        const result = await context.api.request<Schemas._LogsSparklineBucket[]>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/sparkline/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['results']) as typeof result
-        return filtered
+        return result
     },
 })
 

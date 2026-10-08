@@ -118,6 +118,13 @@ logger = structlog.get_logger(__name__)
 TIMING_LOG_PREFIX = "[QUERY_EXECUTOR]"
 
 
+def get_clickhouse_error_code(error: BaseException | None) -> str | None:
+    if not isinstance(error, InternalCHQueryError):
+        return None
+    code = look_up_clickhouse_error_code_meta(error).name.lower()
+    return code if internal_ch_error_user_message(code) else None
+
+
 def _hogql_tool_error(error: ExposedHogQLError) -> MaxToolError:
     cause: BaseException = error
     seen: set[int] = set()
@@ -505,7 +512,9 @@ class AssistantQueryExecutor:
             error_type: MaxToolErrorType = (
                 "rate_limited" if classify_query_error(err) == QueryErrorCategory.RATE_LIMITED else "api_5xx"
             )
-            raise MaxToolTransientError(str(err), error_type=error_type) from err
+            raise MaxToolTransientError(
+                str(err), error_type=error_type, error_code=get_clickhouse_error_code(err)
+            ) from err
         except ExposedHogQLError as err:
             raise _hogql_tool_error(err) from err
         except (
@@ -537,13 +546,10 @@ class AssistantQueryExecutor:
                     raise MaxToolFatalError(err_message, error_type="api_5xx") from err
             elif isinstance(err, APIException) and err.status_code == 429:
                 raise MaxToolTransientError(err_message, error_type="rate_limited") from err
-            error_code = (
-                look_up_clickhouse_error_code_meta(err).name.lower() if isinstance(err, ExposedCHQueryError) else None
-            )
             raise MaxToolRetryableError(
                 err_message,
                 error_type=error_type,
-                error_code=error_code if internal_ch_error_user_message(error_code) else None,
+                error_code=get_clickhouse_error_code(err),
             ) from err
         except Exception as err:
             if isinstance(err, InternalCHQueryError):
@@ -560,7 +566,7 @@ class AssistantQueryExecutor:
             max_len = 500
             if len(err_message) > max_len:
                 err_message = err_message[:max_len] + "… (truncated)"
-            raise Exception(f"There was an unknown error running this query: {err_message}")
+            raise Exception(f"There was an unknown error running this query: {err_message}") from err
 
         # A failed query can come back as a structurally-valid response that carries an `error`
         # field and empty `results` instead of raising — e.g. a direct-SQL adapter statement

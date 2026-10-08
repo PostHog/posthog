@@ -38,6 +38,7 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
@@ -69,6 +70,8 @@ _ROW_LIMIT = 5000
 # ordered by total_duration_nano DESC, so the default still surfaces the heaviest operations;
 # callers that need the long tail opt into a higher `limit` (up to _ROW_LIMIT) or paginate.
 DEFAULT_AGGREGATION_ROW_LIMIT = 100
+
+RECENT_TRACES_SPANS_PER_TRACE = 100
 
 # Value-search probes attribute_value with ILIKE %search%, which scans far more rows than
 # the key-only path. Require a meaningfully specific term so short prefixes (e.g. "id")
@@ -589,6 +592,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         # the filter. The outer fetch is deliberately left unfiltered — it still prefetches every
         # span of the selected traces so the waterfall gets its children.
         root_only = self.query.rootSpans is True
+        recent_traces = not by_duration and order_dir == "DESC" and self.query.traceId is None
 
         subquery_where_exprs: list[ast.Expr] = [self.where()]
         if root_only:
@@ -611,42 +615,57 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                         placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
                     )
                 )
-                having_expr = parse_expr(
-                    f"(min(timestamp), trace_id) {op} ({{cursor_ts}}, {{cursor_trace_id}})",
-                    placeholders={
-                        "cursor_ts": ast.Constant(value=cursor_ts),
-                        "cursor_trace_id": ast.Constant(value=cursor_trace_id),
-                    },
-                )
+                keyset_placeholders: dict[str, ast.Expr] = {
+                    "cursor_ts": ast.Constant(value=cursor_ts),
+                    "cursor_trace_id": ast.Constant(value=cursor_trace_id),
+                }
+                if recent_traces:
+                    subquery_where_exprs.append(
+                        parse_expr(
+                            f"(timestamp, trace_id) {op} ({{cursor_ts}}, {{cursor_trace_id}})",
+                            placeholders=keyset_placeholders,
+                        )
+                    )
+                else:
+                    having_expr = parse_expr(
+                        f"(min(timestamp), trace_id) {op} ({{cursor_ts}}, {{cursor_trace_id}})",
+                        placeholders=keyset_placeholders,
+                    )
 
         subquery_where = (
             subquery_where_exprs[0] if len(subquery_where_exprs) == 1 else ast.And(exprs=subquery_where_exprs)
         )
 
-        trace_id_query = parse_select(
-            """
-            SELECT
-                trace_id
-            FROM posthog.trace_spans
-            WHERE {where}
-            GROUP BY trace_id
-            LIMIT {limit}
-        """,
-            placeholders={
-                "where": subquery_where,
-                "limit": ast.Constant(value=self.query.limit),
-            },
-        )
-
-        assert isinstance(trace_id_query, ast.SelectQuery)
-        trace_id_query.order_by = [
-            parse_order_expr(f"{sort_key_sql} {order_dir}"),
-            parse_order_expr(f"trace_id {order_dir}"),
-        ]
-        if having_expr is not None:
-            trace_id_query.having = having_expr
-        if by_duration and self.query.offset:
-            trace_id_query.offset = ast.Constant(value=self.query.offset)
+        trace_filter: ast.Expr
+        if self._unbounded_trace_lookup:
+            trace_filter = self._unbounded_trace_filter()
+        elif recent_traces:
+            trace_filter = self._recent_traces_filter(subquery_where)
+        else:
+            trace_id_query = parse_select(
+                """
+                SELECT
+                    trace_id
+                FROM posthog.trace_spans
+                WHERE {where}
+                GROUP BY trace_id
+                LIMIT {limit}
+            """,
+                placeholders={
+                    "where": subquery_where,
+                    "limit": ast.Constant(value=self.query.limit),
+                },
+            )
+            assert isinstance(trace_id_query, ast.SelectQuery)
+            trace_id_query.order_by = [
+                parse_order_expr(f"{sort_key_sql} {order_dir}"),
+                parse_order_expr(f"trace_id {order_dir}"),
+            ]
+            if having_expr is not None:
+                trace_id_query.having = having_expr
+            if by_duration and self.query.offset:
+                trace_id_query.offset = ast.Constant(value=self.query.offset)
+            trace_filter = parse_expr("trace_id IN ({trace_id_query})", placeholders={"trace_id_query": trace_id_query})
 
         # `trace_start` / `trace_duration` are the per-trace keys the view paginates and re-sorts on.
         # They MUST aggregate over the same rows the trace-selection subquery grouped, or the keys
@@ -685,13 +704,18 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             placeholders={
                 "where": self.where(),
                 "where_for_start": key_predicate,
-                "trace_filter": self._unbounded_trace_filter()
-                if self._unbounded_trace_lookup
-                else parse_expr("trace_id IN ({trace_id_query})", placeholders={"trace_id_query": trace_id_query}),
+                "trace_filter": trace_filter,
                 "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
+                # The day bound on time_bucket adds no rows, but it lets the primary key prune parts.
+                # With only the timestamp bounds, ClickHouse checks every part the team has.
                 "filters": ast.Constant(value=True)
                 if self._unbounded_trace_lookup
-                else ast.Placeholder(expr=ast.Field(chain=["filters"])),
+                else ast.And(
+                    exprs=[
+                        ast.Placeholder(expr=ast.Field(chain=["filters"])),
+                        parse_expr(TIME_BUCKET_DATE_RANGE_WHERE, placeholders=self.query_date_range.to_placeholders()),
+                    ]
+                ),
                 # The attribute maps dominate payload size (db.statement holds multi-KB SQL;
                 # process.command_args etc. bulk up the resource map). When excluded we still
                 # SELECT a column so the positional result mapping stays stable — an empty map
@@ -736,6 +760,114 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         )
 
         return query
+
+    @property
+    def _recent_spans_limit(self) -> int:
+        return (self.query.limit or 1) * RECENT_TRACES_SPANS_PER_TRACE
+
+    def _recent_spans(self, where: ast.Expr) -> ast.SelectQuery:
+        query = parse_select(
+            """
+            SELECT (groupArray(trace_id), groupArray(timestamp), groupArray(is_root_span), min(timestamp), count())
+            FROM (
+                SELECT trace_id, timestamp, is_root_span
+                FROM posthog.trace_spans
+                WHERE {where}
+                ORDER BY timestamp DESC, trace_id DESC
+                LIMIT {limit}
+            )
+        """,
+            placeholders={"where": clone_expr(where), "limit": ast.Constant(value=self._recent_spans_limit)},
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _recent_spans_rows(self, where: ast.Expr) -> ast.SelectQuery:
+        query = parse_select(
+            """
+            SELECT tupleElement(span, 1) AS trace_id, tupleElement(span, 2) AS ts, tupleElement(span, 3) AS root
+            FROM (
+                SELECT arrayJoin(arrayZip(tupleElement(({spans}), 1), tupleElement(({spans}), 2), tupleElement(({spans}), 3))) AS span
+            )
+        """,
+            placeholders={"spans": self._recent_spans(where)},
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _recent_traces_started_earlier(self, where: ast.Expr) -> ast.SelectQuery:
+        query = parse_select(
+            """
+            SELECT groupUniqArray(trace_id)
+            FROM posthog.trace_spans
+            WHERE {where}
+                AND timestamp < tupleElement(({spans}), 4)
+                AND trace_id IN (SELECT trace_id FROM ({rows}) GROUP BY trace_id HAVING max(root) = 0)
+        """,
+            placeholders={
+                "where": clone_expr(where),
+                "spans": self._recent_spans(where),
+                "rows": self._recent_spans_rows(where),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _recent_traces_selected(self, where: ast.Expr) -> ast.SelectQuery:
+        query = parse_select(
+            """
+            SELECT (groupArray(trace_id), count())
+            FROM (
+                SELECT trace_id, min(ts) AS trace_key
+                FROM ({rows})
+                GROUP BY trace_id
+                HAVING max(root) = 1 OR NOT has(({started_earlier}), trace_id)
+                ORDER BY trace_key DESC, trace_id DESC
+                LIMIT {limit}
+            )
+        """,
+            placeholders={
+                "rows": self._recent_spans_rows(where),
+                "started_earlier": self._recent_traces_started_earlier(where),
+                "limit": ast.Constant(value=self.query.limit),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _recent_traces_enough(self, where: ast.Expr) -> ast.Expr:
+        return parse_expr(
+            "tupleElement(({selected}), 2) >= {limit} OR tupleElement(({spans}), 5) < {spans_limit}",
+            placeholders={
+                "selected": self._recent_traces_selected(where),
+                "spans": self._recent_spans(where),
+                "limit": ast.Constant(value=self.query.limit),
+                "spans_limit": ast.Constant(value=self._recent_spans_limit),
+            },
+        )
+
+    def _recent_traces_filter(self, where: ast.Expr) -> ast.Expr:
+        return parse_expr(
+            """
+            trace_id IN (
+                SELECT trace_id FROM (SELECT arrayJoin(tupleElement(({selected}), 1)) AS trace_id) WHERE {enough}
+                UNION ALL
+                SELECT trace_id
+                FROM posthog.trace_spans
+                WHERE {where} AND NOT {fallback_enough}
+                GROUP BY trace_id
+                ORDER BY min(timestamp) DESC, trace_id DESC
+                LIMIT {limit}
+            )
+        """,
+            placeholders={
+                "selected": self._recent_traces_selected(where),
+                "enough": self._recent_traces_enough(where),
+                "fallback_enough": self._recent_traces_enough(where),
+                "where": clone_expr(where),
+                "limit": ast.Constant(value=self.query.limit),
+            },
+        )
 
     def _unbounded_trace_filter(self) -> ast.Expr:
         """Find one trace's rows without a date bound, through `projection_index_team_trace_id`.

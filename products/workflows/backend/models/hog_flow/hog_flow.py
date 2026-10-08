@@ -13,6 +13,12 @@ from posthog.models.utils import UUIDTModel
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
 
 from products.actions.backend.models.action import Action
+from products.workflows.backend.facade.enums import (
+    HogFlowEmailSendingPausedBy,
+    HogFlowExitCondition,
+    HogFlowOriginProduct,
+    HogFlowState,
+)
 
 if TYPE_CHECKING:
     pass
@@ -123,26 +129,15 @@ class HogFlow(UUIDTModel):
             models.UniqueConstraint(fields=["team", "version", "id"], name="unique_version_per_flow"),
         ]
 
-    class State(models.TextChoices):
-        DRAFT = "draft"
-        ACTIVE = "active"
-        ARCHIVED = "archived"
-
-    class ExitCondition(models.TextChoices):
-        CONVERSION = "exit_on_conversion"
-        TRIGGER_NOT_MATCHED = "exit_on_trigger_not_matched"
-        TRIGGER_NOT_MATCHED_OR_CONVERSION = "exit_on_trigger_not_matched_or_conversion"
-        ONLY_AT_END = "exit_only_at_end"
-
-    class OriginProduct(models.TextChoices):
-        LOOPS = "loops", "Loops"
-        BROADCASTS = "broadcasts", "Broadcasts"
+    State = HogFlowState
+    ExitCondition = HogFlowExitCondition
+    OriginProduct = HogFlowOriginProduct
 
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
     version = models.IntegerField(default=1)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    status = models.CharField(max_length=20, choices=State, default=State.DRAFT)
+    status = models.CharField(max_length=20, choices=State.choices, default=State.DRAFT.value)
     # The product surface that owns this workflow, so that surface can list only its own flows.
     # Null for workflows built directly in the workflows UI or over the API.
     origin_product = models.CharField(
@@ -156,7 +151,9 @@ class HogFlow(UUIDTModel):
     trigger = models.JSONField(default=dict)
     trigger_masking = models.JSONField(null=True, blank=True)
     conversion = models.JSONField(null=True, blank=True)
-    exit_condition = models.CharField(max_length=100, choices=ExitCondition, default=ExitCondition.CONVERSION)
+    exit_condition = models.CharField(
+        max_length=100, choices=ExitCondition.choices, default=ExitCondition.CONVERSION.value
+    )
 
     # Optional email pacing for deliverability: {"count": <int>, "period": "minute" | "hour"}.
     # Enforced per workflow by the email worker, which spreads sends instead of dropping them.
@@ -173,9 +170,7 @@ class HogFlow(UUIDTModel):
     # re-trips on the feedback that caused the pause in the first place.
     email_sending_resumed_at = models.DateTimeField(null=True, blank=True)
 
-    class EmailSendingPausedBy(models.TextChoices):
-        AUTO = "auto", "auto"
-        STAFF = "staff", "staff"
+    EmailSendingPausedBy = HogFlowEmailSendingPausedBy
 
     # Who paused it: "auto" for the deliverability detector, "staff" for a PostHog admin. A staff
     # pause is not customer-resumable, so the resume endpoint refuses it. Empty when not paused.

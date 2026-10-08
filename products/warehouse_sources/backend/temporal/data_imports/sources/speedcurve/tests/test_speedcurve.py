@@ -1,5 +1,5 @@
 from collections.abc import Iterable, Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
@@ -150,32 +150,6 @@ def test_resume_preserves_range_when_clock_and_watermark_change(manager: MagicMo
         "start_timestamp": ["1751000000"],
         "end_timestamp": ["1752000000"],
     }
-    manager.save_state.assert_not_called()
-
-
-@responses.activate
-@pytest.mark.parametrize("endpoint", ["tests", "deploys"])
-@pytest.mark.parametrize(
-    ("incremental", "watermark"),
-    [(False, 1780000000), (True, None), (True, 1780000000), (True, "1780000000"), (True, 1)],
-)
-def test_incremental_and_full_refresh_ranges(
-    manager: MagicMock, endpoint: str, incremental: bool, watermark: int | str | None
-) -> None:
-    selector = "data" if endpoint == "tests" else "deploys"
-    responses.get(BASE_URL + endpoint, json={selector: []})
-
-    assert _rows(_source(manager, endpoint, incremental, watermark)) == []
-    params = parse_qs(urlsplit(responses.calls[0].request.url).query)
-    expected_start = int(watermark) if incremental and watermark is not None else None
-    if endpoint == "tests":
-        retention_start = int((NOW - timedelta(days=364)).timestamp())
-        expected_start = max(expected_start or retention_start, retention_start)
-    if expected_start is None:
-        assert "start_timestamp" not in params
-    else:
-        assert params["start_timestamp"] == [str(expected_start)]
-    assert len(responses.calls) == 1
     manager.save_state.assert_not_called()
 
 

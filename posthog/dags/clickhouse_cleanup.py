@@ -8,6 +8,9 @@ the ops below are chained on each other's output to force them into sequence.
 The person sweep destroys the tombstones its own worklist is derived from, so the run freezes that
 worklist into a persisted snapshot table first, scoped by run id. Everything downstream, including
 the Postgres handoff, reads the snapshot rather than recomputing it.
+
+The Postgres handoff follows the ClickHouse person delete, so the drain (person_pg_cleanup_drain.py)
+never removes a person that ClickHouse still holds, and the sweep and the drain never run together.
 """
 
 import re
@@ -38,7 +41,7 @@ from posthog.clickhouse.cleanup_snapshots import (
 from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner, MutationWaiter, NodeRole
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.clickhouse.workload import Workload
-from posthog.dags.common import JobOwners
+from posthog.dags.common import EXECUTING_RUN_STATUSES, JobOwners, describe_runs
 from posthog.dags.common.common import settings_with_log_comment
 from posthog.dags.common.dictionaries import Dictionary
 from posthog.dags.common.staged_dictionary import (
@@ -75,6 +78,17 @@ DEFAULT_TEAM_BATCHES = 1
 # prod-EU reading 0.63% of `cohortpeople`, so this is a few chunks of work per run, and a capped
 # run leaves the rest queued.
 DEFAULT_MAX_COHORTS = 2_000
+
+# A row produced before a tombstone can still be in flight; landing after the delete, it revives the key.
+# A day bounds that delay with margin.
+DEFAULT_MIN_TOMBSTONE_AGE_SECONDS = 24 * 3600
+
+# Named here rather than imported, because the drain module imports this one.
+PERSON_PG_CLEANUP_DRAIN_JOB = "person_pg_cleanup_drain_job"
+# The drain stops before its next request once it sees an executing sweep, so a wait this long means
+# the drain is stuck.
+DRAIN_STOP_TIMEOUT_SECONDS = 2 * 3600
+DRAIN_STOP_POLL_SECONDS = 30.0
 
 
 class CleanupConfig(dagster.Config):
@@ -131,6 +145,12 @@ class CleanupConfig(dagster.Config):
         default=0,
         description="Snapshot at most this many deleted persons, 0 for all of them. A capped run deletes a slice "
         "and the next run picks up the rest, because the worklist derives from the tombstones that remain.",
+    )
+    min_tombstone_age_seconds: int = pydantic.Field(
+        default=DEFAULT_MIN_TOMBSTONE_AGE_SECONDS,
+        ge=0,
+        description="Snapshot a tombstoned key only when its tombstone was produced to Kafka at least this many "
+        "seconds ago, so every row produced before it has landed. 0 turns the check off.",
     )
     min_team_id: int = pydantic.Field(default=0, description="Only sweep persons with team_id >= this, 0 to disable.")
     max_team_id: int = pydantic.Field(default=0, description="Only sweep persons with team_id <= this, 0 to disable.")
@@ -228,6 +248,7 @@ class DeletedPersonsTable(SnapshotTable):
         self,
         client: Client,
         settings: Mapping[str, int] | None = None,
+        min_tombstone_age_seconds: int = DEFAULT_MIN_TOMBSTONE_AGE_SECONDS,
         min_team_id: int = 0,
         max_team_id: int = 0,
         max_persons: int = 0,
@@ -238,6 +259,8 @@ class DeletedPersonsTable(SnapshotTable):
         # The team filter and the LIMIT bound what one run takes on; whatever they exclude keeps
         # its tombstones, so the next run picks it up. team_id leads the sort key, which is what
         # lets the range prune the scan rather than only filter it.
+        # _timestamp is the Kafka message time of the tombstone, and now() is the ClickHouse
+        # clock, so the minimum age does not depend on the clock of the host that runs this op.
         team_filter = ""
         if min_team_id:
             team_filter += f" AND team_id >= {int(min_team_id)}"
@@ -251,19 +274,21 @@ class DeletedPersonsTable(SnapshotTable):
             FROM {PERSONS_TABLE}
             WHERE (team_id, id) IN (SELECT team_id, id FROM {PERSONS_TABLE} WHERE is_deleted > 0{team_filter}){team_filter}
             GROUP BY team_id, id
-            HAVING argMax(is_deleted, version) > 0{cap}
+            HAVING argMax(is_deleted, version) > 0
+              AND argMax(_timestamp, version) <= now() - toIntervalSecond(%(min_tombstone_age_seconds)s){cap}
             """,
-            {"run_id": self.run_id},
+            {"run_id": self.run_id, "min_tombstone_age_seconds": min_tombstone_age_seconds},
             settings=settings,
         )
 
 
 @dataclass(frozen=True)
 class RevivedPersonsTable(SnapshotTable):
-    """Snapshotted persons that came back to life while the run was in flight.
+    """Snapshotted persons this run must not delete: revived while the run was in flight, or held
+    back because a distinct id they own waits for the minimum tombstone age.
 
     Every dictionary below reads its source through an anti-join against this table, so recording
-    a revival here is what excludes it. That keeps the checkpoints free of mutations on the
+    a person here is what excludes it. That keeps the checkpoints free of mutations on the
     snapshot tables, which would be far slower than an insert.
     """
 
@@ -289,6 +314,43 @@ class RevivedPersonsTable(SnapshotTable):
         )
         return self.count(client)
 
+    def populate_deferred_owners(
+        self,
+        client: Client,
+        persons: DeletedPersonsTable,
+        settings: Mapping[str, int] | None = None,
+        min_tombstone_age_seconds: int = DEFAULT_MIN_TOMBSTONE_AGE_SECONDS,
+    ) -> int:
+        # A key that OrphanedDistinctIdsTable defers for the minimum tombstone age holds back its owner,
+        # or the drain would hard-delete the key's Postgres row with the person. The inner filter only
+        # narrows the scan: a deferred key's newest version is a recent tombstone that names the owner.
+        client.execute(
+            f"""
+            INSERT INTO {self.qualified_name} (run_id, team_id, person_id)
+            SELECT %(run_id)s, team_id, owner
+            FROM (
+                SELECT team_id, argMax(person_id, version) AS owner
+                FROM {PERSON_DISTINCT_ID2_TABLE}
+                WHERE (team_id, distinct_id) IN (
+                    SELECT team_id, distinct_id
+                    FROM {PERSON_DISTINCT_ID2_TABLE}
+                    WHERE is_deleted > 0
+                      AND _timestamp > now() - toIntervalSecond(%(min_tombstone_age_seconds)s)
+                      AND (team_id, person_id) IN ({persons.run_keys_query})
+                )
+                GROUP BY team_id, distinct_id
+                HAVING argMax(is_deleted, version) > 0
+                   AND argMax(_timestamp, version) > now() - toIntervalSecond(%(min_tombstone_age_seconds)s)
+            )
+            WHERE (team_id, owner) IN ({persons.run_keys_query})
+              AND (team_id, owner) NOT IN ({self.run_keys_query})
+            GROUP BY team_id, owner
+            """,
+            {"run_id": self.run_id, "min_tombstone_age_seconds": min_tombstone_age_seconds},
+            settings=settings,
+        )
+        return self.count(client)
+
 
 @dataclass(frozen=True)
 class OrphanedDistinctIdsTable(SnapshotTable):
@@ -297,6 +359,10 @@ class OrphanedDistinctIdsTable(SnapshotTable):
     own_tombstone records why a key is here. The exclusion at each checkpoint is re-derived from
     live data in RevivedDistinctIdsTable rather than from this column, because both the tombstone
     and the owner can change while the run is in flight.
+
+    A key with its own tombstone waits for the minimum tombstone age, and holds its owner back with
+    it (RevivedPersonsTable.populate_deferred_owners). A live key owned by a snapshotted person
+    does not wait, because that person already met the minimum age.
     """
 
     table_name = CLEANUP_ORPHANED_DISTINCT_IDS_TABLE
@@ -304,7 +370,11 @@ class OrphanedDistinctIdsTable(SnapshotTable):
     dictionary_types = "team_id Int64, distinct_id String, max_version Int64"
 
     def populate(
-        self, client: Client, persons_dictionary: "SnapshotDictionary", settings: Mapping[str, int] | None = None
+        self,
+        client: Client,
+        persons_dictionary: "SnapshotDictionary",
+        settings: Mapping[str, int] | None = None,
+        min_tombstone_age_seconds: int = DEFAULT_MIN_TOMBSTONE_AGE_SECONDS,
     ) -> None:
         # person_distinct_id2 is keyed on (team_id, distinct_id) with person_id as a value, so a
         # distinct id can be repointed over time. Deleting rows that merely match a deleted
@@ -327,9 +397,13 @@ class OrphanedDistinctIdsTable(SnapshotTable):
                 WHERE is_deleted > 0 OR dictHas('{persons_dictionary.qualified_name}', (team_id, person_id))
             )
             GROUP BY team_id, distinct_id
-            HAVING own_tombstone OR dictHas('{persons_dictionary.qualified_name}', (team_id, person_id))
+            HAVING if(
+                own_tombstone,
+                argMax(_timestamp, version) <= now() - toIntervalSecond(%(min_tombstone_age_seconds)s),
+                dictHas('{persons_dictionary.qualified_name}', (team_id, person_id))
+            )
             """,
-            {"run_id": self.run_id},
+            {"run_id": self.run_id, "min_tombstone_age_seconds": min_tombstone_age_seconds},
             settings=settings,
         )
 
@@ -452,6 +526,8 @@ class CleanupRun:
     dry_run: bool
     cleanup: bool
     team_batches: int
+    # Keep the default: a run pickled without this field reads the class default when it unpickles.
+    min_tombstone_age_seconds: int = DEFAULT_MIN_TOMBSTONE_AGE_SECONDS
     cohort_sweep: bool
     max_cohorts: int
     shards: int
@@ -471,6 +547,7 @@ class CleanupRun:
     orphaned_count: int = 0
     # They ride on the run because the publishing op is the only place that sees a whole sweep.
     stranded_runs_reaped: int = 0  # clear_removed_cohort_data
+    deferred_person_count: int = 0  # snapshot_orphaned_distinct_ids
     revived_person_count: int = 0  # both recheck_revived_persons checkpoints, summed
     revived_distinct_id_count: int = 0  # both recheck_revived_persons checkpoints, summed
     queued_for_postgres: int = 0  # persist_deleted_persons
@@ -489,6 +566,7 @@ class CleanupRun:
             dry_run=config.dry_run,
             cleanup=config.cleanup,
             team_batches=config.team_batches,
+            min_tombstone_age_seconds=config.min_tombstone_age_seconds,
             cohort_sweep=config.cohort_sweep,
             max_cohorts=config.max_cohorts,
             shards=config.shards,
@@ -545,6 +623,29 @@ def _create_dictionary(
     )
     load_and_verify_on_every_cluster([cluster], dictionary)
     return dictionary
+
+
+def wait_for_drain_to_stop(context: dagster.OpExecutionContext) -> None:
+    """Block until no Postgres drain run executes, so the drain never runs while the sweep does.
+
+    Each side checks after its own run starts, so the side that checks second always sees the other.
+    A drain run in a terminal status has no request in flight.
+    """
+    deadline = time.monotonic() + DRAIN_STOP_TIMEOUT_SECONDS
+    while blockers := describe_runs(
+        context.instance,
+        (PERSON_PG_CLEANUP_DRAIN_JOB,),
+        statuses=EXECUTING_RUN_STATUSES,
+        exclude_run_id=context.run_id,
+    ):
+        if time.monotonic() >= deadline:
+            raise dagster.Failure(
+                f"The Postgres drain did not stop within {DRAIN_STOP_TIMEOUT_SECONDS}s: {'; '.join(blockers)}. "
+                "Cancel it, then launch a new sweep run, or re-execute this run from "
+                "persist_deleted_persons if that op failed."
+            )
+        context.log.info(f"Waiting {DRAIN_STOP_POLL_SECONDS}s for the Postgres drain to stop: {'; '.join(blockers)}")
+        time.sleep(DRAIN_STOP_POLL_SECONDS)
 
 
 class TombstoneQueueConfig(dagster.Config):
@@ -606,6 +707,7 @@ def clear_removed_cohort_data(
     long or failed. Going first also keeps the person snapshot as close to its own delete as
     possible, which is what bounds how many persons can revive mid-run.
     """
+    wait_for_drain_to_stop(context)
     run = CleanupRun.for_run(context.run_id, config)
     reaped = reap_stranded_run_assets(context, cluster)
     run = replace(run, stranded_runs_reaped=reaped)
@@ -665,6 +767,7 @@ def snapshot_deleted_persons(
         partial(
             run.persons.populate,
             settings=run.query_settings,
+            min_tombstone_age_seconds=run.min_tombstone_age_seconds,
             min_team_id=run.min_team_id,
             max_team_id=run.max_team_id,
             max_persons=run.max_persons,
@@ -693,11 +796,32 @@ def snapshot_orphaned_distinct_ids(
     run: CleanupRun,
 ) -> CleanupRun:
     """Resolve which distinct ids belong to the snapshotted persons, or tombstoned themselves."""
+    # Runs before the persons dictionary, so a held-back person reaches neither delete nor the queue.
+    # Runs before the distinct id snapshot, so a key that reaches the minimum age in between only delays its owner.
+    deferred_before = cluster.any_host_by_role(
+        partial(run.revived.count, settings=run.query_settings), NodeRole.DATA
+    ).result()
+    deferred_total = cluster.any_host_by_role(
+        partial(
+            run.revived.populate_deferred_owners,
+            persons=run.persons,
+            settings=run.query_settings,
+            min_tombstone_age_seconds=run.min_tombstone_age_seconds,
+        ),
+        NodeRole.DATA,
+    ).result()
+    cluster.map_all_hosts(run.revived.sync_replica).result()
+    deferred = deferred_total - deferred_before
     _create_dictionary(context, cluster, run.persons_dictionary, run)
 
     started = time.monotonic()
     cluster.any_host_by_role(
-        partial(run.orphaned.populate, persons_dictionary=run.persons_dictionary, settings=run.query_settings),
+        partial(
+            run.orphaned.populate,
+            persons_dictionary=run.persons_dictionary,
+            settings=run.query_settings,
+            min_tombstone_age_seconds=run.min_tombstone_age_seconds,
+        ),
         NodeRole.DATA,
     ).result()
     cluster.map_all_hosts(run.orphaned.sync_replica).result()
@@ -710,10 +834,11 @@ def snapshot_orphaned_distinct_ids(
     context.add_output_metadata(
         {
             "orphaned_distinct_ids": dagster.MetadataValue.int(count),
+            "deferred_persons": dagster.MetadataValue.int(deferred),
             "snapshot_seconds": dagster.MetadataValue.float(snapshot_seconds),
         }
     )
-    return replace(run, orphaned_count=count)
+    return replace(run, orphaned_count=count, deferred_person_count=deferred)
 
 
 def recheck_revived_persons(name: str) -> dagster.OpDefinition:
@@ -1110,6 +1235,8 @@ def delete_orphaned_distinct_ids(
         context.log.info("dry run: skipping the delete from %s", PERSON_DISTINCT_ID2_TABLE)
         return run
 
+    # A run re-executed from this op skips the first op's wait.
+    wait_for_drain_to_stop(context)
     _require_snapshot_intact(cluster, run.orphaned, run.orphaned_count, run.query_settings)
     team_ids = cluster.any_host_by_role(partial(run.orphaned.team_ids, settings=run.query_settings), NodeRole.DATA)
     ranges = _team_ranges(team_ids.result(), run.team_batches)
@@ -1135,17 +1262,28 @@ def delete_orphaned_distinct_ids(
     )
 
 
-# The drain deletes from this table while we write it, and a lock conflict would otherwise fail
-# the whole weekly sweep.
+# The drain does not run beside this op, but any other session that locks these rows can still
+# conflict, and a lock conflict would otherwise fail the whole weekly sweep.
 PG_QUEUE_CONFLICT_CODES = frozenset({"55P03", "40P01"})
 PG_QUEUE_RETRY_WINDOW_SECONDS = 300.0
 PG_QUEUE_RETRY_BACKOFF_SECONDS = 1.0
+
+# Covers what the in-op conflict retry does not, such as a dropped connection; the persist is idempotent.
+# The failure hook fires only after the last attempt, so the dictionaries survive a pending retry.
+PERSIST_RETRY_POLICY = dagster.RetryPolicy(max_retries=3, delay=60, backoff=dagster.Backoff.EXPONENTIAL)
+
+
+@frozen
+class _QueuedPerson:
+    team_id: int
+    person_id: str
+    max_version: int
 
 
 def _write_queue_page(
     connection: psycopg2.extensions.connection,
     cursor: psycopg2.extensions.cursor,
-    page: list[tuple[int, str]],
+    page: list[_QueuedPerson],
     deleted_at: datetime | None,
 ) -> int:
     """Upsert one page, retrying a lock or deadlock conflict. Returns the retries it took."""
@@ -1153,16 +1291,23 @@ def _write_queue_page(
     deadline = time.monotonic() + PG_QUEUE_RETRY_WINDOW_SECONDS
     while True:
         try:
+            # deleted_at and max_version only move forward. A run re-executed from a later op gets a new
+            # deleted_at but keeps its old snapshot, so its bound must never replace a newer run's higher one.
             execute_values(
                 cursor,
                 f"""
-                INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at)
+                INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at, max_version)
                 VALUES %s
                 ON CONFLICT (team_id, person_uuid) DO UPDATE
-                SET deleted_at = EXCLUDED.deleted_at, blocked_at = NULL
-                WHERE {PG_CLEANUP_QUEUE_TABLE}.deleted_at IS DISTINCT FROM EXCLUDED.deleted_at
+                SET deleted_at = EXCLUDED.deleted_at,
+                    max_version = GREATEST({PG_CLEANUP_QUEUE_TABLE}.max_version, EXCLUDED.max_version),
+                    blocked_at = NULL
+                WHERE {PG_CLEANUP_QUEUE_TABLE}.deleted_at < EXCLUDED.deleted_at
+                   OR ({PG_CLEANUP_QUEUE_TABLE}.deleted_at = EXCLUDED.deleted_at
+                       AND ({PG_CLEANUP_QUEUE_TABLE}.max_version IS NULL
+                            OR {PG_CLEANUP_QUEUE_TABLE}.max_version < EXCLUDED.max_version))
                 """,
-                [(team_id, str(person_id), deleted_at) for team_id, person_id in page],
+                [(person.team_id, person.person_id, deleted_at, person.max_version) for person in page],
                 page_size=1000,
             )
             return retries
@@ -1179,14 +1324,18 @@ def _write_queue_page(
             time.sleep(pause)
 
 
-@dagster.op
+@dagster.op(retry_policy=PERSIST_RETRY_POLICY)
 def persist_deleted_persons(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     persons_database_url: dagster.ResourceParam[str],
     run: CleanupRun,
 ) -> CleanupRun:
-    """Hand the swept persons to Postgres, before the step that makes them unrecoverable.
+    """Hand the persons that delete_persons removed from ClickHouse to Postgres.
+
+    If this op fails after its retries, those persons stay in Postgres as tombstones, which costs
+    only storage. The failure hook counts it, and a re-execution from this op queues them while the
+    snapshot is inside its TTL.
 
     The queue is advisory, never authoritative. Rows sit here until the drain runs, so a person
     can be revived after being queued no matter how carefully this op checks. ClickHouse also
@@ -1198,24 +1347,29 @@ def persist_deleted_persons(
         context.log.info("dry run: skipping the write to %s", PG_CLEANUP_QUEUE_TABLE)
         return run
 
+    # A run re-executed from this op skips the first op's wait.
+    wait_for_drain_to_stop(context)
     # Connected here rather than at resource init: a connect failure at init happens before the
     # step exists, so no failure hook runs and the run's dictionaries are stranded. Failing
     # inside the op is a step failure, which is what lets drop_assets_on_failure fire. It also
     # keeps a dry run from dialing Postgres at all.
     persons_database = psycopg2.connect(persons_database_url, connect_timeout=10)
 
-    def read_page(client: Client, after: tuple[int, str] | None) -> list[tuple[int, str]]:
+    def read_page(client: Client, after: tuple[int, str] | None) -> list[_QueuedPerson]:
         # Reads the snapshot directly rather than the dictionary's query, so adding attributes to
         # the dictionary cannot silently change the shape of what gets queued. Keyset pagination
-        # over (team_id, person_id) follows the table's sort key, and DISTINCT collapses the
+        # over (team_id, person_id) follows the table's sort key, and GROUP BY collapses the
         # duplicate versions a retried snapshot insert can leave in the ReplacingMergeTree.
+        # max(max_version) is the bound the dictionary hands delete_persons, so the drain deletes
+        # in Postgres only the versions this run deletes in ClickHouse.
         page_filter = "AND (team_id, person_id) > (%(after_team)s, toUUID(%(after_person)s))" if after else ""
-        return client.execute(
+        rows = client.execute(
             f"""
-            SELECT DISTINCT team_id, person_id FROM {run.persons.qualified_name}
+            SELECT team_id, person_id, max(max_version) FROM {run.persons.qualified_name}
             WHERE run_id = %(run_id)s
               AND (team_id, person_id) NOT IN ({run.revived.run_keys_query})
               {page_filter}
+            GROUP BY team_id, person_id
             ORDER BY team_id, person_id
             LIMIT %(limit)s
             """,
@@ -1227,6 +1381,10 @@ def persist_deleted_persons(
             },
             settings=run.query_settings,
         )
+        return [
+            _QueuedPerson(team_id=team_id, person_id=str(person_id), max_version=max_version)
+            for team_id, person_id, max_version in rows
+        ]
 
     deleted_at = run.distinct_ids_deleted_at
     written = 0
@@ -1252,7 +1410,8 @@ def persist_deleted_persons(
                 # The WHERE keeps a retried op from rewriting rows that already hold this run's
                 # deleted_at: an unconditional DO UPDATE writes a new tuple version per row, so a retry
                 # over millions of rows would leave that many dead tuples for the persons writer to
-                # vacuum.
+                # vacuum. The max_version clause lets a retry of this run fill in a row an older build
+                # queued without one.
                 conflict_retries += _write_queue_page(persons_database, cursor, page, deleted_at)
                 # The conflict guard makes rowcount "rows changed", not "rows queued"; the metric is
                 # the queued set, which is the page.
@@ -1262,8 +1421,8 @@ def persist_deleted_persons(
                 persons_database.commit()
                 if len(page) < PERSIST_PAGE_SIZE:
                     break
-                last_team, last_person = page[-1]
-                after = (last_team, str(last_person))
+                last = page[-1]
+                after = (last.team_id, last.person_id)
     finally:
         persons_database.close()
 
@@ -1291,6 +1450,8 @@ def delete_persons(
         context.log.info("dry run: skipping the delete from %s", PERSONS_TABLE)
         return run
 
+    # A run re-executed from this op skips the first op's wait.
+    wait_for_drain_to_stop(context)
     _require_snapshot_intact(cluster, run.persons, run.persons_count, run.query_settings)
     team_ids = cluster.any_host_by_role(partial(run.persons.team_ids, settings=run.query_settings), NodeRole.DATA)
     ranges = _team_ranges(team_ids.result(), run.team_batches)
@@ -1345,6 +1506,11 @@ def _sweep_gauges(run: CleanupRun, completed_at: float) -> list[PublishedGauge]:
             name="posthog_clickhouse_deletion_sweep_snapshot_orphaned_distinct_ids",
             help_text="Orphaned distinct id mappings this run snapshotted, under the same cap",
             value=run.orphaned_count,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_deferred_persons",
+            help_text="Snapshotted persons held back until a distinct id they own reaches the minimum tombstone age",
+            value=run.deferred_person_count,
         ),
         PublishedGauge(
             name="posthog_clickhouse_deletion_sweep_revived_persons",
@@ -1524,12 +1690,18 @@ def drop_assets_on_failure(context: dagster.HookContext) -> None:
 
     The failed run's rows are left behind deliberately. They cost far less than a dictionary and
     the tables' TTL reaps them, so a failed sweep stays inspectable in the meantime.
+
+    A failed persist_deleted_persons is counted: the persons its run deleted from ClickHouse stay in
+    Postgres as tombstones until a re-execution from that op, because no later snapshot finds them.
     """
+    if context.step_key == persist_deleted_persons.name:
+        _emit(MetricsClient(context.resources.cluster), "clickhouse_cleanup_persist_failed", {})
     _kill_and_drop_run_assets(context.resources.cluster, context.run_id.replace("-", "_"))
 
 
 # The rows this job writes to person_pg_cleanup_queue are drained by person_pg_cleanup_drain_job,
-# which runs on its own daily schedule rather than in this chain.
+# which runs on its own daily schedule rather than in this chain. The two never run together:
+# the drain stops when it sees this job executing, and this job waits for the drain to stop.
 @dagster.job(
     hooks={drop_assets_on_failure},
     tags={
@@ -1549,14 +1721,13 @@ def clickhouse_deletion_sweep_job():
     run = recheck_revived_persons("recheck_before_distinct_id_delete")(run)
     run = delete_orphaned_distinct_ids(run)
 
-    # One checkpoint covers both the handoff and the person delete, so they agree on who is
-    # deleted. Checking again between them would let a revival spare a person in ClickHouse
-    # while its row stayed queued, and the Postgres drain would then clear a live person.
+    # One checkpoint covers both the person delete and the handoff, so they agree on who is deleted.
     run = recheck_revived_persons("recheck_before_person_delete")(run)
-    run = persist_deleted_persons(run)
+    run = delete_persons(run)
 
-    # Each op takes the previous op's output, which is what keeps the sweeps in sequence.
-    drop_snapshot_assets(publish_sweep_metrics(delete_persons(run)))
+    # Each op takes the previous op's output, which is what keeps the sweeps in sequence. The
+    # handoff follows the delete, so the drain never removes a person that ClickHouse still holds.
+    drop_snapshot_assets(publish_sweep_metrics(persist_deleted_persons(run)))
 
 
 # What the sensor launches with. Every field is pinned so a changed default cannot move production,
@@ -1575,6 +1746,7 @@ SCHEDULED_RUN_CONFIG = {
                 # Never 0: unbounded takes the whole backlog in one run. 30M outpaces both
                 # regions' weekly arrivals, so the backlog converges.
                 "max_persons": 30_000_000,
+                "min_tombstone_age_seconds": 24 * 3600,
                 "shards": 16,
                 "max_execution_time": 1800,
                 # The orphaned distinct id populate, not the persons one, sets this. 64 GiB failed it.

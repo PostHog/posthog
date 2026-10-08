@@ -36,10 +36,12 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     NEW_TABLE_NOT_READY_MESSAGE,
     _transient_error_message,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition_controller
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
+from products.warehouse_sources.backend.temporal.data_imports.retry_limits import PROGRESSLESS_RESUMABLE_ATTEMPTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     SimpleSource,
     SourceExtractionNotImplementedError,
@@ -1263,6 +1265,7 @@ def _probe_model() -> mock.MagicMock:
 def _probe_schema() -> mock.MagicMock:
     schema = mock.MagicMock()
     schema.id = uuid.uuid4()
+    schema.sync_type = ExternalDataSchema.SyncType.FULL_REFRESH
     schema.should_use_incremental_field = False
     schema.is_incremental = False
     schema.sync_type_config = {}
@@ -1666,3 +1669,149 @@ async def test_a_free_handoff_is_a_result_and_any_other_handoff_is_a_retry(hando
         else:
             with pytest.raises(WorkerShuttingDownError):
                 await import_data_activity_sync(inputs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "preemption_enabled,handoffs_are_free,carry_over_enabled,expected",
+    [
+        pytest.param(
+            True,
+            True,
+            True,
+            PreemptionConfig(quiet_period_seconds=45.0, watermark_carry_over_enabled=True),
+            id="on_for_a_run_with_free_handoffs",
+        ),
+        pytest.param(
+            True,
+            True,
+            False,
+            PreemptionConfig(quiet_period_seconds=45.0, watermark_carry_over_enabled=False),
+            id="carry_over_setting_reaches_the_pipeline",
+        ),
+        # A preempted run that uses a retry attempt for each hand-off fails after a few deploys.
+        pytest.param(True, False, True, None, id="off_when_a_handoff_uses_a_retry_attempt"),
+        pytest.param(False, True, True, None, id="off_by_default"),
+    ],
+)
+async def test_the_pipeline_preempts_only_with_the_setting_on_and_free_handoffs(
+    preemption_enabled: bool,
+    handoffs_are_free: bool,
+    carry_over_enabled: bool,
+    expected: PreemptionConfig | None,
+    settings,
+):
+    settings.DATA_WAREHOUSE_IMPORT_PREEMPTION_ENABLED = preemption_enabled
+    settings.DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS = 45.0
+    settings.DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED = carry_over_enabled
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    schema = _incremental_schema(is_incremental=True, lookback_seconds=None)
+
+    with _patched_activity_reaching_run(source, schema, workflow_run_id="wfrun-1") as run_mock:
+        await import_data_activity_sync(dataclasses.replace(_inputs_no_reset(), handoffs_are_free=handoffs_are_free))
+
+    assert run_mock.await_args.kwargs["preemption"] == expected
+
+
+@parameterized.expand(
+    [
+        ("no_checkpoint_past_the_allowance", True, PROGRESSLESS_RESUMABLE_ATTEMPTS + 1, False, True),
+        ("checkpoint_past_the_allowance", True, PROGRESSLESS_RESUMABLE_ATTEMPTS + 1, True, False),
+        ("no_checkpoint_inside_the_allowance", True, PROGRESSLESS_RESUMABLE_ATTEMPTS, False, False),
+        ("first_attempt", True, 1, False, False),
+        # A smaller cap was chosen knowing each attempt restarts, so it stands.
+        ("not_on_the_resumable_cap", False, PROGRESSLESS_RESUMABLE_ATTEMPTS + 5, False, False),
+    ]
+)
+def test_the_progressless_stand_down_needs_a_spent_resumable_cap(
+    _name: str, on_resumable_cap: bool, attempt: int, can_resume: bool, expected: bool
+):
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = can_resume
+
+    with mock.patch.object(module, "current_import_attempt", return_value=attempt):
+        assert module._spent_resumable_cap_without_resuming(manager, on_resumable_cap) is expected
+
+
+def test_a_source_with_no_resumable_manager_never_stands_down():
+    with mock.patch.object(module, "current_import_attempt", return_value=PROGRESSLESS_RESUMABLE_ATTEMPTS + 5):
+        assert module._spent_resumable_cap_without_resuming(None, True) is False
+
+
+def test_an_unreadable_checkpoint_keeps_the_run_retrying():
+    # A Redis blip must not end a run's retries, or one unavailable dependency of ours fails syncs.
+    manager = mock.MagicMock()
+    manager.can_resume.side_effect = redis_exceptions.ConnectionError("redis is down")
+
+    with mock.patch.object(module, "current_import_attempt", return_value=PROGRESSLESS_RESUMABLE_ATTEMPTS + 5):
+        assert module._spent_resumable_cap_without_resuming(manager, True) is False
+
+
+@pytest.mark.asyncio
+async def test_a_spent_progressless_cap_stops_retrying_but_keeps_the_real_error():
+    # The finalizer classifies `internal_error` to pick the customer-facing message, so losing the
+    # cause here would replace a connection failure with this decision.
+    error = Exception('connection to server at "10.0.0.1", port 5432 failed: server closed the connection unexpectedly')
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = {"server closed the connection unexpectedly"}
+
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+
+    logger = mock.MagicMock()
+    logger.ainfo = mock.AsyncMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "current_import_attempt", return_value=PROGRESSLESS_RESUMABLE_ATTEMPTS + 1),
+    ):
+        with pytest.raises(NonRetryableException) as exc_info:
+            await module._handle_import_error(
+                mock.MagicMock(),
+                logger,
+                error,
+                resumable_source_manager=manager,
+                on_resumable_retry_budget=True,
+            )
+
+    assert exc_info.value.__cause__ is error
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_non_retryable_error_keeps_its_own_give_up_path():
+    # The source's own policy disables the schema and shows its own message, so the stand-down
+    # must not pre-empt it and turn an actionable credential error into a bare failure.
+    error = Exception("password authentication failed for user")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {"password authentication failed": "Check your password."}
+    source.get_retryable_errors.return_value = set()
+
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+
+    logger = mock.MagicMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "current_import_attempt", return_value=PROGRESSLESS_RESUMABLE_ATTEMPTS + 1),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(
+                mock.MagicMock(),
+                logger,
+                error,
+                resumable_source_manager=manager,
+                on_resumable_retry_budget=True,
+            )
+
+    handle_mock.assert_awaited_once()

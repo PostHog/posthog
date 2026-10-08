@@ -621,11 +621,12 @@ describe('llmPlaygroundLogic', () => {
             ])
         })
 
-        it('should keep structured tool calls on the appended assistant message even without text', () => {
+        it('should start an empty tool result per call so the user can mock answers and run again', () => {
             llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'Weather?' }])
 
             llmPlaygroundPromptsLogic.actions.addResultToConversation('', [
                 { id: 'call_1', name: 'get_weather', arguments: '{"location": "Paris"}' },
+                { id: 'call_2', name: 'get_weather', arguments: '{"location": "Rome"}' },
             ])
 
             expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
@@ -633,9 +634,13 @@ describe('llmPlaygroundLogic', () => {
                 {
                     role: 'assistant',
                     content: '',
-                    toolCalls: [{ id: 'call_1', name: 'get_weather', arguments: '{"location": "Paris"}' }],
+                    toolCalls: [
+                        { id: 'call_1', name: 'get_weather', arguments: '{"location": "Paris"}' },
+                        { id: 'call_2', name: 'get_weather', arguments: '{"location": "Rome"}' },
+                    ],
                 },
-                { role: 'user', content: '' },
+                { role: 'tool', content: '', toolCallId: 'call_1', toolName: 'get_weather' },
+                { role: 'tool', content: '', toolCallId: 'call_2', toolName: 'get_weather' },
             ])
         })
 
@@ -766,7 +771,12 @@ describe('llmPlaygroundLogic', () => {
 
             expect(llmPlaygroundModelLogic.values.hasByokKeys).toBe(true)
             expect(llmPlaygroundModelLogic.values.effectiveModelOptions).toEqual(
-                byokModels.map((m) => ({ ...m, isRecommended: false, providerKeyId: 'key-1' }))
+                byokModels.map((m) => ({
+                    ...m,
+                    isRecommended: false,
+                    providerKeyId: 'key-1',
+                    supportsDecisions: false,
+                }))
             )
         })
     })
@@ -988,14 +998,14 @@ describe('llmPlaygroundLogic', () => {
 
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
-            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(2)
-            expect(llmPlaygroundPromptsLogic.values.messages[0]).toEqual({
-                role: 'user',
-                content: 'What is the weather in Paris?',
-            })
-            expect(llmPlaygroundPromptsLogic.values.messages[1].role).toBe('assistant')
-            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('[Tool call: get_weather]')
-            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('Paris')
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'What is the weather in Paris?' },
+                {
+                    role: 'assistant',
+                    content: '',
+                    toolCalls: [{ id: 'call_123', name: 'get_weather', arguments: '{"city": "Paris"}' }],
+                },
+            ])
         })
 
         it.each([
@@ -1005,41 +1015,59 @@ describe('llmPlaygroundLogic', () => {
                     { type: 'text', text: 'Let me search for that.' },
                     { type: 'tool_use', id: 'tu_1', name: 'search', input: { query: 'cats' } },
                 ],
-                expectedSubstrings: ['Let me search for that.', '[Tool call: search]', 'cats'],
+                expectedMessages: [
+                    {
+                        role: 'assistant',
+                        content: 'Let me search for that.',
+                        toolCalls: [
+                            { id: 'tu_1', name: 'search', arguments: JSON.stringify({ query: 'cats' }, null, 2) },
+                        ],
+                    },
+                ],
             },
             {
                 name: 'Anthropic tool_use only',
                 content: [{ type: 'tool_use', id: 'tu_1', name: 'do_thing', input: { param: 'value' } }],
-                expectedSubstrings: ['[Tool call: do_thing]'],
+                expectedMessages: [
+                    {
+                        role: 'assistant',
+                        content: '',
+                        toolCalls: [
+                            { id: 'tu_1', name: 'do_thing', arguments: JSON.stringify({ param: 'value' }, null, 2) },
+                        ],
+                    },
+                ],
             },
             {
                 name: 'Anthropic tool_result',
                 content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'Result data here' }],
-                expectedSubstrings: ['[Tool result for tu_1]', 'Result data here'],
+                expectedMessages: [{ role: 'tool', content: 'Result data here', toolCallId: 'tu_1' }],
             },
             {
                 name: 'OpenAI Responses API function_call',
                 content: [{ type: 'function_call', name: 'my_func', call_id: 'fc_1', arguments: '{"x": 1}' }],
-                expectedSubstrings: ['[Function call: my_func]', '{"x": 1}'],
+                expectedMessages: [
+                    {
+                        role: 'assistant',
+                        content: '',
+                        toolCalls: [{ id: 'fc_1', name: 'my_func', arguments: '{"x": 1}' }],
+                    },
+                ],
             },
             {
                 name: 'OpenAI Responses API function_call_output',
                 content: [{ type: 'function_call_output', call_id: 'fc_1', output: 'result: 42' }],
-                expectedSubstrings: ['[Function output for fc_1]', 'result: 42'],
+                expectedMessages: [{ role: 'tool', content: 'result: 42', toolCallId: 'fc_1' }],
             },
-        ])('should format $name content blocks', ({ content, expectedSubstrings }) => {
+        ])('should import $name content blocks as structured turns', ({ content, expectedMessages }) => {
             const input = [{ role: 'assistant', content }]
 
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
-            const result = llmPlaygroundPromptsLogic.values.messages[0].content
-            expect(result).not.toBe('')
-            for (const substring of expectedSubstrings) {
-                expect(result).toContain(substring)
-            }
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual(expectedMessages)
         })
 
-        it('should merge tool-role messages into the preceding assistant turn', () => {
+        it('should import tool-role messages as tool turns with the name resolved from the call', () => {
             const input = [
                 { role: 'user', content: 'What year was Python created?' },
                 {
@@ -1059,17 +1087,24 @@ describe('llmPlaygroundLogic', () => {
 
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
-            const messages = llmPlaygroundPromptsLogic.values.messages
-            expect(messages).toHaveLength(3)
-            expect(messages[0]).toEqual({ role: 'user', content: 'What year was Python created?' })
-            expect(messages[1].role).toBe('assistant')
-            expect(messages[1].content).toContain('[Tool call: research]')
-            expect(messages[1].content).toContain('[Tool result for call_abc]')
-            expect(messages[1].content).toContain('Python was created in 1991.')
-            expect(messages[2]).toEqual({ role: 'assistant', content: 'Python was created in 1991.' })
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'What year was Python created?' },
+                {
+                    role: 'assistant',
+                    content: '',
+                    toolCalls: [{ id: 'call_abc', name: 'research', arguments: '{"question":"..."}' }],
+                },
+                {
+                    role: 'tool',
+                    content: 'Python was created in 1991.',
+                    toolCallId: 'call_abc',
+                    toolName: 'research',
+                },
+                { role: 'assistant', content: 'Python was created in 1991.' },
+            ])
         })
 
-        it('should merge Anthropic-style tool_result user messages into the preceding assistant turn', () => {
+        it('should import Anthropic-style tool_result user messages as tool turns', () => {
             const input = [
                 { role: 'user', content: 'Search cats' },
                 {
@@ -1084,34 +1119,33 @@ describe('llmPlaygroundLogic', () => {
 
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
-            const messages = llmPlaygroundPromptsLogic.values.messages
-            expect(messages).toHaveLength(2)
-            expect(messages[0]).toEqual({ role: 'user', content: 'Search cats' })
-            expect(messages[1].role).toBe('assistant')
-            expect(messages[1].content).toContain('[Tool call: search]')
-            expect(messages[1].content).toContain('[Tool result for tu_1]')
-            expect(messages[1].content).toContain('Found 42 cats')
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'Search cats' },
+                {
+                    role: 'assistant',
+                    content: '',
+                    toolCalls: [{ id: 'tu_1', name: 'search', arguments: JSON.stringify({ query: 'cats' }, null, 2) }],
+                },
+                { role: 'tool', content: 'Found 42 cats', toolCallId: 'tu_1', toolName: 'search' },
+            ])
         })
 
-        it('should fall back to a user turn for a tool message without a preceding assistant', () => {
+        it('should import a tool message without a preceding assistant as a tool turn without a name', () => {
             const input = [{ role: 'tool', tool_call_id: 'call_123', content: 'Weather in Paris: 22°C' }]
 
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
-            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(1)
-            expect(llmPlaygroundPromptsLogic.values.messages[0].role).toBe('user')
-            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe(
-                '[Tool result for call_123]\nWeather in Paris: 22°C'
-            )
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'tool', content: 'Weather in Paris: 22°C', toolCallId: 'call_123' },
+            ])
         })
 
-        it('should drop the "for …" suffix when a tool message has no tool_call_id', () => {
+        it('should import a tool message without a tool_call_id as a tool turn without an id', () => {
             const input = [{ role: 'tool', content: 'Some result' }]
 
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
-            expect(llmPlaygroundPromptsLogic.values.messages[0].role).toBe('user')
-            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('[Tool result]\nSome result')
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([{ role: 'tool', content: 'Some result' }])
         })
 
         it('should handle OpenAI Responses API top-level function_call and function_call_output items in input', () => {
@@ -1135,14 +1169,22 @@ describe('llmPlaygroundLogic', () => {
 
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
-            const messages = llmPlaygroundPromptsLogic.values.messages
-            // system is extracted, function_call_output merges into the assistant turn
-            expect(messages).toHaveLength(2)
-            expect(messages[0]).toEqual({ role: 'user', content: 'What is the weather?' })
-            expect(messages[1].role).toBe('assistant')
-            expect(messages[1].content).toContain('[Function call: ask_clarification]')
-            expect(messages[1].content).toContain('[Function output for call_abc123]')
-            expect(messages[1].content).toContain('London')
+            // system is extracted; the call and its output become structured turns
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'What is the weather?' },
+                {
+                    role: 'assistant',
+                    content: '',
+                    toolCalls: [
+                        {
+                            id: 'call_abc123',
+                            name: 'ask_clarification',
+                            arguments: '{"question":"Which city?","options":["London","Paris"]}',
+                        },
+                    ],
+                },
+                { role: 'tool', content: 'London', toolCallId: 'call_abc123', toolName: 'ask_clarification' },
+            ])
         })
 
         it('should handle OpenAI Responses API function_call item in output', () => {
@@ -1161,16 +1203,20 @@ describe('llmPlaygroundLogic', () => {
 
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
 
-            const messages = llmPlaygroundPromptsLogic.values.messages
-            expect(messages).toHaveLength(2)
-            expect(messages[1].role).toBe('assistant')
-            expect(messages[1].content).toContain('[Function call: search_products]')
-            expect(messages[1].content).toContain('blue widgets')
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'Find me some products' },
+                {
+                    role: 'assistant',
+                    content: '',
+                    toolCalls: [
+                        { id: 'call_def456', name: 'search_products', arguments: '{"queries":["blue widgets"]}' },
+                    ],
+                },
+            ])
         })
 
-        it('should merge function_call_output in output into preceding assistant turn', () => {
-            // A function_call followed immediately by function_call_output in $ai_output_choices —
-            // the output item should be folded into the assistant turn, not emitted as a user bubble.
+        it('should import function_call and function_call_output items in output as structured turns', () => {
+            // A function_call followed immediately by function_call_output in $ai_output_choices
             const input = [{ role: 'user', content: 'What is the weather in Paris?' }]
             const output = [
                 {
@@ -1190,13 +1236,15 @@ describe('llmPlaygroundLogic', () => {
 
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
 
-            const messages = llmPlaygroundPromptsLogic.values.messages
-            // function_call_output should merge into the function_call's assistant turn
-            expect(messages).toHaveLength(2)
-            expect(messages[1].role).toBe('assistant')
-            expect(messages[1].content).toContain('[Function call: get_weather]')
-            expect(messages[1].content).toContain('[Function output for call_ghi789]')
-            expect(messages[1].content).toContain('22°C, sunny')
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'What is the weather in Paris?' },
+                {
+                    role: 'assistant',
+                    content: '',
+                    toolCalls: [{ id: 'call_ghi789', name: 'get_weather', arguments: '{"city":"Paris"}' }],
+                },
+                { role: 'tool', content: '22°C, sunny', toolCallId: 'call_ghi789', toolName: 'get_weather' },
+            ])
         })
 
         it('should not produce "null" string for messages with null content', () => {
@@ -1221,7 +1269,7 @@ describe('llmPlaygroundLogic', () => {
             expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(2)
             // Fallbacks are stringified via String(), not empty — we just verify content exists.
             expect(llmPlaygroundPromptsLogic.values.messages[0].content).not.toBe('')
-            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('[Tool call: x]')
+            expect(llmPlaygroundPromptsLogic.values.messages[1].toolCalls?.[0].name).toBe('x')
         })
 
         it('should append output as assistant messages alongside input', () => {
@@ -1250,10 +1298,14 @@ describe('llmPlaygroundLogic', () => {
 
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
 
-            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(2)
-            expect(llmPlaygroundPromptsLogic.values.messages[1].role).toBe('assistant')
-            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('Let me search.')
-            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('[Tool call: search]')
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'Search for cats' },
+                {
+                    role: 'assistant',
+                    content: 'Let me search.',
+                    toolCalls: [{ id: 'tu_1', name: 'search', arguments: JSON.stringify({ query: 'cats' }, null, 2) }],
+                },
+            ])
         })
 
         it('should handle OpenAI Responses API output (type: "message" with output_text content blocks)', () => {
@@ -1352,10 +1404,14 @@ describe('llmPlaygroundLogic', () => {
 
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
 
-            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(2)
-            expect(llmPlaygroundPromptsLogic.values.messages[1].role).toBe('assistant')
-            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('[Tool call: get_weather]')
-            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('Paris')
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'What is the weather in Paris?' },
+                {
+                    role: 'assistant',
+                    content: '',
+                    toolCalls: [{ id: 'call_abc', name: 'get_weather', arguments: '{"city": "Paris"}' }],
+                },
+            ])
         })
 
         it('should reset to default system prompt when none provided', () => {

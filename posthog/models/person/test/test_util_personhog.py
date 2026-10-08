@@ -23,6 +23,7 @@ from posthog.models.person.util import (
     get_person_ids_and_uuids_by_uuids,
     get_person_uuids_by_distinct_ids,
     get_persons_mapped_by_distinct_id,
+    set_distinct_id_version_floor,
 )
 from posthog.personhog_client.client import personhog_call
 from posthog.personhog_client.fake_client import fake_personhog_client, get_active_fake
@@ -645,6 +646,13 @@ class TestVersionRpcHelpers(SimpleTestCase):
                     _ensure_persons([uuid4()])
             assert raised.exception.code() == code
             assert rpc.call_count == attempts
+
+    def test_a_distinct_id_floor_sends_the_key_and_floor_to_personhog(self):
+        with fake_personhog_client() as fake:
+            set_distinct_id_version_floor(1, "did", 8)
+
+            [call] = fake.assert_called("set_person_distinct_id_version_floor", times=1)
+        assert (call.request.team_id, call.request.distinct_id, call.request.min_version) == (1, "did", 8)
 
     def test_splits_requests_at_the_replica_key_cap(self):
         uuids = [uuid4() for _ in range(PERSONHOG_BATCH_SIZE + 1)]

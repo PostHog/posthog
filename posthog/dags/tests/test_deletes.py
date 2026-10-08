@@ -606,13 +606,15 @@ def test_find_partitions_to_cleanup(cluster: ClickhouseCluster):
 
     cluster.any_host(insert_events).result()
 
-    config = MonthlyCleanupConfig(team_ids=team_ids, min_age_months=13)
+    config = MonthlyCleanupConfig(
+        team_ids=team_ids, partitions=[int(old_timestamp.strftime("%Y%m"))], min_age_months=13
+    )
     context = build_op_context()
 
-    partitions = find_partitions_to_cleanup(context, config, cluster)
+    plan = find_partitions_to_cleanup(context, config, cluster)
 
-    assert len(partitions) > 0
-    for partition in partitions:
+    assert len(plan.partitions) > 0
+    for partition in plan.partitions:
         partition_date = datetime.strptime(str(partition), "%Y%m")
         months_diff = (now.year - partition_date.year) * 12 + (now.month - partition_date.month)
         assert months_diff >= 13
@@ -671,11 +673,13 @@ def test_cleanup_old_events_by_partition(cluster: ClickhouseCluster):
     assert old_count_before == len(old_events)
     assert recent_count_before == len(recent_events)
 
-    config = MonthlyCleanupConfig(team_ids=team_ids, min_age_months=13)
+    config = MonthlyCleanupConfig(
+        team_ids=team_ids, partitions=[int(old_timestamp.strftime("%Y%m"))], min_age_months=13
+    )
     context = build_op_context()
 
-    partitions = find_partitions_to_cleanup(context, config, cluster)
-    cleanup_old_events_by_partition(context, config, cluster, partitions)
+    plan = find_partitions_to_cleanup(context, config, cluster)
+    cleanup_old_events_by_partition(context, cluster, plan)
 
     old_count_after, recent_count_after = cluster.any_host(count_events_by_age).result()
     assert old_count_after == 0
@@ -711,11 +715,13 @@ def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snap
 
     cluster.any_host(insert_events).result()
 
-    config = MonthlyCleanupConfig(team_ids=team_ids, min_age_months=13)
+    config = MonthlyCleanupConfig(
+        team_ids=team_ids, partitions=[int(old_timestamp.strftime("%Y%m"))], min_age_months=13
+    )
     context = build_op_context()
 
-    partitions = find_partitions_to_cleanup(context, config, cluster)
-    assert len(partitions) > 0
+    plan = find_partitions_to_cleanup(context, config, cluster)
+    assert len(plan.partitions) > 0
 
     captured_delete_statements = []
     original_call = LightweightDeleteMutationRunner.__call__
@@ -727,7 +733,7 @@ def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snap
         return original_call(self, client)
 
     with patch.object(LightweightDeleteMutationRunner, "__call__", capture_delete_statement):
-        cleanup_old_events_by_partition(context, config, cluster, partitions)
+        cleanup_old_events_by_partition(context, cluster, plan)
 
     assert len(captured_delete_statements) > 0
 
@@ -738,6 +744,7 @@ def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snap
 def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
     now = datetime.now()
     old_timestamp = now - timedelta(days=400)
+    older_unrequested_timestamp = now - timedelta(days=460)
     recent_timestamp = now - timedelta(days=30)
 
     team_ids = [300, 301, 302]
@@ -745,6 +752,11 @@ def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
         (team_id, f"old_{team_id}_{i}", UUID(int=team_id * 1000 + i), old_timestamp)
         for team_id in team_ids
         for i in range(100)
+    ]
+    older_unrequested_events = [
+        (team_id, f"older_{team_id}_{i}", UUID(int=team_id * 1000 + 200 + i), older_unrequested_timestamp)
+        for team_id in team_ids
+        for i in range(20)
     ]
     recent_events = [
         (team_id, f"recent_{team_id}_{i}", UUID(int=team_id * 1000 + 100 + i), recent_timestamp)
@@ -757,36 +769,51 @@ def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
             """INSERT INTO writable_events (team_id, distinct_id, uuid, timestamp)
             VALUES
             """,
-            old_events + recent_events,
+            old_events + older_unrequested_events + recent_events,
         )
 
     cluster.any_host(insert_events).result()
 
-    def count_all_events(client: Client) -> int:
-        result = client.execute(
+    old_partition = int(old_timestamp.strftime("%Y%m"))
+    older_unrequested_partition = int(older_unrequested_timestamp.strftime("%Y%m"))
+    recent_partition = int(recent_timestamp.strftime("%Y%m"))
+
+    def count_events_by_partition(client: Client) -> dict[int, int]:
+        rows = client.execute(
             f"""
-            SELECT count(*)
+            SELECT toYYYYMM(timestamp), count(*)
             FROM writable_events
             WHERE team_id IN ({", ".join(str(t) for t in team_ids)})
+            GROUP BY toYYYYMM(timestamp)
             """
         )
-        return result[0][0]
+        return dict(rows)
 
-    events_before = cluster.any_host(count_all_events).result()
-    assert events_before == len(old_events) + len(recent_events)
+    assert cluster.any_host(count_events_by_partition).result() == {
+        old_partition: len(old_events),
+        older_unrequested_partition: len(older_unrequested_events),
+        recent_partition: len(recent_events),
+    }
 
     monthly_old_events_cleanup_job.execute_in_process(
         run_config={
             "ops": {
-                "find_partitions_to_cleanup": {"config": {"team_ids": team_ids, "min_age_months": 13}},
-                "cleanup_old_events_by_partition": {"config": {"team_ids": team_ids, "min_age_months": 13}},
+                "find_partitions_to_cleanup": {
+                    "config": {
+                        "team_ids": team_ids,
+                        "partitions": [old_partition],
+                        "min_age_months": 13,
+                    }
+                },
             }
         },
         resources={"cluster": cluster},
     )
 
-    events_after = cluster.any_host(count_all_events).result()
-    assert events_after == len(recent_events)
+    assert cluster.any_host(count_events_by_partition).result() == {
+        older_unrequested_partition: len(older_unrequested_events),
+        recent_partition: len(recent_events),
+    }
 
 
 def _insert_pending_deletes(table: PendingDeletesTable, client: Client, count: int = 5, first_id: int = 0) -> None:

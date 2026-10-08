@@ -20,7 +20,7 @@ import type {
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { CachedNewExperimentQueryResponse, ExperimentMetricUnion } from '../../../queries/schema/schema-general'
-import { experimentLogic } from '../experimentLogic'
+import { experimentLogic, saveExperimentUpdate } from '../experimentLogic'
 import { experimentMetricsLogic } from '../experimentMetricsLogic'
 import { modalsLogic } from '../modalsLogic'
 import {
@@ -718,6 +718,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             const { config, numberOfVariants, experiment, currentProjectId } = values
 
             actions.setSaving(true)
+            let saved = false
             try {
                 let update: Partial<Experiment> & { update_feature_flag_params?: boolean }
                 if (config.mode === 'manual') {
@@ -773,13 +774,17 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 // Await so the experiment reflects the saved config before resetConfig below. Otherwise the
                 // transient (overrides cleared, experiment not yet updated) would re-trigger the automatic
                 // auto-persist with stale values and revert the save.
-                await experimentLogic({ experimentId: props.experiment.id }).asyncActions.updateExperiment(update)
+                saved = await saveExperimentUpdate(props.experiment.id, update)
             } catch {
                 // Keep the modal open (don't close/reset below) so the user can retry.
                 lemonToast.error('Failed to save running time settings. Please try again.')
                 return
             } finally {
                 actions.setSaving(false)
+            }
+            // A failed experiment save has already shown its error. Keep the modal open so the user can retry.
+            if (!saved) {
+                return
             }
             actions.closeRunningTimeConfigModal()
             actions.resetConfig()

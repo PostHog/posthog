@@ -54,12 +54,20 @@ How to phrase it for each scanner type:
 - scorer: what is being measured, for example "How strong is the buying intent in this session?"
 - summarizer: what the summary covers, for example "What happened in this session around checkout drop-off?"
 
-For a monitor or a scorer, also judge the valence: is a "yes", or a high score, good or bad news for the team
-that wrote the instructions?
+For a monitor or a scorer, also judge the valence of the question you wrote: is a "yes" to it, or a high
+score on it, good or bad news for the team that wrote the instructions? Judge that question, not the
+instructions, since instructions often name both the outcome a team hopes for and the problem it fears.
 - good: it is what they hope to see, for example "Did the user complete checkout?" or "How strong is the buying intent?"
-- bad: it is a problem, for example "Did the user hit an error?" or "How frustrated did the user appear?"
+- bad: it is a problem, for example "Did the user hit an error?", "Did the user struggle to sign up?" or
+  "How frustrated did the user appear?"
 - neutral: neither, for example "Did the user use the dark theme?"
+For a scorer whose scale label names a problem, such as frustration, effort or friction, a high score is bad
+whatever the question says.
+Answer neutral only when neither answer is better news for the team. A question about success, completion,
+struggle, friction, abandonment or breakage always has a direction.
 For a classifier or a summarizer, answer neutral.
+
+When the input gives a question already written, return that question unchanged and judge its valence.
 
 Respond with JSON matching the schema.
 """
@@ -149,7 +157,9 @@ def _source_of(scanner_config: object) -> str:
     return prompt_fingerprint(_prompt_of(scanner_config) + _scale_line(scanner_config))
 
 
-def _generate(*, prompt: str, scale_line: str, scanner_type: str, team_id: int) -> _LlmQuestion | None:
+def _generate(
+    *, prompt: str, scale_line: str, scanner_type: str, team_id: int, question: str = ""
+) -> _LlmQuestion | None:
     config = GenerateContentConfig(
         system_instruction=_SYSTEM_PROMPT,
         response_mime_type="application/json",
@@ -166,7 +176,8 @@ def _generate(*, prompt: str, scale_line: str, scanner_type: str, team_id: int) 
         )
         response = client.models.generate_content(
             model=_QUESTION_MODEL,
-            contents=f"Scanner type: {scanner_type}{scale_line}\n\nInstructions:\n{prompt}",
+            contents=f"Scanner type: {scanner_type}{scale_line}\n\nInstructions:\n{prompt}"
+            + (f"\n\nQuestion already written:\n{question}" if question else ""),
             config=config,
             posthog_distinct_id=replay_vision_distinct_id(team_id),
             posthog_trace_id=str(uuid.uuid4()),
@@ -204,7 +215,9 @@ def template_question(scanner_config: object) -> PromptQuestion | None:
     return PromptQuestion(question=question, source=_source_of(scanner_config), valence=valence)
 
 
-def condense_prompt(*, team_id: int, scanner_type: str, scanner_config: object, metered: bool = True) -> PromptQuestion:
+def condense_prompt(
+    *, team_id: int, scanner_type: str, scanner_config: object, metered: bool = True, kept_question: str = ""
+) -> PromptQuestion:
     """The question for this prompt. Never raises: without a usable model answer it falls back to the prompt's
     first line, so every scanner carries a question to show. `metered` counts the call against the team's
     hourly budget; the backfill, run by an operator, skips it."""
@@ -218,7 +231,11 @@ def condense_prompt(*, team_id: int, scanner_type: str, scanner_config: object, 
     # The prompt is the team's own text, but it still only goes to the model under the org's AI consent.
     if is_ai_data_processing_approved(team_id) and (not metered or _take_model_call(team_id)):
         answer = _generate(
-            prompt=prompt, scale_line=_scale_line(scanner_config), scanner_type=scanner_type, team_id=team_id
+            prompt=prompt,
+            scale_line=_scale_line(scanner_config),
+            scanner_type=scanner_type,
+            team_id=team_id,
+            question=kept_question,
         )
     question = _clean(answer.question) if answer else None
     if question is None:
@@ -298,9 +315,16 @@ def backfill_prompt_questions(
     if team_id is not None:
         scanners = scanners.filter(team_id=team_id)
     checked = written = 0
-    condensed: dict[tuple[int, str, str], PromptQuestion] = {}
+    condensed: dict[tuple[int, str, str, str], PromptQuestion] = {}
     for scanner in scanners.only(
-        "id", "team_id", "origin", "scanner_type", "scanner_config", "prompt_question_source", "prompt_valence"
+        "id",
+        "team_id",
+        "origin",
+        "scanner_type",
+        "scanner_config",
+        "prompt_question",
+        "prompt_question_source",
+        "prompt_valence",
     ).iterator():
         if limit is not None and written >= limit:
             break
@@ -319,8 +343,10 @@ def backfill_prompt_questions(
         if dry_run:
             written += 1
             continue
+        # A kept question goes to the model too, so the valence judges the question the page shows.
+        kept_question = scanner.prompt_question if question_is_current else ""
         # Keyed by team too, since the answer can echo a team's own scale label.
-        key = (scanner.team_id, source, scanner.scanner_type)
+        key = (scanner.team_id, source, scanner.scanner_type, kept_question)
         question = inline_template or condensed.get(key)
         if question is None:
             question = condense_prompt(
@@ -328,6 +354,7 @@ def backfill_prompt_questions(
                 scanner_type=scanner.scanner_type,
                 scanner_config=scanner.scanner_config,
                 metered=False,
+                kept_question=kept_question,
             )
             # A failed call has no valence; the next scanner with this prompt tries the model again.
             if question.valence:

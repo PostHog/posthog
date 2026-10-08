@@ -24,7 +24,9 @@ from posthog.errors import (
     CHQueryErrorCorruptedParquetMetadata,
     CHQueryErrorIllegalTypeOfArgument,
     CHQueryErrorQueryWasCancelled,
+    CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
+    InternalCHQueryError,
 )
 from posthog.event_usage import EventSource
 from posthog.exceptions import (
@@ -332,10 +334,28 @@ class TestMCPToolsAPI(APIBaseTest):
                 "internal",
                 "Tool failed: MaxToolRetryableError: Warehouse file metadata is corrupt. You may retry with adjusted inputs.",
             ),
-            (
+            param(
                 CHQueryErrorS3FileChangedDuringRead("Warehouse file changed while reading", code=499),
                 "api_5xx",
                 "Tool failed: MaxToolTransientError: Warehouse file changed while reading. You may retry this operation once without changes.",
+                error_code="s3_error",
+            ),
+            param(
+                CHQueryErrorS3Error("Storage read failed", code=499),
+                "api_5xx",
+                "Tool failed: MaxToolTransientError: Code: 499.\nStorage read failed. You may retry this operation once without changes.",
+                error_code="s3_error",
+            ),
+            param(
+                InternalCHQueryError("Too many parts", code=252, code_name="caller-supplied-name"),
+                "internal",
+                "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Code: 252.\nToo many parts. You may retry with adjusted inputs.",
+                error_code="too_many_parts",
+            ),
+            (
+                InternalCHQueryError("Unknown failure", code=99999, code_name="s3_error"),
+                "internal",
+                "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Code: 99999.\nUnknown failure. You may retry with adjusted inputs.",
             ),
             (
                 _wrapped_hogql_error(TableAccessDeniedError("restricted_table"), "Warehouse table access denied"),

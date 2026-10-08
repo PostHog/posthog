@@ -85,7 +85,7 @@ Every pattern below caused a real quarantine. Each one has a fix that removes th
 
 ##### What the runner already does
 
-`common/storybook/.storybook/test-runner.ts` turns off animations and transitions, makes lazy images eager and waits for them to decode, preloads fonts, waits for a known loader to disappear, waits for network idle, and sets the theme on `body[theme]` before each snapshot.
+`common/storybook/.storybook/test-runner.ts` turns off animations and transitions, makes lazy images eager and waits for them to decode, preloads fonts, waits for a known loader to disappear, waits for network idle, waits for every quill chart canvas to finish painting, and sets the theme on `body[theme]` before each snapshot.
 Do not add your own waits for these.
 The loader wait checks only the first element that matches a loader selector.
 When a story shows more than one loader, set `waitForSelector` to content that renders after the last one.

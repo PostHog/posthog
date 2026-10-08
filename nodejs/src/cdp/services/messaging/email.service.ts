@@ -627,6 +627,7 @@ export class EmailService {
                 // catches the cases where SES disagrees with our estimate.
                 throttled = true
                 result.finished = false
+                result.invocation.queueParameters = params
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
             } else {

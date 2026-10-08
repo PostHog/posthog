@@ -36,7 +36,7 @@ tools:
             nothing about subscriptions until it has some. Describe it the way a person would recognize it, for example
             a weekly email every Monday morning with these charts attached, or the same thing posted to a Slack channel.
             To create it, use subscriptions-create. It needs `dashboard` set to the dashboard's id,
-            `dashboard_export_insights` listing up to 10 charts, `target_type` of `email` or `slack`, and
+            `dashboard_export_insights` listing up to 20 charts, `target_type` of `email` or `slack`, and
             `target_value`, `frequency`, `interval` and `start_date`. For a Slack delivery, also set `integration_id`.
             Find the connected Slack workspace with integrations-list (filter kind=slack) and the channel for
             `target_value` with integrations-channels-retrieve. Ask the user for the recipients and the cadence rather

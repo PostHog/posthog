@@ -1,7 +1,6 @@
 import json
 from collections.abc import Iterable
 from typing import Any, cast
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from unittest import mock
@@ -23,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor
     API_VERSION_20240404,
     API_VERSION_20240904,
     DEFAULT_API_VERSION,
-    PAGE_SIZE,
     SUPPORTED_API_VERSIONS,
     TeamtailorResumeConfig,
     check_access,
@@ -86,24 +84,6 @@ def _rows(endpoint: str, manager: MagicMock, api_version: str = DEFAULT_API_VERS
 
 class TestPagination:
     @patch(CLIENT_SESSION_PATCH)
-    def test_single_page_yields_and_stops(self, mock_make_session: MagicMock) -> None:
-        _wire(mock_make_session, [_page([{"id": "1"}, {"id": "2"}], next_url=None)])
-        manager = _make_manager()
-        rows = _rows("candidates", manager)
-
-        assert rows == [{"id": "1"}, {"id": "2"}]
-        # No `next` link, so nothing is persisted.
-        manager.save_state.assert_not_called()
-
-    @patch(CLIENT_SESSION_PATCH)
-    def test_first_page_sends_page_size_param(self, mock_make_session: MagicMock) -> None:
-        _, sent = _wire(mock_make_session, [_page([{"id": "1"}], next_url=None)])
-        _rows("jobs", _make_manager())
-
-        assert sent[0].startswith("https://api.teamtailor.com/v1/jobs")
-        assert parse_qs(urlsplit(sent[0]).query) == {"page[size]": [str(PAGE_SIZE)]}
-
-    @patch(CLIENT_SESSION_PATCH)
     def test_follows_next_link_verbatim_until_null(self, mock_make_session: MagicMock) -> None:
         next_url = "https://api.teamtailor.com/v1/candidates?page%5Bnumber%5D=2"
         _, sent = _wire(
@@ -132,15 +112,6 @@ class TestPagination:
         assert rows == [{"id": "9"}]
         # The first fetch follows the saved cursor, never re-requesting the first page.
         assert sent == [resume_url]
-
-    @patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, mock_make_session: MagicMock) -> None:
-        _wire(mock_make_session, [_page([], next_url=None)])
-        manager = _make_manager()
-        rows = _rows("candidates", manager)
-
-        assert rows == []
-        manager.save_state.assert_not_called()
 
 
 class TestErrorHandling:

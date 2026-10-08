@@ -27,7 +27,7 @@ INSIGHTS_BASE_URLS: dict[str, str] = {
     "eu": "https://api.eu.jumpcloud.com",
 }
 
-# Both the v1 and v2 console list endpoints cap `limit` at 100.
+# The v1 and v2 console list endpoints cap `limit` at 100, unless an endpoint sets its own page_size.
 REST_PAGE_SIZE = 100
 # Directory Insights allows up to 10,000 events per page; keep pages smaller since each
 # event is a sizeable JSON document and pages are yielded whole.
@@ -192,6 +192,10 @@ def _parse_search_after(raw: str | None, logger: FilteringBoundLogger) -> list[A
     return parsed
 
 
+def _page_size(config: JumpcloudEndpointConfig) -> int:
+    return config.page_size or REST_PAGE_SIZE
+
+
 def _fetch_rest_page(
     session: requests.Session,
     base_url: str,
@@ -200,7 +204,7 @@ def _fetch_rest_page(
     skip: int,
     logger: FilteringBoundLogger,
 ) -> list[dict[str, Any]]:
-    params: dict[str, Any] = {"limit": REST_PAGE_SIZE, "skip": skip}
+    params: dict[str, Any] = {"limit": _page_size(config), "skip": skip}
     if config.sort:
         params["sort"] = config.sort
     url = f"{base_url}{path}?{urlencode(params)}"
@@ -208,10 +212,11 @@ def _fetch_rest_page(
     response = _request(session, "GET", url, logger)
     data = response.json()
 
-    # v1 wraps rows as {"totalCount": n, "results": [...]}; v2 returns a bare array. Any
-    # other 200 payload is a permanent API-contract violation, not a transient failure.
-    if config.api == "v1":
-        rows = data.get("results") if isinstance(data, dict) else None
+    # v1 wraps rows as {"totalCount": n, "results": [...]}; v2 returns a bare array, except the
+    # services that wrap it under `data_key`. Any other 200 payload is a permanent API-contract
+    # violation, not a transient failure.
+    if config.api == "v1" or config.data_key:
+        rows = data.get(config.data_key or "results") if isinstance(data, dict) else None
     else:
         rows = data if isinstance(data, list) else None
     if not isinstance(rows, list):
@@ -241,7 +246,7 @@ def _get_rest_rows(
         yield rows
 
         # A short page means we've reached the end of the resource.
-        if len(rows) < REST_PAGE_SIZE:
+        if len(rows) < _page_size(config):
             break
 
         skip += len(rows)
@@ -274,7 +279,7 @@ def _get_child_rows(
 
         yield rows
 
-        if len(rows) < REST_PAGE_SIZE:
+        if len(rows) < _page_size(config):
             return
         skip += len(rows)
 
@@ -320,6 +325,9 @@ def _get_fanout_rows(
         raise ValueError(f"JumpCloud endpoint {config.name} is not a fan-out endpoint")
     parent_config = JUMPCLOUD_ENDPOINTS[config.parent]
     parent_id_column = config.parent_id_column
+    parent_key = parent_config.primary_key
+    if parent_key is None:
+        raise ValueError(f"JumpCloud endpoint {config.parent} has no primary key to fan out on")
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     parent_skip = resume.skip if resume else 0
@@ -333,7 +341,7 @@ def _get_fanout_rows(
 
         def page_rows(parent_page: list[dict[str, Any]] = parents) -> Iterator[list[dict[str, Any]]]:
             for parent in parent_page:
-                parent_id = parent.get(parent_config.primary_key)
+                parent_id = parent.get(parent_key)
                 if not parent_id:
                     continue
                 has_children = False
@@ -343,7 +351,7 @@ def _get_fanout_rows(
                 if not has_children:
                     resumable_source_manager.safe_point()
 
-        has_more = len(parents) >= REST_PAGE_SIZE
+        has_more = len(parents) >= _page_size(parent_config)
         next_state = JumpcloudResumeConfig(skip=parent_skip + len(parents)) if has_more else None
         yield from _yield_with_checkpoint(page_rows(), next_state, resumable_source_manager)
 

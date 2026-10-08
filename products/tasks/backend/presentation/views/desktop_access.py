@@ -23,7 +23,11 @@ from posthog.models.oauth import OAuthAccessToken
 from posthog.permissions import APIScopePermission
 from posthog.storage.gateway_credential_cache import GATEWAY_CREDENTIAL_REQUIRED_SCOPE, oauth_credential_authorized
 from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
+from posthog.utils import get_trusted_client_ip
 
+from products.security.backend.facade.api import access_refused as security_access_refused
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 from products.tasks.backend.facade.access import (
     DesktopAccessResolutionError,
     compute_quota_limit_response,
@@ -236,6 +240,23 @@ class DesktopAccessViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             team_ids=[team.id],
             surface="desktop_gateway_token",
         ):
+            return _disabled("blocked", status.HTTP_403_FORBIDDEN, detail="This account cannot use the AI gateway.")
+        try:
+            refused = security_access_refused(
+                SecuritySubject(
+                    email=user.email,
+                    user_uuid=str(user.uuid),
+                    organization_ids=(str(organization.id),),
+                    ip=get_trusted_client_ip(getattr(request, "_request", request)),
+                ),
+                SecuritySurface.AI_GATEWAY,
+                call_site="desktop_gateway_token",
+            )
+        except Exception as e:
+            capture_exception(e)
+            refused = False
+        if refused:
+            # The flag's refusal, word for word, so a client cannot tell which blocklist matched.
             return _disabled("blocked", status.HTTP_403_FORBIDDEN, detail="This account cannot use the AI gateway.")
 
         if not desktop_gateway_configured():

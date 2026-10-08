@@ -25,7 +25,7 @@ from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
 
 from products.signals.backend.facade.api import is_scout_trial_judge_context
-from products.signals.backend.facade.rubrics import default_criteria
+from products.signals.backend.facade.rubrics import ScoutRubricReferenceContext, default_criteria
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.limits import MAX_TRIAL_RUNS
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates
@@ -84,6 +84,7 @@ from products.signals.backend.temporal.agentic.scout_trial_evaluation import (
 )
 from products.signals.backend.test.test_scout_harness_api import _make_run
 from products.signals.backend.test.test_scout_trial_judge import _reference_context, _snapshot
+from products.signals.backend.trial_judging import TrialJudgeInput, build_trial_judge_prompt
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run  # tach-ignore
@@ -290,7 +291,12 @@ class TestScoutTrialEvaluation(BaseTest):
                 self._save("launches", launch_id, self.launch.model_copy(update={"id": launch_id}))
 
         def evidence(
-            launch: TrialLaunch, context: TrialContext, variant_id: UUID, *, evaluation_id: UUID
+            launch: TrialLaunch,
+            context: TrialContext,
+            variant_id: UUID,
+            *,
+            evaluation_id: UUID,
+            rubric_reference_context: ScoutRubricReferenceContext,
         ) -> TrialRunEvidence:
             return template.model_copy(update={"launch_id": launch.id, "variant_id": variant_id})
 
@@ -419,6 +425,23 @@ class TestScoutTrialEvaluation(BaseTest):
     def test_saved_requirements_ignore_source_edits_candidates_and_unaccepted_suggestions(self) -> None:
         rubric = self.config.rubrics
         assert isinstance(rubric, dict)
+        reference_paths = [f"references/checkout-{index}.md" for index in range(3)]
+        self.reference = ScoutRubricReferenceContext.model_validate(
+            {
+                **self.reference.model_dump(mode="json"),
+                "reference_files": reference_paths,
+                "reference_texts": [
+                    {
+                        "path": path,
+                        "content_type": "text/markdown",
+                        "content": "A synthetic checkout must include the terminal result.\n" * 14_000,
+                    }
+                    for path in reference_paths
+                ],
+            }
+        )
+        assert len(self.reference.model_dump_json().encode()) > 2 * 1024 * 1024
+        rubric["reference_context"] = self.reference.model_dump(mode="json")
         self.skill.is_latest = False
         self.skill.save(update_fields=["is_latest"])
         LLMSkill.objects.create(
@@ -447,11 +470,36 @@ class TestScoutTrialEvaluation(BaseTest):
             ).model_dump(mode="json"),
         }
         self.config.save(update_fields=["rubrics"])
-        snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        with patch(f"{MODULE}.MAX_EVALUATION_BYTES", 4 * 1024 * 1024):
+            prepared = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+            assert read_trial_evaluation(self.team.id, prepared.evaluation_id) == prepared
+            snapshot = _read_trial_judge_input(self.team.id, prepared.evaluation_id, self.launch.id)
+            assert snapshot is not None
+            assert (
+                finish_trial_evaluation(self.team.id, prepared.evaluation_id).rubric_reference_context == self.reference
+            )
+        self.config.refresh_from_db()
+        assert self.config.rubrics == rubric
         assert snapshot.rubric_reference_context == self.reference
         assert snapshot.rubric_reference_generation_id == rubric["reference_generation_id"]
         assert {criterion.id for criterion in snapshot.criteria} == {criterion.id for criterion in default_criteria()}
-        assert next(source.text for source in self._sources(snapshot) if source.id == "instructions") == "Do no work."
+        sources = self._sources(snapshot)
+        assert next(source.text for source in sources if source.id == "instructions") == "Do no work."
+        reference = next(source for source in sources if source.id == "rubric-reference")
+        assert reference.kind == "instructions"
+        assert json.loads(reference.text) == self.reference.model_dump(mode="json")
+        prompt = build_trial_judge_prompt(
+            TrialJudgeInput(
+                criteria=snapshot.criteria,
+                rubric_reference_context=snapshot.rubric_reference_context.model_dump(mode="json"),
+                judge_model=snapshot.judge_model,
+                judge_prompt_version=snapshot.judge_prompt_version,
+            ),
+            snapshot.runs[0],
+        )
+        assert "rubric-reference.txt" in prompt
+        assert self.reference.instructions not in prompt
+        assert len(prompt.encode()) < 256 * 1024
 
     @parameterized.expand(["pass", "fail", "not_applicable"])
     def test_launch_note_alone_cannot_support_a_conclusive_verdict(self, verdict: str) -> None:

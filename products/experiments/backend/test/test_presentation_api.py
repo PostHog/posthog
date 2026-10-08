@@ -60,7 +60,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
-from products.experiments.backend.presentation.serializers import ExperimentSerializer
+from products.experiments.backend.presentation.serializers import EXPERIMENT_HEALTH_FINDINGS_FLAG, ExperimentSerializer
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
@@ -76,6 +76,14 @@ def _make(cls, **attrs):
         setattr(instance, key, value)
     return instance
 
+
+_HEALTH_PAUSED = ("flag_off_while_running", "running_but_flag_disabled")
+_HEALTH_METRIC = {
+    "kind": "ExperimentMetric",
+    "metric_type": "mean",
+    "uuid": "health-inline-metric",
+    "source": {"kind": "EventsNode", "event": "$pageview"},
+}
 
 _FLAG_CONFIG_KEYS = (
     "feature_flag_variants",
@@ -627,6 +635,23 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
+            ("legacy_kind", {"kind": "ExperimentFunnelsQuery"}),
+            ("no_kind", {"metric_type": "mean", "source": {"kind": "EventsNode", "event": "$pageview"}}),
+            ("no_metric_type", {"kind": "ExperimentMetric", "source": {"kind": "EventsNode", "event": "$pageview"}}),
+        ]
+    )
+    def test_detail_serves_no_effective_query_for_a_query_outside_the_metric_union(
+        self, _name: str, saved_query: dict[str, Any]
+    ) -> None:
+        experiment, _ = self._create_experiment_with_action_metrics(0)
+        ExperimentSavedMetric.objects.filter(experimenttosavedmetric__experiment=experiment).update(query=saved_query)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["saved_metrics"][0]["effective_query"])
+
+    @parameterized.expand(
+        [
             # (name, flag enabled for team, start_date offset from cutoff in days, expected event)
             ("before_cutoff", True, -7, "$feature_flag_called"),
             ("after_cutoff", True, 7, "$experiment_exposure"),
@@ -656,6 +681,80 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["resolved_exposure_event"], expected_event)
+
+    @parameterized.expand(
+        [
+            ("flag_off", False, {}, None, None),
+            ("no_metric", True, {}, None, [_HEALTH_PAUSED, ("no_metric", None)]),
+            ("inline_primary_metric_counts", True, {"metrics": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
+            ("inline_secondary_metric_counts", True, {"metrics_secondary": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
+            ("shared_primary_metric_counts", True, {}, {"metadata": {"type": "primary"}}, [_HEALTH_PAUSED]),
+            ("shared_secondary_metric_counts", True, {}, {"metadata": {"type": "secondary"}}, [_HEALTH_PAUSED]),
+            ("shared_metric_without_type_counts", True, {}, {}, [_HEALTH_PAUSED]),
+        ]
+    )
+    def test_detail_reports_health_findings(
+        self,
+        _name: str,
+        flag_enabled: bool,
+        inline_metrics: dict[str, list[dict[str, Any]]],
+        shared_metric_link: dict[str, Any] | None,
+        expected: list[tuple[str, str | None]] | None,
+    ) -> None:
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="health-findings",
+            feature_flag=FeatureFlag.objects.create(
+                team=self.team,
+                key=f"health-findings-{_name}",
+                created_by=self.user,
+                active=False,
+                filters={
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 50},
+                        ]
+                    },
+                },
+            ),
+            start_date=timezone.now() - timedelta(days=3),
+            metrics=inline_metrics.get("metrics", []),
+            metrics_secondary=inline_metrics.get("metrics_secondary", []),
+        )
+        if shared_metric_link is not None:
+            saved_metric = ExperimentSavedMetric.objects.create(
+                team=self.team,
+                name="Shared metric",
+                created_by=self.user,
+                query={
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            )
+            link_response = self.client.patch(
+                f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+                {"saved_metrics_ids": [{"id": saved_metric.id, **shared_metric_link}]},
+                format="json",
+            )
+            self.assertEqual(link_response.status_code, status.HTTP_200_OK, link_response.json())
+
+        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
+            return flag_enabled and flag_key == EXPERIMENT_HEALTH_FINDINGS_FLAG
+
+        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        health = response.json()["health"]
+        if expected is None:
+            self.assertIsNone(health)
+            return
+        self.assertEqual([(finding["code"], finding["subcode"]) for finding in health["findings"]], expected)
+        self.assertEqual(health["findings"][0]["actions"], ["open_feature_flag"])
+        self.assertEqual(health["findings"][0]["diagnostic_ref"], "A5")
 
     @parameterized.expand(
         [("after_cutoff", 30, "$experiment_exposure"), ("before_cutoff", -30, "$feature_flag_called")]
@@ -1242,11 +1341,20 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             {"id": holdout_2_id, "exclusion_percentage": 5},
         )
 
-    @parameterized.expand([("event_source", False), ("action_source_renamed_after_the_save", True)])
-    def test_saved_metric_fingerprint_is_stamped_from_the_merged_query(self, _name: str, rename_action: bool):
+    @parameterized.expand(
+        [
+            ("event_source", False, True),
+            ("action_source_renamed_after_the_save", True, True),
+            ("limit_without_link_breakdowns", False, False),
+        ]
+    )
+    def test_saved_metric_fingerprint_is_stamped_from_the_merged_query(
+        self, _name: str, rename_action: bool, link_has_breakdowns: bool
+    ):
         """The stamped fingerprint tells the frontend which timeseries rows to read. It must be computed on
         the saved query with the link overrides applied, the same dict the daily workflow files its rows
         under, or the chart reads an empty series for an override-configured saved metric."""
+        breakdowns = [{"type": "event", "property": "$os_name"}] if link_has_breakdowns else []
         action = Action.objects.create(team=self.team, name="Stored name", steps_json=[{"event": "$pageview"}])
         source = (
             {"kind": "ActionsNode", "id": action.id, "name": action.name}
@@ -1262,11 +1370,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         if rename_action:
             Action.objects.filter(pk=action.pk).update(name="Current name")
-        metadata = {
-            "type": "primary",
-            "breakdowns": [{"type": "event", "property": "$os_name"}],
-            "breakdown_limit": 20,
-        }
+        metadata = {"type": "primary", "breakdowns": breakdowns, "breakdown_limit": 20}
         experiment_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
@@ -1281,9 +1385,20 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
 
         detail = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_response.json()['id']}/")
-        stamped = detail.json()["saved_metrics"][0]["query"]["fingerprint"]
+        served = detail.json()["saved_metrics"][0]
+        stamped = served["query"]["fingerprint"]
         if rename_action:
-            self.assertEqual(detail.json()["saved_metrics"][0]["query"]["source"]["name"], "Current name")
+            self.assertEqual(served["query"]["source"]["name"], "Current name")
+        # The link limit applies only together with link breakdowns.
+        self.assertEqual(
+            served["effective_query"],
+            {
+                **served["query"],
+                "breakdownFilter": (
+                    {"breakdowns": breakdowns, "breakdown_limit": 20} if link_has_breakdowns else {"breakdowns": []}
+                ),
+            },
+        )
 
         experiment = Experiment.objects.get(pk=experiment_response.json()["id"])
         saved_query = experiment.saved_metrics.first().query  # type: ignore[union-attr]
@@ -1301,17 +1416,18 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             excluded_variants=experiment.excluded_variants or [],
         )
         self.assertEqual(stamped, expected)
-        # The raw query hashes differently when real breakdowns exist, so a stamp computed on it would
-        # point the chart at rows that do not exist.
-        self.assertNotEqual(
-            stamped,
-            compute_metric_fingerprint(
-                saved_query,
-                *fingerprint_args,
-                only_count_matured_users=experiment.only_count_matured_users,
-                excluded_variants=experiment.excluded_variants or [],
-            ),
-        )
+        if link_has_breakdowns:
+            # The raw query hashes differently when real breakdowns exist, so a stamp computed on it would
+            # point the chart at rows that do not exist.
+            self.assertNotEqual(
+                stamped,
+                compute_metric_fingerprint(
+                    saved_query,
+                    *fingerprint_args,
+                    only_count_matured_users=experiment.only_count_matured_users,
+                    excluded_variants=experiment.excluded_variants or [],
+                ),
+            )
 
     def test_saved_metrics(self):
         response = self.client.post(

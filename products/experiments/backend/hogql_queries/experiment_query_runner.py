@@ -16,7 +16,6 @@ from posthog.schema import (
     EventsNode,
     ExperimentActorsQuery,
     ExperimentBreakdownResult,
-    ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
@@ -82,6 +81,7 @@ from products.experiments.backend.hogql_queries.utils import (
     get_variant_results,
     split_baseline_and_test_variants,
 )
+from products.experiments.backend.metric_resolution import metric_reads_data_warehouse
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -357,20 +357,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             interval=IntervalType.DAY,
             now=datetime.now(),
         )
-        if isinstance(self.query.metric, ExperimentMeanMetric):
-            self.is_data_warehouse_query = self.query.metric.source.kind == "ExperimentDataWarehouseNode"
-        elif isinstance(self.query.metric, ExperimentFunnelMetric):
-            self.is_data_warehouse_query = any(
-                isinstance(step, ExperimentDataWarehouseNode) for step in self.query.metric.series
-            )
-        elif isinstance(self.query.metric, ExperimentRatioMetric):
-            numerator_is_dw = isinstance(self.query.metric.numerator, ExperimentDataWarehouseNode)
-            denominator_is_dw = isinstance(self.query.metric.denominator, ExperimentDataWarehouseNode)
-            self.is_data_warehouse_query = numerator_is_dw or denominator_is_dw
-        elif isinstance(self.query.metric, ExperimentRetentionMetric):
-            start_is_dw = isinstance(self.query.metric.start_event, ExperimentDataWarehouseNode)
-            completion_is_dw = isinstance(self.query.metric.completion_event, ExperimentDataWarehouseNode)
-            self.is_data_warehouse_query = start_is_dw or completion_is_dw
+        self.is_data_warehouse_query = metric_reads_data_warehouse(self.query.metric)
 
         self.stats_method = get_experiment_stats_method(self.experiment)
 
@@ -490,28 +477,41 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         return None  # precompute was attempted; a direct path means the build failed / wasn't ready
 
     def _metric_events_precompute_applicable(self) -> bool:
+        return self._metric_events_ineligibility_reason() is None
+
+    def _metric_events_ineligibility_reason(self) -> Optional[str]:
         """
-        Metric-events precompute supports ordered funnels, mean metrics with
-        numeric math (count/sum/avg/min/max) or ID-valued math (unique users /
-        unique sessions), and retention metrics, in all cases without
-        breakdowns, CUPED, or data warehouse sources.
+        Why metric-events precompute cannot serve this metric, or None when it can.
+        Supported: ordered funnels, mean metrics with numeric math (count/sum/avg/min/max)
+        or ID-valued math (unique users / unique sessions), and retention metrics, in all
+        cases without breakdowns, CUPED, or data warehouse sources.
+
+        Tagged on the read as `experiment_metric_events_skip_reason`, the metric-events
+        counterpart of `experiment_precompute_skip_reason`, so query-log analysis can split
+        the not_applicable path by cause. Values are part of that reporting contract.
         """
+        if self._get_breakdowns_for_builder():
+            return "breakdown"
         # CUPED extends the metric scan back by lookback_days for the pre-exposure covariate,
         # but the precomputed metric_events table covers only the experiment window.
-        if self._get_breakdowns_for_builder() or self.cuped_config.enabled or self.is_data_warehouse_query:
-            return False
+        if self.cuped_config.enabled:
+            return "cuped"
+        if self.is_data_warehouse_query:
+            return "data_warehouse"
         if isinstance(self.metric, ExperimentFunnelMetric):
-            return (self.metric.funnel_order_type or "ordered") == "ordered"
+            if (self.metric.funnel_order_type or "ordered") == "ordered":
+                return None
+            return "funnel_order_type"
         if isinstance(self.metric, ExperimentMeanMetric):
             source = self.metric.source
             if not isinstance(source, (EventsNode, ActionsNode)):
-                return False
+                return "non_event_source"
             # Session-property means aggregate via a per-session dedup CTE that the
             # precomputed table can't feed. Unique-group math is excluded because
             # the build INSERT can't resolve $group_N (MATERIALIZED on
             # sharded_events), and HogQL math because user expressions are arbitrary.
             if is_session_property_metric(source):
-                return False
+                return "session_property_math"
             math_type = getattr(source, "math", None) or ExperimentMetricMathType.TOTAL
             # Numeric math types are safe because the build query stores the same
             # coalesced per-event float regardless of math type, and the math is
@@ -523,26 +523,28 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 ExperimentMetricMathType.MIN,
                 ExperimentMetricMathType.MAX,
             ):
-                return True
+                return None
             # unique_session counts distinct session_id, which every mean build stores.
             if math_type == ExperimentMetricMathType.UNIQUE_SESSION:
-                return True
+                return None
             # dau counts distinct entity_id, which is the person id only when the
             # experiment is person-keyed. Group experiments never reach precompute,
             # but keep the guard explicit in case that exclusion is ever lifted.
             if math_type == ExperimentMetricMathType.DAU:
-                return self.group_type_index is None
-            return False
+                return None if self.group_type_index is None else "group_math"
+            return "unsupported_math"
         if isinstance(self.metric, ExperimentRetentionMetric):
             if not isinstance(self.metric.start_event, (EventsNode, ActionsNode)) or not isinstance(
                 self.metric.completion_event, (EventsNode, ActionsNode)
             ):
-                return False
+                return "non_event_source"
             extension_seconds = get_conversion_window_seconds(self.metric) + conversion_window_to_seconds(
                 self.metric.retention_window_end, self.metric.retention_window_unit
             )
-            return extension_seconds <= METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS
-        return False
+            if extension_seconds <= METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS:
+                return None
+            return "retention_window"
+        return "metric_type"
 
     @property
     def metric_events_path(self) -> str:
@@ -672,6 +674,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         tag_queries(
             experiment_exposures_path=exposures_path,
             experiment_metric_events_path=metric_events_path,
+            experiment_metric_events_skip_reason=self._metric_events_ineligibility_reason(),
             experiment_execution_path=exposures_path,
             experiment_precompute_skip_reason=skip_reason.value if skip_reason is not None else None,
             experiment_scan_date_from=self.date_range.date_from,

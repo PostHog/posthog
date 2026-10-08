@@ -70,6 +70,7 @@ depends_on = [
     "products.replay_vision",
     "products.skills",
     "products.revenue_analytics",
+    "products.security",
     "products.surveys",
     "products.tasks",
     "products.business_knowledge",
@@ -178,11 +179,6 @@ expose = [
 from = [
     "products.aeo",
 ]
-
-[[modules]]
-path = "products.ai_gateway"
-depends_on = ["posthog"]
-layer = "modules"
 
 [[modules]]
 path = "products.alerts"
@@ -982,6 +978,7 @@ depends_on = [
     # product has no facade, so this matches how review_hog and signals reach LLMSkill.
     "products.skills",
     "products.slack_app", "products.access_control",
+    "products.security",
 ]
 layer = "modules"
 
@@ -1391,7 +1388,7 @@ from = [
 
 [[modules]]
 path = "products.wizard"
-depends_on = ["posthog", "products.event_definitions", "products.tasks"]
+depends_on = ["posthog", "products.event_definitions", "products.security", "products.tasks"]
 layer = "modules"
 
 [[interfaces]]
