@@ -7,6 +7,8 @@ import dataclasses
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.hogql.transforms.trino.errors import TrinoLoweringError
+
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
@@ -45,7 +47,7 @@ from products.managed_warehouse.backend.facade.contracts import (
 )
 from products.managed_warehouse.backend.facade.feature_flags import DATA_MODELING_SHADOW_FLAG
 
-from ..metrics import get_node_suspended_metric
+from ..metrics import get_managed_warehouse_trino_compile_failure_metric, get_node_suspended_metric
 from .utils import (
     CONSECUTIVE_FAILURES_TO_SUSPEND,
     bind_data_modeling_log_context,
@@ -134,6 +136,7 @@ def _is_managed_warehouse_shadow_enabled(team: Team) -> bool:
 
     return is_data_modeling_shadow_ready(
         organization_id=team.organization_id,
+        team_id=team.pk,
     )
 
 
@@ -324,13 +327,23 @@ async def _materialize_view_managed_warehouse(
         return shadow_result
     except Exception as e:
         duration = time.monotonic() - start_time
-        capture_exception(e, {"sql": sql, "inputs": inputs})
-        await logger.awarning(
-            "Managed warehouse shadow materialization failed",
-            node_name=node.name,
-            error=str(e),
-            duration_seconds=round(duration, 2),
-        )
+        if isinstance(e, TrinoLoweringError):
+            # Unsupported HogQL is an expected shadow outcome, so it is not an exception to track.
+            get_managed_warehouse_trino_compile_failure_metric(e.feature_code).add(1)
+            await logger.awarning(
+                "Managed warehouse shadow could not compile the view for Trino",
+                node_name=node.name,
+                error_code=e.feature_code,
+                duration_seconds=round(duration, 2),
+            )
+        else:
+            capture_exception(e, {"sql": sql, "inputs": inputs})
+            await logger.awarning(
+                "Managed warehouse shadow materialization failed",
+                node_name=node.name,
+                error=str(e),
+                duration_seconds=round(duration, 2),
+            )
         shadow_result = ManagedWarehouseShadowResult(
             row_count=0,
             duration_seconds=duration,

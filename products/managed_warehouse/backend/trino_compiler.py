@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import field
 from typing import TYPE_CHECKING, Any, cast
 
@@ -210,6 +211,7 @@ def compile_hogql_to_trino_sql(
     team: Team | None = None,
     user: User | None = None,
     bypass_warehouse_access_control: bool = False,
+    allowed_system_tables: Collection[str] | None = None,
     include_hogql: bool = False,
     expansion_mode: TrinoExpansionMode = TrinoExpansionMode.PURE,
     catalog_manifest: TrinoCatalogManifest | None = None,
@@ -219,7 +221,8 @@ def compile_hogql_to_trino_sql(
     """Compile HogQL for the ready Trino catalog that serves the team's DuckLake data.
 
     Set ``bypass_warehouse_access_control`` only for trusted internal callers that compile
-    without a user. This entry point does not execute the returned SQL or alter query routing.
+    without a user. ``allowed_system_tables`` exposes those scoped system tables to a userless
+    Django-mode compilation. This entry point does not execute the returned SQL or alter query routing.
     Set ``include_hogql`` to render normalized HogQL for diagnostics. Pure manifest-backed
     compilation is the default; select ``TrinoExpansionMode.DJANGO`` only when the query needs
     actions, cohorts, saved queries, variables, filters, or other Django-backed semantics.
@@ -283,6 +286,7 @@ def compile_hogql_to_trino_sql(
         modifiers=query_modifiers,
         # Preserve an explicit trusted-internal bypass; the public default remains fail-closed.
         bypass_warehouse_access_control=bypass_warehouse_access_control,
+        allowed_system_tables=allowed_system_tables,
         trigger="trino",
     )
     placeholders = find_placeholders(parsed)

@@ -197,7 +197,7 @@ _SUPPORTED_CALLS = frozenset(
 def validate_trino_context(context: HogQLContext) -> None:
     mode = context.modifiers.personsOnEventsMode
     if mode != PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
-        mode_name = mode.value if mode is not None else "unset"
+        mode_name = str(mode) if mode is not None else "unset"
         raise TrinoLoweringError(
             "TRINO_PERSONS_ON_EVENTS_MODE_UNSUPPORTED",
             f"personsOnEventsMode={mode_name}",
