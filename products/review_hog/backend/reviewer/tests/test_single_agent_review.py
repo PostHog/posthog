@@ -5,7 +5,13 @@ from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFin
 from products.review_hog.backend.reviewer.constants import FLASH_LENSES, SINGLE_AGENT_SOURCE
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRFileUpdate, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_deduplicator import FlashDuplicateIssue, FlashIssueDeduplication
-from products.review_hog.backend.reviewer.models.issues_review import DroppedIssue, Issue, IssuePriority, LineRange
+from products.review_hog.backend.reviewer.models.issues_review import (
+    DroppedIssue,
+    Issue,
+    IssuePriority,
+    LineRange,
+    ReportedPriority,
+)
 from products.review_hog.backend.reviewer.tools.single_agent_review import (
     FlashSelection,
     SingleAgentPrompt,
@@ -30,7 +36,9 @@ def _file(filename: str, code: str) -> PRFile:
     )
 
 
-def _issue(issue_id: str, priority: IssuePriority, source: str = SINGLE_AGENT_SOURCE) -> Issue:
+def _issue(
+    issue_id: str, priority: IssuePriority, source: str = SINGLE_AGENT_SOURCE, reported: ReportedPriority | None = None
+) -> Issue:
     return Issue(
         id=issue_id,
         title=f"Issue {issue_id}",
@@ -39,6 +47,7 @@ def _issue(issue_id: str, priority: IssuePriority, source: str = SINGLE_AGENT_SO
         issue="problem",
         suggestion="",
         priority=priority,
+        reported_priority=reported,
         source_perspective=source,
     )
 
@@ -134,6 +143,16 @@ class TestComposeFlashFindings:
                 1,
                 ["m1", "m2", "m3", "m4", "m5", "l1", "l2", "l3"],
                 id="must_fix_stops_at_twice_the_cap",
+            ),
+            pytest.param(
+                [_issue(f"m{n}", IssuePriority.MUST_FIX, reported="P1") for n in range(1, 8)],
+                [
+                    _issue("l-p1", IssuePriority.MUST_FIX, _LENS_SOURCE, reported="P1"),
+                    _issue("l-p0", IssuePriority.MUST_FIX, _LENS_SOURCE, reported="P0"),
+                ],
+                1,
+                ["l-p0", "m1", "m2", "m3", "m4", "m5", "m6", "m7"],
+                id="a_lens_p0_ranks_above_main_p1_before_the_must_fix_ceiling",
             ),
             pytest.param(
                 [

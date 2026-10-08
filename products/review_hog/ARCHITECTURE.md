@@ -298,14 +298,14 @@ The Flash dedup output (`FlashIssueDeduplication`) names what each duplicate rep
 in its place, an earlier turn's finding by its issue key, or a PR comment id). A finding that survives takes the
 priority of the most severe duplicate removed in its favor, so a lens P1 that repeats a main P3 posts as must-fix.
 A removal holds only when what it names survives (`_resolve_duplicates`): a finding that names itself or an id its call
-was not shown stays, findings that name each other in a loop keep the first one in the compose order (priority, main
-before lens, session order), and a removal whose target also drops records the survivor at the end of the chain.
+was not shown stays, findings that name each other in a loop keep the first one in the compose order (priority, P level,
+main before lens, session order), and a removal whose target also drops records the survivor at the end of the chain.
 A Flash dedup call that fails non-retryably (the gateway rejects the model), or fails on the activity's last attempt,
 falls back to the positional pre-filter alone: a finding on the lines of an earlier turn's finding or a PR comment
 drops as its repeat, and findings of this turn never drop each other. The turn logs it, marks those drops
 `dedup_fallback`, and reports `flash_dedup_fallback`, so a dedup failure never fails a turn whose sessions succeeded.
-`compose_flash_findings` then ranks the findings highest priority first, the main session first on ties, before
-anything persists. Every must-fix (P0/P1) finding is kept outside the cap, up to `FLASH_MUST_FIX_CAP_MULTIPLIER` (2)
+`compose_flash_findings` then ranks the findings highest priority first, a reported P0 before a P1 of the same stored
+priority, and the main session first on ties, before anything persists. Every must-fix (P0/P1) finding is kept outside the cap, up to `FLASH_MUST_FIX_CAP_MULTIPLIER` (2)
 times the cap, and P2 and then P3 findings fill the slots left under the cap, `flash_max_findings(parts)` (4 plus 2 per
 lens part past the first, up to 10). No validator runs, so dedup writes an
 accept-as-found verdict per survivor. P0/P1 store as `must_fix`, P2 as `should_fix`, P3 as `consider`, and the

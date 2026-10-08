@@ -35,6 +35,7 @@ from products.review_hog.backend.reviewer.models.issues_review import (
     Issue,
     IssuePriority,
     LineRange,
+    ReportedPriority,
 )
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentReview
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import DedupOutcome, Duplicate, deduplicate_issues
@@ -198,9 +199,8 @@ class SingleAgentPrompt:
 def issues_from_review(review: SingleAgentReview, *, pass_number: int, chunk_id: int, source: str) -> list[Issue]:
     """Map one session's findings onto the pipeline's `Issue`, which dedup and publish consume.
 
-    Findings go highest priority first. Storage folds P0 and P1 into `must_fix`, so this order is the
-    only place a P0 still ranks above a P1 of the same session. `reported_priority` keeps the P level
-    for later analysis.
+    Findings go highest priority first. Storage folds P0 and P1 into `must_fix`, so `reported_priority`
+    keeps the P level for the compose order and for later analysis.
     """
     issues = []
     ranked = sorted(review.findings, key=lambda finding: finding.priority)
@@ -238,13 +238,27 @@ class FlashSelection:
     dedup_fell_back: bool = False
 
 
+# Most severe first. Storage folds P0 and P1 into `must_fix`, so the reported level ranks them apart.
+_REPORTED_LEVELS: tuple[ReportedPriority, ...] = ("P0", "P1", "P2", "P3")
+
+
+def _severity(issue: Issue) -> tuple[int, int]:
+    """The stored priority, then the reported P level, as numbers that grow with severity.
+
+    A finding without a reported level ranks last within its stored priority.
+    """
+    reported = issue.reported_priority
+    level = len(_REPORTED_LEVELS) - _REPORTED_LEVELS.index(reported) if reported is not None else 0
+    return priority_rank(issue.priority), level
+
+
 def _flash_order(main: list[Issue], lens: list[Issue]) -> list[Issue]:
-    """Highest priority first, then the main findings before the lens findings, then the order of the sessions."""
-    return sorted([*main, *lens], key=lambda issue: priority_rank(issue.priority), reverse=True)
+    """Highest priority first, P0 before P1, then the main findings before the lens findings, then session order."""
+    return sorted([*main, *lens], key=_severity, reverse=True)
 
 
 def compose_flash_findings(main: list[Issue], lens: list[Issue], *, lens_part_count: int) -> FlashSelection:
-    """The findings a Flash turn keeps, highest priority first and the main review first on ties.
+    """The findings a Flash turn keeps, highest priority first, P0 before P1, and the main review first on ties.
 
     Every must-fix (P0 or P1) finding is kept outside the cap (`flash_max_findings`), up to
     `FLASH_MUST_FIX_CAP_MULTIPLIER` times the cap. P2 and then P3 findings fill the slots the must-fix

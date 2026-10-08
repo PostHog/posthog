@@ -232,7 +232,7 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   pipeline sends: a lens finding often states a main finding's root cause on other lines or in another file, and a
   missed duplicate can take a real finding's slot under the cap. The positional pre-filter stays as the fallback when
   the call fails. `compose_flash_findings`
-  then ranks the findings highest first, main first on ties. The cap is `flash_max_findings(parts)`: 4, plus 2 for each
+  then ranks the findings highest first, a reported P0 before a P1, main first on ties. The cap is `flash_max_findings(parts)`: 4, plus 2 for each
   lens part past the first, up to 10 (4, 6, 8, 10 for 1-4 parts). A larger PR gets a few more comments because each
   extra part covers more code.
   It runs before anything persists, because a persisted finding that never posts counts as already raised and would
@@ -247,8 +247,8 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   dropped, and a problem both lenses raised left the review. A removal now holds only when what it names survives: a
   kept main or lens finding, an earlier turn's finding, or a PR comment. A finding that names itself or an id its call
   was never shown stays, and the turn logs it, because a guess at the target could drop the only statement of a
-  problem. In a loop of findings that name each other, the first in the compose order (priority, main before lens,
-  session order) stays, so the choice is deterministic and matches what the cap would prefer. A removal whose target
+  problem. In a loop of findings that name each other, the first in the compose order (priority, P level, main before
+  lens, session order) stays, so the choice is deterministic and matches what the cap would prefer. A removal whose target
   also drops follows the chain, and its `dropped_finding` record and the priority raise name the final survivor. This
   replaced the `dedup_unmatched` disposition, which recorded an unknown id as a drop.
 - **Dedup fallback.** The Flash dedup depends on one model through the LLM gateway. A non-retryable error there (the
@@ -290,9 +290,9 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   slowest session). The must-fix share per session is the early sign of priority inflation, before the must-fix
   ceiling cuts anything. ReviewHog does not see the token counts or cost of a sandbox session, so the event carries
   neither; cost stays on `$ai_generation`, per `ai_stage`.
-- **Known gaps.** Storage folds P0 and P1 into `must_fix`, so across sessions a lens P0 ties a main P1 and the main
-  finding wins; within one session P0 still ranks first. `reported_priority` on the finding content (`Issue` and
-  `ReviewIssueFinding`) keeps the reviewer's P0-P3, so a later analysis can still tell P0 from P1. The cap holds per turn, so a later push can post more.
+- **Known gaps.** Storage folds P0 and P1 into `must_fix`. The compose order reads `reported_priority` (on `Issue` and
+  `ReviewIssueFinding`) within a stored priority, so a lens P0 ranks above a main P1 before the must-fix ceiling. A
+  survivor that dedup raised to must-fix keeps its own reported level, so it ranks after the reported P0 and P1 findings. The cap holds per turn, so a later push can post more.
   The contracts skill has no severity guide, so `lens_priority.md`'s mapping only shapes the performance lens, as
   measured. The Python LLM gateway's `review_hog` product does not list `gpt-6-luna`, so check that the gateway
   serving ReviewHog allows it before rollout; until it does, every Flash dedup runs on the positional fallback.
