@@ -122,11 +122,12 @@ describe('leaderboardShares', () => {
         expect(hasKnownLabels(rows)).toEqual(expected)
     })
 
-    test.each<[string, ReliabilityRow[], number[], number[], number[]]>([
-        ['a normal bucket', [{ bucket: 'd1', calls: 4, errors: 1, p50: 10, p95: 30 }], [25], [10], [30]],
-        ['a bucket with no calls', [], [NaN], [NaN], [NaN]],
-        ['a bucket with only errors', [{ bucket: 'd1', calls: 2, errors: 2, p50: 5, p95: 6 }], [100], [5], [6]],
-    ])('buildReliabilitySeries handles %s', (_name, rows, errorRatePct, p50, p95) => {
-        expect(buildReliabilitySeries(rows, ['d1'])).toEqual({ labels: ['d1'], errorRatePct, p50, p95 })
+    const d1Row: ReliabilityRow = { bucket: 'd1', calls: 4, errors: 1, p50: 10, p95: 30 }
+    test.each<[string, ReliabilityRow[], string[], number[], number[], number[]]>([
+        ['a normal bucket', [d1Row], ['d1'], [25], [10], [30]],
+        ['a bucket with no calls', [], ['d1'], [NaN], [NaN], [NaN]],
+        ['a gap next to a bucket with calls', [d1Row], ['d1', 'd2'], [25, NaN], [10, NaN], [30, NaN]],
+    ])('buildReliabilitySeries handles %s', (_name, rows, bucketKeys, errorRatePct, p50, p95) => {
+        expect(buildReliabilitySeries(rows, bucketKeys)).toEqual({ labels: bucketKeys, errorRatePct, p50, p95 })
     })
 })

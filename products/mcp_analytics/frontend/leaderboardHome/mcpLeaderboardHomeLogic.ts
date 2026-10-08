@@ -123,6 +123,8 @@ export interface LeaderboardFacets {
 
 export type FacetKey = Exclude<keyof LeaderboardFacets, 'failedFacets'>
 
+const USER_SHARE_FACETS: FacetKey[] = ['labUsers', 'namedModelUsers']
+
 const EMPTY_FACETS: LeaderboardFacets = {
     model: [],
     protocolVersion: [],
@@ -336,8 +338,14 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
         labShares: [(s) => [s.facets], (facets: LeaderboardFacets): LabShare[] => buildLabShares(facets.model)],
         scoreboardShares: [
             (s) => [s.scoreboardMetric, s.labShares, s.facets],
-            (metric: ScoreboardMetric, callShares: LabShare[], facets: LeaderboardFacets): LabShare[] =>
-                metric === 'calls' ? callShares : buildLabUserShares(facets.labUsers, facets.namedModelUsers),
+            (metric: ScoreboardMetric, callShares: LabShare[], facets: LeaderboardFacets): LabShare[] => {
+                if (metric === 'calls') {
+                    return callShares
+                }
+                // A failed denominator would otherwise show as 0% for every lab.
+                const usersFailed = facets.failedFacets.some((key) => USER_SHARE_FACETS.includes(key))
+                return usersFailed ? [] : buildLabUserShares(facets.labUsers, facets.namedModelUsers)
+            },
         ],
         modelSeries: [
             (s) => [s.facets, s.bucketKeys],
