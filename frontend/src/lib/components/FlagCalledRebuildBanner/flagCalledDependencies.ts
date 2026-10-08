@@ -8,6 +8,7 @@ import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/featureFlagUsage
 import { Node, isExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import {
     isActionsNode,
+    isDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
     isGroupNode,
@@ -172,13 +173,14 @@ export function experimentFlagCalledReferences(experiment: Experiment): FlagCall
             ...(experiment.saved_metrics ?? []).map((savedMetric) => savedMetric.query),
         ]
         // A legacy trends metric without its own exposure query counts exposures on $feature_flag_called.
+        // A data warehouse metric does too, because the runner ignores its exposure query.
         // See _prepare_exposure_query in experiment_trends_query_runner.py.
         return combineReferences(
             metricQueries
                 .filter(isLegacyExperimentQuery)
                 .filter(isExperimentTrendsQuery)
                 .map((metric) =>
-                    metric.exposure_query
+                    metric.exposure_query && !isDataWarehouseNode(metric.count_query.series[0])
                         ? insightFlagCalledReferences(metric.exposure_query)
                         : eventReference(FEATURE_FLAG_CALLED_EVENT)
                 )

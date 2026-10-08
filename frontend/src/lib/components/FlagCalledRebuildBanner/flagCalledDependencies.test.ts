@@ -142,18 +142,21 @@ const runningExperiment = (overrides: Partial<Experiment> = {}): Experiment =>
         ...overrides,
     }) as Experiment
 
-const legacyTrendsMetric = (exposureQuery?: TrendsQuery): ExperimentTrendsQuery => ({
+const legacyTrendsMetric = (
+    exposureQuery?: TrendsQuery,
+    countQuery: TrendsQuery = trends([events('$pageview')])
+): ExperimentTrendsQuery => ({
     kind: NodeKind.ExperimentTrendsQuery,
-    count_query: trends([events('$pageview')]),
+    count_query: countQuery,
     ...(exposureQuery ? { exposure_query: exposureQuery } : {}),
 })
 
 // The legacy trends runner ignores the resolved event, so these cases resolve to
 // $experiment_exposure to leave the metric as the only path to $feature_flag_called.
-const legacyExperiment = (exposureQuery?: TrendsQuery): Experiment =>
+const legacyExperiment = (exposureQuery?: TrendsQuery, countQuery?: TrendsQuery): Experiment =>
     runningExperiment({
         resolved_exposure_event: '$experiment_exposure',
-        metrics: [legacyTrendsMetric(exposureQuery)],
+        metrics: [legacyTrendsMetric(exposureQuery, countQuery)],
     })
 
 describe('flag called dependencies', () => {
@@ -352,6 +355,15 @@ describe('flag called dependencies', () => {
                 'with a legacy trends metric whose exposure query is on another event',
                 false,
                 legacyExperiment(trends([events('$pageview')])),
+                [],
+            ],
+            [
+                'with a legacy data warehouse trends metric whose exposure query is on another event',
+                true,
+                legacyExperiment(
+                    trends([events('$pageview')]),
+                    trends([{ ...FLAG_EVALUATIONS_SERIES, id: 'charges', table_name: 'charges', name: 'Charges' }])
+                ),
                 [],
             ],
             // Only a running experiment still counts new exposures.
