@@ -274,6 +274,13 @@ def _apply_progress(
             or (progress.state or {}).get("checkpoint") != (evaluated_progress.state or {}).get("checkpoint")
         ):
             return []
+        if not evaluation.complete:
+            state = dict(progress.state or {})
+            state["checkpoint"] = evaluation.checkpoint
+            persist_progress(
+                progress, progress.progress_value, progress.current_stage, state, bump_last_computed_at=False
+            )
+            return []
         new_value = evaluation.value
         is_cumulative = track.evaluator_key != "streak"
         value = max(new_value, progress.progress_value) if is_cumulative else new_value
@@ -282,6 +289,7 @@ def _apply_progress(
 
         state = dict(progress.state or {})
         state.pop("retry_after", None)
+        backfill_pending = bool(state.pop("backfill_pending", False))
         unlocked_stages = dict(state.get("unlocked_stages", {}))
         pending_celebrations = list(state.get("pending_celebrations", []))
         newly_unlocked: list[int] = []
@@ -289,8 +297,9 @@ def _apply_progress(
             now_iso = timezone.now().isoformat()
             for stage in range(progress.current_stage + 1, new_stage + 1):
                 unlocked_stages[str(stage)] = now_iso
-                pending_celebrations.append(stage)
-                newly_unlocked.append(stage)
+                if not backfill_pending:
+                    pending_celebrations.append(stage)
+                    newly_unlocked.append(stage)
         state["unlocked_stages"] = unlocked_stages
         state["pending_celebrations"] = pending_celebrations
         if track.evaluator_key == "streak":

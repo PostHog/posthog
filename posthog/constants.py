@@ -74,6 +74,7 @@ TRENDS_TABLE = "ActionsTable"
 TRENDS_FUNNEL = "FunnelViz"
 TRENDS_PIE = "ActionsPie"
 TRENDS_DONUT = "ActionsDonut"
+TRENDS_PROPORTION_BAR = "ActionsProportionBar"
 TRENDS_PATHS = "PathsViz"
 TRENDS_BAR = "ActionsBar"
 TRENDS_BAR_VALUE = "ActionsBarValue"
@@ -88,6 +89,7 @@ NON_TIME_SERIES_DISPLAY_TYPES = [
     TRENDS_TABLE,
     TRENDS_PIE,
     TRENDS_DONUT,
+    TRENDS_PROPORTION_BAR,
     TRENDS_BAR_VALUE,
     TRENDS_WORLD_MAP,
     TRENDS_BOLD_NUMBER,
@@ -121,6 +123,7 @@ DISPLAY_TYPES = Literal[
     "ActionsTable",
     "ActionsPie",
     "ActionsDonut",
+    "ActionsProportionBar",
     "ActionsBar",
     "ActionsBarValue",
     "WorldMap",

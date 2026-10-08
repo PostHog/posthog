@@ -28,10 +28,13 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_verdicts,
     upsert_review_report,
 )
+from products.review_hog.backend.reviewer.push_gate import PushGateDecision
 from products.review_hog.backend.temporal.activities import (
+    GatePushInput,
     TrackReviewCompletedInput,
     TrackReviewFailedInput,
     TrackReviewStartedInput,
+    _gate_push,
     _track_review_completed,
     _track_review_completed_safe,
     _track_review_failed,
@@ -246,6 +249,61 @@ class TestTrackReviewCompleted(BaseTest):
         assert full.kwargs["uuid"] == full_retry.kwargs["uuid"]
         assert flash.kwargs["uuid"] == flash_retry.kwargs["uuid"]
         assert full.kwargs["uuid"] != flash.kwargs["uuid"]
+
+    def test_a_skipped_push_rests_the_report_and_counts_once_per_head(self) -> None:
+        # A skipped turn ends before any stage that returns the report to rest, and a skipped turn
+        # keeps the next turn's run_index, so a run_index-keyed event would merge two skipped pushes.
+        report_id = self._review_report()
+        for head_sha in ("sha1", "sha2"):
+            persist_pr_snapshot(
+                team_id=self.team.id,
+                report_id=report_id,
+                head_sha=head_sha,
+                pr_metadata=_pr_metadata(),
+                pr_comments=[],
+                pr_files=[],
+            )
+        decision = PushGateDecision(
+            skip=True,
+            would_skip=True,
+            reason="system_one_below_threshold",
+            probability=0.03,
+            model="jevk5",
+            own_commits=2,
+        )
+
+        with (
+            patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
+            patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
+            patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
+        ):
+            gate.return_value.decide.return_value = decision
+            for head_sha in ("sha1", "sha2"):
+                assert (
+                    _gate_push(
+                        GatePushInput(
+                            team_id=self.team.id,
+                            report_id=report_id,
+                            repository="o/r",
+                            previous_head_sha="sha0",
+                            head_sha=head_sha,
+                            run_index=2,
+                            review_mode=REVIEW_MODE_FLASH,
+                        )
+                    )
+                    == decision
+                )
+
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).status == ReviewReport.Status.IDLE
+        first, second = capture.call_args_list
+        assert first.kwargs["event"] == "reviewhog_push_gate_decided"
+        props = first.kwargs["properties"]
+        assert (props["skipped"], props["reason"], props["system_one_probability"]) == (
+            True,
+            "system_one_below_threshold",
+            0.03,
+        )
+        assert first.kwargs["uuid"] != second.kwargs["uuid"]
 
     def test_capture_failure_is_swallowed(self) -> None:
         # Telemetry must never fail a review — losing this guard would fail review turns on any
