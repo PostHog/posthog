@@ -261,12 +261,12 @@ class TestAdmittedV2Creation(AdmittedV2TestCase):
 
     @parameterized.expand(
         [
-            ("string_bool_default", "string", True, "compact", "filters.default_value"),
-            ("string_empty_value", "string", None, "", "filters.rules[0].value"),
-            ("number_string_value", "number", 0, "1", "filters.rules[0].value"),
-            ("number_unsafe_integer", "number", 2**53, 1, "filters.default_value"),
-            ("object_array_value", "object", None, [1], "filters.rules[0].value"),
-            ("object_too_deep", "object", None, {"a": nested_list(20)}, "filters.rules[0].value"),
+            ("string_bool_default", "string", True, "compact", "filters__default_value"),
+            ("string_empty_value", "string", None, "", "filters__rules__0__value"),
+            ("number_string_value", "number", 0, "1", "filters__rules__0__value"),
+            ("number_unsafe_integer", "number", 2**53, 1, "filters__default_value"),
+            ("object_array_value", "object", None, [1], "filters__rules__0__value"),
+            ("object_too_deep", "object", None, {"a": nested_list(20)}, "filters__rules__0__value"),
         ]
     )
     def test_values_that_do_not_match_the_return_type_are_rejected(

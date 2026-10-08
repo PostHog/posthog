@@ -352,7 +352,7 @@ class TestAdmittedV2Updates(AdmittedV2TestCase):
         response = self.patch_flag(flag, {"version": 3, "filters": document})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert (response.json()["attr"], response.json()["detail"]) == (
-            "filters.return_type",
+            "filters__return_type",
             "Cannot be changed after the flag is created.",
         )
         flag.refresh_from_db()
@@ -733,12 +733,18 @@ def string_config(value: str, default: str | None, rule_id: str | None = RULE_A)
 
 
 RESERVED_STRING_VALUES = [
-    ("rule_value", "$false", None, "filters.rules[0].value", "Must be a non-empty string other than $false or $true."),
+    (
+        "rule_value",
+        "$false",
+        None,
+        "filters__rules__0__value",
+        "Must be a non-empty string other than $false or $true.",
+    ),
     (
         "default_value",
         "compact",
         "$true",
-        "filters.default_value",
+        "filters__default_value",
         "Must be a non-empty string other than $false or $true, or null.",
     ),
 ]
@@ -821,7 +827,7 @@ class TestWriterRegexPatterns(AdmittedV2TestCase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert (response.json()["code"], response.json()["attr"], response.json()["detail"]) == (
             "invalid_input",
-            "filters.rules[0].targeting.properties[1].value",
+            "filters__rules__0__targeting__properties__1__value",
             "Must be a valid regular expression.",
         )
         assert not FeatureFlag.objects.filter(team=self.team, key="new-v2").exists()
@@ -832,7 +838,7 @@ class TestWriterRegexPatterns(AdmittedV2TestCase):
         response = self.patch_flag(flag, {"version": 3, "filters": regex_config(COMPILABLE, (operator, pattern))})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert (response.json()["attr"], response.json()["detail"]) == (
-            "filters.rules[0].targeting.properties[1].value",
+            "filters__rules__0__targeting__properties__1__value",
             "Must be a valid regular expression.",
         )
         flag.refresh_from_db()
@@ -845,7 +851,7 @@ class TestWriterRegexPatterns(AdmittedV2TestCase):
         response = self.patch_flag(flag, {"version": 3, "filters": regex_config(*held, ("regex", "("))})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert (response.json()["attr"], response.json()["detail"]) == (
-            "filters.rules[0].targeting.properties[2].value",
+            "filters__rules__0__targeting__properties__2__value",
             "Must be a valid regular expression.",
         )
 
@@ -957,8 +963,8 @@ class TestV2ValidationErrors(AdmittedV2TestCase):
     @parameterized.expand(
         [
             # Create fails in validate() and update in update(); DRF wraps the two differently.
-            ("create", "invalid_input", "filters.rules[0].value", "Must be true or false."),
-            ("update", "invalid_input", "filters.rules[0].value", "Must be true or false."),
+            ("create", "invalid_input", "filters__rules__0__value", "Must be true or false."),
+            ("update", "invalid_input", "filters__rules__0__value", "Must be true or false."),
             (
                 "enable",
                 "unsupported",

@@ -1940,13 +1940,16 @@ class FeatureFlagSerializer(
     def _v2_validation_error(exc: ConfigValidationError) -> serializers.ValidationError:
         """Translate pure validation errors into this endpoint's error envelope.
 
-        Keyed by each error's `filters....` path, so the response's `attr` is that path and its
-        `detail` the bare message, with the validator's code. The handler renders the first key,
-        which is the validator's first error. The details never echo config values, seeds or metadata.
+        Keyed by each error's path in the handler's nested-key form (`filters.rules[0].value`
+        becomes `filters__rules__0__value`, as for nested serializer errors), so the response's
+        `attr` is that path and its `detail` the bare message, with the validator's code. The
+        handler renders the first key, which is the validator's first error. The details never echo
+        config values, seeds or metadata; an unknown field's path does carry its rejected name.
         """
         errors: dict[str, list[ErrorDetail]] = {}
         for error in exc.errors:
-            errors.setdefault(error.attr, []).append(ErrorDetail(error.detail, code=error.code))
+            attr = re.sub(r"\[(\d+)\]", r"__\1", error.attr).replace(".", "__")
+            errors.setdefault(attr, []).append(ErrorDetail(error.detail, code=error.code))
         return serializers.ValidationError(errors)
 
     def _apply_v2_update(self, locked_instance: FeatureFlag, validated_data: dict, locked_version: int) -> None:

@@ -181,10 +181,11 @@ function editorField(path: string): string | null {
     return rule[2] && RULE_FIELDS.has(rule[2]) ? `filters.rules[${rule[1]}].${rule[2]}` : `filters.rules[${rule[1]}]`
 }
 
-/** Errors name their field in `attr`; a path deeper than the input that shows it stays in the message. */
+/** `attr` joins nested keys with `__`; a path deeper than the input that shows it stays in the message. */
 export function rulesV2SaveError(error: any): RulesV2SaveError {
     const detail = readableErrorMessage(error) ?? 'This flag could not be saved.'
-    const path: string | null = error?.attr || null
+    const attr: string | null = error?.attr || null
+    const path = attr ? attr.replace(/__(\d+)(?=__|$)/g, '[$1]').replace(/__/g, '.') : null
     const field = path ? editorField(path) : null
     return { field, message: field !== null && field !== path ? `${path}: ${detail}` : detail }
 }

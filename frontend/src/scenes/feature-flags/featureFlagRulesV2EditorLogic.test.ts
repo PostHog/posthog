@@ -116,22 +116,27 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 'There is already a feature flag with this key.',
             ],
             [
-                { attr: 'filters.rules[1].rollout_percentage', detail: 'Must be at most 100.' },
+                { attr: 'filters__rules__1__rollout_percentage', detail: 'Must be at most 100.' },
                 'filters.rules[1].rollout_percentage',
                 'Must be at most 100.',
             ],
             [
-                { attr: 'filters.rules[0].targeting.properties[0].value', detail: 'Must be a string.' },
+                { attr: 'filters__rules__0__targeting__properties__0__value', detail: 'Must be a string.' },
                 'filters.rules[0].targeting',
                 'filters.rules[0].targeting.properties[0].value: Must be a string.',
             ],
             [
-                { attr: 'filters.rules[2].id', detail: 'Rule ids are server-assigned.' },
+                { attr: 'filters__rules__2__id', detail: 'Rule ids are server-assigned.' },
                 'filters.rules[2]',
                 'filters.rules[2].id: Rule ids are server-assigned.',
             ],
             [
-                { attr: 'filters.rules', detail: 'At most 100 rules are allowed.' },
+                { attr: 'filters__default_value', detail: 'Must be true or false.' },
+                'filters.default_value',
+                'Must be true or false.',
+            ],
+            [
+                { attr: 'filters__rules', detail: 'At most 100 rules are allowed.' },
                 null,
                 'At most 100 rules are allowed.',
             ],
@@ -367,7 +372,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
             const toastError = jest.spyOn(lemonToast, 'error')
             jest.spyOn(api, 'update').mockRejectedValue({
                 status: 400,
-                attr: 'filters.rules[1].rollout_percentage',
+                attr: 'filters__rules__1__rollout_percentage',
                 detail: 'Must be at most 100.',
             })
 
