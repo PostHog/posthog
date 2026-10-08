@@ -231,6 +231,10 @@ class ExportedAsset(models.Model):
         )
 
     @property
+    def is_private_product_media(self) -> bool:
+        return bool((self.export_context or {}).get("heatmap_history_request_id"))
+
+    @property
     def is_rasterized_export(self) -> bool:
         """Rendered by the rasterize-recording Temporal workflow, so it lives under that workflow's
         timing envelope rather than the query/screenshot timeouts the other formats inherit."""
@@ -297,6 +301,8 @@ class ExportedAsset(models.Model):
 
 
 def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:
+    if asset.is_private_product_media:
+        raise ValueError("Product media must be authorized by its owning product")
     if not expiry_delta:
         expiry_delta = timedelta(days=PUBLIC_ACCESS_TOKEN_EXP_DAYS)
     return encode_jwt(
@@ -317,6 +323,8 @@ def get_render_access_token(asset: ExportedAsset, expiry_delta: Optional[timedel
 
 
 def get_subscription_delivery_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:
+    if asset.is_private_product_media:
+        raise ValueError("Product media cannot be shared")
     if not expiry_delta:
         expiry_delta = timedelta(days=PUBLIC_ACCESS_TOKEN_EXP_DAYS)
     return encode_jwt(
@@ -329,6 +337,8 @@ def get_subscription_delivery_access_token(asset: ExportedAsset, expiry_delta: O
 def asset_for_token(token: str) -> tuple[ExportedAsset, str | None]:
     info = decode_jwt(token, audience=PosthogJwtAudience.EXPORTED_ASSET)
     asset = ExportedAsset.objects.select_related("dashboard", "insight", "team__organization").get(pk=info["id"])
+    if asset.is_private_product_media:
+        raise ExportedAsset.DoesNotExist
     return asset, info.get("purpose")
 
 

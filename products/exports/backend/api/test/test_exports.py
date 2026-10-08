@@ -502,21 +502,31 @@ class TestExports(APIBaseTest):
             },
         )
 
-    def test_errors_if_the_request_picks_its_own_limit_context(self) -> None:
+    @parameterized.expand(
+        [
+            ("limit_context", "posthog_ai", "limit_context is not supported for exports."),
+            (
+                "heatmap_history_request_id",
+                "00000000-0000-4000-8000-000000000001",
+                "Product media cannot be created through exports.",
+            ),
+        ]
+    )
+    def test_errors_if_the_request_sets_a_reserved_export_context_key(self, key: str, value: str, detail: str) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {
                 "export_format": "image/png",
                 "export_context": {
                     "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
-                    "limit_context": "posthog_ai",
+                    key: value,
                 },
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "export_context")
-        self.assertEqual(response.json()["detail"], "limit_context is not supported for exports.")
+        self.assertEqual(response.json()["detail"], detail)
 
     @parameterized.expand(["not/allowed", ExportedAsset.ExportFormat.JSONL])
     def test_errors_if_bad_format(self, export_format: str) -> None:

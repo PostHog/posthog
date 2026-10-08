@@ -961,6 +961,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="clean up old logs alert events",
     )
 
+    sender.add_periodic_task(
+        crontab(hour="0", minute="7"),
+        delete_expired_exported_assets.s(),
+        name="delete expired exported assets",
+    )
+
     if settings.EE_AVAILABLE:
         materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
 
@@ -975,12 +981,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             crontab(minute="10", hour="*/12"),
             find_flags_with_enriched_analytics.s(),
             name="find feature flags with enriched analytics",
-        )
-
-        sender.add_periodic_task(
-            crontab(hour="0", minute="7"),
-            delete_expired_exported_assets.s(),
-            name="delete expired exported assets",
         )
 
         # Hourly rather than daily: until this runs, a dead video export still reads as in progress

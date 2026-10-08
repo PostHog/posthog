@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from tempfile import NamedTemporaryFile
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -9,12 +10,15 @@ from parameterized import parameterized
 
 from posthog.storage.object_storage import ObjectStorageError
 
+from products.exports.backend.facade.product_media import reserve_heatmap_history_asset
 from products.exports.backend.models.exported_asset import (
     SEVEN_DAYS,
     SIX_MONTHS,
     THIRTY_DAYS,
     ExportedAsset,
     get_content_response,
+    get_public_access_token,
+    get_subscription_delivery_access_token,
     save_content_from_file,
 )
 
@@ -41,6 +45,20 @@ class TestExportedAssetModel(APIBaseTest):
                 save_content_from_file(asset, content_file.name, max_database_bytes=1)
 
         self.assertIs(error.exception, storage_error)
+
+    def test_product_media_cannot_be_retrieved_or_shared_as_an_export(self) -> None:
+        asset_id = reserve_heatmap_history_asset(
+            team_id=self.team.id,
+            request_id=uuid4(),
+            variant="full",
+            expires_after=datetime.now(UTC) + timedelta(days=1),
+        )
+        asset = ExportedAsset.objects.get(id=asset_id)
+
+        assert self.client.get(f"/api/projects/{self.team.id}/exports/{asset_id}/").status_code == 404
+        for issue_token in (get_public_access_token, get_subscription_delivery_access_token):
+            with self.assertRaises(ValueError):
+                issue_token(asset)
 
     def test_exported_asset_inside_ttl_is_visible_to_both_managers(self) -> None:
         asset = ExportedAsset.objects.create(

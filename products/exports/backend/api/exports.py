@@ -184,6 +184,8 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
         export_context = data.get("export_context") or {}
+        if "heatmap_history_request_id" in export_context:
+            raise ValidationError({"export_context": ["Product media cannot be created through exports."]})
         if "limit_context" in export_context:
             raise ValidationError({"export_context": ["limit_context is not supported for exports."]})
         if export_context.get("path") and (
@@ -600,6 +602,7 @@ class ExportedAssetViewSet(
 
     def safely_get_queryset(self, queryset):
         """List shows only exports created by the current user."""
+        queryset = queryset.filter(export_context__heatmap_history_request_id__isnull=True)
         if self.action == "list":
             queryset = queryset.filter(created_by=self.request.user)
 
