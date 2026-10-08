@@ -146,6 +146,7 @@ const SOURCE_PRODUCT_META: Partial<Record<SourceProduct, SourceProductMeta>> = {
     label: "Honeybadger",
   },
   raygun: { Icon: BugIcon, color: "var(--red-9)", label: "Raygun" },
+  datadog: { Icon: BugIcon, color: "var(--plum-9)", label: "Datadog" },
   snyk: { Icon: ShieldIcon, color: "var(--purple-9)", label: "Snyk" },
   sonarqube: { Icon: ShieldIcon, color: "var(--blue-9)", label: "SonarQube" },
   semgrep: { Icon: ShieldIcon, color: "var(--green-9)", label: "Semgrep" },
