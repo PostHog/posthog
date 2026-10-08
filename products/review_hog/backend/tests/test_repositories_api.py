@@ -25,15 +25,15 @@ class TestReviewRepositoryAPI(APIBaseTest):
 
         assert created.status_code == 201, created.json()
         repository_id = created.json()["id"]
-        assert created.json()["flash_for"] == "listed"
-        assert created.json()["my_result"] == {"mode": "none", "reason": "not_listed"}
+        assert created.json()["flash_for"] == "everyone"
+        assert created.json()["my_result"] == {"mode": "flash", "reason": "everyone"}
         duplicate = self.client.post(self.url, {"full_name": "posthog/POSTHOG-JS"}, format="json")
         assert duplicate.status_code == 400
 
-        changed = self.client.patch(f"{self.url}{repository_id}/", {"flash_for": "everyone"}, format="json")
+        changed = self.client.patch(f"{self.url}{repository_id}/", {"flash_for": "listed"}, format="json")
 
         assert changed.status_code == 200, changed.json()
-        assert changed.json()["my_result"] == {"mode": "flash", "reason": "everyone"}
+        assert changed.json()["my_result"] == {"mode": "none", "reason": "not_listed"}
 
         assert self.client.delete(f"{self.url}{repository_id}/").status_code == 204
 
@@ -47,12 +47,12 @@ class TestReviewRepositoryAPI(APIBaseTest):
         assert update_detail is not None
         changes = update_detail["changes"]
         assert [(change["field"], change["before"], change["after"]) for change in changes] == [
-            ("flash_for", "listed", "everyone")
+            ("flash_for", "everyone", "listed")
         ]
 
     def test_people_lists_drive_the_result_and_are_logged_on_the_repository(self) -> None:
         repository = ReviewRepository.objects.for_team(self.team.id).create(
-            team=self.team, full_name="PostHog/posthog-js"
+            team=self.team, full_name="PostHog/posthog-js", flash_for=ReviewRepository.FlashFor.LISTED
         )
         people_url = f"{self.url}{repository.id}/people/"
 
@@ -102,7 +102,9 @@ class TestReviewRepositoryAPI(APIBaseTest):
 
     def test_repositories_of_another_project_are_invisible(self) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="other"))
-        other = ReviewRepository.objects.for_team(other_team.id).create(team=other_team, full_name="Other/repo")
+        other = ReviewRepository.objects.for_team(other_team.id).create(
+            team=other_team, full_name="Other/repo", flash_for=ReviewRepository.FlashFor.LISTED
+        )
 
         listed = self.client.get(self.url)
         changed = self.client.patch(f"{self.url}{other.id}/", {"flash_for": "everyone"}, format="json")

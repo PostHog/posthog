@@ -508,7 +508,7 @@ class ReviewRepository(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
     # and the unique constraint compare it lowercased.
     full_name = models.CharField(max_length=200)
     flash_for = models.CharField(
-        max_length=20, choices=FlashFor.choices, default=FlashFor.LISTED, db_default=FlashFor.LISTED.value
+        max_length=20, choices=FlashFor.choices, default=FlashFor.EVERYONE, db_default=FlashFor.EVERYONE.value
     )
     exclude_bots = models.BooleanField(default=True, db_default=True)
     created_by = models.ForeignKey(

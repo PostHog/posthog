@@ -90,7 +90,7 @@ class ReviewRepositorySerializer(serializers.ModelSerializer):
         choices=ReviewRepository.FlashFor.choices,
         required=False,
         help_text="Who gets automatic Flash reviews when they follow the repository rules: 'everyone' (except the "
-        "excepted people) or 'listed' (only the listed people, the default). A person's own choice always wins.",
+        "excepted people, the default) or 'listed' (only the listed people). A person's own choice always wins.",
     )
     exclude_bots = serializers.BooleanField(
         required=False,
