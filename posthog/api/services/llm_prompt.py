@@ -4,7 +4,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import QuerySet
+from django.db.models import OuterRef, QuerySet, Subquery
 
 from rest_framework import serializers
 
@@ -127,6 +127,22 @@ def get_active_prompt_queryset(team: Team) -> QuerySet[LLMPrompt]:
 
 def get_latest_prompts_queryset(team: Team) -> QuerySet[LLMPrompt]:
     return get_active_prompt_queryset(team).filter(is_latest=True)
+
+
+def get_archived_prompts_queryset(team: Team) -> QuerySet[LLMPrompt]:
+    # One row per archived name. Archive clears is_latest, so the newest row is
+    # found by ordering instead.
+    newest_per_name = (
+        LLMPrompt.objects.filter(team=OuterRef("team"), deleted=True, name=OuterRef("name"))
+        .order_by("-version", "-created_at", "-id")
+        .values("id")[:1]
+    )
+    return annotate_llm_prompt_version_history_metadata(
+        LLMPrompt.objects.filter(team=team, deleted=True, id=Subquery(newest_per_name))
+        .select_related("created_by")
+        .prefetch_related("labels"),
+        deleted=True,
+    )
 
 
 def get_labeled_prompts_queryset(team: Team, label_name: str) -> QuerySet[LLMPrompt]:
@@ -420,6 +436,69 @@ def archive_prompt(team: Team, prompt_name: str, *, user: User | None = None) ->
         transaction.on_commit(invalidate_caches_on_commit)
 
     return prompt_versions
+
+
+def unarchive_prompt(team: Team, prompt_name: str, *, user: User | None = None) -> list[int]:
+    with transaction.atomic():
+        archived_rows = list(
+            LLMPrompt.objects.select_for_update()
+            .filter(team=team, name=prompt_name, deleted=True)
+            .order_by("version", "created_at", "id")
+        )
+        if not archived_rows:
+            raise LLMPromptNotFoundError()
+
+        # The uniqueness constraints only cover active rows, so a prompt created
+        # after the archive can hold the name.
+        if LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=False).exists():
+            raise LLMPromptDuplicateNameConflictError()
+
+        latest_row = archived_rows[-1]
+        # Active prompts may only reference active targets (the publish and label
+        # paths enforce the same invariant), so a restore cannot reintroduce a
+        # reference to a still-archived prompt.
+        validate_reference_targets(team.id, prompt_name=prompt_name, prompt_payload=latest_row.prompt)
+
+        restored_versions = [row.version for row in archived_rows]
+        LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=True).update(deleted=False)
+        LLMPrompt.objects.filter(id=latest_row.id).update(is_latest=True)
+
+        log_llm_prompt_activity(
+            team=team,
+            user=user,
+            prompt_name=prompt_name,
+            activity="unarchived",
+            changes=[Change(type="LLMPrompt", action="created", field="version_count", after=len(restored_versions))],
+        )
+
+        def invalidate_caches_on_commit() -> None:
+            invalidate_prompt_latest_cache(team.id, prompt_name)
+
+            sync_versions = (
+                restored_versions if settings.TEST else restored_versions[:SYNC_ARCHIVE_VERSION_INVALIDATION_LIMIT]
+            )
+            invalidate_prompt_version_caches(team.id, prompt_name, sync_versions)
+
+            remaining_versions = restored_versions[len(sync_versions) :]
+            if not remaining_versions:
+                return
+
+            try:
+                from posthog.tasks.llm_prompt_cache import invalidate_archived_prompt_versions_cache_task
+
+                invalidate_archived_prompt_versions_cache_task.delay(
+                    team.id,
+                    prompt_name,
+                    remaining_versions[0],
+                    remaining_versions[-1],
+                )
+            except Exception as err:
+                capture_exception(err)
+                invalidate_prompt_version_caches(team.id, prompt_name, remaining_versions)
+
+        transaction.on_commit(invalidate_caches_on_commit)
+
+    return restored_versions
 
 
 @dataclass

@@ -775,6 +775,72 @@ class TestLLMPromptAPI(APIBaseTest):
         assert invalidated_versions == list(range(1, 101))
         mock_delay.assert_called_once_with(self.team.id, "archive-prompt", 101, 105)
 
+    def test_unarchive_endpoint_restores_archived_versions(self):
+        self.create_prompt_version(name="restore-prompt", version=1, is_latest=False, prompt="v1")
+        self.create_prompt_version(name="restore-prompt", version=2, is_latest=True, prompt="v2")
+
+        premature = self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/restore-prompt/unarchive/")
+        assert premature.status_code == status.HTTP_404_NOT_FOUND
+
+        archive_response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/name/restore-prompt/archive/"
+        )
+        assert archive_response.status_code == status.HTTP_204_NO_CONTENT
+
+        archived_list = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?archived=true")
+        assert archived_list.status_code == status.HTTP_200_OK
+        archived_rows = archived_list.json()["results"]
+        assert [(row["name"], row["version"]) for row in archived_rows] == [("restore-prompt", 2)]
+
+        unarchive_response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/name/restore-prompt/unarchive/"
+        )
+        assert unarchive_response.status_code == status.HTTP_200_OK
+        assert unarchive_response.json()["version"] == 2
+        assert unarchive_response.json()["is_latest"] is True
+
+        fetched = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/restore-prompt/")
+        assert fetched.status_code == status.HTTP_200_OK
+        assert fetched.json()["version"] == 2
+        assert self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?archived=true").json()["results"] == []
+
+    def test_unarchive_endpoint_conflicts_when_active_prompt_holds_the_name(self):
+        self.create_prompt_version(name="reused-name", version=1, is_latest=True, prompt="old")
+        self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/reused-name/archive/")
+        recreate = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "reused-name", "prompt": "fresh"},
+            format="json",
+        )
+        assert recreate.status_code == status.HTTP_201_CREATED
+
+        response = self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/reused-name/unarchive/")
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert LLMPrompt.objects.filter(team=self.team, name="reused-name", deleted=False).count() == 1
+
+    def test_unarchive_endpoint_rejects_restore_whose_references_are_archived(self):
+        self.create_prompt_version(name="ref-child", version=1, is_latest=True, prompt="child")
+        parent_create = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "ref-parent", "prompt": "Use: @@@prompt:name=ref-child|version=1@@@"},
+            format="json",
+        )
+        assert parent_create.status_code == status.HTTP_201_CREATED
+        assert (
+            self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/ref-parent/archive/").status_code
+            == status.HTTP_204_NO_CONTENT
+        )
+        assert (
+            self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/ref-child/archive/").status_code
+            == status.HTTP_204_NO_CONTENT
+        )
+
+        response = self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/ref-parent/unarchive/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert LLMPrompt.objects.filter(team=self.team, name="ref-parent", deleted=False).count() == 0
+
     def test_resolve_prompt_by_name_supports_explicit_version_for_session_auth(self):
         historical = self.create_prompt_version(name="resolve-prompt", version=1, is_latest=False, prompt="v1")
         self.create_prompt_version(name="resolve-prompt", version=2, is_latest=True, prompt="v2")

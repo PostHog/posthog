@@ -49,6 +49,7 @@ from posthog.api.services.llm_prompt import (
     archive_prompt,
     duplicate_prompt,
     get_active_prompt_queryset,
+    get_archived_prompts_queryset,
     get_labeled_prompts_queryset,
     get_latest_prompts_queryset,
     get_prompt_by_name_from_db,
@@ -57,6 +58,7 @@ from posthog.api.services.llm_prompt import (
     remove_prompt_label,
     resolve_versions_page,
     set_prompt_label,
+    unarchive_prompt,
 )
 from posthog.auth import DelegatedOAuthAccessTokenAuthentication, OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.event_usage import report_team_action, report_user_action
@@ -327,9 +329,12 @@ class LLMPromptViewSet(
         params = self._get_list_params(request)
 
         label = params.get("label")
-        base_queryset = (
-            get_labeled_prompts_queryset(self.team, label) if label else get_latest_prompts_queryset(self.team)
-        )
+        if params.get("archived"):
+            base_queryset = get_archived_prompts_queryset(self.team)
+        elif label:
+            base_queryset = get_labeled_prompts_queryset(self.team, label)
+        else:
+            base_queryset = get_latest_prompts_queryset(self.team)
         queryset = base_queryset.annotate(
             prompt_size_bytes=Func(
                 Cast("prompt", output_field=TextField()), function="OCTET_LENGTH", output_field=IntegerField()
@@ -634,6 +639,50 @@ class LLMPromptViewSet(
         return Response(self._serialize_prompt(new_prompt), status=status.HTTP_201_CREATED)
 
     @extend_schema(
+        request=None,
+        responses={
+            200: LLMPromptSerializer,
+            409: OpenApiResponse(description="An active prompt with this name already exists."),
+        },
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"name/(?P<prompt_name>[^/]+)/unarchive",
+        required_scopes=["llm_prompt:write"],
+    )
+    @llma_track_latency("llma_prompts_unarchive")
+    @monitor(feature=None, endpoint="llma_prompts_unarchive", method="POST")
+    def unarchive(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
+        try:
+            restored_versions = unarchive_prompt(self.team, prompt_name, user=cast(User, request.user))
+        except LLMPromptNotFoundError:
+            return Response(
+                {"detail": f"No archived prompt matching '{prompt_name}' in this project."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except LLMPromptDuplicateNameConflictError:
+            return Response(
+                {"detail": "An active prompt with this name already exists. Rename or archive it first."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        report_user_action(
+            cast(User, request.user),
+            "llma prompt unarchived",
+            {
+                "prompt_name": prompt_name,
+                "prompt_versions": len(restored_versions),
+            },
+            team=self.team,
+            request=request,
+        )
+        prompt = get_prompt_by_name_from_db(self.team, prompt_name)
+        if prompt is None:
+            return self._prompt_not_found_response(prompt_name)
+        return Response(self._serialize_prompt(prompt))
+
+    @extend_schema(
         request=LLMPromptSetLabelSerializer,
         responses={
             200: LLMPromptLabelSerializer,
@@ -786,10 +835,11 @@ class LLMPromptViewSet(
             except PromptReferenceResolutionError as err:
                 return self._reference_resolution_error_response(err)
 
-        if label or not self._is_browser_session(request):
+        if (label or not self._is_browser_session(request)) and not params.get("archived"):
             # The unlabeled list also backs the prompts UI page, where reading the
             # page is not a prompt fetch. The browser session separates a prompt
-            # served to an application from someone looking at the list.
+            # served to an application from someone looking at the list. An archived
+            # list is never served to an application, so it is not a fetch either.
             resolved_reference_count = sum(len(item.get("resolved_references") or []) for item in data)
             self._track_list_fetch(len(data), label, resolved_reference_count)
 
