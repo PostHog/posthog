@@ -167,13 +167,22 @@ function storedAggregation(group: FlagConditionGroup, flagLevelGroupIndex: numbe
     )
 }
 
+/** The values under each key compare as a multiset, so a removed or added filter on a key is a change. */
 function keepsValues(incoming: FlagConditionGroup, source: ExistingSet): boolean {
-    const properties = Array.isArray(incoming.properties) ? incoming.properties : []
-    return properties.every(
-        (prop) =>
-            typeof prop?.key !== 'string' ||
-            (source.propsByKey.get(prop.key) ?? []).some((stored) => isDeepStrictEqual(stored.value, prop.value))
-    )
+    return [...indexProperties(incoming.properties)].every(([key, props]) => {
+        const unmatched = [...(source.propsByKey.get(key) ?? [])]
+        return (
+            props.length === unmatched.length &&
+            props.every((prop) => {
+                const match = unmatched.findIndex((stored) => isDeepStrictEqual(stored.value, prop.value))
+                if (match === -1) {
+                    return false
+                }
+                unmatched.splice(match, 1)
+                return true
+            })
+        )
+    })
 }
 
 function keepsKeys(incoming: FlagConditionGroup | undefined, existingSet: ExistingSet | undefined): boolean {

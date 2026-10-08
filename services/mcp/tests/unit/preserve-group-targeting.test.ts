@@ -772,6 +772,46 @@ describe('preserveGroupTargetingFilters', () => {
             },
             unresolved: [1],
         },
+        // Moving the second set first and dropping its upper bound sends the same first set as
+        // dropping the upper bound of the first set in place.
+        {
+            name: 'a moved set drops one of two filters on a key that both sets share',
+            existing: {
+                aggregation_group_type_index: null,
+                groups: [
+                    {
+                        aggregation_group_type_index: 0,
+                        properties: [
+                            { key: 'seats', type: 'group', group_type_index: 0, operator: 'gte', value: 5 },
+                            { key: 'seats', type: 'group', group_type_index: 0, operator: 'lte', value: 10 },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        aggregation_group_type_index: 1,
+                        properties: [
+                            { key: 'seats', type: 'group', group_type_index: 1, operator: 'gte', value: 5 },
+                            { key: 'seats', type: 'group', group_type_index: 1, operator: 'lte', value: 20 },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            incoming: {
+                groups: [
+                    { properties: [{ key: 'seats', operator: 'gte', value: 5 }], rollout_percentage: 100 },
+                    {
+                        aggregation_group_type_index: 0,
+                        properties: [
+                            { key: 'seats', operator: 'gte', value: 5 },
+                            { key: 'seats', operator: 'lte', value: 10 },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            unresolved: [0],
+        },
     ])('names each condition set it cannot resolve when $name', ({ existing, incoming, unresolved }) => {
         expect(refusedSets(() => preserveGroupTargetingFilters(existing, incoming))).toEqual(
             unresolved.map((index) => `filters.groups[${index}]`)
