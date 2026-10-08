@@ -44,8 +44,9 @@ function graphKey(
 ): string {
     // Structured serialization: ids are free-form strings, so a delimiter inside one must not collide.
     // JSON writes both NaN and a missing pin as null, so pins go in as strings to keep them apart.
+    // The type goes in too, so a rejected '1' and a corrected 1 do not share a key.
     return JSON.stringify([
-        nodes.map((node) => [node.id, String(node.column)]),
+        nodes.map((node) => [node.id, typeof node.column, String(node.column)]),
         links.map(({ source, target, value }) => [source, target, value]),
         [config?.nodeWidth, config?.nodePadding, config?.nodeAlign, config?.preserveNodeOrder],
     ])

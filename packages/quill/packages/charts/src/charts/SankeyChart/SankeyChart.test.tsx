@@ -223,7 +223,12 @@ describe('SankeyChart', () => {
         },
         { name: 'the node padding', broken: { config: { nodePadding: -1 } } },
         { name: 'a NaN pin', broken: { nodes: [{ ...NODES[0], column: NaN }, ...NODES.slice(1)] } },
-    ])('recovers from an invalid graph when only $name is corrected', ({ broken }) => {
+        {
+            name: 'a numeric-string pin',
+            broken: { nodes: [{ ...NODES[0], column: '0' as unknown as number }, ...NODES.slice(1)] },
+            corrected: { nodes: [{ ...NODES[0], column: 0 }, ...NODES.slice(1)] },
+        },
+    ])('recovers from an invalid graph when only $name is corrected', ({ broken, corrected }) => {
         jest.spyOn(console, 'error').mockImplementation(() => {})
         const onError = jest.fn()
         const { container, rerender } = render(
@@ -232,7 +237,7 @@ describe('SankeyChart', () => {
         expect(onError).toHaveBeenCalled()
         expect(container.textContent).toContain('Something went wrong')
 
-        rerender(<SankeyChart nodes={NODES} links={LINKS} theme={THEME} onError={onError} />)
+        rerender(<SankeyChart nodes={NODES} links={LINKS} theme={THEME} onError={onError} {...corrected} />)
         expect(container.textContent).not.toContain('Something went wrong')
     })
 
