@@ -101,7 +101,9 @@ class TestValidateCredentials:
             (200, {"data": {"id": "1"}}, True, None),
             (401, {"title": "Unauthorized"}, False, "rejected that bearer token"),
             (403, {"title": "Forbidden"}, False, "API credits"),
-            (500, {}, False, "HTTP 500"),
+            (402, {"title": "CreditsDepleted"}, False, "run out of API credits"),
+            (500, {}, False, "Try again in a few minutes"),
+            (400, {"title": "Invalid Request"}, False, "Check the handle and bearer token"),
             # X answers an unknown handle with 200 and an `errors` array, not a 404.
             (200, {"errors": [{"title": "Not Found Error"}]}, False, "no account with the handle"),
         ],

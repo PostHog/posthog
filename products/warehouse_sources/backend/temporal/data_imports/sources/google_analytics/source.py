@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 import requests
+import structlog
 from google.auth.exceptions import RefreshError
 
 from posthog.exceptions_capture import capture_exception
@@ -39,6 +40,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
     build_report_schemas,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+logger = structlog.get_logger(__name__)
 
 # Fallback messages for unexpected failures during credential validation. The raw exception can
 # embed OAuth tokens, ids, or an HTML error body, so we capture it for debugging and show generic
@@ -251,6 +254,12 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                     f"GA4 property '{property_id}' was not found. Verify the numeric property ID in "
                     "Google Analytics admin settings.",
                 )
+            if status == 429 or (status is not None and 500 <= status < 600):
+                # Google is rate-limiting this metadata probe or briefly unavailable — both clear on
+                # their own and the status means nothing actionable for us, so log it rather than
+                # paging error tracking (same call as app_store_connect's credential probe).
+                logger.warning("ga4_property_metadata_probe_transient_status", status=status)
+                return False, _PROPERTY_METADATA_ERROR
             capture_exception(e)
             return False, _PROPERTY_METADATA_ERROR
         except RefreshError:
