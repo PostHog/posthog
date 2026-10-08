@@ -1,6 +1,12 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_USER_UUID } from 'lib/api.mock'
+import {
+    MOCK_DEFAULT_ORGANIZATION,
+    MOCK_DEFAULT_PROJECT,
+    MOCK_DEFAULT_TEAM,
+    MOCK_DEFAULT_USER,
+    MOCK_USER_UUID,
+} from 'lib/api.mock'
 
-import { kea, path } from 'kea'
+import { kea, path, reducers } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, testUtilsContext, truth } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -9,10 +15,14 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import * as oauthClient from 'lib/oauth/oauthClient'
+import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { Scene } from 'scenes/sceneTypes'
+import { emptySceneParams } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import * as exporterViewLogic from '~/exporter/exporterViewLogic'
 import { useMocks } from '~/mocks/jest'
@@ -76,6 +86,215 @@ describe('sceneLogic', () => {
         logic = sceneLogic.build({ scenes: testScenes })
         logic.mount()
         await expectLogic(logic).delay(1)
+    })
+
+    describe('scene readiness', () => {
+        let appContext: AppContext | undefined
+        let buildProtectedScene: jest.Mock
+        let protectedScene: SceneExport
+
+        beforeEach(() => {
+            appContext = window.POSTHOG_APP_CONTEXT
+            buildProtectedScene = jest.fn()
+            protectedScene = {
+                component: Component,
+                logic: kea([
+                    path(['scenes', 'protectedSceneTest']),
+                    reducers(() => {
+                        buildProtectedScene()
+                        return { ready: [true, {}] }
+                    }),
+                ]),
+            }
+            logic.props.scenes = {
+                ...testScenes,
+                [Scene.WebAnalytics]: () => ({ scene: protectedScene }),
+                [Scene.Login]: sceneImport,
+            }
+        })
+
+        afterEach(() => {
+            window.POSTHOG_APP_CONTEXT = appContext
+            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+        })
+
+        it('redirects an anonymous protected URL to login with the complete destination', async () => {
+            userLogic.actions.loadUserSuccess(null)
+            await expectLogic(logic, () => router.actions.push('/project/1/web?tab=overview#panel=details'))
+                .toDispatchActions([
+                    (action) => action.type === logic.actionTypes.setScene && action.payload.sceneId === Scene.Login,
+                ])
+                .toMatchValues({ sceneId: Scene.Login })
+            expect(router.values.searchParams.next).toBe('/project/1/web?tab=overview#panel=details')
+            expect(buildProtectedScene).not.toHaveBeenCalled()
+        })
+
+        it.each([false, true])(
+            'waits for authentication; public navigation cancels pending=%s',
+            async (navigateAway) => {
+                userLogic.actions.loadUserSuccess(null)
+                let resolveUser!: (user: typeof MOCK_DEFAULT_USER) => void
+                const userResponse = new Promise((resolve) => {
+                    resolveUser = resolve
+                })
+                ;(api.get as jest.Mock).mockReturnValueOnce(userResponse)
+                userLogic.actions.loadUser()
+                router.actions.push('/project/1/web')
+                expect(buildProtectedScene).not.toHaveBeenCalled()
+                expect(router.values.location.pathname).toBe('/project/1/web')
+
+                if (navigateAway) {
+                    await expectLogic(logic, () =>
+                        router.actions.push(urls.passwordResetComplete('identifier', 'token'))
+                    )
+                        .toDispatchActions([
+                            (action) =>
+                                action.type === logic.actionTypes.setScene &&
+                                action.payload.sceneId === Scene.PasswordResetComplete,
+                        ])
+                        .toMatchValues({ sceneId: Scene.PasswordResetComplete })
+                }
+                await expectLogic(userLogic, () => resolveUser(MOCK_DEFAULT_USER)).toDispatchActions([
+                    'loadUserSuccess',
+                ])
+                if (!navigateAway) {
+                    await expectLogic(logic).toDispatchActions([
+                        (action) =>
+                            action.type === logic.actionTypes.setScene && action.payload.sceneId === Scene.WebAnalytics,
+                    ])
+                }
+                expect(logic.values.sceneId).toBe(navigateAway ? Scene.PasswordResetComplete : Scene.WebAnalytics)
+                expect(buildProtectedScene).toHaveBeenCalledTimes(navigateAway ? 0 : 1)
+            }
+        )
+
+        it('finishes a pending authentication failure at login', async () => {
+            userLogic.actions.loadUserSuccess(null)
+            let resolveUser!: (value: null) => void
+            ;(api.get as jest.Mock).mockReturnValueOnce(
+                new Promise((resolve) => {
+                    resolveUser = resolve
+                })
+            )
+            userLogic.actions.loadUser()
+            router.actions.push('/project/1/web')
+            await expectLogic(logic, () => userLogic.actions.loadUserFailure('Logged out')).toDispatchActions([
+                (action) => action.type === logic.actionTypes.setScene && action.payload.sceneId === Scene.Login,
+            ])
+            resolveUser(null)
+            expect(buildProtectedScene).not.toHaveBeenCalled()
+            expect(router.values.searchParams.next).toBe('/project/1/web')
+        })
+
+        it.each([true, false])('waits for project loading to settle: success=%s', async (success) => {
+            window.POSTHOG_APP_CONTEXT = { ...appContext, current_team: null } as AppContext
+            teamLogic.actions.loadCurrentTeamSuccess(null)
+            let resolveTeam!: (value: TeamType | null) => void
+            ;(api.get as jest.Mock).mockReturnValueOnce(
+                new Promise((resolve) => {
+                    resolveTeam = resolve
+                })
+            )
+            teamLogic.actions.loadCurrentTeam()
+            router.actions.push('/project/1/web')
+            expect(buildProtectedScene).not.toHaveBeenCalled()
+            expect(logic.values.activeExportedScene).toBeNull()
+            if (success) {
+                window.POSTHOG_APP_CONTEXT = appContext
+            }
+            await expectLogic(logic, () => {
+                if (!success) {
+                    teamLogic.actions.loadCurrentTeamFailure('Project unavailable')
+                }
+                resolveTeam(success ? MOCK_DEFAULT_TEAM : null)
+            }).toDispatchActions([
+                (action) =>
+                    action.type === logic.actionTypes.setScene &&
+                    action.payload.sceneId === (success ? Scene.WebAnalytics : Scene.ErrorProjectUnavailable),
+            ])
+            expect(buildProtectedScene).toHaveBeenCalledTimes(success ? 1 : 0)
+            expect(logic.values.activeExportedScene).not.toBeNull()
+        })
+
+        it('resumes OAuth bootstrap after synchronous project ids become available', async () => {
+            const mode = jest.spyOn(oauthClient, 'isOAuthMode').mockReturnValue(true)
+            oauthClient.setOAuthContextIds(null)
+            try {
+                userLogic.actions.loadUserSuccess(null)
+                let resolveUser!: (user: typeof MOCK_DEFAULT_USER) => void
+                ;(api.get as jest.Mock).mockReturnValueOnce(
+                    new Promise((resolve) => {
+                        resolveUser = resolve
+                    })
+                )
+                userLogic.actions.loadUser()
+                router.actions.push('/project/1/web')
+                expect(getCurrentTeamIdOrNone()).toBeNull()
+                expect(buildProtectedScene).not.toHaveBeenCalled()
+                await expectLogic(logic, () => resolveUser(MOCK_DEFAULT_USER)).toDispatchActions([
+                    (action) =>
+                        action.type === logic.actionTypes.setScene && action.payload.sceneId === Scene.WebAnalytics,
+                ])
+                expect(getCurrentTeamIdOrNone()).toBe(MOCK_DEFAULT_TEAM.id)
+                expect(logic.values.activeExportedScene?.component).toBe(Component)
+                expect(buildProtectedScene).toHaveBeenCalledTimes(1)
+            } finally {
+                oauthClient.setOAuthContextIds(null)
+                mode.mockRestore()
+            }
+        })
+
+        it('keeps shared scenes available without authentication', async () => {
+            const shared = jest.spyOn(exporterViewLogic, 'isSharedView').mockReturnValue(true)
+            try {
+                userLogic.actions.loadUserSuccess(null)
+                await expectLogic(logic, () => router.actions.push('/project/1/web')).toDispatchActions([
+                    (action) =>
+                        action.type === logic.actionTypes.setScene && action.payload.sceneId === Scene.WebAnalytics,
+                ])
+                expect(buildProtectedScene).toHaveBeenCalledTimes(1)
+            } finally {
+                shared.mockRestore()
+            }
+        })
+
+        it('does not construct a protected scene when logout happens during its import', async () => {
+            let resolveImport!: (value: { scene: SceneExport }) => void
+            const importScene = jest.fn(
+                () =>
+                    new Promise<{ scene: SceneExport }>((resolve) => {
+                        resolveImport = resolve
+                    })
+            )
+            logic.props.scenes = { ...logic.props.scenes, [Scene.WebAnalytics]: importScene }
+            router.actions.push('/project/1/web')
+            expect(importScene).toHaveBeenCalledTimes(1)
+            userLogic.actions.loadUserSuccess(null)
+            await expectLogic(logic, () => resolveImport({ scene: protectedScene }))
+                .toDispatchActions([
+                    (action) => action.type === logic.actionTypes.setScene && action.payload.sceneId === Scene.Login,
+                ])
+                .toMatchValues({ sceneId: Scene.Login })
+            expect(buildProtectedScene).not.toHaveBeenCalled()
+            expect(router.values.searchParams.next).toBe('/project/1/web')
+        })
+
+        it('does not build protected logic through a direct scene update while anonymous', () => {
+            userLogic.actions.loadUserSuccess(null)
+            logic.actions.setExportedScene(protectedScene, Scene.WebAnalytics, undefined, emptySceneParams)
+            logic.actions.setScene(Scene.WebAnalytics, undefined, emptySceneParams, false, protectedScene)
+            expect(logic.values.activeExportedScene).toBeNull()
+            expect(logic.values.activeSceneLogic).toBeNull()
+            expect(buildProtectedScene).not.toHaveBeenCalled()
+        })
+
+        it('uses the project-unavailable surface without building the protected scene', async () => {
+            window.POSTHOG_APP_CONTEXT = { ...appContext, current_team: null } as AppContext
+            teamLogic.actions.loadCurrentTeamSuccess(null)
+            router.actions.push('/project/1/web')
+            await expectLogic(logic).toMatchValues({ activeSceneId: Scene.ErrorProjectUnavailable })
+            expect(buildProtectedScene).not.toHaveBeenCalled()
+        })
     })
 
     it('has preloaded some scenes', async () => {
