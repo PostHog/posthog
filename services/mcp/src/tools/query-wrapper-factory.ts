@@ -61,6 +61,12 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
 
 const TEST_ACCOUNT_FILTER_FIELD = 'filterTestAccounts'
 
+// SQL never applies the test account filters, so a caller that compares the two paths
+// needs to know the filter is on. Without this note, a project whose events all come
+// from internal users reads as zero traffic here and nonzero traffic in SQL.
+const INJECTED_TEST_ACCOUNT_FILTER_NOTE =
+    'This result excludes internal and test users: the call did not set `filterTestAccounts`, so the project\'s "Filter out internal and test users" default applies. SQL queries do not apply this filter, so their counts can be higher. To include all users, set `filterTestAccounts: false`.'
+
 function hasTestAccountFilterField(schema: ZodObjectAny): schema is z.ZodObject<z.ZodRawShape> {
     return schema instanceof z.ZodObject && TEST_ACCOUNT_FILTER_FIELD in schema.shape
 }
@@ -183,14 +189,17 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 ...queryParams,
                 kind: config.kind,
             }
+            let injectedTestAccountFilter = false
             if (hasTestAccountFilterField(schema) && query[TEST_ACCOUNT_FILTER_FIELD] === undefined) {
                 const project = await context.stateManager.getCachedOrFetchProject().catch(() => undefined)
                 // Only inject `true`: when the project default is unchecked the field
                 // stays omitted and the backend's own `false` default applies.
                 if (project?.test_account_filters_default_checked) {
                     query[TEST_ACCOUNT_FILTER_FIELD] = true
+                    injectedTestAccountFilter = true
                 }
             }
+            const agentNote = injectedTestAccountFilter ? { _agentNote: INJECTED_TEST_ACCOUNT_FILTER_NOTE } : {}
             const baseUrl = context.api.getProjectBaseUrl(projectId)
             const effectiveOutputFormat = callerOutputFormat ?? config.outputFormat
 
@@ -223,6 +232,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 return {
                     ...data,
                     _posthogUrl: buildInsightUrl('DataTableNode', data.query, baseUrl, config.urlPrefix),
+                    ...agentNote,
                 }
             }
 
@@ -239,13 +249,17 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 query,
                 results: isTraceQuery ? redactTraceResults(data.results) : data.results,
                 ...(data.warnings ? { warnings: data.warnings } : {}),
+                ...agentNote,
             }
             if (isTraceQuery) {
                 return compactTraceResponse(response, traceDetail, effectiveOutputFormat)
             }
+            const formattedResults = injectedTestAccountFilter
+                ? `${data.formatted_results}\n\n${INJECTED_TEST_ACCOUNT_FILTER_NOTE}`
+                : data.formatted_results
             return {
                 ...response,
-                ...(shouldSurfaceFormatted ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),
+                ...(shouldSurfaceFormatted ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: formattedResults } : {}),
             }
         },
         _meta: {
