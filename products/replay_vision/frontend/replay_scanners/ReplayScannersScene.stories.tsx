@@ -149,6 +149,14 @@ const scanners = {
     ],
 }
 
+const scannerSpend = {
+    results: scanners.results.map((s) => ({
+        scanner_id: s.id,
+        credits_this_month: s.credits_this_month,
+        observations_this_month: s.observations_this_month,
+    })),
+}
+
 const scannerStats: ScannerStatsResponseApi = {
     total: 4,
     enabled: 3,
@@ -891,6 +899,7 @@ const meta: Meta = {
             get: {
                 '/api/projects/:team_id/tags/': ['checkout', 'core flows'],
                 '/api/projects/:team_id/vision/scanners/': scanners,
+                '/api/projects/:team_id/vision/scanners/spend/': scannerSpend,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
                 // One card per reason kind. Only the first carries a key moment, so the rest show no time on the tile.
@@ -1890,6 +1899,7 @@ export const StartupProgramCap: StoryObj = {
             get: {
                 '/api/projects/:team_id/tags/': ['checkout', 'core flows'],
                 '/api/projects/:team_id/vision/scanners/': scanners,
+                '/api/projects/:team_id/vision/scanners/spend/': scannerSpend,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/quota/': { ...quota, credit_limit: null, remaining: null },
                 '/api/billing/': { ...billingJson, startup_program_label: StartupProgramLabel.YC },
