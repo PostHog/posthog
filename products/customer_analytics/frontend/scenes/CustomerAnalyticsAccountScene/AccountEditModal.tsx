@@ -8,7 +8,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { canEditEmailMatching } from 'products/customer_analytics/frontend/components/Accounts/accountEmailMatching'
 
-import { ACCOUNT_ID_FIELDS, customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSceneLogic'
+import { ACCOUNT_ID_FIELDS } from './accountNativeProperties'
+import { customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSceneLogic'
 
 export function AccountEditModal(): JSX.Element {
     const { account, accountEditorOpen, accountFormHasErrors, isAccountFormSubmitting } = useValues(

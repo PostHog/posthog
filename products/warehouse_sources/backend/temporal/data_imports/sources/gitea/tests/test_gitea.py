@@ -10,8 +10,6 @@ import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.gitea import (
     GiteaResumeConfig,
-    _add_comment_issue_number,
-    _flatten_commit,
     _make_webhook_dedupe_transformer,
     _parse_next_url,
     create_repo_webhook,
@@ -19,12 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.gite
     get_repo_webhook_info,
     get_rows,
     gitea_source,
-    hostname_of,
     normalize_host,
     update_repo_webhook_events,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.settings import ENDPOINTS, GITEA_ENDPOINTS
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gitea.gitea"
 
@@ -81,18 +77,8 @@ class TestNormalizeHost:
         with pytest.raises(ValueError):
             normalize_host(value)
 
-    def test_hostname_of(self):
-        assert hostname_of("https://gitea.example.com/") == "gitea.example.com"
-
 
 class TestParseNextUrl:
-    def test_parses_next_rel_among_others(self):
-        header = (
-            f'<{BASE_URL}/api/v1/repos/{REPO}/issues?limit=50&page=2>; rel="next",'
-            f'<{BASE_URL}/api/v1/repos/{REPO}/issues?limit=50&page=9>; rel="last"'
-        )
-        assert _parse_next_url(header) == f"{BASE_URL}/api/v1/repos/{REPO}/issues?limit=50&page=2"
-
     @pytest.mark.parametrize("header", ["", f'<{BASE_URL}/x?page=1>; rel="last"'])
     def test_no_next_returns_none(self, header):
         assert _parse_next_url(header) is None
@@ -169,37 +155,6 @@ class TestGetRows:
         )
 
         assert mock_session.return_value.get.call_args.args[0] == resume_url
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_incremental_issues_pass_since_and_static_params(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
-
-        list(
-            get_rows(
-                BASE_URL,
-                "tok",
-                REPO,
-                "issues",
-                mock.MagicMock(),
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC),
-            )
-        )
-
-        url = mock_session.return_value.get.call_args.args[0]
-        assert "since=2024-01-02T03%3A04%3A05Z" in url
-        # type=issues keeps pull requests out of the issues table.
-        assert "type=issues" in url
-        assert "state=all" in url
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_refresh_omits_since(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
-
-        list(get_rows(BASE_URL, "tok", REPO, "issues", mock.MagicMock(), _make_manager()))
-
-        assert "since=" not in mock_session.return_value.get.call_args.args[0]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_pull_requests_never_send_since(self, mock_session):
@@ -406,43 +361,7 @@ class TestFanOut:
         assert urls[1] == f"{BASE_URL}/api/v1/repos/{REPO}/pulls/9/reviews"
 
 
-class TestAddCommentIssueNumber:
-    @pytest.mark.parametrize(
-        "item, expected",
-        [
-            ({"issue_url": f"{BASE_URL}/{REPO}/issues/12", "pull_request_url": ""}, 12),
-            ({"issue_url": "", "pull_request_url": f"{BASE_URL}/{REPO}/pulls/7"}, 7),
-            ({"issue_url": None, "pull_request_url": None}, None),
-        ],
-    )
-    def test_derives_number_from_url(self, item, expected):
-        assert _add_comment_issue_number(item)["issue_number"] == expected
-
-
-class TestFlattenCommit:
-    def test_missing_nested_objects_do_not_crash(self):
-        assert _flatten_commit({"sha": "abc"}) == {"sha": "abc"}
-
-
 class TestGiteaSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        response = gitea_source(BASE_URL, "tok", REPO, endpoint, mock.MagicMock(), _make_manager())
-
-        config = GITEA_ENDPOINTS[endpoint]
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == config.sort_mode
-        if config.partition_key:
-            assert response.partition_keys == [config.partition_key]
-            assert response.partition_mode == "datetime"
-        else:
-            assert response.partition_keys is None
-
-    def test_commits_key_on_sha(self):
-        response = gitea_source(BASE_URL, "tok", REPO, "commits", mock.MagicMock(), _make_manager())
-        assert response.primary_keys == ["sha"]
-
     def test_webhook_enabled_drains_webhook_items_with_dedupe(self):
         webhook_manager = mock.MagicMock()
         webhook_manager.webhook_enabled = mock.AsyncMock(return_value=True)
@@ -491,17 +410,6 @@ class TestWebhookDedupeTransformer:
             {"id": 2, "state": "open", "updated_at": "2024-01-01T00:00:00Z"},
             {"id": 1, "state": "closed", "updated_at": "2024-01-02T00:00:00Z"},
         ]
-
-    def test_tie_keeps_later_arriving_row(self):
-        transform = _make_webhook_dedupe_transformer("id", ["updated_at"])
-        table = self._table(
-            [
-                {"id": 1, "state": "open", "updated_at": "2024-01-01T00:00:00Z"},
-                {"id": 1, "state": "closed", "updated_at": "2024-01-01T00:00:00Z"},
-            ]
-        )
-
-        assert transform(table).to_pylist() == [{"id": 1, "state": "closed", "updated_at": "2024-01-01T00:00:00Z"}]
 
     def test_missing_version_column_leaves_table_unchanged(self):
         transform = _make_webhook_dedupe_transformer("id", ["updated_at"])

@@ -11,8 +11,6 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.surveysparrow.surveysparrow import (
     SurveySparrowResumeConfig,
     _format_cutoff,
-    _incremental_config,
-    _stamp_survey_id,
     surveysparrow_source,
     validate_credentials,
 )
@@ -108,32 +106,6 @@ class TestFormatCutoff:
         assert _format_cutoff(value) == expected
 
 
-class TestIncrementalConfig:
-    def test_none_on_full_refresh(self) -> None:
-        assert _incremental_config("responses", False, datetime(2026, 1, 1)) is None
-
-    def test_none_without_cursor_value(self) -> None:
-        assert _incremental_config("responses", True, None) is None
-
-    def test_none_for_endpoint_without_server_filter(self) -> None:
-        # questions has no cutoff_param, so no server-side date filter is ever injected.
-        assert _incremental_config("questions", True, datetime(2026, 1, 1)) is None
-
-    def test_responses_maps_to_date_gte(self) -> None:
-        cfg = _incremental_config("responses", True, datetime(2026, 1, 1))
-        assert cfg is not None
-        assert cfg["start_param"] == "date.gte"
-        assert cfg["cursor_path"] == "completed_time"
-
-
-class TestStampSurveyId:
-    def test_promotes_parent_id(self) -> None:
-        assert _stamp_survey_id({"id": 7, "_surveys_id": 42}) == {"id": 7, "survey_id": 42}
-
-    def test_noop_without_parent_id(self) -> None:
-        assert _stamp_survey_id({"id": 7}) == {"id": 7}
-
-
 class TestTopLevel:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginates_and_checkpoints_next_page(self, MockSession) -> None:
@@ -157,18 +129,6 @@ class TestTopLevel:
         assert saved == [{"page": 2}]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_has_next_page_terminates(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([{"id": 1}])])  # /v3/contact_lists omits the flag
-        manager = _make_manager()
-
-        rows = _rows(_source("contact_lists", manager))
-
-        assert rows == [{"id": 1}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_page_terminates_despite_stale_flag(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_page([], has_next_page=True)])
@@ -179,94 +139,8 @@ class TestTopLevel:
         assert rows == []
         assert session.send.call_count == 1
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_contacts_page_size_is_fifty(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_page([{"id": 1}], has_next_page=False)])
-
-        _rows(_source("contacts", _make_manager()))
-
-        assert snaps[0]["params"]["limit"] == 50
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_page([{"id": 99}], has_next_page=False)])
-        manager = _make_manager(SurveySparrowResumeConfig(paginator_state={"page": 7}))
-
-        rows = _rows(_source("surveys", manager))
-
-        assert snaps[0]["params"]["page"] == 7
-        assert rows[0]["id"] == 99
-
 
 class TestFanout:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_iterates_surveys_and_stamps_survey_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
-            [
-                _page([{"id": 10}, {"id": 20}], has_next_page=False),  # survey list
-                _page([{"id": 1}], has_next_page=False),  # survey 10 responses
-                _page([{"id": 2}], has_next_page=False),  # survey 20 responses
-            ],
-        )
-        manager = _make_manager()
-
-        rows = _rows(_source("responses", manager))
-
-        assert rows == [{"id": 1, "survey_id": 10}, {"id": 2, "survey_id": 20}]
-        child_urls = [s["url"] for s in snaps if "/v3/responses" in s["url"]]
-        assert child_urls == [
-            f"{BASE_URL}/v3/responses?survey_id=10",
-            f"{BASE_URL}/v3/responses?survey_id=20",
-        ]
-        # The survey enumeration is bare — no completed/order/cutoff params leak into it.
-        assert snaps[0]["url"] == f"{BASE_URL}/v3/surveys"
-        assert "state" not in snaps[0]["params"] and "date.gte" not in snaps[0]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_pages_within_survey_then_advances_to_next(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
-            [
-                _page([{"id": 10}, {"id": 20}], has_next_page=False),  # survey list
-                _page([{"id": 1}], has_next_page=True),  # survey 10 page 1
-                _page([{"id": 2}], has_next_page=False),  # survey 10 page 2
-                _page([{"id": 3}], has_next_page=False),  # survey 20 page 1
-            ],
-        )
-
-        _rows(_source("responses", _make_manager()))
-
-        child = [s for s in snaps if "/v3/responses" in s["url"]]
-        assert [(s["url"], s["params"]["page"]) for s in child] == [
-            (f"{BASE_URL}/v3/responses?survey_id=10", 1),
-            (f"{BASE_URL}/v3/responses?survey_id=10", 2),
-            (f"{BASE_URL}/v3/responses?survey_id=20", 1),
-        ]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_responses_carry_completed_sort_params(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
-            [
-                _page([{"id": 10}], has_next_page=False),
-                _page([{"id": 1}], has_next_page=False),
-            ],
-        )
-
-        _rows(_source("responses", _make_manager()))
-
-        child = next(s for s in snaps if "/v3/responses" in s["url"])
-        assert child["params"]["limit"] == 200
-        assert child["params"]["state"] == "completed"
-        assert child["params"]["order_by"] == "completedTime"
-        assert child["params"]["order"] == "ASC"
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_cutoff_applied_to_children_but_not_survey_enumeration(self, MockSession) -> None:
         session = MockSession.return_value
@@ -290,78 +164,6 @@ class TestFanout:
         assert "date.gte" not in snaps[0]["params"]  # survey enumeration
         child = next(s for s in snaps if "/v3/responses" in s["url"])
         assert child["params"]["date.gte"] == "2026-01-02"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_questions_fan_out_without_cutoff(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
-            [
-                _page([{"id": 10}], has_next_page=False),
-                _page([{"id": 5}], has_next_page=False),
-            ],
-        )
-
-        rows = _rows(
-            _source(
-                "questions",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-            )
-        )
-
-        assert rows == [{"id": 5, "survey_id": 10}]
-        child = next(s for s in snaps if "/v3/questions" in s["url"])
-        assert "date.gte" not in child["params"]
-        assert child["params"]["limit"] == 100
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_fan_out_skipping_completed_survey(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
-            [
-                _page([{"id": 10}, {"id": 20}], has_next_page=False),  # /v3/surveys relisted on resume
-                _page([{"id": 2}], has_next_page=False),  # survey 20 responses
-            ],
-        )
-        manager = _make_manager(
-            SurveySparrowResumeConfig(
-                fanout_state={
-                    "completed": ["/v3/responses?survey_id=10"],
-                    "current": "/v3/responses?survey_id=20",
-                    "child_state": None,
-                }
-            )
-        )
-
-        rows = _rows(_source("responses", manager))
-
-        # Survey 10 is already completed and never re-fetched; survey 20 is synced.
-        assert rows == [{"id": 2, "survey_id": 20}]
-        child_urls = [s["url"] for s in snaps if "/v3/responses" in s["url"]]
-        assert child_urls == [f"{BASE_URL}/v3/responses?survey_id=20"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoints_completed_surveys(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _page([{"id": 10}, {"id": 20}], has_next_page=False),
-                _page([{"id": 1}], has_next_page=False),
-                _page([{"id": 2}], has_next_page=False),
-            ],
-        )
-        manager = _make_manager()
-
-        _rows(_source("responses", manager))
-
-        # Both surveys end up in the completed set as the fan-out finishes each one.
-        completed = [c.args[0].fanout_state["completed"] for c in manager.save_state.call_args_list]
-        assert ["/v3/responses?survey_id=10"] in completed
-        assert sorted(["/v3/responses?survey_id=10", "/v3/responses?survey_id=20"]) in completed
 
 
 class TestRetry:

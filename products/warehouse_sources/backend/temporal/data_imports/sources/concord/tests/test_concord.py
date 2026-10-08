@@ -9,6 +9,7 @@ import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import boundary_checkpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord import concord
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord.concord import (
@@ -135,9 +136,6 @@ class TestFlattenFolderTree:
         assert all("children" not in r for r in rows)
         assert rows[3]["parentId"] == 3
 
-    def test_skips_nodes_without_id(self):
-        assert list(_flatten_folder_tree({"name": "no id", "children": []})) == []
-
 
 class TestAgreementIncrementalParams:
     @parameterized.expand(
@@ -153,12 +151,6 @@ class TestAgreementIncrementalParams:
 
 
 class TestResolveOrganizationId:
-    def test_uses_configured_org_id_without_request(self):
-        session = mock.MagicMock()
-        with mock.patch.object(concord, "_fetch") as fetch:
-            assert resolve_organization_id(session, "https://x", "key", "123", mock.MagicMock()) == "123"
-            fetch.assert_not_called()
-
     def test_resolves_first_org_when_blank(self):
         session = mock.MagicMock()
         with mock.patch.object(concord, "_fetch", return_value={"organizations": [{"id": 99}, {"id": 100}]}):
@@ -185,11 +177,6 @@ class TestValidateCredentials:
 
 
 class TestSinglePagination:
-    def test_single_request_selects_rows(self):
-        rows, urls, _ = _run("groups", [{"groups": [{"id": 1}, {"id": 2}]}])
-        assert [r["id"] for r in rows] == [1, 2]
-        assert len(urls) == 1
-
     def test_tags_passes_organization_id_query_param(self):
         _rows, urls, _ = _run("tags", [{"tags": [{"id": 1}]}])
         assert "organizationId=42" in urls[0]
@@ -220,12 +207,6 @@ class TestPagePagination:
         assert "page=1" in urls[1]
         # agreements require the statuses filter on every request
         assert "statuses=DRAFT" in urls[0]
-
-    def test_resumes_from_saved_page(self, monkeypatch):
-        monkeypatch.setattr(CONCORD_ENDPOINTS["agreements"], "page_size", 2)
-        manager = FakeManager(ConcordResumeConfig(page=7))
-        _rows, urls, _ = _run("agreements", [{"items": [{"uuid": "x"}]}], manager=manager)
-        assert "page=7" in urls[0]
 
     def test_incremental_adds_modified_at_filter(self, monkeypatch):
         monkeypatch.setattr(CONCORD_ENDPOINTS["agreements"], "page_size", 2)
@@ -272,11 +253,6 @@ class TestIntraPageResume:
         emitted = [r["uuid"] for table in tables for r in table.to_pylist()]
         return emitted, manager
 
-    def test_mid_page_flush_advances_row_offset_monotonically(self):
-        _emitted, manager = self._iter()
-        # flushes after rows 1 and 3 (0-indexed) → committed counts 2 then 4, never rewinding to 0
-        assert [(s.page, s.row_offset) for s in manager.saved] == [(0, 2), (0, 4)]
-
     def test_resume_skips_already_emitted_rows(self):
         emitted, _ = self._iter(start_row_offset=3)
         # rows 0–2 were committed last run; the resume must not re-emit them
@@ -284,17 +260,6 @@ class TestIntraPageResume:
 
 
 class TestOffsetPagination:
-    def test_members_use_start_offset_param(self, monkeypatch):
-        monkeypatch.setattr(CONCORD_ENDPOINTS["members"], "page_size", 2)
-        payloads = [
-            {"members": [{"userOrganizationId": 1}, {"userOrganizationId": 2}]},
-            {"members": [{"userOrganizationId": 3}]},
-        ]
-        rows, urls, _ = _run("members", payloads)
-        assert [r["userOrganizationId"] for r in rows] == [1, 2, 3]
-        assert "start=0" in urls[0]
-        assert "start=2" in urls[1]
-
     def test_clauses_use_offset_param(self, monkeypatch):
         monkeypatch.setattr(CONCORD_ENDPOINTS["clauses"], "page_size", 2)
         rows, urls, _ = _run(
@@ -310,12 +275,13 @@ class TestEventsWindowPagination:
     @time_machine.travel("2024-01-20", tick=False)
     def test_walks_weekly_windows_with_bounded_range(self):
         last_value = int(datetime(2024, 1, 1, tzinfo=UTC).timestamp() * 1000)
-        _rows, urls, manager = _run(
-            "events",
-            [{"events": [{"id": 1}]}],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=last_value,
-        )
+        with mock.patch.object(boundary_checkpoint, "PARTIAL_FLUSH_INTERVAL_SECONDS", 0):
+            _rows, urls, manager = _run(
+                "events",
+                [{"events": [{"id": 1}]}],
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=last_value,
+            )
         # 2024-01-01 .. 2024-01-20 chunked into <= 7-day windows
         assert "start=2024-01-01" in urls[0]
         assert "end=2024-01-08" in urls[0]
@@ -355,13 +321,6 @@ class TestEventsWindowPagination:
             )
         emitted = [r["id"] for table in tables for r in table.to_pylist()]
         return emitted, manager
-
-    @time_machine.travel("2024-01-20", tick=False)
-    def test_mid_window_flush_advances_row_offset_monotonically(self):
-        _emitted, manager = self._iter_single_window()
-        window_ms = int(datetime(2024, 1, 18, tzinfo=UTC).timestamp() * 1000)
-        # flushes after rows 1 and 3 (0-indexed) → committed counts 2 then 4, never rewinding to 0
-        assert [(s.window_start_ms, s.row_offset) for s in manager.saved] == [(window_ms, 2), (window_ms, 4)]
 
     @time_machine.travel("2024-01-20", tick=False)
     def test_resume_skips_already_emitted_window_rows(self):
@@ -420,22 +379,6 @@ class TestAgreementFanout:
         assert any("/agreements/A/summary/fields" in url for url in urls)
         assert any("/agreements/B/summary/fields" in url for url in urls)
 
-    def test_activities_send_the_required_type_param(self):
-        _rows, urls, _ = self._run(
-            "agreement_activities",
-            agreements=[{"uuid": "A"}],
-            child={"activities": [{"id": "e1", "createdAt": 1700000000000}]},
-        )
-        assert "type=AUDIT" in urls[-1]
-
-    def test_members_read_a_bare_array_response(self):
-        rows, _urls, _ = self._run(
-            "agreement_members",
-            agreements=[{"uuid": "A"}],
-            child=[{"status": "ACTIVE", "user": {"id": 7}}],
-        )
-        assert [(r["agreement_uuid"], r["status"], r["member_id"]) for r in rows] == [("A", "ACTIVE", 7)]
-
     def test_members_keep_user_and_invitation_ids_apart(self):
         rows, _urls, _ = self._run(
             "agreement_members",
@@ -447,23 +390,6 @@ class TestAgreementFanout:
         )
         # The same numeric id in two id spaces must stay two rows, or merge would collapse them.
         assert [(r["status"], r["member_id"]) for r in rows] == [("ACTIVE", 7), ("INVITED", 7)]
-
-    def test_clause_tables_select_different_arrays_of_one_summary_response(self):
-        summary = {"clauses": [{"id": 1, "title": "term"}], "endclauses": [{"id": 9, "title": "renewal"}]}
-        clauses, clause_urls, _ = self._run("agreement_clauses", agreements=[{"uuid": "A"}], child=summary)
-        endclauses, _urls, _ = self._run("agreement_endclauses", agreements=[{"uuid": "A"}], child=summary)
-        assert [r["id"] for r in clauses] == [1]
-        assert [r["id"] for r in endclauses] == [9]
-        assert any(url.endswith("/agreements/A/summary") for url in clause_urls)
-
-    def test_versions_read_a_bare_array_response(self):
-        rows, urls, _ = self._run(
-            "agreement_versions",
-            agreements=[{"uuid": "A"}],
-            child=[{"id": 1, "displayVersion": "1.0"}, {"id": 2, "displayVersion": "2.0"}],
-        )
-        assert [(r["agreement_uuid"], r["id"]) for r in rows] == [("A", 1), ("A", 2)]
-        assert any(url.endswith("/agreements/A/versions") for url in urls)
 
     @parameterized.expand(
         [

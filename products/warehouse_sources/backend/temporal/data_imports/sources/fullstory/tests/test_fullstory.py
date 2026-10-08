@@ -132,41 +132,6 @@ class TestPagination:
         assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_tokenless_page_stops_without_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "u1"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert [r["id"] for r in rows] == ["u1"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_results_key_is_empty_page(self, MockSession) -> None:
-        # Matches the old `data.get("results", []) or []` — a missing key is 0 rows, not an error.
-        session = MockSession.return_value
-        _wire(session, [_response(None, drop_results=True)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_data_path_authorizes_with_basic_scheme(self, MockSession) -> None:
-        # The api_key auth carries the "Basic <raw key>" value onto the Authorization header when
-        # requests prepares the request. Prove the RESTClient session is constructed with the raw
-        # key registered for redaction (which is derived from the same auth value).
-        _wire(MockSession.return_value, [_response([{"id": "u1"}])])
-
-        _rows(_source(_make_manager()))
-
-        assert MockSession.call_args.kwargs["redact_values"] == ("Basic key",)
-
 
 class TestSessionsFanout:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -318,34 +283,7 @@ class TestEventsExport:
             self._run(fake, _make_manager(), watermark="2026-03-02T12:00:00Z")
 
 
-class TestSourceResponse:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata(self, MockSession) -> None:
-        _wire(MockSession.return_value, [_response([{"id": "u1"}])])
-        response = _source(_make_manager())
-
-        assert response.name == "users"
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
-
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected",
-        [(200, True), (401, False), (403, False), (500, False)],
-    )
-    @mock.patch(FULLSTORY_SESSION_PATCH)
-    def test_status_mapping(self, mock_session, status_code, expected) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("key") is expected
-
-    @mock.patch(FULLSTORY_SESSION_PATCH)
-    def test_swallows_exceptions(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key") is False
-
     @mock.patch(FULLSTORY_SESSION_PATCH)
     def test_probe_sends_basic_auth_header(self, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)

@@ -5111,7 +5111,6 @@
                 "marketing_audit_utm",
                 "marketing_suggest_conversion_goals",
                 "marketing_suggest_utm_mappings",
-                "summarize_replay_vision_summaries",
                 "draft_replay_vision_scanner_prompt",
                 "search_replay_vision_observations",
                 "scan_replay_vision_sessions",
@@ -6144,6 +6143,22 @@
             "enum": ["count", "count_distinct", "sum", "average", "minimum", "maximum", "custom"],
             "type": "string"
         },
+        "BICategoryGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "values": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["name", "values"],
+            "type": "object"
+        },
         "BIConditionGroup": {
             "additionalProperties": false,
             "properties": {
@@ -6182,6 +6197,11 @@
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
+                "comparisonPeriod": {
+                    "description": "Explore only the comparison window, using dateRange as its reference window.",
+                    "enum": ["previous", null],
+                    "type": ["string", "null"]
+                },
                 "dateField": {
                     "anyOf": [
                         {
@@ -6204,6 +6224,18 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/BIQueryLimit"
+                },
+                "localFields": {
+                    "description": "Reusable expressions owned by this worksheet only.",
+                    "items": {
+                        "$ref": "#/definitions/BIField"
+                    },
+                    "type": "array"
+                },
+                "missingDates": {
+                    "description": "Fill missing date buckets before table calculations. Unset preserves observed points only.",
+                    "enum": ["gap", "zero"],
+                    "type": "string"
                 },
                 "resultFilterGroup": {
                     "$ref": "#/definitions/BIConditionGroup"
@@ -6289,6 +6321,9 @@
                 "id": {
                     "type": "string"
                 },
+                "localDefinition": {
+                    "$ref": "#/definitions/BILocalFieldDefinition"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -6349,6 +6384,53 @@
                 "custom"
             ],
             "type": "string"
+        },
+        "BILocalFieldDefinition": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "expression": {
+                            "type": "string"
+                        },
+                        "groups": {
+                            "items": {
+                                "$ref": "#/definitions/BICategoryGroup"
+                            },
+                            "type": "array"
+                        },
+                        "kind": {
+                            "const": "groups",
+                            "type": "string"
+                        },
+                        "other": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind", "expression", "groups", "other"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "expression": {
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "bins",
+                            "type": "string"
+                        },
+                        "origin": {
+                            "type": "number"
+                        },
+                        "width": {
+                            "type": "number"
+                        }
+                    },
+                    "required": ["kind", "expression", "width", "origin"],
+                    "type": "object"
+                }
+            ]
         },
         "BIQueryLimit": {
             "enum": [100, 1000, 10000, 50000],
@@ -6413,6 +6495,10 @@
                 "computeUsing": {
                     "description": "Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions.",
                     "type": "string"
+                },
+                "requireFullWindow": {
+                    "description": "Require a complete window of non-null values before displaying a moving average.",
+                    "type": "boolean"
                 },
                 "type": {
                     "$ref": "#/definitions/BITableCalculationType"
@@ -17606,6 +17692,7 @@
                 "Metric",
                 "ActionsPie",
                 "ActionsDonut",
+                "ActionsProportionBar",
                 "ActionsBarValue",
                 "ActionsTable",
                 "WorldMap",
@@ -17640,7 +17727,7 @@
                     "$ref": "#/definitions/YAxisSettings"
                 },
                 "legendPosition": {
-                    "description": "Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest.",
+                    "description": "Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest.",
                     "enum": ["top", "bottom", "left", "right"],
                     "type": "string"
                 },
@@ -29405,7 +29492,7 @@
             "type": "string"
         },
         "HedgehogActorSkinOption": {
-            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost"],
+            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost", "pig"],
             "type": "string"
         },
         "HogCompileResponse": {

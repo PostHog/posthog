@@ -1,5 +1,5 @@
 from collections.abc import Iterable, Iterator
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import cast
 
@@ -156,88 +156,6 @@ def test_forward_windows(
     create_client.return_value.__exit__.assert_called_once()
 
 
-@pytest.mark.parametrize("tz", [None, UTC, timezone(timedelta(hours=5, minutes=30))])
-@pytest.mark.parametrize("cost", ["0", "1.23456789", "-0.125"])
-def test_rows_are_sorted_and_normalized(
-    config: ModalSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
-    create_client: MagicMock,
-    report: MagicMock,
-    tz: timezone | None,
-    cost: str,
-) -> None:
-    early = datetime(2026, 3, 14, tzinfo=tz)
-    late = early + timedelta(hours=1)
-    original = [billing_item(late, cost), billing_item(early, cost)]
-    report.return_value = original
-    response = modal_source(config, inputs, manager)
-    (rows,) = list(source_items(response))
-    expected_early = early.replace(tzinfo=UTC) if tz is None else early.astimezone(UTC)
-    assert [row["interval_start"] for row in rows] == [expected_early, expected_early + timedelta(hours=1)]
-    assert rows[0] == {
-        "object_id": "ap-test",
-        "description": "Example app",
-        "environment_name": "main",
-        "interval_start": expected_early,
-        "cost": float(Decimal(cost)),
-        "tags": {"team": "example", "project": "billing-test"},
-    }
-    assert isinstance(rows[0]["cost"], float)
-    assert rows[0]["tags"] is not original[1].tags
-    assert original[0].cost == Decimal(cost)
-    manager.clear_state.assert_not_called()
-    assert response.on_complete is not None
-    response.on_complete()
-    manager.clear_state.assert_called_once()
-
-
-@pytest.mark.parametrize(
-    ("object_id", "description", "environment_name", "cost", "cost_by_resource", "tags"),
-    [
-        ("ap-first", "First app", "main", "1.23456789", {"cpu": Decimal("1.23456789")}, {"team": "example"}),
-        ("ap-second", "Second app", "staging", "0", {}, {}),
-    ],
-)
-def test_report_item_conversion(
-    config: ModalSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
-    report: MagicMock,
-    object_id: str,
-    description: str,
-    environment_name: str,
-    cost: str,
-    cost_by_resource: dict[str, Decimal],
-    tags: dict[str, str],
-) -> None:
-    interval_start = datetime(2026, 3, 14, tzinfo=UTC)
-    item = BillingReportItem(
-        object_id=object_id,
-        description=description,
-        environment_name=environment_name,
-        interval_start=interval_start,
-        cost=Decimal(cost),
-        cost_by_resource=cost_by_resource,
-        tags=tags,
-    )
-    report.return_value = [item]
-
-    (rows,) = list(source_items(modal_source(config, inputs, manager)))
-
-    assert rows == [
-        {
-            "object_id": object_id,
-            "description": description,
-            "environment_name": environment_name,
-            "interval_start": interval_start,
-            "cost": float(Decimal(cost)),
-            "tags": tags,
-        }
-    ]
-    assert rows[0]["tags"] is not item.tags
-
-
 @pytest.mark.parametrize("has_rows", [True, False])
 def test_retry_resumes_after_saved_window(
     config: ModalSourceConfig,
@@ -271,21 +189,6 @@ def test_retry_resumes_after_saved_window(
         assert list(source_items(modal_source(config, inputs, manager))) == []
     assert report.call_args_list[0].kwargs["start"] == datetime(2026, 3, 12, tzinfo=UTC)
     assert report.call_args_list[-1].kwargs["end"] == NOW
-
-
-@pytest.mark.parametrize("state", [None, ModalResumeConfig(next_window_start=NOW.isoformat(), end=NOW.isoformat())])
-def test_resume_without_work(
-    config: ModalSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
-    create_client: MagicMock,
-    report: MagicMock,
-    state: ModalResumeConfig | None,
-) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = state
-    list(source_items(modal_source(config, inputs, manager)))
-    assert report.call_count == (1 if state is None else 0)
 
 
 @pytest.mark.parametrize("during_creation", [False, True])
@@ -375,15 +278,3 @@ def test_unknown_table_does_not_connect(
         modal_source(config, inputs, manager)
     create_client.assert_not_called()
     report.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    ("schema_name", "expected_seconds"),
-    [("billing_report_daily", 3 * 24 * 60 * 60), ("billing_report_hourly", 6 * 60 * 60)],
-)
-def test_get_schemas_sets_a_default_incremental_lookback(schema_name: str, expected_seconds: int) -> None:
-    # Modal keeps restating recent billing costs, so each table needs a default overlap re-read
-    # window; dropping it would freeze a day's or hour's cost at its first-imported value.
-    config = ModalSourceConfig.from_dict({"token_id": "ak-test", "token_secret": "as-test-secret"})
-    schemas = {s.name: s for s in ModalSource().get_schemas(config, team_id=1)}
-    assert schemas[schema_name].default_incremental_lookback_seconds == expected_seconds

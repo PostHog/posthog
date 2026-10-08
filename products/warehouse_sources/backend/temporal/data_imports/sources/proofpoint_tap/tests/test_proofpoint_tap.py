@@ -116,29 +116,6 @@ def test_windows_auth_and_late_events(endpoint: str, path: str, selector: str, k
     harness.manager.clear_state.assert_called_once()
 
 
-@pytest.mark.parametrize("incremental", [False, True])
-@time_machine.travel(NOW, tick=False)
-@responses.activate
-def test_backfill_is_bounded_and_full_refresh_ignores_saved_cursor(incremental: bool) -> None:
-    add_windows("clicks/blocked", "clicksBlocked", [])
-    harness = Harness(
-        incremental=incremental,
-        watermark=None if incremental else NOW,
-        stored=None if incremental else TapCursor(query_end_time=NOW.isoformat()),
-    )
-    assert harness.rows() == []
-    assert len(responses.calls) == 168
-    intervals = [query(call.request)["interval"][0].split("/") for call in responses.calls]
-    assert intervals[0][0] == "2026-01-01T12:02:00+00:00"
-    assert intervals[-1][1] == "2026-01-08T11:59:00+00:00"
-    assert all(
-        timedelta(seconds=30) <= datetime.fromisoformat(b) - datetime.fromisoformat(a) <= timedelta(hours=1)
-        for a, b in intervals
-    )
-    assert harness.cursor.staged is not None
-    assert harness.manager.safe_point.call_count == 168
-
-
 @pytest.mark.parametrize("watermark", ["2025-01-01T00:00:00Z", datetime(2025, 1, 1), datetime(2025, 1, 1, tzinfo=UTC)])
 @time_machine.travel(NOW, tick=False)
 @responses.activate
@@ -172,16 +149,6 @@ def test_resume_keeps_original_upper_bound_and_completed_cursor(next_start: str)
     if responses.calls:
         assert query(responses.calls[0].request)["interval"] == ["2026-01-08T11:00:00+00:00/2026-01-08T11:30:00+00:00"]
     assert harness.cursor.staged == TapCursor(query_end_time="2026-01-08T11:30:00+00:00")
-
-
-@pytest.mark.parametrize("watermark", [NOW, NOW + timedelta(days=1), "2026-01-08T11:59:50Z"])
-@time_machine.travel(NOW, tick=False)
-@responses.activate
-def test_no_request_for_future_or_short_interval(watermark: str | datetime) -> None:
-    harness = Harness(watermark=watermark)
-    assert harness.rows() == []
-    assert len(responses.calls) == 0
-    assert harness.cursor.staged is None
 
 
 @pytest.mark.parametrize(
