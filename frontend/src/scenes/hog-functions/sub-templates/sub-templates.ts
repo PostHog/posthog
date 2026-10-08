@@ -301,7 +301,6 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         type: 'internal_destination',
         context_id: 'replay-vision-requests',
         filters: { source: 'internal-events', events: [{ id: '$replay_vision_request_completed', type: 'events' }] },
-        flag: FEATURE_FLAGS.REPLAY_VISION_OBSERVATION_REQUESTS,
     },
 }
 
