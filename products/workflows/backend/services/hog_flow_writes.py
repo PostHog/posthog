@@ -109,7 +109,10 @@ def _save_live(instance: HogFlow, validated_data: dict, **overrides: object) -> 
 def save_validated_workflow(*, team_id: int, hog_flow_id: UUID, validated_data: dict) -> None:
     """Write a workflow's validated fields to the live row, with no draft routing, revision bump or
     follow-ups. For callers outside a request: enabling a workflow and the bytecode refresh."""
-    _save_live(HogFlow.objects.get(team_id=team_id, pk=hog_flow_id), validated_data)
+    # The save writes every column. Lock the read so that a concurrent write, such as a staff email
+    # sending pause, either lands before this read or waits for this save, and is never overwritten.
+    with transaction.atomic():
+        _save_live(HogFlow.objects.select_for_update().get(team_id=team_id, pk=hog_flow_id), validated_data)
 
 
 def _derive_from_locked_graph(locked: HogFlow, validated_data: dict) -> dict:
