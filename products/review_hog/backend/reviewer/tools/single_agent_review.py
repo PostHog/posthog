@@ -245,19 +245,17 @@ class FlashSelection:
 _REPORTED_LEVELS: tuple[ReportedPriority, ...] = ("P0", "P1", "P2", "P3")
 
 
-def _severity(issue: Issue) -> tuple[int, int]:
-    """The stored priority, then the reported P level, as numbers that grow with severity.
-
-    A finding without a reported level ranks last within its stored priority.
-    """
+def _reported_level(issue: Issue) -> int:
+    """The reviewer's P level as a number that grows with severity, 0 for a finding without one."""
     reported = issue.reported_priority
-    level = len(_REPORTED_LEVELS) - _REPORTED_LEVELS.index(reported) if reported is not None else 0
-    return priority_rank(issue.priority), level
+    return len(_REPORTED_LEVELS) - _REPORTED_LEVELS.index(reported) if reported is not None else 0
 
 
 def _flash_order(main: list[Issue], lens: list[Issue]) -> list[Issue]:
     """Highest priority first, P0 before P1, then the main findings before the lens findings, then session order."""
-    return sorted([*main, *lens], key=_severity, reverse=True)
+    return sorted(
+        [*main, *lens], key=lambda issue: (priority_rank(issue.priority), _reported_level(issue)), reverse=True
+    )
 
 
 def compose_flash_findings(main: list[Issue], lens: list[Issue], *, lens_part_count: int) -> FlashSelection:
