@@ -428,11 +428,18 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(sum(point["value"] for point in response.json()["results"][0]["points"]), 1.0)
 
-    @parameterized.expand([("days", "-1000000000d"), ("years", "-10000y")])
-    def test_query_rejects_out_of_range_relative_date(self, _name: str, date_from: str):
+    @parameterized.expand(
+        [
+            ("days", {"dateFrom": "-1000000000d"}),
+            ("years", {"dateFrom": "-10000y"}),
+            ("non_ascii_digits", {"dateFrom": "-1\u0661h"}),
+            ("default_window_before_year_one", {"dateTo": "0001-01-01T12:00:00Z"}),
+        ]
+    )
+    def test_query_rejects_out_of_range_relative_date(self, _name: str, date_params: dict[str, str]):
         response = self.client.post(
             f"/api/projects/{self.team.id}/metrics/query",
-            data={"query": {"metricName": "m1", "aggregation": "sum", "dateFrom": date_from}},
+            data={"query": {"metricName": "m1", "aggregation": "sum", **date_params}},
             content_type="application/json",
         )
 

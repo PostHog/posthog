@@ -158,7 +158,8 @@ class MetricQueryInterval(models.TextChoices):
     WEEK = "week", "week"
 
 
-_RELATIVE_DATE_RE = re.compile(r"^-\d+[hdwmy]$")
+# ASCII digits with a length cap: `\d` also matches other scripts, which makes the parser backtrack quadratically.
+_RELATIVE_DATE_RE = re.compile(r"^-[0-9]{1,6}[hdwmy]$")
 _DEFAULT_QUERY_LOOKBACK = dt.timedelta(hours=24)
 
 
@@ -248,9 +249,13 @@ class _MetricQueryBodySerializer(serializers.Serializer):
     def validate(self, attrs: dict) -> dict:
         now = timezone.now()
         date_to = _resolve_query_bound(attrs.get("dateTo"), now=now, field="dateTo") or now
-        attrs["dateFrom"] = (
-            _resolve_query_bound(attrs.get("dateFrom"), now=now, field="dateFrom") or date_to - _DEFAULT_QUERY_LOOKBACK
-        )
+        date_from = _resolve_query_bound(attrs.get("dateFrom"), now=now, field="dateFrom")
+        if date_from is None:
+            try:
+                date_from = date_to - _DEFAULT_QUERY_LOOKBACK
+            except OverflowError:
+                raise serializers.ValidationError({"dateTo": "Too early to leave 'dateFrom' unset."})
+        attrs["dateFrom"] = date_from
         attrs["dateTo"] = date_to
         has_single = bool(attrs.get("metricName"))
         has_clauses = bool(attrs.get("clauses"))
