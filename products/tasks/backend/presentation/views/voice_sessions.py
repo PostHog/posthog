@@ -28,18 +28,6 @@ class VoiceSessionRequestSerializer(serializers.Serializer):
         help_text="Use Responses delegation for structured desktop voice tool calls.",
     )
 
-    def get_fields(self) -> dict[str, serializers.Field]:
-        fields = super().get_fields()
-        # boffin: Keep the wire field named context without overriding DRF's serializer context.
-        fields["context"] = serializers.CharField(
-            max_length=8000,
-            required=False,
-            default="",
-            allow_blank=True,
-            help_text="Recent conversation text for voice context.",
-        )
-        return fields
-
 
 class VoiceSessionResponseSerializer(serializers.Serializer):
     sdp = serializers.CharField(help_text="OpenAI's WebRTC SDP answer. Contains no project API key.")
@@ -83,12 +71,16 @@ class VoiceSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except Exception:
             enabled = False
-        if enabled is not True:
+        if enabled is not True or distinct_id is None:
             raise PermissionDenied("Voice conversations are not enabled for this account.")
         try:
-            result = tasks_facade.create_voice_session(
-                request.validated_data["sdp"],
-                request.validated_data["context"],
+            answer = tasks_facade.create_voice_session(
+                task_id=self.kwargs["parent_lookup_task_id"],
+                team_id=self.team_id,
+                user_id=user.id,
+                distinct_id=distinct_id,
+                organization_id=str(self.organization.id),
+                sdp=request.validated_data["sdp"],
                 structured_tools=request.validated_data["structured_tools"],
             )
         except tasks_facade.VoiceSessionUnavailable:
@@ -98,6 +90,8 @@ class VoiceSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ).data,
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        response = Response(VoiceSessionResponseSerializer(result).data, status=status.HTTP_201_CREATED)
+        if answer is None:
+            raise NotFound()
+        response = Response(VoiceSessionResponseSerializer({"sdp": answer}).data, status=status.HTTP_201_CREATED)
         response["Cache-Control"] = "no-store"
         return response

@@ -7,6 +7,16 @@ Deploy this backend capability before the corresponding Desktop build.
 The server configures `gpt-live-1` for speech and `gpt-5.6-luna` for tool routing, using the existing `OPENAI_LIVE_API_KEY`.
 The key needs access to both models.
 The same staff, task access, AI consent, feature flag, and request throttling checks apply in either mode.
+The client sends only its connection offer and the mode.
+The server builds the conversation context from the logs of the task's latest run and its resumed runs.
+The context contains user and agent messages only, and the voice model treats it as reference data.
+
+The server starts a `desktop-voice-session` Temporal workflow before it returns the connection answer.
+The workflow attaches to the session, closes it after five minutes, and records usage.
+If the workflow cannot start, the endpoint returns 503 and the client never connects.
+The server captures `desktop_voice_session_started` and `desktop_voice_session_ended` with the provider's duration and close reason.
+It captures a `$ai_generation` event with token counts for each delegated model response.
+These events contain no conversation text or audio.
 Cookie sessions use the standard PostHog authentication checks, including required two-factor authentication.
 The endpoint creates sessions through the tasks facade.
 Session recording remains disabled.

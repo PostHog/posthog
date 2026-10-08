@@ -64,6 +64,7 @@ from .process_task.activities.slack_agent_design import (
 from .process_task.slack_agent_design_relay import SlackAgentDesignRelayWorkflow
 from .process_task.workflow import ProcessTaskWorkflow
 from .slack_relay import PostHogCodeAgentRelayWorkflow, relay_slack_message
+from .voice_session import DesktopVoiceSessionWorkflow, monitor_voice_session
 
 WORKFLOWS = [
     ProcessTaskWorkflow,
@@ -73,6 +74,7 @@ WORKFLOWS = [
     RunLoopWorkflow,
     BuildSandboxImageWorkflow,
     BakeDevStackImageWorkflow,
+    DesktopVoiceSessionWorkflow,
 ]
 
 ACTIVITIES = [
@@ -137,4 +139,6 @@ ACTIVITIES = [
     mark_image_build_failed,
     # bake_dev_stack_image activities
     bake_and_publish_dev_stack_image,
+    # desktop voice activities
+    monitor_voice_session,
 ]

@@ -1,5 +1,6 @@
 from typing import Any
 
+import aiohttp
 import requests
 from prometheus_client import Counter
 
@@ -51,3 +52,30 @@ def create_live_session(api_key: str, payload: dict[str, Any]) -> requests.Respo
         json=payload,
         timeout=(5, 20),
     )
+
+
+async def attach_live_session(
+    http: aiohttp.ClientSession, api_key: str, session_id: str
+) -> aiohttp.ClientWebSocketResponse:
+    scope = scope_fingerprint(api_key)
+    endpoint = "live/sessions/attach"
+    try:
+        connection = await http.ws_connect(
+            f"wss://api.openai.com/v1/live/sessions/{session_id}/attach",
+            headers={"Authorization": f"Bearer {api_key}"},
+            heartbeat=20,
+        )
+    except aiohttp.WSServerHandshakeError as error:
+        OpenAILiveClient.observability.record_response(
+            error.status, None, source="desktop_voice_monitor", scope=scope, method="GET", endpoint=endpoint
+        )
+        raise
+    except (aiohttp.ClientError, TimeoutError):
+        OpenAILiveClient.observability.record_exception(
+            source="desktop_voice_monitor", method="GET", endpoint=endpoint, scope=scope
+        )
+        raise
+    OpenAILiveClient.observability.record_response(
+        101, None, source="desktop_voice_monitor", scope=scope, method="GET", endpoint=endpoint
+    )
+    return connection

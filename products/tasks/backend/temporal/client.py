@@ -41,6 +41,7 @@ from products.tasks.backend.temporal.constants import (
 )
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup, ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
+from products.tasks.backend.temporal.voice_session.activities import VoiceSessionMonitorInput
 
 if TYPE_CHECKING:
     pass
@@ -604,6 +605,18 @@ def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
             id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
             task_queue=settings.TASKS_TASK_QUEUE,
             retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+    )
+
+
+def start_voice_session_monitor(input: VoiceSessionMonitorInput) -> None:
+    client = sync_connect()
+    asyncio.run(
+        client.start_workflow(
+            "desktop-voice-session",
+            input,
+            id=f"desktop-voice-session-{input.record.session_id}",
+            task_queue=settings.TASKS_TASK_QUEUE,
         )
     )
 

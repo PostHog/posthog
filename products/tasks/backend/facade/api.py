@@ -115,7 +115,14 @@ from products.tasks.backend.logic.services.space_setup import (
     build_space_setup_prompt,
     space_setup_task_title,
 )
-from products.tasks.backend.logic.services.voice_sessions import VoiceSessionService, VoiceSessionUnavailable
+from products.tasks.backend.logic.services.voice_sessions import (
+    VOICE_SESSION_MAX_DURATION_SECONDS,
+    VoiceSessionRecord,
+    VoiceSessionService,
+    VoiceSessionUnavailable,
+    build_voice_context,
+    capture_voice_session_started,
+)
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
@@ -4386,8 +4393,77 @@ def read_task_run_log_content(log_urls: list[str]) -> str:
     return "".join(parts)
 
 
-def create_voice_session(sdp: str, context: str, *, structured_tools: bool = False) -> dict[str, str]:
-    return VoiceSessionService().create(sdp, context, structured_tools=structured_tools)
+# Bounds the log download for one voice request; older runs past the bound add no context.
+VOICE_CONTEXT_MAX_LOG_BYTES = 8 * 1024 * 1024
+
+
+def create_voice_session(
+    *,
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int,
+    distinct_id: str,
+    organization_id: str,
+    sdp: str,
+    structured_tools: bool,
+) -> str | None:
+    """Start a voice session for a visible task and return the SDP answer, or ``None`` if the task is not visible.
+
+    The server builds the context from the task logs. It starts the monitor that enforces the time limit
+    before it returns the answer, so a client cannot connect to an unmonitored session.
+    """
+    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
+        start_voice_session_monitor,
+    )
+    from products.tasks.backend.temporal.voice_session.activities import (  # noqa: PLC0415 — keep temporalio off the api import path
+        VoiceSessionMonitorInput,
+    )
+
+    task = _visible_task_qs(team_id, user_id).prefetch_related("runs").filter(id=task_id).first()
+    if task is None:
+        return None
+    run = task.latest_run
+    started_at = django_timezone.now()
+    session = VoiceSessionService().create(sdp, _voice_context(run), structured_tools=structured_tools)
+    record = VoiceSessionRecord(
+        session_id=session.session_id,
+        task_id=str(task.id),
+        team_id=team_id,
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+    )
+    try:
+        start_voice_session_monitor(
+            VoiceSessionMonitorInput(
+                record=record,
+                started_at=started_at.isoformat(),
+                max_duration_seconds=VOICE_SESSION_MAX_DURATION_SECONDS,
+            )
+        )
+    except Exception:
+        logger.exception("desktop_voice_monitor_start_failed", extra={"task_id": str(task.id)})
+        raise VoiceSessionUnavailable from None
+    capture_voice_session_started(record, run_id=str(run.id) if run else None, structured_tools=structured_tools)
+    return session.sdp
+
+
+def _voice_context(run: TaskRun | None) -> str:
+    if run is None:
+        return ""
+    try:
+        log_urls: list[str] = []
+        total_bytes = 0
+        for ancestor in reversed(run.get_resume_chain()):
+            size = get_task_run_log_size([ancestor.log_url])
+            if total_bytes + size > VOICE_CONTEXT_MAX_LOG_BYTES:
+                break
+            total_bytes += size
+            log_urls.insert(0, ancestor.log_url)
+        return build_voice_context(read_task_run_log_content(log_urls)) if log_urls else ""
+    except Exception:
+        # Voice still works without context: the task agent keeps the full conversation.
+        logger.exception("desktop_voice_context_unavailable", extra={"run_id": str(run.id)})
+        return ""
 
 
 def create_task_run_connection_token(

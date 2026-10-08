@@ -98856,11 +98856,6 @@ export namespace Schemas {
       sdp: string;
       /** Use Responses delegation for structured desktop voice tool calls. */
       structured_tools?: boolean;
-      /**
-         * Recent conversation text for voice context.
-         * @maxLength 8000
-         */
-      context?: string;
     }
 
     export interface VoiceSessionResponse {
