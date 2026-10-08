@@ -37,7 +37,7 @@ export type AccountSidebarProperty = AccountCustomProperty | AccountRelationship
 export interface AccountPropertyOption {
     key: string
     label: string
-    kind: AccountSidebarProperty['kind']
+    kind: AccountSidebarProperty['kind'] | 'account'
 }
 
 export function isCustomPropertyEditable(provenance: AccountCustomPropertyProvenance): boolean {

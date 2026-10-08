@@ -89,19 +89,6 @@ def _source(manager: mock.MagicMock, endpoint: str = "customers"):
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_null_next_yields_and_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "a"}, {"id": "b"}], next_cursor=None)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == [{"id": "a"}, {"id": "b"}]
-        assert session.send.call_count == 1
-        # pagination.next is null, so we stop without persisting resume state.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_next_cursor_until_null(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(

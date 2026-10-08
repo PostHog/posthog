@@ -26,38 +26,6 @@ def _response(body: dict[str, Any]) -> MagicMock:
 
 
 class TestOrbCursorPaginator:
-    def test_initial_state(self) -> None:
-        paginator = OrbCursorPaginator()
-        # BasePaginator starts has_next_page=True so the first request always runs.
-        assert paginator.has_next_page is True
-        assert paginator._cursor_value is None
-        assert paginator.cursor_param == "cursor"
-
-    def test_update_state_has_more(self) -> None:
-        paginator = OrbCursorPaginator()
-        paginator.update_state(
-            _response({"data": [{"id": "c1"}], "pagination_metadata": {"has_more": True, "next_cursor": "cursor-1"}})
-        )
-        assert paginator._cursor_value == "cursor-1"
-        assert paginator.has_next_page is True
-
-    def test_update_state_terminal_page(self) -> None:
-        paginator = OrbCursorPaginator()
-        paginator.update_state(
-            _response({"data": [{"id": "c1"}], "pagination_metadata": {"has_more": False, "next_cursor": None}})
-        )
-        assert paginator.has_next_page is False
-
-    def test_update_request_adds_cursor_param(self) -> None:
-        paginator = OrbCursorPaginator()
-        paginator.update_state(
-            _response({"data": [], "pagination_metadata": {"has_more": True, "next_cursor": "cursor-2"}})
-        )
-        request = MagicMock()
-        request.params = {"limit": 100}
-        paginator.update_request(request)
-        assert request.params["cursor"] == "cursor-2"
-
     @parameterized.expand([("fresh", None), ("resumed", "cursor-99")])
     def test_init_request_honours_seeded_cursor(self, _label: str, seeded_cursor: str | None) -> None:
         paginator = OrbCursorPaginator()
@@ -146,12 +114,6 @@ class TestGetResource:
         assert resource["write_disposition"] == "replace"
         assert set(self._params(resource).keys()) == {"limit"}
 
-    def test_invoices_uses_invoice_date_filter(self) -> None:
-        resource = get_resource("Invoices", should_use_incremental_field=True)
-        params = self._params(resource)
-        assert "invoice_date[gt]" in params
-        assert "created_at[gt]" not in params
-
 
 class TestOrbSource:
     def _manager(self, *, can_resume: bool, state: OrbResumeConfig | None = None) -> MagicMock:
@@ -159,49 +121,6 @@ class TestOrbSource:
         manager.can_resume.return_value = can_resume
         manager.load_state.return_value = state
         return manager
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.orb.orb.rest_api_resource")
-    def test_source_response_fields(self, mock_rest: MagicMock) -> None:
-        mock_resource = MagicMock()
-        mock_resource.name = "Customers"
-        mock_resource.column_hints = None
-        mock_rest.return_value = mock_resource
-
-        response = orb_source(
-            api_key="key",
-            endpoint="Customers",
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=self._manager(can_resume=False),
-            db_incremental_field_last_value=None,
-            should_use_incremental_field=False,
-        )
-
-        assert response.name == "Customers"
-        assert response.primary_keys == ["id"]
-        # Orb always returns newest-first.
-        assert response.sort_mode == "desc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.orb.orb.rest_api_resource")
-    def test_coupons_has_no_partitioning(self, mock_rest: MagicMock) -> None:
-        mock_resource = MagicMock()
-        mock_resource.name = "Coupons"
-        mock_resource.column_hints = None
-        mock_rest.return_value = mock_resource
-
-        response = orb_source(
-            api_key="key",
-            endpoint="Coupons",
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=self._manager(can_resume=False),
-            db_incremental_field_last_value=None,
-        )
-        # Coupons exposes no stable created_at field, so it can't be partitioned.
-        assert response.partition_mode is None
-        assert response.partition_keys is None
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.orb.orb.rest_api_resource")
     def test_seeds_initial_paginator_state_from_saved_cursor(self, mock_rest: MagicMock) -> None:

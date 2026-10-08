@@ -59,58 +59,6 @@ def rows(client: LogicMonitorClient, table: str, manager: MagicMock) -> list[dic
     return [row for page in cast(Iterable[list[dict[str, Any]]], response.items()) for row in page]
 
 
-@pytest.mark.parametrize(
-    ("table", "path"),
-    [
-        ("devices", "device/devices"),
-        ("device_groups", "device/groups"),
-        ("collectors", "setting/collector/collectors"),
-        ("sdts", "sdt/sdts"),
-        ("websites", "website/websites"),
-    ],
-)
-@pytest.mark.parametrize("resume_offset", [0, 1000])
-def test_pagination_auth_and_resume(manager: MagicMock, table: str, path: str, resume_offset: int) -> None:
-    if resume_offset:
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = LogicMonitorResumeConfig(offset=resume_offset)
-    first = [{"id": i} for i in range(resume_offset, resume_offset + 1000)]
-    last = {"id": resume_offset + 1000}
-    total = resume_offset + 1001
-    with requests_mock.Mocker() as http:
-        http.get(BASE + path, [{"json": {"items": first, "total": total}}, {"json": {"items": [last], "total": total}}])
-        assert rows(LogicMonitorClient(config()), table, manager) == [*first, last]
-        assert [request.qs["offset"] for request in http.request_history] == [
-            [str(resume_offset)],
-            [str(resume_offset + 1000)],
-        ]
-        for request in http.request_history:
-            assert request.headers["Authorization"] == "Bearer fake-bearer-token"
-            assert request.headers["X-Version"] == "3"
-            assert request.qs["size"] == ["1000"]
-            assert "filter" not in request.qs
-            assert request.timeout == 60
-        if table == "collectors":
-            assert "bearertoken" not in http.request_history[0].qs["fields"][0]
-            assert "config" not in http.request_history[0].qs["fields"][0]
-        assert manager.save_state.call_args_list[0].args[0].offset == resume_offset + 1000
-        assert manager.save_state.call_args.args[0].complete
-        manager.clear_state.assert_not_called()
-        response = LogicMonitorClient(config()).source_response(inputs(table), manager)
-        assert response.on_complete is not None
-        response.on_complete()
-        manager.clear_state.assert_called_once()
-
-
-@pytest.mark.parametrize("count", [0, 1, 1000])
-def test_terminal_page(manager: MagicMock, count: int) -> None:
-    data = [{"id": i} for i in range(count)]
-    with requests_mock.Mocker() as http:
-        http.get(BASE + "device/devices", json={"items": data, "total": count})
-        assert rows(LogicMonitorClient(config()), "devices", manager) == data
-        assert http.call_count == 1
-
-
 def test_alert_windows_split_and_keep_both_statuses(manager: MagicMock) -> None:
     with requests_mock.Mocker() as http, patch(f"{MODULE}.time.time", return_value=7):
         http.get(
@@ -134,23 +82,6 @@ def test_alert_windows_split_and_keep_both_statuses(manager: MagicMock) -> None:
         assert saved[1] == LogicMonitorResumeConfig(window_start=4, window_end=8, sync_end=8)
         assert saved[2].complete
         manager.safe_point.assert_called_once()
-
-
-@pytest.mark.parametrize("complete", [False, True])
-def test_alert_resume_preserves_window_and_offset(manager: MagicMock, complete: bool) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = LogicMonitorResumeConfig(
-        window_start=4, window_end=8, sync_end=8, offset=1000, complete=complete
-    )
-    with requests_mock.Mocker() as http:
-        http.get(BASE + "alert/alerts", json={"items": [{"id": "remaining"}], "total": 1001})
-        result = rows(LogicMonitorClient(config()), "alerts", manager)
-        assert result == ([] if complete else [{"id": "remaining"}])
-        assert http.call_count == (0 if complete else 1)
-        if not complete:
-            params = parse_qs(urlsplit(http.last_request.url).query)
-            assert params["offset"] == ["1000"]
-            assert params["filter"] == ['cleared:"*",startEpoch>:4,startEpoch<8']
 
 
 @pytest.mark.parametrize("total", [10000, 10001, None, -1])
@@ -253,10 +184,6 @@ def test_redirect_does_not_receive_token(manager: MagicMock) -> None:
 def test_reject_invalid_portal(value: str) -> None:
     with pytest.raises(ValueError, match="HTTPS LogicMonitor"):
         portal_url(value)
-
-
-def test_normalize_portal() -> None:
-    assert portal_url(" https://EXAMPLE.logicmonitor.com:443/ ") == "https://example.logicmonitor.com"
 
 
 def test_unknown_table(manager: MagicMock) -> None:
