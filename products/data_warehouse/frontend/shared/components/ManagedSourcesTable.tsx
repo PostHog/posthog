@@ -36,12 +36,19 @@ const SCHEMA_STATUS_ORDER: ExternalDataSchemaStatus[] = [
 ]
 
 export function ManagedSourcesTable(): JSX.Element {
-    const { filteredManagedSources, dataWarehouseSourcesLoading, sourceReloadingById, managedSearchTerm } =
-        useValues(sourceManagementLogic)
+    const {
+        filteredManagedSources,
+        managedSources,
+        dataWarehouseSourcesLoading,
+        sourceReloadingById,
+        managedSearchTerm,
+    } = useValues(sourceManagementLogic)
     const { deleteSource, reloadSource, setManagedSearchTerm } = useActions(sourceManagementLogic)
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
+    // Reading the flag sends the experiment exposure, so only read it once there is a source to show.
+    const showUsageColumns = managedSources.length > 0 && featureFlags[FEATURE_FLAGS.DWH_SOURCE_COST_COLUMNS] === 'test'
     const { sourceUsageById, showSourceCost, rowsStats } = useValues(sourceUsageLogic)
     const billingPeriodStart = rowsStats?.billing_period_start
         ? dayjs(rowsStats.billing_period_start).format('MMM D')
@@ -114,15 +121,17 @@ export function ManagedSourcesTable(): JSX.Element {
                         },
                     },
                     {
-                        title: 'Rows stored',
+                        title: showUsageColumns ? 'Rows stored' : 'Total Rows Synced',
                         key: 'rows_synced',
-                        tooltip: "Rows currently in this source's tables. This is not what you're billed for.",
+                        tooltip: showUsageColumns
+                            ? "Rows currently in this source's tables. This is not what you're billed for."
+                            : 'Total number of rows synced across all schemas in this source',
                         render: (_, source) =>
                             source.schemas
                                 .reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
                                 .toLocaleString(),
                     },
-                    ...(sourceUsageById
+                    ...(showUsageColumns && sourceUsageById
                         ? [
                               {
                                   title: 'Billed rows this period',
@@ -135,7 +144,7 @@ export function ManagedSourcesTable(): JSX.Element {
                               },
                           ]
                         : []),
-                    ...(sourceUsageById && showSourceCost
+                    ...(showUsageColumns && sourceUsageById && showSourceCost
                         ? [
                               {
                                   title: 'Estimated cost this period',
