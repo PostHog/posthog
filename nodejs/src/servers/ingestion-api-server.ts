@@ -281,7 +281,9 @@ export class IngestionApiServer implements NodeServer {
         this.ingestionProducerRegistry = await createIngestionProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(
             this.config
         )
-        const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
+        const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config, {
+            dropAll: this.config.INGESTION_OUTPUTS_DISABLED,
+        })
         this.ingestionOutputs = ingestionOutputs
         const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 

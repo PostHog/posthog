@@ -1,3 +1,6 @@
+import { logger } from '~/common/utils/logger'
+
+import { DroppedIngestionOutput } from './dropped-ingestion-output'
 import { DualWriteIngestionOutput } from './dual-write-ingestion-output'
 import { IngestionOutput } from './ingestion-output'
 import { IngestionOutputs } from './ingestion-outputs'
@@ -40,6 +43,11 @@ interface DualWriteDefWithDenylist<
 > extends DualWriteDef<TK, PK, STK, SPK, MK, PerK> {
     /** Config key holding a comma-separated list of team IDs that stay on primary in denylist modes. */
     teamDenylistKey: DenyK
+}
+
+export interface IngestionOutputsBuildOptions {
+    /** Discard every message on every output instead of producing it. */
+    dropAll?: boolean
 }
 
 /** Internal storage shape — denylist key is optional so both variants can share the map. */
@@ -179,13 +187,23 @@ export class IngestionOutputsBuilder<
      *
      * The compiler verifies that the config contains all accumulated topic keys as `string`,
      * all accumulated producer keys as `P` (matching the registry's producer name type),
-     * and all accumulated number keys as `number`.
+     * and all accumulated number keys as `number`. With `dropAll`, every output discards its messages.
      */
     build<P extends string>(
         registry: KafkaProducerRegistry<P>,
-        config: Record<StringKey, string> & Record<ProducerKey, P> & Record<NumberKey, number>
+        config: Record<StringKey, string> & Record<ProducerKey, P> & Record<NumberKey, number>,
+        options: IngestionOutputsBuildOptions = {}
     ): IngestionOutputs<O> {
         const record: Record<string, IngestionOutput> = {}
+
+        if (options.dropAll) {
+            const names = [...this.primaryDefs.keys(), ...this.dualWriteDefs.keys()]
+            for (const name of names) {
+                record[name] = new DroppedIngestionOutput(name)
+            }
+            logger.warn('⚠️', `Ingestion outputs are disabled; every message is discarded for: ${names.join(', ')}`)
+            return new IngestionOutputs<O>(record as Record<O, IngestionOutput>)
+        }
 
         for (const [name, def] of this.primaryDefs) {
             const producerName = config[def.producerKey]

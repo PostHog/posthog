@@ -82,6 +82,14 @@ Pipeline steps receive `IngestionOutputs<O>` as a dependency and produce message
 
 Each pipeline defines its output and producer config in its own directory (e.g. `analytics/config/`). Shared output constants that appear in multiple pipelines go in `common/outputs.ts`. The server builds the outputs at startup and passes them down.
 
+## Disabling outputs
+
+`INGESTION_OUTPUTS_DISABLED=true` makes every analytics output discard its messages instead of producing them.
+Use it for a lane that consumes production traffic alongside the main lane to test a change, and must not write to any topic.
+Every output is replaced, including DLQ, overflow and async, so events that would go there are lost too.
+Startup topic and health checks pass without a reachable broker.
+The server logs a warning listing the disabled outputs, and `ingestion_outputs_dropped_messages_total{output}` counts each discarded message.
+
 ## How to extend
 
 To add a new output:

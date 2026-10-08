@@ -2,6 +2,7 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 
 import { IngestionOutputsBuilder, parseTeamDenylist } from './ingestion-outputs-builder'
 import { KafkaProducerRegistry } from './kafka-producer-registry'
+import { ingestionOutputsDroppedMessages } from './metrics'
 
 describe('IngestionOutputsBuilder', () => {
     type TestProducer = 'PRIMARY' | 'SECONDARY'
@@ -280,6 +281,53 @@ describe('IngestionOutputsBuilder', () => {
                 })
                 .build(registry, config)
         ).toThrow(/team denylist is empty/)
+    })
+
+    it('dropAll discards every message on single and dual-write outputs without touching a producer', async () => {
+        ingestionOutputsDroppedMessages.reset()
+        const registry = createRegistry()
+        for (const producer of ['PRIMARY', 'SECONDARY'] as const) {
+            jest.mocked(registry.getProducer(producer).checkConnection).mockRejectedValue(new Error('unreachable'))
+            jest.mocked(registry.getProducer(producer).checkTopicExists).mockRejectedValue(new Error('no such topic'))
+        }
+        const config = {
+            EVENTS_TOPIC: 'events_v1',
+            EVENTS_PRODUCER: 'PRIMARY' as TestProducer,
+            EVENTS_SECONDARY_TOPIC: 'events_v2',
+            EVENTS_SECONDARY_PRODUCER: 'SECONDARY' as TestProducer,
+            EVENTS_MODE: 'copy',
+            EVENTS_PERCENTAGE: 100,
+            DLQ_TOPIC: 'dlq',
+            DLQ_PRODUCER: 'PRIMARY' as TestProducer,
+        }
+
+        const outputs = new IngestionOutputsBuilder()
+            .registerDualWrite('events', {
+                topicKey: 'EVENTS_TOPIC',
+                producerKey: 'EVENTS_PRODUCER',
+                secondaryTopicKey: 'EVENTS_SECONDARY_TOPIC',
+                secondaryProducerKey: 'EVENTS_SECONDARY_PRODUCER',
+                modeKey: 'EVENTS_MODE',
+                percentageKey: 'EVENTS_PERCENTAGE',
+            })
+            .register('dlq', { topicKey: 'DLQ_TOPIC', producerKey: 'DLQ_PRODUCER' })
+            .build(registry, config, { dropAll: true })
+
+        await outputs.produce('events', { key: Buffer.from('k'), value: Buffer.from('v') })
+        await outputs.queueMessages('dlq', [{ value: Buffer.from('a') }, { value: Buffer.from('b') }])
+
+        for (const producer of ['PRIMARY', 'SECONDARY'] as const) {
+            expect(registry.getProducer(producer).produce).not.toHaveBeenCalled()
+            expect(registry.getProducer(producer).queueMessages).not.toHaveBeenCalled()
+        }
+        const dropped = (await ingestionOutputsDroppedMessages.get()).values
+        expect(Object.fromEntries(dropped.map((entry) => [entry.labels.output, entry.value]))).toEqual({
+            events: 1,
+            dlq: 2,
+        })
+        // A lane with outputs disabled needs no reachable broker or existing topic to start.
+        expect(await outputs.checkTopics()).toEqual([])
+        expect(await outputs.checkHealth()).toEqual([])
     })
 
     it('mixes register and registerDualWrite', async () => {

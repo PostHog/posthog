@@ -263,7 +263,9 @@ export class IngestionGeneralServer implements NodeServer {
         // a typed view over it — built once here for analytics, and
         // separately by each consumer factory as needed.
         const ingestionProducerRegistry = sharedServices.container.producerRegistry
-        const ingestionOutputs = createOutputsRegistry().build(ingestionProducerRegistry, this.config)
+        const ingestionOutputs = createOutputsRegistry().build(ingestionProducerRegistry, this.config, {
+            dropAll: this.config.INGESTION_OUTPUTS_DISABLED,
+        })
         const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 
         const hogTransformerDeps: HogTransformerServiceDeps = {
