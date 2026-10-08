@@ -438,6 +438,8 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
                 # If an action doesn't exist, we want to return no events
                 filters.append(parse_expr("1 = 2"))
 
+        cohort_via_distinct_id = isinstance(series, DataWarehouseNode)
+
         # Filter Test Accounts
         if (
             self.query.filterTestAccounts
@@ -445,15 +447,19 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
             and len(self.team.test_account_filters) > 0
         ):
             for property in self.team.test_account_filters:
-                filters.append(property_to_expr(property, self.team))
+                filters.append(property_to_expr(property, self.team, cohort_via_distinct_id=cohort_via_distinct_id))
 
         # Properties
         if self.query.properties is not None and self.query.properties != []:
-            filters.append(property_to_expr(self.query.properties, self.team))
+            filters.append(
+                property_to_expr(self.query.properties, self.team, cohort_via_distinct_id=cohort_via_distinct_id)
+            )
 
         # Series Filters
         if series.properties is not None and series.properties != []:
-            filters.append(property_to_expr(series.properties, self.team))
+            filters.append(
+                property_to_expr(series.properties, self.team, cohort_via_distinct_id=cohort_via_distinct_id)
+            )
 
         # Ignore empty groups
         if series.math == "unique_group" and series.math_group_type_index is not None:

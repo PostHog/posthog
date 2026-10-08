@@ -2519,6 +2519,35 @@ class TestFetchSessionNetworkActivity:
         assert payload.partial is True
         assert [r.url for r in payload.requests] == ["https://app.test/boom"], "the finished block was lost"
 
+    @pytest.mark.asyncio
+    async def test_a_separator_inside_a_compressed_payload_does_not_split_its_line(self) -> None:
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        snapshot = {"type": 2, "timestamp": 900, "data": "gzip\x1ebytes\u2028here"}
+        failure = {
+            "type": 6,
+            "timestamp": 1000,
+            "data": {
+                "plugin": "rrweb/network@1",
+                "payload": {"requests": [{"name": "https://app.test/boom", "status": 500}]},
+            },
+        }
+        content = json.dumps({"window_id": "w1", "data": [snapshot, failure]}, ensure_ascii=False).encode()
+
+        class _Client:
+            async def fetch_block(self, *args: Any, **kwargs: Any) -> bytes:
+                return content
+
+        @contextlib.asynccontextmanager
+        async def _client(*args: Any, **kwargs: Any) -> Any:
+            yield _Client()
+
+        blocks = [RecordingBlock(key="k", start_byte=0, end_byte=16, start_timestamp="", end_timestamp="")]
+        with patch.object(mod, "recording_api_client", _client):
+            payload = await mod._collect(blocks, session_id="sess-1", team_id=1)
+
+        assert [r.url for r in payload.requests] == ["https://app.test/boom"]
+
     def test_a_batch_is_bounded_by_bytes_not_only_by_count(self) -> None:
         # Concurrency alone does not bound memory: blocks reach tens of MiB, and four decompressed at
         # once would threaten the worker's limit.
@@ -2729,7 +2758,6 @@ async def _run_workflow(
         patch("temporalio.workflow.execute_child_workflow", side_effect=mocks.execute_child_workflow),
         # `wf.logger` requires a real workflow event loop, which this direct-call harness skips.
         patch("temporalio.workflow.logger"),
-        patch("temporalio.workflow.deprecate_patch"),
     ):
         await ApplyScannerWorkflow().run(inputs)
 
