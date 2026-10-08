@@ -213,7 +213,7 @@ def get_hogql_metadata(
             if prepared_ast:
                 response.ch_table_names = get_table_names(prepared_ast)
 
-            if source is None and FLAG_CALLED_EVENT in query.query:
+            if source is None and FLAG_CALLED_EVENT in query.query and _flag_called_move_notices_enabled(team):
                 heuristic_warnings.extend(_flag_called_on_events_warnings(hogql_ast, context))
 
             if source is None and query.indexUsage and _index_usage_enabled(team):
@@ -277,6 +277,23 @@ def _index_usage_enabled(team: Team) -> bool:
     """
     return feature_enabled_or_false(
         "hogql-index-eligibility",
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+    )
+
+
+def _flag_called_move_notices_enabled(team: Team) -> bool:
+    """Customers have not been told yet that $feature_flag_called is moving to posthog.flag_evaluations.
+
+    A warning about the move with no announcement behind it reads as a bug, so the flag stays off until the
+    announcement goes out.
+    """
+    return feature_enabled_or_false(
+        "flag-called-move-notices",
         str(team.uuid),
         groups={"organization": str(team.organization_id), "project": str(team.id)},
         group_properties={

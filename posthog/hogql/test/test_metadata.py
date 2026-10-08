@@ -387,10 +387,16 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 True,
                 0,
             ),
+            ("move_notices_off", "SELECT count() FROM events WHERE event = '$feature_flag_called'", True, 0, False),
         ]
     )
     def test_metadata_warns_for_flag_called_read_from_events(
-        self, _name: str, query: str, flag_evaluations_enabled: bool, expected: int
+        self,
+        _name: str,
+        query: str,
+        flag_evaluations_enabled: bool,
+        expected: int,
+        move_notices_enabled: bool = True,
     ) -> None:
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -406,9 +412,12 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 expression="event = '$feature_flag_called'",
             )
 
-        with patch(
-            "products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled",
-            return_value=flag_evaluations_enabled,
+        with (
+            patch(
+                "products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled",
+                return_value=flag_evaluations_enabled,
+            ),
+            patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=move_notices_enabled),
         ):
             metadata = self._select(query)
 
