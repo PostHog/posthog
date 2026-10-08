@@ -20,6 +20,43 @@ tools:
         description_file: ./prompts/characterize-metric-anomaly.md
         system_prompt_hint: First call when investigating "metric X looks wrong" — magnitude, onset, which labels moved
         feature_flag: metrics
+    metric-attribute-values-list:
+        operation: metrics_attribute_values_retrieve
+        enabled: true
+        scopes:
+            - metrics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List metric attribute values
+        description: >
+            List the values of one attribute key of a metric, from the most frequent value to the least frequent. Use it
+            to find the exact value for a filter, for example the service.name of a service.
+        feature_flag: metrics
+        response:
+            include:
+                - results
+    metric-attributes-list:
+        operation: metrics_attributes_retrieve
+        enabled: true
+        scopes:
+            - metrics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List metric attributes
+        description: >
+            List the attribute keys (labels) of the project's metrics, from the key on the most series to the key on the
+            fewest. Pass metricName to list the keys of one metric. Use a key as a filter or a group-by key in
+            query-metrics, or as a PromQL label name. In PromQL, service.name is service_name and other names with dots
+            need quotes.
+        system_prompt_hint: Find the labels of a metric before you filter or group it
+        feature_flag: metrics
+        response:
+            include:
+                - results
     metric-names-list:
         operation: metrics_values_retrieve
         enabled: true
@@ -36,6 +73,18 @@ tools:
         response:
             include:
                 - results
+    metrics-dashboard-panels-validate:
+        operation: metrics_dashboard_imports_validate_create
+        enabled: true
+        scopes:
+            - metrics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Validate dashboard panel queries
+        description_file: ./prompts/metrics-dashboard-panels-validate.md
+        feature_flag: metrics-dashboard-import
     query-metrics:
         operation: metrics_query_create
         enabled: true
@@ -52,52 +101,3 @@ tools:
         response:
             include:
                 - results
-    metric-attributes-list:
-        operation: metrics_attributes_retrieve
-        enabled: true
-        scopes:
-            - metrics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List metric attributes
-        description: >
-            List the attribute keys (labels) of the project's metrics, from the key on the most series to the key on
-            the fewest. Pass metricName to list the keys of one metric. Use a key as a filter or a group-by key in
-            query-metrics, or as a PromQL label name. In PromQL, service.name is service_name and other names with
-            dots need quotes.
-        system_prompt_hint: Find the labels of a metric before you filter or group it
-        feature_flag: metrics
-        response:
-            include:
-                - results
-    metric-attribute-values-list:
-        operation: metrics_attribute_values_retrieve
-        enabled: true
-        scopes:
-            - metrics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List metric attribute values
-        description: >
-            List the values of one attribute key of a metric, from the most frequent value to the least frequent.
-            Use it to find the exact value for a filter, for example the service.name of a service.
-        feature_flag: metrics
-        response:
-            include:
-                - results
-    metrics-dashboard-panels-validate:
-        operation: metrics_dashboard_imports_validate_create
-        enabled: true
-        scopes:
-            - metrics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Validate dashboard panel queries
-        description_file: ./prompts/metrics-dashboard-panels-validate.md
-        feature_flag: metrics-dashboard-import
