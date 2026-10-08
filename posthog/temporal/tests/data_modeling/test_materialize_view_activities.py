@@ -782,7 +782,16 @@ class TestNodeSuspension:
         for job in jobs:
             await database_sync_to_async(job.delete)()
 
-    @pytest.mark.parametrize("identifier", ["Preempted", "QueueEmpty", "ProxyConnectionError"])
+    @pytest.mark.parametrize(
+        "identifier",
+        [
+            "Preempted",
+            "QueueEmpty",
+            "ProxyConnectionError",
+            "Arrow stream contains bytes that are not an IPC message",
+            "Encapsulated IPC message format must begin with continuation bytes",
+        ],
+    )
     async def test_suspends_when_a_customer_identifier_spells_an_abort_marker(
         self, ateam, anode, asaved_query, adag, identifier
     ):

@@ -106,9 +106,9 @@ EXTERNALLY_ABORTED_MARKERS = (
     # the query ran and produced rows; only the publish was refused
     QUALITY_BLOCKED_ERROR_PREFIX,
     # the Arrow stream broke and carried no ClickHouse error, so nothing says the query failed
-    INVALID_MESSAGE_FORMAT_ERROR,
+    f"{INVALID_MESSAGE_FORMAT_ERROR}: ",
     # older job rows record the same stream fault with this text
-    "Encapsulated IPC message format must begin with continuation bytes",
+    "Encapsulated IPC message format must begin with continuation bytes, received: ",
 )
 
 
