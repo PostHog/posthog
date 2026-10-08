@@ -6316,8 +6316,14 @@ snapshots:
         hash: v1.k794b7964.2c12f9bc885c2159d88852c4ac472f681cc3dcb01e38e9291bfbd4184071044b.UEn1UxsfTw73_Dw6BSg5MGn9UsF3gk8BhG4y2SMb4HU
     mcp-apps-trends--bar-value-many-breakdowns--light:
         hash: v1.k794b7964.22187bb708adf85f40ea196df123bc4f11384eeef88ab0ec4d8e5fde8cd07165.IDxL-VRfm6bgHZPh_Z9MVj3g0ssz3su3PHGzNaTf-Vk
+    mcp-apps-trends--donut--light:
+        hash: v1.k794b7964.2ecaef94116d43c67f8eb8b41f6df93f350896e36be23dabf15d17ed794f894e.ZtobinT9oCgMvwrL2sfTGim519QmGqoi8xB_Pu4HObQ
     mcp-apps-trends--multi-series--light:
         hash: v1.k794b7964.590c3b62c9f76c72da6ee2ee2a4cf22c27881b373690f0dd05039b3276674e2d.-MNk8IwYc1MD_AJwE11zBCWPKHS311soE8tuEewecRc
+    mcp-apps-trends--pie--light:
+        hash: v1.k794b7964.71bf9a67abbc8af67484c4ba46db9846533f0817a6c9431dbe86671f8c0c0657.gI8aNPSnINceu0ufFOIk1eB34bjlf7nWah24hc8EZRA
+    mcp-apps-trends--pie-percentages--light:
+        hash: v1.k794b7964.6333bf4d729ec9ca4bfd598fcf1fa09a528f1599ce8f520e0ac0dd4e090d0664.15Ipmr89-9dldfy4jSeYJzGj68hsOmPmhgafAhHmwko
     mcp-apps-trends--single-series--light:
         hash: v1.k794b7964.1b5decab0f76ab924d787808679c22a9d7e29d3b908dc4efa02492eb5a5975ec.v1FGWBy1MIcdGPJmdIHHBHAD0lgjDTnH067dbcZqZGw
     mcp-apps-trends--time-series-bar--light:
