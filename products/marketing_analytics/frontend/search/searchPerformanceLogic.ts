@@ -163,19 +163,8 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 sources.some((source) => source.sourceType !== 'GoogleSearchConsole'),
         ],
         displayMetrics: [
-            (s) => [s.hasPaidSources, s.metrics, s.readySources],
-            (
-                hasPaidSources: boolean,
-                metrics: SearchMetrics,
-                sources: MarketingAnalyticsSearchSource[]
-            ): SearchMetrics =>
-                metrics === 'visibility'
-                    ? sources.some((source) => source.sourceType === 'GoogleAds')
-                        ? metrics
-                        : 'traffic'
-                    : hasPaidSources
-                      ? metrics
-                      : 'traffic',
+            (s) => [s.hasPaidSources, s.metrics],
+            (hasPaidSources: boolean, metrics: SearchMetrics): SearchMetrics => (hasPaidSources ? metrics : 'traffic'),
         ],
         query: [
             (s) => [s.readySources, s.dateFilter, s.querySearch, s.compareFilter, s.breakdown],

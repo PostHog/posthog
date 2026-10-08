@@ -107,15 +107,6 @@ export function SearchPerformanceTab(): JSX.Element {
                                         options={[
                                             { value: 'traffic', label: 'Traffic' },
                                             {
-                                                value: 'visibility',
-                                                label: 'Visibility',
-                                                disabledReason: !readySources.some(
-                                                    (source) => source.sourceType === 'GoogleAds'
-                                                )
-                                                    ? 'Connect and sync Google Ads to see ad placement.'
-                                                    : undefined,
-                                            },
-                                            {
                                                 value: 'conversions',
                                                 label: 'Spend and conversions',
                                                 disabledReason: !hasPaidSources

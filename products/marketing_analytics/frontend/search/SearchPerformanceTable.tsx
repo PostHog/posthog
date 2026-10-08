@@ -23,6 +23,7 @@ import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/S
 import { MarketingQueryError } from '../dashboard/MarketingQueryError'
 import { ChangeValueCell } from '../dashboard/tables/ChangeValueCell'
 import { SEARCH_PLATFORM_LABELS, SearchMetrics } from './searchPerformance'
+import { SearchPositionCell } from './SearchPositionCell'
 
 export function SearchPerformanceTable({
     query,
@@ -46,24 +47,22 @@ export function SearchPerformanceTable({
     const { loadData } = useActions(logic)
     const rows = (response as MarketingAnalyticsSearchQueryResponse | undefined)?.results ?? []
     const hasPaidSources = query.sources.some((source) => source.sourceType !== 'GoogleSearchConsole')
-    const hasOrganicSources = query.sources.some((source) => source.sourceType === 'GoogleSearchConsole')
-    const metricKeys: (keyof MarketingAnalyticsSearchMetrics)[] =
+    const hasPositionSources = query.sources.some((source) =>
+        ['GoogleSearchConsole', 'GoogleAds'].includes(source.sourceType)
+    )
+    const metricKeys: Exclude<
+        keyof MarketingAnalyticsSearchMetrics,
+        'topImpressionRate' | 'absoluteTopImpressionRate'
+    >[] =
         metrics === 'traffic'
             ? [
                   'clicks',
                   'impressions',
                   'ctr',
                   ...(hasPaidSources ? ['cost' as const] : []),
-                  ...(hasOrganicSources ? ['position' as const] : []),
+                  ...(hasPositionSources ? ['position' as const] : []),
               ]
-            : metrics === 'visibility'
-              ? [
-                    'impressions',
-                    'topImpressionRate',
-                    'absoluteTopImpressionRate',
-                    ...(hasOrganicSources ? ['position' as const] : []),
-                ]
-              : ['cost', 'conversions', 'cpc', 'cpa']
+            : ['cost', 'conversions', 'cpc', 'cpa']
 
     if (responseError && !responseLoading) {
         return (
@@ -158,8 +157,6 @@ export function SearchPerformanceTable({
                                             cpc: 'CPC',
                                             cpa: 'CPA',
                                             position: 'Position',
-                                            topImpressionRate: 'Top impressions',
-                                            absoluteTopImpressionRate: 'First-position impressions',
                                         }[metric]
                                     }
                                 </span>
@@ -174,8 +171,6 @@ export function SearchPerformanceTable({
                                             cpc: 'CPC',
                                             cpa: 'CPA',
                                             position: 'Pos.',
-                                            topImpressionRate: 'Top %',
-                                            absoluteTopImpressionRate: 'First %',
                                         }[metric]
                                     }
                                 </span>
@@ -189,18 +184,20 @@ export function SearchPerformanceTable({
                             conversions: 'Conversions attributed by the ad platform',
                             cpc: 'Spend divided by clicks',
                             cpa: 'Spend divided by conversions',
-                            topImpressionRate:
-                                'Percentage of Google Search ad impressions shown among the top ads. Excludes Search partners. Requires a sync with ad placement data.',
-                            absoluteTopImpressionRate:
-                                'Percentage of Google Search ad impressions shown as the first ad. Excludes Search partners. Requires a sync with ad placement data.',
                             position:
-                                'Average position in organic Google search, weighted by impressions. Lower is better.',
+                                'Organic search position or Google Ads top and first-position impression percentages. Hover over a value for details.',
                         }[metric],
                         key: metric,
                         align: 'right' as const,
-                        sorter: (a: MarketingAnalyticsSearchRow, b: MarketingAnalyticsSearchRow) =>
-                            (a[metric] ?? -1) - (b[metric] ?? -1),
+                        sorter:
+                            metric === 'position' && hasPaidSources
+                                ? undefined
+                                : (a: MarketingAnalyticsSearchRow, b: MarketingAnalyticsSearchRow) =>
+                                      (a[metric] ?? -1) - (b[metric] ?? -1),
                         render: (_: unknown, row: MarketingAnalyticsSearchRow) => {
+                            if (metric === 'position') {
+                                return <SearchPositionCell row={row} compare={!!query.compareFilter?.compare} />
+                            }
                             const value = row[metric] ?? null
                             const money = metric === 'cost' || metric === 'cpc' || metric === 'cpa'
                             const currency =
@@ -213,23 +210,16 @@ export function SearchPerformanceTable({
                                         value={value === null ? null : [value, row.previous?.[metric] ?? null]}
                                         compare={!!query.compareFilter?.compare}
                                         kind={
-                                            metric === 'ctr' ||
-                                            metric === 'topImpressionRate' ||
-                                            metric === 'absoluteTopImpressionRate'
+                                            metric === 'ctr'
                                                 ? 'percentage'
                                                 : money && currency
                                                   ? 'currency'
-                                                  : metric === 'conversions' || metric === 'position' || money
+                                                  : metric === 'conversions' || money
                                                     ? 'decimal'
                                                     : 'number'
                                         }
                                         currency={currency ?? CurrencyCode.USD}
-                                        reverseColors={
-                                            metric === 'cost' ||
-                                            metric === 'cpc' ||
-                                            metric === 'cpa' ||
-                                            metric === 'position'
-                                        }
+                                        reverseColors={metric === 'cost' || metric === 'cpc' || metric === 'cpa'}
                                     />
                                     {money && row.platform !== 'GoogleSearchConsole' && (
                                         <span className="block text-xs text-secondary">

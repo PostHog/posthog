@@ -15,8 +15,9 @@ These counts guide connection suggestions; they do not change report attribution
 
 Spend and conversions require a synced ad platform source in the current search filters.
 Google Search Console reports organic traffic metrics only.
-The Traffic view always includes position when a Google Search Console source is ready, including when paid sources are selected.
-The Visibility view shows Google Ads top and first-position impression percentages for keywords and landing pages.
+The Traffic view always includes the Position column when Google Search Console or Google Ads is ready.
+The Position cell shows the organic average position for Google Search Console, or top and first-position impression percentages for Google Ads.
+Hover over each label or value for its definition.
 These percentages use Google Search impressions with placement data, weighted by impressions; Search partners are excluded.
 They do not identify second or third position.
 Existing connections need to sync `keyword_stats` or `landing_page_stats` to import the new fields; older rows without placement data show no value.

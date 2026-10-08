@@ -4,7 +4,7 @@ import { MarketingAnalyticsSearchQuery, MarketingAnalyticsSearchSource } from '~
 import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 export type SearchPlatform = MarketingAnalyticsSearchSource['sourceType']
-export type SearchMetrics = 'traffic' | 'conversions' | 'visibility'
+export type SearchMetrics = 'traffic' | 'conversions'
 export type SearchBreakdown = NonNullable<MarketingAnalyticsSearchQuery['breakdown']>
 export type SearchChannel = 'all' | 'paid' | 'organic'
 

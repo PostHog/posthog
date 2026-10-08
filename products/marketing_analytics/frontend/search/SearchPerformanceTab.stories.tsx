@@ -632,18 +632,23 @@ export const NewDashboardFlagOff: Story = {
     },
 }
 
-export const Visibility: Story = {
+export const PositionMetrics: Story = {
     ...Comparison,
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByRole('button', { name: 'Visibility' }))
-        await expect(
-            await canvas.findByRole('columnheader', { name: /first-position impressions|first %/i })
-        ).toBeVisible()
+        await expect(await canvas.findByRole('columnheader', { name: /position|pos\./i })).toBeVisible()
         await expect(await canvas.findAllByText('72.0%')).not.toHaveLength(0)
+        await expect(await canvas.findAllByText('38.0%')).not.toHaveLength(0)
+        await expect(canvas.queryByRole('button', { name: 'Visibility' })).not.toBeInTheDocument()
+        await userEvent.hover((await canvas.findAllByText('Top'))[0])
+        await expect(
+            await within(document.body).findByText(
+                'Percentage of Google Search ad impressions shown among the top ads. Excludes Search partners. Requires a sync with ad placement data.'
+            )
+        ).toBeVisible()
     },
 }
-export const NarrowVisibility: Story = {
+export const NarrowPositionMetrics: Story = {
     ...Narrow,
-    play: Visibility.play,
+    play: PositionMetrics.play,
 }
