@@ -41,7 +41,7 @@ _SUPPORTED_KINDS = {HOGQL_DEFINITION_KIND, *_NODE_MODELS, *_INSIGHT_MODELS}
 MAX_MARKDOWN_DEFINITION_LENGTH = 20_000
 
 # A description is a few sentences of business meaning; a narrated query walkthrough blows past this.
-MAX_DESCRIPTION_LENGTH = 1_000
+MAX_DESCRIPTION_LENGTH = 300
 
 # HogQLQuery carries fields that would let a caller bypass team query controls (a raw ClickHouse
 # passthrough, an arbitrary DB connection). A metric definition may only set these.
@@ -106,8 +106,9 @@ def validate_description(description: str) -> None:
     if len(description) > MAX_DESCRIPTION_LENGTH:
         raise ValidationError(
             {
-                "description": f"Description is too long. State what the metric means and what it serves in 1-3 "
-                f"sentences (under {MAX_DESCRIPTION_LENGTH} characters), and put query rationale in 'reasoning'."
+                "description": f"Description is too long. Say what the metric is in 1-2 short sentences, under "
+                f"{MAX_DESCRIPTION_LENGTH} characters. Leave out source tables, lineage, column lists, and "
+                "comparisons with other metrics; put query rationale in 'reasoning'."
             }
         )
 

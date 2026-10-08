@@ -20,7 +20,7 @@ PROPOSED_BADGE_ICON = "\U0001f4dd"
 
 # Deliberately tighter than the server cap (validation.MAX_DESCRIPTION_LENGTH = 1000): the eval
 # catches verbosity the hard cap would still admit.
-EVAL_DESCRIPTION_CHAR_LIMIT = 500
+EVAL_DESCRIPTION_CHAR_LIMIT = 200
 
 TOP_CUSTOMERS_METRIC_NAME = "top_customers_mrr_by_business_model"
 TOP_CUSTOMERS_METRIC_DISPLAY_NAME = "Top B2C customers by revenue"

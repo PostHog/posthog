@@ -183,9 +183,10 @@ class MetricSerializer(serializers.ModelSerializer):
             },
             "display_name": {"help_text": "Human-friendly label. Mutable, unlike name."},
             "description": {
-                "help_text": "What the metric means and what it serves, in 1-3 short sentences: the business "
-                "meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the "
-                "query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.",
+                "help_text": "What the number is, in 1-2 short sentences under 300 characters: its meaning and "
+                "grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, "
+                "column lists, and comparisons with other metrics. Never narrate the query - the definition carries "
+                "the mechanics; put rationale for query choices in 'reasoning'.",
                 "max_length": MAX_DESCRIPTION_LENGTH,
             },
             "unit": {"help_text": "Unit of the result, e.g. usd, percent, cents."},
