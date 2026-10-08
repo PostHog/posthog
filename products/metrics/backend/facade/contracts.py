@@ -25,12 +25,14 @@ from typing import Any
 
 from .enums import (
     AttributeScope,
+    DashboardImportPhase,
     DashboardImportSource,
     DashboardImportState,
     FilterOp,
     MetricAggregation,
     MetricType,
     PanelImportOutcome,
+    PanelProgressState,
     PanelQueryLanguage,
 )
 
@@ -408,6 +410,13 @@ class DashboardImportPanel:
 
 
 @dataclass(frozen=True, slots=True)
+class DashboardImportPanelProgress:
+    key: str
+    title: str
+    state: PanelProgressState
+
+
+@dataclass(frozen=True, slots=True)
 class DashboardImportSummary:
     total: int
     imported: int
@@ -424,7 +433,8 @@ class DashboardImportStatus:
     source: DashboardImportSource
     status: DashboardImportState
     dashboard_name: str
-    progress: str | None = None
+    phase: DashboardImportPhase | None = None
+    panel_progress: tuple[DashboardImportPanelProgress, ...] = ()
     dashboard_id: int | None = None
     error: str | None = None
     summary: DashboardImportSummary | None = None
@@ -437,6 +447,7 @@ class PanelQueryCheckRequest:
 
     key: str
     language: PanelQueryLanguage
+    title: str = ""
     promql: str | None = None
     builder: dict[str, Any] | None = None
     histogram_metric: str | None = None

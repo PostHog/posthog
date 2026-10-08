@@ -116,6 +116,23 @@ class PanelImportOutcome(LabeledStrEnum):
     SKIPPED = "skipped"
 
 
+class DashboardImportPhase(LabeledStrEnum):
+    """The step of an import that runs: the agent starts, the agent matches panels, PostHog builds the dashboard."""
+
+    STARTING = "starting"
+    MATCHING = "matching"
+    BUILDING = "building"
+
+
+class PanelProgressState(LabeledStrEnum):
+    """Where one panel is while an import runs. WORKING means that a check of the panel's query failed so far."""
+
+    WAITING = "waiting"
+    WORKING = "working"
+    DONE = "done"
+    SKIPPED = "skipped"
+
+
 class PanelQueryLanguage(LabeledStrEnum):
     PROMQL = "promql"
     BUILDER = "builder"

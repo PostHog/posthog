@@ -612,11 +612,11 @@ def finalize_dashboard_import(*, team_id: int, import_id: str) -> None:
 
 
 def check_dashboard_panel_queries(
-    *, team: Team, user: User, panels: Sequence[PanelQueryCheckRequest]
+    *, team: Team, user: User, panels: Sequence[PanelQueryCheckRequest], import_id: str | None = None
 ) -> list[PanelQueryCheckResult]:
     """Check panel queries the way a dashboard import checks them before it builds the dashboard."""
     from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path
         check_panel_queries,
     )
 
-    return check_panel_queries(team=team, user=user, panels=panels)
+    return check_panel_queries(team=team, user=user, panels=panels, import_id=import_id)
