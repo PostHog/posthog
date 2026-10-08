@@ -165,10 +165,13 @@ class MetricNamesQueryRunner:
                 WHERE last_seen >= {lookback_start}
                   AND metric_name IN {names}
                 GROUP BY metric_name
+                LIMIT {limit}
             """,
             placeholders={
                 "lookback_start": self._lookback_start(),
                 "names": ast.Tuple(exprs=[ast.Constant(value=name) for name in names]),
+                # Without an explicit limit, HogQL returns 100 rows, and the other names lose their type and unit.
+                "limit": ast.Constant(value=len(names)),
             },
         )
         assert isinstance(query, ast.SelectQuery)

@@ -30,7 +30,7 @@ export function DashboardImportSummary(): JSX.Element | null {
                     {`${summary.imported + summary.approximated} of ${summary.total} panels are on the dashboard "${dashboard_name}".`}
                 </p>
             ) : null}
-            {summary && (
+            {!!summary?.total && (
                 <div className="grid grid-cols-2 gap-2 @min-[32rem]/import-summary:grid-cols-4">
                     {(Object.keys(OUTCOMES) as PanelImportOutcomeEnumApi[]).map((outcome) => (
                         <div key={outcome} className="rounded border p-2">
