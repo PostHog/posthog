@@ -29,6 +29,7 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { AutomationEmptyState } from '../setupGuide/AutomationEmptyState'
 import { AutomationSuggestionBanner } from '../setupGuide/AutomationSuggestionBanner'
 import { MessagingSetupReminderBanner } from '../setupGuide/MessagingSetupReminderBanner'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
@@ -129,6 +130,14 @@ export function WorkflowsTable(): JSX.Element {
         allArchivedSelected,
         selectedArchivedCount,
     } = useValues(logic)
+    // Only an unfiltered Automations tab is truly empty. With a search or filter, the plain message fits.
+    const showAutomationEmptyState =
+        guidedOnboardingEnabled &&
+        filters.type === 'automation' &&
+        !filters.search &&
+        filters.createdBy === null &&
+        filters.status === 'all' &&
+        filters.triggerType === 'all'
     const {
         loadWorkflows,
         toggleWorkflowStatus,
@@ -496,7 +505,7 @@ export function WorkflowsTable(): JSX.Element {
                     defaultSorting={{ columnKey: 'updatedAt', order: 1 }}
                     pagination={pagination}
                     nouns={['workflow', 'workflows']}
-                    emptyState="No workflows matching filters"
+                    emptyState={showAutomationEmptyState ? <AutomationEmptyState /> : 'No workflows matching filters'}
                 />
                 {guidedOnboardingEnabled && <AutomationSuggestionBanner />}
             </>

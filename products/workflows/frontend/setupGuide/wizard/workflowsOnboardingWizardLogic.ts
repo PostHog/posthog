@@ -42,6 +42,7 @@ export interface workflowsOnboardingWizardLogicValues {
     continueDisabledReason: string | null
     currentStep: WizardStepKey
     hasPositioned: boolean
+    initialized: boolean
     isLastStep: boolean
     missingConnections: WizardConnection[]
     pushEnabled: boolean
@@ -88,6 +89,9 @@ export interface workflowsOnboardingWizardLogicActions {
     }
     positionAtFirstOpenStep: (index: number) => {
         index: number
+    }
+    positionIfReady: () => {
+        value: true
     }
     selectTemplate: (templateId: string) => {
         templateId: string
@@ -170,6 +174,7 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
         finish: true,
         exit: true,
         positionAtFirstOpenStep: (index: number) => ({ index }),
+        positionIfReady: true,
     }),
     reducers({
         wizardPath: [
@@ -201,6 +206,14 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 initWizard: (_, { step }) => step !== null,
                 setStepIndex: () => true,
                 positionAtFirstOpenStep: () => true,
+            },
+        ],
+        // Until the URL sets the path, `wizardPath` holds its default. Positioning before that would
+        // rewrite the URL to the default path.
+        initialized: [
+            false,
+            {
+                initWizard: () => true,
             },
         ],
     }),
@@ -326,6 +339,15 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
         back: () => {
             actions.setStepIndex(Math.max(0, values.stepIndex - 1))
         },
+        initWizard: () => {
+            actions.positionIfReady()
+        },
+        positionIfReady: () => {
+            const { stepDone, initialized, hasPositioned, wizardPath, stepKeys } = values
+            if (stepDone && initialized && !hasPositioned && wizardPath === 'messaging') {
+                actions.positionAtFirstOpenStep(firstOpenStepIndex(stepKeys, stepDone))
+            }
+        },
         finish: () => {
             if (values.startsBlank) {
                 // pinned: analytics event name - renaming breaks dashboards
@@ -357,11 +379,9 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             router.actions.push(values.wizardPath === 'messaging' ? urls.workflows('channels') : urls.workflows())
         },
     })),
-    subscriptions(({ actions, values }) => ({
-        stepDone: (stepDone: Partial<Record<WizardStepKey, boolean>> | null) => {
-            if (stepDone && !values.hasPositioned && values.wizardPath === 'messaging') {
-                actions.positionAtFirstOpenStep(firstOpenStepIndex(values.stepKeys, stepDone))
-            }
+    subscriptions(({ actions }) => ({
+        stepDone: () => {
+            actions.positionIfReady()
         },
     })),
     urlToAction(({ actions, values }) => ({
