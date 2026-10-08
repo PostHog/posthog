@@ -113,7 +113,7 @@ describe('ExperimentDateRange', () => {
         }
     )
 
-    it('applies a date once and stays open while the save runs', async () => {
+    it('applies a date once, locks the picker while the save runs, and leaves the other picker open', async () => {
         const captureSpy = jest.spyOn(posthog, 'capture')
         let finishSave = (): void => {}
         const saveFinished = new Promise<void>((resolve) => {
@@ -135,11 +135,16 @@ describe('ExperimentDateRange', () => {
 
         expect(getByDataAttr(document.body, 'lemon-calendar-select-apply')).toHaveClass('LemonButton--loading')
         expect(trigger).toHaveClass('LemonButton--active')
+        const month = document.querySelector('.LemonCalendar__month') as HTMLElement
+        expect(within(month).getByText('15').closest('button')).toHaveAttribute('aria-disabled', 'true')
 
+        const endTrigger = getByDataAttr(document.body, 'experiment-end-date')
+        fireEvent.click(endTrigger)
         finishSave()
         await act(() => expectLogic(logic).toFinishAllListeners())
 
         expect(trigger).not.toHaveClass('LemonButton--active')
+        expect(endTrigger).toHaveClass('LemonButton--active')
         expect(captureSpy.mock.calls.filter(([event]) => event === 'experiment start date changed')).toHaveLength(1)
     })
 })

@@ -89,7 +89,7 @@ export interface LemonCalendarSelectProps {
     use24HourFormat?: boolean
     /** Extra "Apply" variants shown in a dropdown next to the Apply button. Each receives the selected date. */
     applyActions?: { label: string; onClick: (date: dayjs.Dayjs) => void }[]
-    /** For a caller that saves the date on Apply: shows Apply as loading and disables Cancel while the save runs. */
+    /** For a caller that saves on Apply: shows Apply as loading and disables Cancel, dates and times while it saves. */
     loading?: boolean
 }
 
@@ -113,6 +113,7 @@ export function LemonCalendarSelect({
     // Evaluate "now" as the timezone's wall clock (naive local Dayjs) so it's comparable to picked dates.
     const now = selectionPeriodTimezone ? dayjsNowInTimezone(selectionPeriodTimezone) : dayjs()
     const today = now.startOf('day')
+    const savingReason = loading ? 'Saving in progress' : undefined
 
     const scrollToTime = (date: dayjs.Dayjs, skipAnimation: boolean): void => {
         const calendarEl = calendarRef.current
@@ -182,7 +183,7 @@ export function LemonCalendarSelect({
                         }
                     }
 
-                    return { disabledReason, selected: date.isSame(selectValue, 'd') }
+                    return { disabledReason: savingReason ?? disabledReason, selected: date.isSame(selectValue, 'd') }
                 }}
                 getTimeState={(props) => {
                     const selected = selectValue
@@ -202,7 +203,7 @@ export function LemonCalendarSelect({
 
                     return {
                         active: selected === String(props.value),
-                        disabledReason,
+                        disabledReason: savingReason ?? disabledReason,
                         onClick: () => {
                             if (selected != props.value) {
                                 onTimeClick(props)
@@ -232,7 +233,7 @@ export function LemonCalendarSelect({
                         <LemonButton
                             type="secondary"
                             onClick={onClose}
-                            disabledReason={loading ? 'Saving in progress' : undefined}
+                            disabledReason={savingReason}
                             data-attr="lemon-calendar-select-cancel"
                         >
                             Cancel

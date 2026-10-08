@@ -40,12 +40,14 @@ const MODALS = {
         open: () => modalsLogic.actions.openCupedModal(),
         isOpen: () => modalsLogic.values.isCupedModalOpen,
         edit: { method: ExperimentStatsMethod.Bayesian, cuped: { enabled: true } },
+        control: 'Enabled',
     },
     stats: {
         Modal: StatsMethodModal,
         open: () => modalsLogic.actions.openStatsEngineModal(),
         isOpen: () => modalsLogic.values.isStatsEngineModalOpen,
         edit: { method: ExperimentStatsMethod.Frequentist },
+        control: 'Frequentist',
     },
 }
 
@@ -120,8 +122,8 @@ describe('stats config modals', () => {
         }
     )
 
-    it.each(['CUPED', 'stats'] as const)('the %s modal does not cancel while its save runs', async (modal) => {
-        const { isOpen, edit } = MODALS[modal]
+    it.each(['CUPED', 'stats'] as const)('the %s modal locks its controls while its save runs', async (modal) => {
+        const { isOpen, edit, control } = MODALS[modal]
         let finishSave = (): void => {}
         const saveFinished = new Promise<void>((resolve) => {
             finishSave = resolve
@@ -141,6 +143,7 @@ describe('stats config modals', () => {
 
         expect(isOpen()).toBe(true)
         expect(logic.values.experiment.stats_config).toEqual(edit)
+        expect(screen.getByText(control).closest('[aria-disabled]')).toHaveAttribute('aria-disabled', 'true')
 
         finishSave()
         await act(() => expectLogic(logic).toFinishAllListeners())

@@ -15,6 +15,7 @@ export function CupedModal(): JSX.Element {
     const { experimentsConfig } = useValues(experimentsConfigLogic)
     const { closeCupedModal } = useActions(modalsLogic)
     const { isCupedModalOpen } = useValues(modalsLogic)
+    const savingReason = experimentUpdateLoading ? 'Saving in progress' : undefined
 
     const selection = getCupedSelection(experiment.stats_config?.cuped)
     const teamDefaultEnabled = experimentsConfig?.default_cuped_enabled ?? false
@@ -70,11 +71,7 @@ export function CupedModal(): JSX.Element {
             title="CUPED variance reduction"
             footer={
                 <div className="flex items-center gap-2 justify-end">
-                    <LemonButton
-                        type="secondary"
-                        onClick={onClose}
-                        disabledReason={experimentUpdateLoading ? 'Saving in progress' : undefined}
-                    >
+                    <LemonButton type="secondary" onClick={onClose} disabledReason={savingReason}>
                         Cancel
                     </LemonButton>
                     <LemonButton
@@ -97,6 +94,7 @@ export function CupedModal(): JSX.Element {
                     <LemonSelect<CupedSelection>
                         value={selection}
                         onChange={updateSelection}
+                        disabledReason={savingReason}
                         options={[
                             {
                                 value: 'default',
@@ -115,6 +113,7 @@ export function CupedModal(): JSX.Element {
                             min={MIN_LOOKBACK_DAYS}
                             max={MAX_LOOKBACK_DAYS}
                             value={lookbackDays}
+                            disabledReason={savingReason}
                             onChange={(value) => {
                                 if (typeof value !== 'number' || !Number.isFinite(value)) {
                                     return

@@ -2347,7 +2347,9 @@ export const experimentLogic = kea<experimentLogicType>([
             if (!(await inflightUpdateSaved(cache))) {
                 return
             }
-            actions.setOpenDatePicker(null)
+            if (values.openDatePicker === 'start') {
+                actions.setOpenDatePicker(null)
+            }
             if (values.experiment) {
                 posthog.capture('experiment start date changed', {
                     ...getEventPropertiesForExperiment(values.experiment),
@@ -2364,7 +2366,9 @@ export const experimentLogic = kea<experimentLogicType>([
             if (!(await inflightUpdateSaved(cache))) {
                 return
             }
-            actions.setOpenDatePicker(null)
+            if (values.openDatePicker === 'end') {
+                actions.setOpenDatePicker(null)
+            }
             if (values.experiment) {
                 posthog.capture('experiment end date changed', {
                     ...getEventPropertiesForExperiment(values.experiment),

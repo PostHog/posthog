@@ -25,6 +25,7 @@ export function StatsMethodModal(): JSX.Element {
     const { closeStatsEngineModal } = useActions(modalsLogic)
     const { isStatsEngineModalOpen } = useValues(modalsLogic)
     const { experimentsConfig } = useValues(experimentsConfigLogic)
+    const savingReason = experimentUpdateLoading ? 'Saving in progress' : undefined
 
     const onClose = (): void => {
         restoreUnmodifiedExperiment()
@@ -122,11 +123,7 @@ export function StatsMethodModal(): JSX.Element {
             title="Statistics configuration"
             footer={
                 <div className="flex items-center gap-2 justify-end">
-                    <LemonButton
-                        type="secondary"
-                        onClick={onClose}
-                        disabledReason={experimentUpdateLoading ? 'Saving in progress' : undefined}
-                    >
+                    <LemonButton type="secondary" onClick={onClose} disabledReason={savingReason}>
                         Cancel
                     </LemonButton>
                     <LemonButton
@@ -144,6 +141,8 @@ export function StatsMethodModal(): JSX.Element {
             <div className="mb-4">
                 <StatsMethodSelector
                     value={statsMethod}
+                    disabled={experimentUpdateLoading}
+                    disabledReason={savingReason}
                     onChange={(newStatsMethod) => {
                         setExperiment({
                             stats_config: {
@@ -159,6 +158,7 @@ export function StatsMethodModal(): JSX.Element {
                 <LemonSelect
                     value={currentConfidenceLevel}
                     onChange={handleConfidenceLevelChange}
+                    disabledReason={savingReason}
                     options={CONFIDENCE_LEVEL_OPTIONS}
                     className="w-24"
                 />
@@ -174,6 +174,7 @@ export function StatsMethodModal(): JSX.Element {
                     <LemonSelect<SequentialSelection>
                         value={sequentialSelection}
                         onChange={updateSequentialSelection}
+                        disabledReason={savingReason}
                         options={[
                             {
                                 value: 'default',
@@ -197,6 +198,7 @@ export function StatsMethodModal(): JSX.Element {
                                 min={1}
                                 max={MAX_SEQUENTIAL_TUNING_PARAMETER}
                                 value={sequentialTuningParameter}
+                                disabledReason={savingReason}
                                 onChange={(value) => {
                                     if (
                                         typeof value !== 'number' ||
