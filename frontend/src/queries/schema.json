@@ -6143,6 +6143,22 @@
             "enum": ["count", "count_distinct", "sum", "average", "minimum", "maximum", "custom"],
             "type": "string"
         },
+        "BICategoryGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "values": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["name", "values"],
+            "type": "object"
+        },
         "BIConditionGroup": {
             "additionalProperties": false,
             "properties": {
@@ -6181,6 +6197,11 @@
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
+                "comparisonPeriod": {
+                    "description": "Explore only the comparison window, using dateRange as its reference window.",
+                    "enum": ["previous", null],
+                    "type": ["string", "null"]
+                },
                 "dateField": {
                     "anyOf": [
                         {
@@ -6203,6 +6224,13 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/BIQueryLimit"
+                },
+                "localFields": {
+                    "description": "Reusable expressions owned by this worksheet only.",
+                    "items": {
+                        "$ref": "#/definitions/BIField"
+                    },
+                    "type": "array"
                 },
                 "missingDates": {
                     "description": "Fill missing date buckets before table calculations. Unset preserves observed points only.",
@@ -6293,6 +6321,9 @@
                 "id": {
                     "type": "string"
                 },
+                "localDefinition": {
+                    "$ref": "#/definitions/BILocalFieldDefinition"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -6353,6 +6384,53 @@
                 "custom"
             ],
             "type": "string"
+        },
+        "BILocalFieldDefinition": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "expression": {
+                            "type": "string"
+                        },
+                        "groups": {
+                            "items": {
+                                "$ref": "#/definitions/BICategoryGroup"
+                            },
+                            "type": "array"
+                        },
+                        "kind": {
+                            "const": "groups",
+                            "type": "string"
+                        },
+                        "other": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind", "expression", "groups", "other"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "expression": {
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "bins",
+                            "type": "string"
+                        },
+                        "origin": {
+                            "type": "number"
+                        },
+                        "width": {
+                            "type": "number"
+                        }
+                    },
+                    "required": ["kind", "expression", "width", "origin"],
+                    "type": "object"
+                }
+            ]
         },
         "BIQueryLimit": {
             "enum": [100, 1000, 10000, 50000],
@@ -29414,7 +29492,7 @@
             "type": "string"
         },
         "HedgehogActorSkinOption": {
-            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost"],
+            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost", "pig"],
             "type": "string"
         },
         "HogCompileResponse": {
