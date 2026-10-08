@@ -47,14 +47,34 @@ const analysisRun = (status: string): SignalScoutRunSummary =>
         completed_at: null,
     }) as SignalScoutRunSummary
 
-const runNowMocks = (runResponse: [number, Record<string, unknown>]): Parameters<typeof useMocks>[0] => ({
-    get: {
-        '/api/projects/:team/vision/scanners/:id/variants/': () => [200, readout],
-        '/api/projects/:team/signals/scout/configs/': () => [200, []],
-        '/api/projects/:team/signals/scout/runs/recent-per-scout/': () => [200, []],
-    },
-    post: { '/api/projects/:team/signals/scout/configs/:id/run/': () => runResponse },
-})
+const analysisScoutConfig = {
+    id: 'config-1',
+    skill_name: ANALYSIS_SKILL,
+    tags: ['replay-vision-variant-analysis'],
+    source_product: 'replay_vision',
+    source_id: 'scanner-1',
+    enabled: true,
+}
+
+const refreshedReadout: ExperimentVariantsReadoutApi = {
+    ...readout,
+    window: { ...readout.window, total_observations: 9 },
+}
+
+const runNowMocks = (runResponse: [number, Record<string, unknown>]): Parameters<typeof useMocks>[0] => {
+    let readoutLoads = 0
+    return {
+        get: {
+            '/api/projects/:team/vision/scanners/:id/variants/': () => [
+                200,
+                readoutLoads++ === 0 ? readout : refreshedReadout,
+            ],
+            '/api/projects/:team/signals/scout/configs/': () => [200, [analysisScoutConfig]],
+            '/api/projects/:team/signals/scout/runs/recent-per-scout/': () => [200, []],
+        },
+        post: { '/api/projects/:team/signals/scout/configs/:id/run/': () => runResponse },
+    }
+}
 
 describe('scannerVariantsLogic', () => {
     it.each([
@@ -112,26 +132,37 @@ describe('scannerVariantsLogic', () => {
         expect(reason ?? 'enabled').toMatch(expected)
     })
 
-    // The comparison must refresh once the requested run is done, and not while it is still running,
-    // or the tab keeps showing the old analysis after Run now.
-    it('reloads the comparison when the run it started finishes', async () => {
+    // The comparison must refresh once the scout's run is done, and not while it is queued or running,
+    // whether this tab or the schedule started it. Otherwise the tab keeps showing the old analysis.
+    it.each([
+        [
+            'a run this tab started',
+            async (logic: ReturnType<typeof scannerVariantsLogic>): Promise<void> => {
+                await expectLogic(logic, () => logic.actions.runAnalysisNow('config-1', ANALYSIS_SKILL))
+                    .toDispatchActions(['analysisRunStarted'])
+                    .toFinishAllListeners()
+            },
+        ],
+        ['a run started elsewhere', async (): Promise<void> => {}],
+    ])('reloads the comparison when %s finishes', async (_name, startRun) => {
         useMocks(runNowMocks([202, { skill_name: ANALYSIS_SKILL, workflow_id: 'wf-1', started: true }]))
         initKeaTests()
         const logic = scannerVariantsLogic({ scannerId: 'scanner-1' })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadReadoutSuccess']).toFinishAllListeners()
+        await expectLogic(scoutFleetLogic).toDispatchActions(['loadScoutConfigsSuccess']).toFinishAllListeners()
+        await startRun(logic)
 
-        await expectLogic(logic, () => logic.actions.runAnalysisNow('config-1', ANALYSIS_SKILL))
-            .toDispatchActions(['analysisRunStarted'])
-            .toFinishAllListeners()
-        await expectLogic(logic, () => scoutFleetLogic.actions.loadScoutRunsSuccess([analysisRun('in_progress')]))
-            .toFinishAllListeners()
-            .toNotHaveDispatchedActions(['loadReadout'])
+        for (const status of ['queued', 'in_progress']) {
+            await expectLogic(logic, () => scoutFleetLogic.actions.loadScoutRunsSuccess([analysisRun(status)]))
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['loadReadout'])
+        }
         await expectLogic(logic, () =>
             scoutFleetLogic.actions.loadScoutRunsSuccess([analysisRun('completed')])
-        ).toDispatchActions(['analysisRunSettled', 'loadReadout'])
+        ).toDispatchActions(['loadReadout', 'loadReadoutSuccess'])
 
-        expect(logic.values.analysisRunRequest).toBeNull()
+        expect(logic.values).toMatchObject({ readout: refreshedReadout, analysisRunInFlight: false })
         logic.unmount()
     })
 

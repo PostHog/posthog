@@ -34,7 +34,7 @@ export function VariantsTab({ scannerId }: VariantsTabProps): JSX.Element {
     const { scoutConfigsForScanner, createTemplateKey, settingsSkillName, rollups } = useValues(scoutLogic)
     const { openCreateModal, openScoutSettings } = useActions(scoutLogic)
     const logic = scannerVariantsLogic({ scannerId })
-    const { readout, readoutLoading, readoutFailed, variantColors, analysisRunStarting, analysisRunRequest } =
+    const { readout, readoutLoading, readoutFailed, variantColors, analysisRunStarting, analysisRunInFlight } =
         useValues(logic)
     const { loadReadout, setupAnalysisClicked, variantObservationsOpened, runAnalysisNow } = useActions(logic)
 
@@ -66,16 +66,15 @@ export function VariantsTab({ scannerId }: VariantsTabProps): JSX.Element {
               ? 'Variant analysis is paused. Turn it on in the scout settings above to see themes here.'
               : null
     const analysisRollup = existingScout ? rollups.get(existingScout.skill_name) : undefined
-    const analysisRunning = !!analysisRollup?.runningRun || !!analysisRunRequest
     const runNow = existingScout
         ? {
               onClick: () => runAnalysisNow(existingScout.id, existingScout.skill_name),
               loading: analysisRunStarting,
-              running: analysisRunning,
+              running: analysisRunInFlight,
               disabledReason:
                   getReplayVisionEditDisabledReason(scanner?.user_access_level) ??
                   variantAnalysisRunDisabledReason({
-                      running: analysisRunning,
+                      running: analysisRunInFlight,
                       lastRunStartedAt: analysisRollup?.latestRun?.started_at ?? null,
                       hasObservations: readout.window.total_observations > 0,
                       now: Date.now(),

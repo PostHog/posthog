@@ -425,7 +425,7 @@ A difference is a theme whose share differs between variants by at least 20 perc
             quietVerdict:
                 'When no theme clears the bar, still file the report: open with the verdict `No clear difference between variants`, then one line with how many summaries you read per variant, then the main themes all variants share.',
             skip: `- Restating the variants counts as findings: the variants view already shows them.
-- A difference resting on fewer than 5 sessions in either variant.
+- A difference resting on fewer than 5 sessions in the variant where the theme is more common. A theme seen in 7 sessions of one variant and none of another can still be a difference.
 - Effects too small to see in a few dozen sessions, such as a 1 to 2% change in watch time or conversion. Only the experiment's metrics can show those, across thousands of sessions.
 - Claims about which variant wins. The experiment's metrics decide that; you describe what users do.
 - Explaining, confirming, or predicting a metric result.`,
