@@ -48,6 +48,7 @@ depends_on = [
     "products.access_control",
     "products.actions",
     "products.approvals",
+    "products.data_catalog",
     "products.alerts",
     "products.cdp",
     "products.conversations",
