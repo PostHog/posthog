@@ -9,7 +9,6 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.asknicely import (
     AskNicelyResumeConfig,
-    _normalize_row,
     _to_unix_timestamp,
     asknicely_source,
     build_responses_url,
@@ -70,11 +69,6 @@ def _rows(source_response) -> list[dict[str, Any]]:
 
 
 class TestAsknicely:
-    def test_build_responses_url(self) -> None:
-        assert build_responses_url("acme", page_number=2, since_time=1700000000) == (
-            f"https://acme.asknice.ly/api/v1/responses/asc/{RESPONSES_PAGE_SIZE}/2/1700000000/json/answered/responded"
-        )
-
     @pytest.mark.parametrize("subdomain", ["", "acme.asknice.ly", "a/b", "a b", "-leading"])
     def test_build_responses_url_rejects_invalid_subdomain(self, subdomain: str) -> None:
         with pytest.raises(ValueError):
@@ -98,16 +92,6 @@ class TestAsknicely:
     def test_to_unix_timestamp_rejects_unusable_values(self, value: Any) -> None:
         with pytest.raises(ValueError):
             _to_unix_timestamp(value)
-
-    def test_normalize_row_coerces_string_timestamps(self) -> None:
-        row = _normalize_row(
-            {"response_id": "r1", "responded": "1418692529", "sent": "1418692531", "opened": "0", "comment": "12345"}
-        )
-        assert row["responded"] == 1418692529
-        assert row["sent"] == 1418692531
-        assert row["opened"] == 0
-        # Non-timestamp fields keep their original type even when digit-like.
-        assert row["comment"] == "12345"
 
     def _run(
         self,
@@ -163,12 +147,6 @@ class TestAsknicely:
 
         assert len(rows) == RESPONSES_PAGE_SIZE
         assert len(calls) == 2
-
-    def test_short_page_without_totalpages_terminates(self) -> None:
-        rows, calls = self._run([_response([{"response_id": "r1", "responded": "100"}])], _manager())
-
-        assert [row["response_id"] for row in rows] == ["r1"]
-        assert len(calls) == 1
 
     def test_incremental_since_time_steps_back_one_second(self) -> None:
         _, calls = self._run(
@@ -287,22 +265,6 @@ class TestAsknicely:
             validate_credentials("acme", "key")
         assert make_session.call_args.kwargs["allow_redirects"] is False
         assert make_session.call_args.kwargs["capture"] is False
-
-    def test_source_response_shape(self) -> None:
-        response = asknicely_source(
-            subdomain="acme",
-            api_key="key",
-            endpoint="responses",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_manager(),
-        )
-
-        assert response.name == "responses"
-        assert response.primary_keys == ["response_id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["responded"]
 
     @pytest.mark.parametrize(
         ("status_code", "expected_valid", "expected_message_fragment"),

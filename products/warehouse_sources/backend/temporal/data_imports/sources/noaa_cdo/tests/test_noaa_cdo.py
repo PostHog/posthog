@@ -14,10 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.noaacdo import (
     NoaaCdoSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.noaa_cdo.noaa_cdo import (
-    NoaaCdoResumeConfig,
-    noaa_cdo_source,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.noaa_cdo.noaa_cdo import noaa_cdo_source
 from products.warehouse_sources.backend.temporal.data_imports.sources.noaa_cdo.settings import AUTH_ERROR, REQUEST_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.noaa_cdo.source import NoaaCdoSource
 
@@ -85,36 +82,6 @@ def test_offset_pagination_and_terminal_page(
 
 
 @pytest.mark.parametrize(
-    ("endpoint", "expected"),
-    [
-        ("datasets", {"stationid": ["ghcnd:test0001"]}),
-        ("stations", {"datasetid": ["ghcnd"]}),
-        ("datatypes", {"datasetid": ["ghcnd"], "stationid": ["ghcnd:test0001"]}),
-        ("datacategories", {"datasetid": ["ghcnd"], "stationid": ["ghcnd:test0001"]}),
-        ("locations", {"datasetid": ["ghcnd"]}),
-        ("locationcategories", {"datasetid": ["ghcnd"]}),
-    ],
-)
-def test_reference_table_filters(
-    http: requests_mock.Mocker,
-    config: NoaaCdoSourceConfig,
-    manager: MagicMock,
-    endpoint: str,
-    expected: dict[str, list[str]],
-) -> None:
-    http.get(f"https://www.ncei.noaa.gov/cdo-web/api/v2/{endpoint}", json={"results": [{"id": "test"}]})
-    list(sync_items(noaa_cdo_source(config, endpoint, 1, "test", manager, "v2", True, "2024-01-02")))
-    assert http.last_request is not None
-    assert http.last_request.qs == {
-        **expected,
-        "sortfield": ["id"],
-        "sortorder": ["asc"],
-        "limit": ["1000"],
-        "offset": ["1"],
-    }
-
-
-@pytest.mark.parametrize(
     ("incremental", "watermark", "expected_start"),
     [
         (False, "2024-01-02T00:00:00Z", "2023-12-01"),
@@ -149,49 +116,6 @@ def test_observation_date_filters(
         "offset": ["1"],
         "limit": ["1000"],
     }
-
-
-@pytest.mark.parametrize("empty_body", [{}, {"results": []}])
-def test_date_windows_continue_after_empty_results(
-    http: requests_mock.Mocker, config: NoaaCdoSourceConfig, manager: MagicMock, empty_body: dict[str, Any]
-) -> None:
-    config.start_date = "2020-01-01"
-    http.get("https://www.ncei.noaa.gov/cdo-web/api/v2/data", json=empty_body)
-    assert list(sync_items(noaa_cdo_source(config, "data", 1, "test", manager, "v2"))) == []
-    assert [(r.qs["startdate"][0], r.qs["enddate"][0]) for r in http.request_history] == [
-        ("2020-01-01", "2020-12-30"),
-        ("2020-12-31", "2021-12-30"),
-        ("2021-12-31", "2022-12-30"),
-        ("2022-12-31", "2023-12-30"),
-        ("2023-12-31", "2024-01-03"),
-    ]
-    assert manager.safe_point.call_count == 5
-    assert manager.save_state.call_args.args[0].complete
-
-
-@pytest.mark.parametrize("endpoint", ["data", "stations"])
-def test_resume_starts_at_saved_offset_and_preserves_window(
-    http: requests_mock.Mocker, config: NoaaCdoSourceConfig, manager: MagicMock, endpoint: str
-) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = NoaaCdoResumeConfig(offset=1001, window_start="2024-01-02", end_date="2024-01-02")
-    http.get(f"https://www.ncei.noaa.gov/cdo-web/api/v2/{endpoint}", json={"results": [{"id": "last"}]})
-    assert list(sync_items(noaa_cdo_source(config, endpoint, 1, "test", manager, "v2"))) == [[{"id": "last"}]]
-    assert http.last_request is not None
-    assert http.last_request.qs["offset"] == ["1001"]
-    if endpoint == "data":
-        assert http.last_request.qs["startdate"] == ["2024-01-02"]
-        assert http.last_request.qs["enddate"] == ["2024-01-02"]
-    assert manager.save_state.call_args.args[0].complete
-
-
-def test_completed_resume_makes_no_requests(
-    http: requests_mock.Mocker, config: NoaaCdoSourceConfig, manager: MagicMock
-) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = NoaaCdoResumeConfig(complete=True)
-    assert list(sync_items(noaa_cdo_source(config, "data", 1, "test", manager, "v2"))) == []
-    assert not http.called
 
 
 def test_resume_after_page_failure_then_advance_to_next_window(

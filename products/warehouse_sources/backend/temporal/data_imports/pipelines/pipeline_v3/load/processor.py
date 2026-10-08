@@ -77,6 +77,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     runs_in_order,
     set_violation,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.append_rollback import (
+    UnfinishedAppendRuns,
+    clear_append_run_marker,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.batch_steps import (
     BatchStepTimer,
 )
@@ -162,7 +166,6 @@ def _enrich_cdc_rows(
     existing_delta_table: deltalake.DeltaTable | None,
     batch_index: int,
     verify_deletes: bool = False,
-    team_id: str = "",
 ) -> pa.Table:
     """Cross-batch CDC enrichment against the existing DeltaLake state.
 
@@ -242,9 +245,7 @@ def _enrich_cdc_rows(
                 if verify_deletes and delete_key_set:
                     report = verify_delete_enrichment(pa_table, present_pks, existing_rows)
                     if not report.ok:
-                        CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL.labels(team_id=team_id).inc(
-                            report.rows_with_nulled_columns
-                        )
+                        CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL.inc(report.rows_with_nulled_columns)
                         logger.warning(
                             "cdc_delete_enrichment_violation",
                             delete_rows_checked=report.delete_rows_checked,
@@ -265,7 +266,6 @@ def _resolve_cdc_positions(
     *,
     primary_keys: list[str],
     cdc_write_mode: str | None,
-    team_id: str,
 ) -> pa.Table:
     """Collapse a merge batch to one row per key — the write engine rejects duplicates."""
     if not has_engine_seq(pa_table):
@@ -277,7 +277,7 @@ def _resolve_cdc_positions(
         cdc_write_mode=cdc_write_mode,
     )
     if stats.duplicate_key:
-        CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(team_id=team_id, reason="duplicate_key").inc(stats.duplicate_key)
+        CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(reason="duplicate_key").inc(stats.duplicate_key)
 
     return pa_table
 
@@ -541,6 +541,15 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
             # Failed) after the final batch passed should_process_batch, the staged incremental
             # cursor must not advance past data that was never fully loaded.
             _promote_staged_cursor(export_signal)
+            if export_signal.sync_type == "append":
+                # In the same transaction as the cursor, so a later run never finds the marker of
+                # a run whose watermark already covers its rows.
+                clear_append_run_marker(
+                    export_signal.schema_id,
+                    export_signal.team_id,
+                    export_signal.job_id,
+                    export_signal.run_uuid,
+                )
 
     if job_completed:
         async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
@@ -1094,9 +1103,6 @@ def _process_message_reported(
     )
 
     try:
-        team_id_str = str(export_signal.team_id)
-        schema_id_str = str(export_signal.schema_id)
-
         # Build the helper early so the idempotency check can use it as a
         # delta-history fallback when the Redis dedup flag is missing — the case
         # where the writer crashed between `DeltaWriter.write` committing and
@@ -1120,6 +1126,23 @@ def _process_message_reported(
             # The customer asked for their data elsewhere and not here, so there is no delta
             # write, no table to register and no post-import to run.
             _process_external_destinations_only(export_signal, verify_ownership)
+            return
+
+        append_runs = (
+            UnfinishedAppendRuns(schema, delta_table_ref)
+            if export_signal.sync_type == "append" and export_signal.cdc_write_mode is None
+            else None
+        )
+        if append_runs is not None and any(append_runs.is_replaced_attempt(run_uuid) for run_uuid, _ in members):
+            if constituents is not None:
+                raise CoalescingDeclined("a batch belongs to an attempt that a later attempt replaced")
+            logger.info(
+                "append_batch_of_replaced_attempt_skipped",
+                team_id=export_signal.team_id,
+                external_data_schema_id=export_signal.schema_id,
+                run_uuid=export_signal.run_uuid,
+                batch_index=export_signal.batch_index,
+            )
             return
 
         with timer.step("idempotency_check"):
@@ -1156,7 +1179,7 @@ def _process_message_reported(
             deliver_batch_to_destinations(export_signal)
 
         if already_processed and not export_signal.is_final_batch:
-            IDEMPOTENCY_HIT_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc()
+            IDEMPOTENCY_HIT_TOTAL.inc()
             logger.info(
                 "batch_already_processed",
                 team_id=export_signal.team_id,
@@ -1185,6 +1208,12 @@ def _process_message_reported(
                     verify_ownership()
                 _complete_run(export_signal, post_load_result)
             return
+
+        if append_runs is not None:
+            # Before the table is read, so the batch is fitted to the schema that the restore leaves.
+            if verify_ownership is not None:
+                verify_ownership()
+            append_runs.start_run(export_signal)
 
         logger.debug(
             "message_received",
@@ -1266,7 +1295,6 @@ def _process_message_reported(
                 existing_delta_table=existing_delta_table,
                 batch_index=export_signal.batch_index,
                 verify_deletes=resolution_enabled,
-                team_id=team_id_str,
             )
 
             if resolution_enabled:
@@ -1274,7 +1302,6 @@ def _process_message_reported(
                     pa_table,
                     primary_keys=primary_keys or [],
                     cdc_write_mode=cdc_write_mode,
-                    team_id=team_id_str,
                 )
 
         if existing_delta_table is not None:
@@ -1310,9 +1337,7 @@ def _process_message_reported(
 
             with (
                 timer.step("write"),
-                DELTA_WRITE_DURATION_SECONDS.labels(
-                    team_id=team_id_str, schema_id=schema_id_str, write_type="scd2_append"
-                ).time(),
+                DELTA_WRITE_DURATION_SECONDS.labels(write_type="scd2_append").time(),
             ):
                 scd2_writer = Scd2DeltaWriter(
                     delta_table_ref,
@@ -1340,9 +1365,7 @@ def _process_message_reported(
 
             with (
                 timer.step("write"),
-                DELTA_WRITE_DURATION_SECONDS.labels(
-                    team_id=team_id_str, schema_id=schema_id_str, write_type=write_type
-                ).time(),
+                DELTA_WRITE_DURATION_SECONDS.labels(write_type=write_type).time(),
             ):
                 delta_writer = DeltaWriter(delta_table_ref)
                 delta_table = async_to_sync(delta_writer.write)(
@@ -1355,7 +1378,7 @@ def _process_message_reported(
                 )
                 deltalite_file_count_change = delta_writer.deltalite_file_count_change
 
-        DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
+        DELTA_ROWS_WRITTEN_TOTAL.inc(pa_table.num_rows)
 
         # Marked as soon as the commit lands, before post-load: the final row of a run carries its own
         # data now, so a post-load failure must send the retry down the post-load-only path rather
@@ -1395,7 +1418,10 @@ def _process_message_reported(
 
         logger.debug(
             "batch_written_to_delta_lake",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
             batch_index=export_signal.batch_index,
+            rows_written=pa_table.num_rows,
             batch_count=len(members),
             delta_version=delta_table_ref.latest_known_version(delta_table),
             file_count=file_count,

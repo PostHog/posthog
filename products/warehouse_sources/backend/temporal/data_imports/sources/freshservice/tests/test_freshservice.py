@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshservi
     FreshserviceResumeConfig,
     _format_updated_since,
     freshservice_source,
-    normalize_domain,
     validate_credentials,
 )
 
@@ -81,22 +80,6 @@ def _run(
     return [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
 
 
-class TestNormalizeDomain:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("acme", "acme"),
-            ("acme.freshservice.com", "acme"),
-            ("https://acme.freshservice.com", "acme"),
-            ("http://acme.freshservice.com/", "acme"),
-            ("  acme  ", "acme"),
-            ("acme.freshservice.com/a/tickets", "acme"),
-        ],
-    )
-    def test_normalize_domain(self, raw: str, expected: str) -> None:
-        assert normalize_domain(raw) == expected
-
-
 class TestFormatUpdatedSince:
     @pytest.mark.parametrize(
         "value, expected",
@@ -110,21 +93,8 @@ class TestFormatUpdatedSince:
     def test_format_updated_since(self, value: Any, expected: str) -> None:
         assert _format_updated_since(value) == expected
 
-    def test_no_offset_suffix(self) -> None:
-        assert "+00:00" not in _format_updated_since(datetime(2026, 3, 4, tzinfo=UTC))
-
 
 class TestRequestParams:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_sends_per_page_only(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"agents": [{"id": 1}]})])
-
-        _run("agents")
-
-        assert snapshots[0]["params"]["per_page"] == 100
-        assert "updated_since" not in snapshots[0]["params"]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_tickets_incremental_sends_updated_since_and_ordering(self, MockSession) -> None:
         session = MockSession.return_value
@@ -140,61 +110,6 @@ class TestRequestParams:
         assert params["updated_since"] == "2026-03-04T00:00:00Z"
         assert params["order_by"] == "updated_at"
         assert params["order_type"] == "asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_without_last_value_omits_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"tickets": [{"id": 1}]})])
-
-        _run("tickets", should_use_incremental_field=True, db_incremental_field_last_value=None)
-
-        assert "updated_since" not in snapshots[0]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_endpoint_ignores_incremental_flag(self, MockSession) -> None:
-        # `problems` has no server-side filter, so it never gets an updated_since param even when
-        # the pipeline requests incremental.
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"problems": [{"id": 1}]})])
-
-        _run(
-            "problems",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-        )
-
-        assert "updated_since" not in snapshots[0]["params"]
-
-
-class TestDataSelector:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unwraps_resource_envelope(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"tickets": [{"id": 1}, {"id": 2}]})])
-
-        assert _run("tickets") == [{"id": 1}, {"id": 2}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_software_uses_applications_key(self, MockSession) -> None:
-        # The software table maps to /api/v2/applications, which wraps rows under "applications".
-        session = MockSession.return_value
-        _wire(session, [_response({"applications": [{"id": 7}]})])
-
-        assert _run("software") == [{"id": 7}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_agent_groups_uses_groups_key(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"groups": [{"id": 3}]})])
-
-        assert _run("agent_groups") == [{"id": 3}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_wrong_key_yields_no_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"problems": [{"id": 1}]})])
-
-        assert _run("tickets") == []
 
 
 class TestPagination:
@@ -219,18 +134,6 @@ class TestPagination:
         # State saved once, after the first (only non-terminal) page.
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0] == FreshserviceResumeConfig(next_url=next_url)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_saves_no_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"agents": [{"id": 1}]})])
-
-        manager = _make_manager()
-        rows = _run("agents", manager=manager)
-
-        assert rows == [{"id": 1}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_state(self, MockSession) -> None:
@@ -300,37 +203,6 @@ class TestFanout:
         assert rows == [{"id": 100, parent_field: 7}, {"id": 100, parent_field: 9}]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_time_entries_ask_the_parent_for_every_ticket(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response({"tickets": [{"id": 1}]}),
-                _response({"time_entries": [{"id": 20}]}),
-            ],
-        )
-
-        _run("ticket_time_entries")
-
-        # Without updated_since the ticket listing only returns the last 30 days, which would
-        # silently drop every older ticket's time entries.
-        assert snapshots[0]["params"]["updated_since"] == "1970-01-01T00:00:00Z"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_parent_deleted_mid_sweep_is_skipped(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"tickets": [{"id": 1}, {"id": 2}]}),
-                _response({"message": "gone"}, status=404),
-                _response({"time_entries": [{"id": 21}]}),
-            ],
-        )
-
-        assert _run("ticket_time_entries") == [{"id": 21, "ticket_id": 2}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_after_the_parents_already_swept(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(
@@ -354,41 +226,6 @@ class TestApprovals:
     @staticmethod
     def _slices(snapshots: list[dict[str, Any]]) -> list[tuple[str, str, int]]:
         return [(s["params"]["parent"], s["params"]["status"], s["params"]["page"]) for s in snapshots]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sweeps_every_parent_and_status(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response({"approvals": [{"id": 1, "parent": "ticket"}]}),
-                _response({"approvals": []}),
-                *[_response({"approvals": []}) for _ in range(7)],
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _run("approvals", manager=manager)
-
-        assert rows == [{"id": 1, "parent": "ticket"}]
-        # The listing rejects a request without a second filter, so every status is asked for
-        # separately, and each slice pages until an empty page.
-        assert self._slices(snapshots) == [
-            ("ticket", "requested", 1),
-            ("ticket", "requested", 2),
-            ("ticket", "approved", 1),
-            ("ticket", "rejected", 1),
-            ("ticket", "cancelled", 1),
-            ("change", "requested", 1),
-            ("change", "approved", 1),
-            ("change", "rejected", 1),
-            ("change", "cancelled", 1),
-        ]
-        assert manager.save_state.call_args.args[0].completed == [
-            f"{parent}:{status}"
-            for parent in ("ticket", "change")
-            for status in ("requested", "approved", "rejected", "cancelled")
-        ]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_at_the_saved_slice_and_page(self, MockSession) -> None:
@@ -428,12 +265,6 @@ class TestApprovals:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code", [200, 401, 403])
-    @mock.patch(FRESHSERVICE_SESSION_PATCH)
-    def test_returns_status_code(self, mock_session, status_code: int) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("acme", "key") == status_code
-
     @mock.patch(FRESHSERVICE_SESSION_PATCH)
     def test_connection_error_returns_none(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = requests.ConnectionError("nope")

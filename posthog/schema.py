@@ -75,6 +75,7 @@ from posthog.schema_enums import (
     ChartDisplayType as ChartDisplayType,
     ColorMode as ColorMode,
     Compare as Compare,
+    ComparisonPeriod as ComparisonPeriod,
     ConversionRateInputType as ConversionRateInputType,
     CoreEventCategory as CoreEventCategory,
     CorrelationType as CorrelationType,
@@ -210,6 +211,7 @@ from posthog.schema_enums import (
     MetricsReducer as MetricsReducer,
     MetricsStatSummary as MetricsStatSummary,
     MetricSummary as MetricSummary,
+    MissingDates as MissingDates,
     MultipleBreakdownType as MultipleBreakdownType,
     MultipleVariantHandling as MultipleVariantHandling,
     MultiQuestionFormFieldType as MultiQuestionFormFieldType,
@@ -947,6 +949,14 @@ class AssistantUpdateEvent(BaseModel):
     tool_call_id: str
 
 
+class BICategoryGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    values: list[str]
+
+
 class BIConditionGroup(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -962,6 +972,26 @@ class BIDataSource(BaseModel):
     )
     connectionId: str | None = None
     table: str
+
+
+class BILocalFieldDefinition1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expression: str
+    groups: list[BICategoryGroup]
+    kind: Literal["groups"] = "groups"
+    other: str
+
+
+class BILocalFieldDefinition2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expression: str
+    kind: Literal["bins"] = "bins"
+    origin: float
+    width: float
 
 
 class BITotals(BaseModel):
@@ -5005,6 +5035,7 @@ class BIField(BaseModel):
     dateBucket: BIDateBucket | None = None
     expression: str
     id: str
+    localDefinition: BILocalFieldDefinition1 | BILocalFieldDefinition2 | None = None
     name: str
     source: BIDataSource
     type: DatabaseSerializedFieldType
@@ -5050,6 +5081,10 @@ class BITableCalculation(BaseModel):
     computeUsing: str | None = Field(
         default=None,
         description=("Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions."),
+    )
+    requireFullWindow: bool | None = Field(
+        default=None,
+        description=("Require a complete window of non-null values before displaying a moving average."),
     )
     type: BITableCalculationType
     window: conint(ge=1) | None = Field(
@@ -11136,6 +11171,10 @@ class BIConfig(BaseModel):
     chartType: ChartDisplayType
     columns: list[BIField]
     compareFilter: CompareFilter | None = None
+    comparisonPeriod: ComparisonPeriod | None = Field(
+        default=None,
+        description=("Explore only the comparison window, using dateRange as its reference window."),
+    )
     dateField: BIField | None = Field(
         default=None,
         description="Column that receives the worksheet and dashboard date range.",
@@ -11143,6 +11182,13 @@ class BIConfig(BaseModel):
     dateRange: DateRange | None = None
     filters: list[BIFilter]
     limit: BIQueryLimit
+    localFields: list[BIField] | None = Field(
+        default=None, description="Reusable expressions owned by this worksheet only."
+    )
+    missingDates: MissingDates | None = Field(
+        default=None,
+        description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),
+    )
     resultFilterGroup: BIConditionGroup | None = None
     resultFilters: list[BIResultFilter] | None = None
     rowFilterGroup: BIConditionGroup | None = None
@@ -16580,7 +16626,8 @@ class ChartSettings(BaseModel):
         default=None,
         description=(
             "Where the legend sits relative to the chart. Unset falls back per chart"
-            " type: right for pie, top for the rest."
+            " type: right for pie and donut, bottom for proportion bar, top for the"
+            " rest."
         ),
     )
     metric: MetricChartSettings | None = None
