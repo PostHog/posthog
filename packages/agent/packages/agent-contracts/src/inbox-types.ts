@@ -154,16 +154,6 @@ export const EXTERNAL_INBOX_SOURCES = [
     recordKind: "issue",
     setup: "dynamic",
   },
-  // Monitoring and errors
-  {
-    product: "datadog",
-    label: "Datadog",
-    description: "Surface new errors from APM traces, logs and error tracking",
-    dwSourceType: "Datadog",
-    requiredTables: ["error_tracking_issues"],
-    recordKind: "issue",
-    setup: "dynamic",
-  },
   // Support / helpdesk
   {
     product: "dixa",
