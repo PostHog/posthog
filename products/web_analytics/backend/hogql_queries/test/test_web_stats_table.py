@@ -1861,9 +1861,7 @@ class TestWebStatsTableQueryRunner(
             ]
         )
 
-        response = self._run_web_stats_table_query(
-            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.VIEWPORT
-        )
+        response = self._run_web_stats_table_query("2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.VIEWPORT)
 
         rows = {row[0]: row for row in response.results}
         assert set(rows) == {(1280, 720), (None, None)}
