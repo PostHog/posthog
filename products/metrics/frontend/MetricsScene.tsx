@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -76,6 +77,10 @@ const MetricsSceneContent = (): JSX.Element => {
     // Prime the metric-name list here rather than inside MetricsViewer, so the fetch
     // races the has_metrics check instead of waiting on the setup prompt to resolve.
     useMountedLogic(metricNamePickerLogic)
+    const { primeItems } = useActions(metricNamePickerLogic)
+    useOnMountEffect(() => {
+        primeItems()
+    })
     // Holds cross-tab state: a catalog card click preloads the viewer. Mounted here, a tab
     // flip cannot unmount the logic and reset the handoff before the destination reads it.
     useMountedLogic(metricsCatalogLogic)
