@@ -1,11 +1,12 @@
 """The version marker of one review turn: the ReviewHog release plus a fingerprint of the turn's inputs.
 
-`REVIEWHOG_VERSIONS` names one release per review mode (Full and Flash evolve separately) and
+`REVIEWHOG_VERSIONS` names one release per review mode and design (each evolves separately) and
 changes only with a manual bump. The fingerprint is a short hash of everything else that decides how
 one turn reviews: the review mode, the model pins of every stage, the prompt texts, and the content
-of the skills the acting user runs (a team's own edited skill rows included). A prompt edit or a
-skill edit changes the fingerprint without a version bump, so production data can be split by
-"reviewhog-flash-1-0 with inputs Y".
+of the skills the acting user runs (a team's own edited skill rows included). A single-agent turn
+hashes its own prompt files and the dedup stage it still runs instead of the pipeline's prompts and
+skills. A prompt edit or a skill edit changes the fingerprint without a
+version bump, so production data can be split by "reviewhog-flash-1-0 with inputs Y".
 """
 
 from __future__ import annotations
@@ -27,6 +28,16 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_MODEL,
     DEDUP_REASONING_EFFORT,
     DEDUP_RUNTIME_ADAPTER,
+    FLASH_DEDUP_MODEL,
+    FLASH_DEDUP_REASONING_EFFORT,
+    FLASH_LENS_CHUNK_MAX_LINES,
+    FLASH_LENS_MAX_CHUNKS,
+    FLASH_LENSES,
+    FLASH_MAX_FINDINGS_BASE,
+    FLASH_MAX_FINDINGS_CEILING,
+    FLASH_MAX_FINDINGS_PER_EXTRA_PART,
+    FLASH_MUST_FIX_CAP_MULTIPLIER,
+    FLASH_PROMPT_DIFF_MAX_CHARS,
     ONESHOT_MODEL,
     ONESHOT_REASONING_EFFORT,
     ReviewArm,
@@ -36,6 +47,8 @@ from products.review_hog.backend.reviewer.constants import (
     validation_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
+from products.review_hog.backend.reviewer.models.issue_deduplicator import FlashIssueDeduplication
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.sandbox.executor import JSON_RETRY_PROMPT
 from products.review_hog.backend.reviewer.skill_loader import (
     load_blind_spots_skill_for_run,
@@ -49,6 +62,7 @@ from products.review_hog.backend.reviewer.tools.issue_validation import (
 )
 from products.review_hog.backend.reviewer.tools.issues_review import REVIEW_SYSTEM_PROMPT
 from products.review_hog.backend.reviewer.tools.select_perspectives import SELECTION_SYSTEM_PROMPT
+from products.review_hog.backend.reviewer.tools.single_agent_review import SINGLE_AGENT_PROMPT_PATH
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import CHUNKING_SYSTEM_PROMPT
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
@@ -76,6 +90,12 @@ _REVIEW_TURN_EXTRA_PROMPTS = {
     "issue_validation/followup": VALIDATION_FOLLOWUP_TEMPLATE,
     "sandbox/json_retry": JSON_RETRY_PROMPT,
 }
+
+# The prompt directories a single-agent turn renders: its own review, then the shared dedup stage.
+_SINGLE_AGENT_TURN_PROMPT_DIRS = (
+    "single_agent_review",
+    "issue_deduplicator",
+)
 
 FINGERPRINT_LENGTH = 7
 
@@ -131,12 +151,33 @@ class TurnFingerprint:
         }
 
     @staticmethod
-    def _prompt_hashes() -> dict[str, str]:
+    def _prompt_dir_hashes(prompt_dirs: tuple[str, ...]) -> dict[str, str]:
+        return {
+            f"{prompt_dir}/{filename}": _text_hash((PROMPTS_DIR / prompt_dir / filename).read_text())
+            for prompt_dir in prompt_dirs
+            for filename in ("prompt.jinja", "schema.json")
+        }
+
+    @classmethod
+    def _prompt_hashes(cls) -> dict[str, str]:
         hashes = {f"{name}/system": _text_hash(text) for name, text in _REVIEW_TURN_SYSTEM_PROMPTS.items()}
         hashes.update({name: _text_hash(text) for name, text in _REVIEW_TURN_EXTRA_PROMPTS.items()})
-        for prompt_dir in _REVIEW_TURN_PROMPT_DIRS:
-            for filename in ("prompt.jinja", "schema.json"):
-                hashes[f"{prompt_dir}/{filename}"] = _text_hash((PROMPTS_DIR / prompt_dir / filename).read_text())
+        hashes.update(cls._prompt_dir_hashes(_REVIEW_TURN_PROMPT_DIRS))
+        return hashes
+
+    @classmethod
+    def _single_agent_prompt_hashes(cls) -> dict[str, str]:
+        hashes = cls._prompt_dir_hashes(_SINGLE_AGENT_TURN_PROMPT_DIRS)
+        # Whole files, attribution comments included, so any edit to one changes the fingerprint.
+        prompt_files = ["core.md", "lens_priority.md", *(lens.prompt_file for lens in FLASH_LENSES.values())]
+        for prompt_file in prompt_files:
+            hashes[f"single_agent_review/{prompt_file}"] = _text_hash(
+                (SINGLE_AGENT_PROMPT_PATH / prompt_file).read_text()
+            )
+        hashes["issue_deduplicator/system"] = _text_hash(DEDUP_SYSTEM_PROMPT)
+        # The Flash dedup renders its output schema from the model, not from `schema.json`.
+        hashes["issue_deduplicator/flash_schema"] = _text_hash(json.dumps(FlashIssueDeduplication.model_json_schema()))
+        hashes["sandbox/json_retry"] = _text_hash(JSON_RETRY_PROMPT)
         return hashes
 
     @staticmethod
@@ -190,6 +231,7 @@ class TurnFingerprint:
         acting_user_id: int,
         review_mode: str,
         flash_reasoning_effort: str,
+        review_design: str = REVIEW_DESIGN_PIPELINE,
     ) -> TurnFingerprint:
         stored_arm = resolve_review_arm(
             report.review_runtime_adapter,
@@ -197,7 +239,30 @@ class TurnFingerprint:
             report.review_reasoning_effort,
             report.review_initial_permission_mode,
         )
-        review_arm = review_arm_for_mode(review_mode, stored_arm, flash_reasoning_effort=flash_reasoning_effort)
+        review_arm = review_arm_for_mode(
+            review_mode, stored_arm, flash_reasoning_effort=flash_reasoning_effort, review_design=review_design
+        )
+        if review_design == REVIEW_DESIGN_SINGLE_AGENT:
+            return cls(
+                {
+                    "review_mode": review_mode,
+                    "review_design": review_design,
+                    "review_arm": _arm_payload(review_arm),
+                    # No `stage_pins`: this design runs neither chunking nor the pipeline dedup, so a pin
+                    # change there must not split its cohorts.
+                    "flash_dedup": {"model": FLASH_DEDUP_MODEL, "reasoning_effort": FLASH_DEDUP_REASONING_EFFORT},
+                    "flash_limits": {
+                        "max_findings_base": FLASH_MAX_FINDINGS_BASE,
+                        "max_findings_per_extra_part": FLASH_MAX_FINDINGS_PER_EXTRA_PART,
+                        "max_findings_ceiling": FLASH_MAX_FINDINGS_CEILING,
+                        "must_fix_cap_multiplier": FLASH_MUST_FIX_CAP_MULTIPLIER,
+                        "lens_chunk_max_lines": FLASH_LENS_CHUNK_MAX_LINES,
+                        "lens_max_chunks": FLASH_LENS_MAX_CHUNKS,
+                        "prompt_diff_max_chars": FLASH_PROMPT_DIFF_MAX_CHARS,
+                    },
+                    "prompts": cls._single_agent_prompt_hashes(),
+                }
+            )
         validation_arm = validation_arm_for_mode(review_mode, flash_reasoning_effort=flash_reasoning_effort)
         return cls(
             {
@@ -225,6 +290,7 @@ def record_turn_marker(
     acting_user_id: int,
     review_mode: str,
     flash_reasoning_effort: str,
+    review_design: str = REVIEW_DESIGN_PIPELINE,
 ) -> ReviewHogMarker:
     """Compute the turn's marker and persist it as the turn's `turn_marker` artefact."""
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
@@ -234,8 +300,11 @@ def record_turn_marker(
         acting_user_id=acting_user_id,
         review_mode=review_mode,
         flash_reasoning_effort=flash_reasoning_effort,
+        review_design=review_design,
     )
-    marker = ReviewHogMarker(version=reviewhog_version_for_mode(review_mode), fingerprint=fingerprint.digest())
+    marker = ReviewHogMarker(
+        version=reviewhog_version_for_mode(review_mode, review_design), fingerprint=fingerprint.digest()
+    )
     ReviewReportArtefact.add_turn_marker(
         team_id=team_id,
         report_id=report_id,

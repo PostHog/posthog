@@ -774,6 +774,13 @@ class DeltaBatchConsumerAdapter:
     async def observe_queue_gauges(self, conn: psycopg.AsyncConnection[Any]) -> bool:
         return await self._observe_queue_freshness(conn)
 
+    async def release_queue_gauges_slot(self, conn: psycopg.AsyncConnection[Any]) -> None:
+        await BatchQueue.release_queue_gauges_slot(
+            conn, owner_token=self._gauge_owner_token, slot_key=self._gauge_slot_key
+        )
+        self._depth_sample = None
+        clear_queue_sample_gauges()
+
     async def _observe_queue_freshness(self, conn: psycopg.AsyncConnection[Any]) -> bool:
         """Report the age of the oldest batch no consumer has picked up yet, and the queue depth.
 

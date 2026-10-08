@@ -21,7 +21,10 @@ from tenacity import RetryCallState, retry, retry_if_exception_type
 
 from posthog.temporal.common.errors import NonReportableError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    RequestTimeout,
+    make_tracked_session,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import (
     reach_framework_safe_point,
 )
@@ -323,7 +326,7 @@ class RESTClient:
         retry_backoff_max_seconds: float = DEFAULT_RETRY_BACKOFF_MAX_SECONDS,
         allowed_hosts: Optional[list[str]] = None,
         allow_redirects: bool = True,
-        request_timeout: Optional[float | tuple[float, float]] = None,
+        request_timeout: Optional[RequestTimeout] = None,
         capture: bool = True,
     ) -> None:
         self.base_url = base_url or ""
@@ -333,9 +336,9 @@ class RESTClient:
         self._max_retry_attempts = max_retry_attempts
         self._retry_backoff_max = retry_backoff_max_seconds
         # Per-request (connect, read) timeout in seconds handed to ``session.send``. Left None,
-        # a request can hang forever — a source pointed at a server that accepts the connection
-        # then never responds would hold an import worker indefinitely. Sources talking to a
-        # customer-controlled host should set this so every sync request is bounded.
+        # the session's own default applies, and after that the tracked adapter's
+        # ``default_request_timeout()``. Sources talking to a customer-controlled host should set
+        # a tighter value. ``NO_REQUEST_TIMEOUT`` is the only way to send a request with no deadline.
         self._request_timeout = request_timeout
         self._allow_redirects = allow_redirects
         # When set (even to an empty list), every outgoing request URL — including

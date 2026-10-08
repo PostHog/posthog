@@ -123,8 +123,16 @@ def validate_credentials(bearer_token: str, username: str) -> tuple[bool, str | 
             "That token's X app cannot read user lookups. Check the app is attached to a project, "
             "and that the project has API credits, then try again.",
         )
+    if response.status_code == 402:
+        # X's pay-per-use plan answers 402 once the project's prepaid credits run out.
+        return (
+            False,
+            "Your X developer project has run out of API credits. Add credits in the X developer portal, then try again.",
+        )
+    if response.status_code == 429 or response.status_code >= 500:
+        return False, "PostHog couldn't reach X to check your handle. Try again in a few minutes."
     if response.status_code != 200:
-        return False, f"X returned HTTP {response.status_code} for the handle @{handle}."
+        return False, "X couldn't look up that handle. Check the handle and bearer token, then try again."
 
     if not (response.json().get("data") or {}).get("id"):
         return False, f"X has no account with the handle @{handle}."

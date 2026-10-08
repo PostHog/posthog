@@ -233,6 +233,44 @@ const LIBRARY = [
     { id: 'fs-3', path: 'Unfiled/Feature flags/one-page-checkout', type: 'feature_flag', ref: '7' },
 ]
 
+const RECENTLY_VIEWED = [
+    {
+        id: 'fs-recent-1',
+        path: 'Unfiled/Insights/Checkout funnel',
+        type: 'insight',
+        ref: 'abc123',
+        href: '/insights/abc123',
+        last_viewed_at: '2026-09-28T16:20:00Z',
+        created_at: '2026-08-12T10:00:00Z',
+    },
+    {
+        id: 'fs-recent-2',
+        path: 'Unfiled/Dashboards/Growth overview',
+        type: 'dashboard',
+        ref: '12',
+        href: '/dashboard/12',
+        last_viewed_at: '2026-09-28T11:05:00Z',
+        created_at: '2026-07-02T10:00:00Z',
+    },
+    {
+        id: 'fs-recent-3',
+        path: 'Unfiled/Feature flags/one-page-checkout',
+        type: 'feature_flag',
+        ref: '7',
+        href: '/feature_flags/7',
+        last_viewed_at: '2026-09-27T15:40:00Z',
+        created_at: '2026-09-01T10:00:00Z',
+    },
+    {
+        id: 'fs-recent-4',
+        path: 'Unfiled/Cohorts/Power users',
+        type: 'cohort',
+        ref: '3',
+        href: '/cohorts/3',
+        last_viewed_at: '2026-09-26T09:10:00Z',
+        created_at: '2026-06-20T10:00:00Z',
+    },
+]
 const USER = { id: 1, uuid: 'user-1', first_name: 'Ada', email: 'ada@example.com' }
 
 const VIEW_CANVASES = [
@@ -665,7 +703,11 @@ const meta: Meta = {
                 },
                 '/api/environments/:team_id/conversations/': { results: CONVERSATIONS, next: null },
                 '/api/environments/:team_id/file_system/': ({ request }) => {
-                    const type = new URL(request.url).searchParams.get('type')
+                    const params = new URL(request.url).searchParams
+                    if (params.get('order_by') === '-last_viewed_at') {
+                        return [200, { results: RECENTLY_VIEWED, count: RECENTLY_VIEWED.length }]
+                    }
+                    const type = params.get('type')
                     const results = type ? LIBRARY.filter((entry) => entry.type === type) : LIBRARY
                     return [200, { results, count: results.length }]
                 },

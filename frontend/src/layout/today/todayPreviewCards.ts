@@ -71,6 +71,8 @@ export interface TodayReportCard {
     /** Resolved or dismissed since the briefing, or null while open. */
     stateLabel: string | null
     resolved: boolean
+    /** Whether the person is one of the report's suggested reviewers, and so can step off it. */
+    canLeaveReview: boolean
     priority: string | null
     summary: string | null
     pullRequestState: PrStateEnumApi | null

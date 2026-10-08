@@ -1106,6 +1106,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                             schema_id=str(inputs.external_data_schema_id),
                             job_id=str(job_id),
                             source_id=str(inputs.external_data_source_id),
+                            reset_pipeline=inputs.reset_pipeline,
                         ),
                         start_to_close_timeout=dt.timedelta(hours=6),
                         heartbeat_timeout=dt.timedelta(minutes=5),

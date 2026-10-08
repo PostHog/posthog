@@ -161,6 +161,8 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/external_data_sources/wizard': () => [200, AVAILABLE_SOURCES],
+                '/api/:scope/:team_id/external_data_sources/connections/': [],
+                '/api/:scope/:team_id/external_data_sources/direct_connection_options/': [],
             },
             post: {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
@@ -1388,5 +1390,31 @@ export const BIPivotTotals: Story = {
                 },
             },
         },
+    },
+}
+
+export const BICategoryGroups: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        testOptions: { waitForSelector: '[data-attr="bi-local-field-modal"]', viewport: { width: 1050, height: 900 } },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByLabelText('Options for event', {}, { timeout: 15000 }))
+        const body = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await body.findByText('Group categories', { exact: true }))
+        await userEvent.type(await body.findByLabelText('Group 1 name'), 'Purchases')
+    },
+}
+
+export const BINumericBins: Story = {
+    ...BIModeWorksheet,
+    parameters: { ...BICategoryGroups.parameters },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByLabelText('Options for revenue', {}, { timeout: 15000 }))
+        const body = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await body.findByText('Create numeric bins', { exact: true }))
     },
 }
