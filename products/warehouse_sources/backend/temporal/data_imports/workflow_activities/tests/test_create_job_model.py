@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
+    CreateExternalDataJobModelActivityOutputs,
     SourceOrSchemaDeletedError,
     V2PipelineRemovedError,
     V3PipelineLockLostError,
@@ -30,11 +31,16 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     _statistics_stale,
     _verify_v3_lock_still_held,
     create_external_data_job_model_activity,
+    prepare_run,
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model"
 CONTROLLER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
+
+
+def _prepare(inputs: CreateExternalDataJobModelActivityInputs) -> CreateExternalDataJobModelActivityOutputs:
+    return prepare_run(inputs, workflow_id="wf-1", workflow_run_id="run-1", verify_v3_lock=True)
 
 
 def _team() -> Team:
@@ -77,26 +83,23 @@ class TestVerifyV3LockStillHeld:
         ]
     )
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder")
-    @patch(f"{MODULE}.activity")
     def test_lock_guard(
         self,
         _name: str,
         holder: str | None,
         expect_raise: bool,
-        mock_activity: MagicMock,
         mock_get_holder: MagicMock,
     ) -> None:
-        mock_activity.info.return_value.workflow_run_id = self.RUN_ID
         mock_get_holder.return_value = holder
 
         if expect_raise:
             with pytest.raises(V3PipelineLockLostError) as exc_info:
-                _verify_v3_lock_still_held(1, self.SCHEMA_ID)
+                _verify_v3_lock_still_held(1, self.SCHEMA_ID, run_id=self.RUN_ID)
             # The takeover in acquire_v3_lock.py only steals from a terminal-looking holder, so
             # this is the mechanism working as designed and must not open an error tracking issue.
             assert is_expected_activity_failure(exc_info.value)
         else:
-            _verify_v3_lock_still_held(1, self.SCHEMA_ID)
+            _verify_v3_lock_still_held(1, self.SCHEMA_ID, run_id=self.RUN_ID)
 
 
 @pytest.mark.django_db
@@ -215,13 +218,9 @@ class TestCreateJob:
     # job row exists would create a duplicate), so the retry has to happen around the INSERT itself.
     @patch(f"{DB_RETRY_MODULE}.close_old_connections")
     @patch(f"{DB_RETRY_MODULE}.time.sleep")
-    @patch(f"{MODULE}.activity")
     def test_retries_once_on_deadlock_then_succeeds(
-        self, mock_activity: MagicMock, mock_sleep: MagicMock, mock_close_connections: MagicMock
+        self, mock_sleep: MagicMock, mock_close_connections: MagicMock
     ) -> None:
-        mock_activity.info.return_value.workflow_id = "wf-1"
-        mock_activity.info.return_value.workflow_run_id = "run-1"
-
         team = _team()
         schema = _schema(team, None)
         original_create = ExternalDataJob.objects.create
@@ -242,12 +241,53 @@ class TestCreateJob:
                 pipeline_version=ExternalDataJob.PipelineVersion.V3,
                 billable=True,
                 schema_snapshot={},
+                workflow_id="wf-1",
+                workflow_run_id="run-1",
             )
 
         assert mock_create.call_count == 2
         assert ExternalDataJob.objects.filter(schema_id=schema.id).count() == 1
         assert job.id is not None
         mock_sleep.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("v3_run_holding_its_lock", True, "temporal-run", False),
+            ("v3_run_that_lost_its_lock", True, "another-run", True),
+        ]
+    )
+    @patch(f"{MODULE}.get_v3_pipeline_lock_holder")
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.activity")
+    def test_the_activity_runs_under_its_own_temporal_ids(
+        self,
+        _name: str,
+        is_v3: bool,
+        holder: str | None,
+        expect_lock_lost: bool,
+        mock_activity: MagicMock,
+        _mock_close_connections: MagicMock,
+        mock_get_holder: MagicMock,
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "schema-wf"
+        mock_activity.info.return_value.workflow_run_id = "temporal-run"
+        mock_get_holder.return_value = holder
+        team = _team()
+        schema = _schema(team, None)
+        inputs = CreateExternalDataJobModelActivityInputs(
+            team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=True, is_v3=is_v3
+        )
+
+        if expect_lock_lost:
+            with pytest.raises(V3PipelineLockLostError):
+                create_external_data_job_model_activity(inputs)
+            assert not ExternalDataJob.objects.filter(schema_id=schema.id).exists()
+            return
+
+        result = create_external_data_job_model_activity(inputs)
+
+        job = ExternalDataJob.objects.get(id=result.job_id)
+        assert (job.workflow_id, job.workflow_run_id) == ("schema-wf", "temporal-run")
 
 
 @pytest.mark.django_db
@@ -273,7 +313,7 @@ class TestCreateJobActivityStatusOrdering:
         )
 
         with pytest.raises(OperationalError):
-            create_external_data_job_model_activity(inputs)
+            _prepare(inputs)
 
         schema.refresh_from_db()
         assert schema.status == ExternalDataSchema.Status.FAILED
@@ -286,7 +326,7 @@ class TestCreateJobActivityStatusOrdering:
         schema = _schema(team, None)
 
         with pytest.raises(V2PipelineRemovedError):
-            create_external_data_job_model_activity(
+            _prepare(
                 CreateExternalDataJobModelActivityInputs(
                     team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=True, is_v3=False
                 )
@@ -296,19 +336,16 @@ class TestCreateJobActivityStatusOrdering:
 
     @parameterized.expand([("broken", "cdc_broken"), ("paused", "cdc_extraction_paused")])
     @patch(f"{MODULE}.close_old_connections")
-    @patch(f"{MODULE}.activity")
     def test_a_halted_cdc_schema_keeps_its_failed_status(
-        self, _name: str, marker: str, mock_activity: MagicMock, _mock_close_connections: MagicMock
+        self, _name: str, marker: str, _mock_close_connections: MagicMock
     ) -> None:
-        mock_activity.info.return_value.workflow_id = "wf-1"
-        mock_activity.info.return_value.workflow_run_id = "run-1"
         team = _team()
         schema = _schema(team, None)
         schema.status = ExternalDataSchema.Status.FAILED
         schema.sync_type_config = {marker: {"reason": "critical_lag_self_managed"}}
         schema.save()
 
-        create_external_data_job_model_activity(
+        _prepare(
             CreateExternalDataJobModelActivityInputs(
                 team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=True
             )
@@ -383,7 +420,6 @@ class TestCreateJobActivityScheduledFullRefresh:
         ]
     )
     @patch(f"{MODULE}.close_old_connections")
-    @patch(f"{MODULE}.activity")
     def test_only_a_due_scheduled_run_becomes_a_full_refresh(
         self,
         _name: str,
@@ -392,11 +428,8 @@ class TestCreateJobActivityScheduledFullRefresh:
         repartition_config: dict,
         hold_flag_enabled: bool,
         expect_refresh: bool,
-        mock_activity: MagicMock,
         _mock_close_connections: MagicMock,
     ) -> None:
-        mock_activity.info.return_value.workflow_id = "wf-1"
-        mock_activity.info.return_value.workflow_run_id = "run-1"
         team = _team()
         schema = _schema(team, None)
         schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
@@ -409,7 +442,7 @@ class TestCreateJobActivityScheduledFullRefresh:
         schema.save()
 
         with patch(f"{CONTROLLER_MODULE}.is_repartition_hold_enabled", return_value=hold_flag_enabled):
-            result = create_external_data_job_model_activity(
+            result = _prepare(
                 CreateExternalDataJobModelActivityInputs(
                     team_id=team.id,
                     schema_id=schema.id,
@@ -466,7 +499,7 @@ class TestCreateJobActivityDeletedSourceOrSchema:
         )
 
         with pytest.raises(SourceOrSchemaDeletedError) as exc_info:
-            create_external_data_job_model_activity(inputs)
+            _prepare(inputs)
 
         assert is_expected_activity_failure(exc_info.value)
         mock_delete_schedule.assert_called_once_with(str(schema.id))
@@ -500,7 +533,7 @@ class TestCreateJobActivityDeletedSourceOrSchema:
         )
 
         with pytest.raises(SourceOrSchemaDeletedError) as exc_info:
-            create_external_data_job_model_activity(inputs)
+            _prepare(inputs)
 
         assert is_expected_activity_failure(exc_info.value)
         mock_delete_schedule.assert_called_once_with(str(schema.id))
@@ -516,18 +549,14 @@ class TestCreateJobActivityPrepareRunOutputs:
         ]
     )
     @patch(f"{MODULE}.close_old_connections")
-    @patch(f"{MODULE}.activity")
     def test_answers_the_billing_limit_with_the_job_row(
         self,
         _name: str,
         billable: bool,
         team_limited: bool,
         expect_hit: bool,
-        mock_activity: MagicMock,
         _mock_close_connections: MagicMock,
     ) -> None:
-        mock_activity.info.return_value.workflow_id = "wf-1"
-        mock_activity.info.return_value.workflow_run_id = "run-1"
         team = _team()
         schema = _schema(team, None)
         # Past the free window for a new source, so only the quota decides.
@@ -537,7 +566,7 @@ class TestCreateJobActivityPrepareRunOutputs:
             "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.check_billing_limits.is_team_limited",
             return_value=team_limited,
         ):
-            result = create_external_data_job_model_activity(
+            result = _prepare(
                 CreateExternalDataJobModelActivityInputs(
                     team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=billable
                 )
@@ -555,18 +584,14 @@ class TestCreateJobActivityPrepareRunOutputs:
         ]
     )
     @patch(f"{MODULE}.close_old_connections")
-    @patch(f"{MODULE}.activity")
     def test_source_templates_needed_only_for_a_stripe_sources_first_sync(
         self,
         _name: str,
         source_type: str,
         has_completed_job: bool,
         expected: bool,
-        mock_activity: MagicMock,
         _mock_close_connections: MagicMock,
     ) -> None:
-        mock_activity.info.return_value.workflow_id = "wf-1"
-        mock_activity.info.return_value.workflow_run_id = "run-1"
         team = _team()
         source = ExternalDataSource.objects.create(
             source_id="src", connection_id="conn", team=team, source_type=source_type
@@ -577,7 +602,7 @@ class TestCreateJobActivityPrepareRunOutputs:
                 team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.COMPLETED, rows_synced=0
             )
 
-        result = create_external_data_job_model_activity(
+        result = _prepare(
             CreateExternalDataJobModelActivityInputs(
                 team_id=team.id, schema_id=schema.id, source_id=source.id, billable=False
             )

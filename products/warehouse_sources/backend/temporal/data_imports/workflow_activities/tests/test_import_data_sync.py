@@ -32,6 +32,7 @@ from posthog.temporal.common.shutdown import WorkerShuttingDownError
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports import run_control as run_control_module
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     NEW_TABLE_NOT_READY_MESSAGE,
     _transient_error_message,
@@ -41,6 +42,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     SchemaColumnTypeChangedException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import PROGRESSLESS_RESUMABLE_ATTEMPTS
+from products.warehouse_sources.backend.temporal.data_imports.run_control import (
+    EventShutdownMonitor,
+    RunControl,
+    no_heartbeat,
+    temporal_run_control,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     SimpleSource,
     SourceExtractionNotImplementedError,
@@ -67,15 +74,40 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
+def _event_control(event: asyncio.Event | None = None, *, attempt: int = 1) -> RunControl:
+    """The control a run outside a Temporal activity gets: no heartbeat, shutdown from an event."""
+    return RunControl(
+        heartbeat=no_heartbeat,
+        shutdown_monitor=EventShutdownMonitor(
+            event if event is not None else asyncio.Event(),
+            activity_id="job-1",
+            activity_type="sync.extract",
+            task_queue="warehouse-extract",
+            attempt=attempt,
+            workflow_id="wf-1",
+            workflow_type="external-data-job",
+        ),
+        attempt=attempt,
+        workflow_id="wf-1",
+        workflow_run_id="job-1",
+        verify_v3_lock=False,
+    )
+
+
+def _temporal_control(*, attempt: int) -> RunControl:
+    """The activity's own control, with its attempt read from a stubbed activity context."""
+    with mock.patch.object(run_control_module, "current_import_attempt", return_value=attempt):
+        control = temporal_run_control()
+    # The Temporal heartbeater needs a real activity to enter.
+    return dataclasses.replace(control, heartbeat=no_heartbeat)
+
+
 class _FakeAsyncCM:
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, *args):
         return False
-
-    def run_on_shutdown(self, callback):
-        pass
 
 
 def _passthrough(fn, *, executor=None):
@@ -109,8 +141,7 @@ def _patched_activity(source_mock, model=None, schema=None):
     with (
         mock.patch.object(module, "tag_queries"),
         mock.patch.object(module, "report_heartbeat_timeout"),
-        mock.patch.object(module, "Heartbeater", return_value=_FakeAsyncCM()),
-        mock.patch.object(module, "ShutdownMonitor", return_value=_FakeAsyncCM()),
+        mock.patch.object(module, "temporal_run_control", return_value=_event_control()),
         mock.patch.object(module, "setup_row_tracking", new=mock.AsyncMock()),
         mock.patch.object(module, "_get_external_data_job", new=mock.AsyncMock(return_value=model)),
         mock.patch.object(module, "_get_external_data_schema", new=mock.AsyncMock(return_value=schema)),
@@ -957,8 +988,7 @@ def _patched_activity_reaching_run(source_mock, schema, api_version=None, workfl
     with (
         mock.patch.object(module, "tag_queries"),
         mock.patch.object(module, "report_heartbeat_timeout"),
-        mock.patch.object(module, "Heartbeater", return_value=_FakeAsyncCM()),
-        mock.patch.object(module, "ShutdownMonitor", return_value=_FakeAsyncCM()),
+        mock.patch.object(module, "temporal_run_control", return_value=_event_control()),
         mock.patch.object(module, "setup_row_tracking", new=mock.AsyncMock()),
         mock.patch.object(module, "_get_external_data_job", new=mock.AsyncMock(return_value=model)),
         mock.patch.object(module, "_get_external_data_schema", new=mock.AsyncMock(return_value=schema)),
@@ -1657,8 +1687,9 @@ async def test_a_free_handoff_is_a_result_and_any_other_handoff_is_a_retry(hando
     with (
         mock.patch.object(module, "tag_queries"),
         mock.patch.object(module, "report_heartbeat_timeout"),
+        mock.patch.object(module, "temporal_run_control", return_value=_event_control()),
         mock.patch.object(module, "aworkload_reporting", return_value=_FakeAsyncCM()),
-        mock.patch.object(module, "_import_data_with_reporting", new=mock.AsyncMock(side_effect=error)),
+        mock.patch.object(module, "run_extraction", new=mock.AsyncMock(side_effect=error)),
         mock.patch.object(module, "current_activity_attempt", return_value=2),
     ):
         if handoffs_are_free:
@@ -1770,3 +1801,96 @@ async def test_a_non_retryable_error_keeps_its_own_give_up_path():
             )
 
     handle_mock.assert_awaited_once()
+
+
+def _v3_model(status: str) -> mock.MagicMock:
+    model = mock.MagicMock()
+    model.pipeline_version = ExternalDataJob.PipelineVersion.V3
+    model.status = status
+    model.pipeline.source_type = "MongoDB"
+    model.pipeline.job_inputs = {}
+    model.folder_path = mock.Mock(return_value="dataset")
+    return model
+
+
+def _extracting_source() -> mock.MagicMock:
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+    source.get_required_parent_schemas.return_value = []
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    return source
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("control_shape", ["temporal", "event"])
+@pytest.mark.parametrize(
+    "attempt,status,short_circuits",
+    [
+        pytest.param(2, ExternalDataJob.Status.COMPLETED, True, id="retry_of_a_completed_job"),
+        pytest.param(3, ExternalDataJob.Status.FAILED, True, id="retry_of_a_failed_job"),
+        pytest.param(1, ExternalDataJob.Status.COMPLETED, False, id="first_attempt"),
+        pytest.param(2, ExternalDataJob.Status.RUNNING, False, id="retry_of_a_running_job"),
+    ],
+)
+async def test_a_retry_of_a_terminal_v3_job_does_not_extract_again(
+    control_shape: str, attempt: int, status: str, short_circuits: bool
+) -> None:
+    source = _extracting_source()
+    control = _temporal_control(attempt=attempt) if control_shape == "temporal" else _event_control(attempt=attempt)
+
+    with (
+        _patched_activity(source, model=_v3_model(status)),
+        mock.patch.object(module, "_run", new=mock.AsyncMock(return_value=_FULL_SYNC_RESULT)),
+    ):
+        result = await module.run_extraction(_inputs(), module.LOGGER.bind(), control)
+
+    if short_circuits:
+        assert result == {"should_trigger_cdp_producer": False, "consumer_manages_job_status": True}
+        source.source_for_pipeline.assert_not_called()
+    else:
+        assert result is _FULL_SYNC_RESULT
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("shutdown_requested", [False, True], ids=["running", "shutdown_requested"])
+async def test_a_run_outside_an_activity_takes_its_ids_and_shutdown_from_the_control(
+    shutdown_requested: bool,
+) -> None:
+    built: list[dict[str, Any]] = []
+
+    class _BatchBoundaryPipeline:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self._shutdown_monitor = args[4]
+            built.append(kwargs)
+
+        async def run(self) -> Any:
+            self._shutdown_monitor.raise_if_is_worker_shutdown()
+            return _FULL_SYNC_RESULT
+
+    event = asyncio.Event()
+    if shutdown_requested:
+        event.set()
+    models = mock.MagicMock()
+    models.job.pipeline_version = ExternalDataJob.PipelineVersion.V3
+
+    with (
+        _patched_activity(_extracting_source(), model=_v3_model(ExternalDataJob.Status.RUNNING)),
+        mock.patch.object(module, "_get_models", new=mock.AsyncMock(return_value=models)),
+        mock.patch.object(module, "v3_pipeline_class", return_value=_BatchBoundaryPipeline),
+    ):
+        run = module.run_extraction(_inputs(), module.LOGGER.bind(), _event_control(event, attempt=2))
+        if shutdown_requested:
+            with pytest.raises(WorkerShuttingDownError) as exc_info:
+                await run
+            assert exc_info.value.workflow_id == "wf-1"
+        else:
+            assert await run is _FULL_SYNC_RESULT
+
+    assert len(built) == 1
+    assert {key: built[0][key] for key in ("attempt", "workflow_id", "workflow_run_id")} == {
+        "attempt": 2,
+        "workflow_id": "wf-1",
+        "workflow_run_id": "job-1",
+    }

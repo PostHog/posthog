@@ -1,4 +1,5 @@
 import re
+import enum
 import json
 import uuid
 import typing
@@ -19,6 +20,7 @@ from temporalio.exceptions import TimeoutType, WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
 # TODO: remove dependency
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.base import PostHogWorkflow
@@ -394,6 +396,30 @@ TRANSIENT_SOURCE_ERROR_MESSAGE = (
 )
 
 
+def _failure_type(cause: BaseException) -> str | None:
+    """The class name of the exception a run failed with, read the same way for both runtimes.
+
+    Temporal converts an exception that leaves an activity into an `ApplicationError` whose `type`
+    is the original class name. A run outside an activity raises the original exception, so its
+    class name is the same value. Other Temporal failures (a cancel, a timeout) have no such type.
+    """
+    if isinstance(cause, exceptions.ApplicationError):
+        return cause.type
+    if isinstance(cause, exceptions.FailureError):
+        return None
+    return type(cause).__name__
+
+
+def _render_failure(cause: BaseException | None) -> str:
+    """`internal_error` text in the form Temporal gives an `ApplicationError`: `<Class>: <message>`.
+
+    `_is_app_db_failure` reads the class name from that prefix, so a plain exception must carry it too.
+    """
+    if cause is None or isinstance(cause, exceptions.FailureError):
+        return str(cause)
+    return f"{type(cause).__name__}: {cause}"
+
+
 def _customer_facing_error(cause: BaseException | None) -> str:
     """`latest_error` text a customer reads, without the leaked internal exception class name.
 
@@ -419,7 +445,7 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     # `RESTClientRetryableError`, whose message is a raw string like "HTTP 503 for <url>". That status
     # code means nothing to a customer, so replace it with a message that names the cause and says the
     # sync retries on its next schedule.
-    if getattr(cause, "type", None) == "RESTClientRetryableError":
+    if _failure_type(cause) == "RESTClientRetryableError":
         return TRANSIENT_SOURCE_ERROR_MESSAGE
     # A timed-out activity carries Temporal's own wording for its message ("activity StartToClose
     # timeout"), which names our orchestration rather than anything the customer can act on. Which
@@ -511,12 +537,86 @@ class UpdateExternalDataJobStatusInputs:
         }
 
 
+class FailureKind(enum.Enum):
+    WORKER_SHUTDOWN = "worker_shutdown"
+    BILLING_LIMIT_TOO_LOW = "billing_limit_too_low"
+    NON_RETRYABLE = "non_retryable"
+    OTHER = "other"
+
+
+@frozen
+class FailureOutcome:
+    kind: FailureKind
+    # None keeps the value the finalizer inputs already hold.
+    status: str | None
+    internal_error: str | None
+    latest_error: str | None
+
+    @property
+    def should_reraise(self) -> bool:
+        return self.kind in (FailureKind.NON_RETRYABLE, FailureKind.OTHER)
+
+    def apply_to(self, update_inputs: UpdateExternalDataJobStatusInputs) -> None:
+        if self.status is not None:
+            update_inputs.status = self.status
+        if self.internal_error is not None:
+            update_inputs.internal_error = self.internal_error
+        if self.latest_error is not None:
+            update_inputs.latest_error = self.latest_error
+
+
+def classify_failure(cause: BaseException | None, *, is_v3: bool) -> FailureOutcome:
+    """How the finalizer records a run that failed with `cause`.
+
+    `cause` is the `ApplicationError` of a failed import activity, or the plain exception of a run
+    outside an activity. The workflow calls this, so it must stay pure: no I/O and no clock.
+    """
+    failure_type = _failure_type(cause) if cause is not None else None
+    if failure_type == "WorkerShuttingDownError":
+        if not is_v3:
+            return FailureOutcome(kind=FailureKind.WORKER_SHUTDOWN, status=None, internal_error=None, latest_error=None)
+        # No final batch reached the queue, so the loader can never complete this job.
+        # A COMPLETED write would release the pipeline lock and let the buffered run
+        # extract the same table again on top of this run's still-queued batches.
+        return FailureOutcome(
+            kind=FailureKind.WORKER_SHUTDOWN,
+            status=ExternalDataJob.Status.FAILED,
+            internal_error=_render_failure(cause),
+            latest_error=WORKER_RESTART_ERROR_MESSAGE,
+        )
+    if failure_type == "BillingLimitsWillBeReachedException":
+        return FailureOutcome(
+            kind=FailureKind.BILLING_LIMIT_TOO_LOW,
+            status=ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW,
+            internal_error=None,
+            latest_error=None,
+        )
+    if failure_type == "NonRetryableException":
+        assert cause is not None
+        wrapped = cause.__cause__
+        # `_customer_facing_error` here too (like the fallback below): a non-retryable error whose
+        # friendly mapping is None keeps its raw message, and the finalization activity won't
+        # overwrite it — so the rendered wrapped error would leak the exception class name.
+        return FailureOutcome(
+            kind=FailureKind.NON_RETRYABLE,
+            status=ExternalDataJob.Status.FAILED,
+            internal_error=_render_failure(wrapped),
+            latest_error=_customer_facing_error(wrapped),
+        )
+    return FailureOutcome(
+        kind=FailureKind.OTHER,
+        status=ExternalDataJob.Status.FAILED,
+        internal_error=_render_failure(cause),
+        latest_error=_customer_facing_error(cause),
+    )
+
+
 @activity.defn
 async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    await _update_job_status(inputs, logger)
+    await _update_job_status(inputs, logger, exclude_workflow_id=activity.info().workflow_id)
 
     # After the status write, as the separate release activity ran, and only when it returned:
     # a status write that raises leaves the lock to its holder, as before. The release itself
@@ -528,7 +628,11 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         logger.info("Released V3 pipeline lock after finalization", released=released)
 
 
-async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: FilteringBoundLogger) -> None:
+async def _update_job_status(
+    inputs: UpdateExternalDataJobStatusInputs, logger: FilteringBoundLogger, *, exclude_workflow_id: str | None
+) -> None:
+    """Write the run's final status. `exclude_workflow_id` names the run that is finishing, so an
+    automatic disable does not cancel it."""
     rows_tracked = await get_rows(inputs.team_id, inputs.schema_id)
     if rows_tracked > 0 and inputs.status == ExternalDataJob.Status.COMPLETED:
         # `rows_tracked` is decremented by rows actually written, but incremented by
@@ -631,7 +735,7 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
                 team_id=inputs.team_id,
                 should_sync=False,
                 disable_error_message=inputs.latest_error or AUTO_DISABLED_JOB_ERROR,
-                disable_exclude_workflow_id=activity.info().workflow_id,
+                disable_exclude_workflow_id=exclude_workflow_id,
             )
         elif not platform_failure:
             # A retryable failure that outlasted the whole retry budget lands here with
@@ -1442,27 +1546,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     )
 
         except exceptions.ActivityError as e:
-            if isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "WorkerShuttingDownError":
+            failure = classify_failure(e.cause, is_v3=is_v3)
+            # Set before the buffer-one activity so a failure there cannot skip it.
+            failure.apply_to(update_inputs)
+            if failure.kind == FailureKind.WORKER_SHUTDOWN:
                 await self._fail_for_worker_restarts(inputs, update_inputs, is_v3=is_v3, internal_error=str(e.cause))
-            elif (
-                isinstance(e.cause, exceptions.ApplicationError)
-                and e.cause.type == "BillingLimitsWillBeReachedException"
-            ):
-                # Check if this is a BillingLimitsWillBeReachedException - update the job status
-                update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW
-            elif isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "NonRetryableException":
-                update_inputs.status = ExternalDataJob.Status.FAILED
-                update_inputs.internal_error = str(e.cause.cause)
-                # `_customer_facing_error` here too (like the else branch): a non-retryable error whose
-                # friendly mapping is None keeps its raw message, and the finalization activity won't
-                # overwrite it — so `str(e.cause.cause)` would leak the wrapped exception class name.
-                update_inputs.latest_error = _customer_facing_error(e.cause.cause)
-                raise
-            else:
-                # Handle other activity errors normally
-                update_inputs.status = ExternalDataJob.Status.FAILED
-                update_inputs.internal_error = str(e.cause)
-                update_inputs.latest_error = _customer_facing_error(e.cause)
+            elif failure.should_reraise:
                 raise
         except Exception as e:
             # Catch all

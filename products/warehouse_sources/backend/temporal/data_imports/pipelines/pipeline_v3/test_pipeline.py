@@ -1,4 +1,5 @@
 import json
+import asyncio
 import inspect
 from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
@@ -30,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PostgresProducer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
+from products.warehouse_sources.backend.temporal.data_imports.run_control import EventShutdownMonitor
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.tests.test_resume_checkpoints import (
     paged_config,
@@ -111,7 +113,25 @@ def _make_pipeline() -> PipelineV3:
 
 
 class TestAttemptScopedRunUuid:
-    def test_run_uuid_includes_attempt_number(self) -> None:
+    @pytest.mark.parametrize(
+        "run_kwargs,activity_values,expected_workflow_ids",
+        [
+            pytest.param({}, (3, "wf-1", "wfrun-abc"), ("wf-1", "wfrun-abc"), id="from_the_activity_context"),
+            pytest.param(
+                {"attempt": 3, "workflow_id": "queue-wf", "workflow_run_id": "queue-job"},
+                (1, None, None),
+                ("queue-wf", "queue-job"),
+                id="given_outside_an_activity",
+            ),
+        ],
+    )
+    def test_run_uuid_includes_attempt_number(
+        self,
+        run_kwargs: dict[str, object],
+        activity_values: tuple[int, str | None, str | None],
+        expected_workflow_ids: tuple[str, str],
+    ) -> None:
+        activity_attempt, activity_workflow_id, activity_workflow_run_id = activity_values
         mock_job = MagicMock(
             team_id=1,
             workflow_run_id="wfrun-abc",
@@ -151,22 +171,22 @@ class TestAttemptScopedRunUuid:
         with (
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.current_import_attempt",
-                return_value=3,
+                return_value=activity_attempt,
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.current_workflow_id",
-                return_value="wf-1",
+                return_value=activity_workflow_id,
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.current_workflow_run_id",
-                return_value="wfrun-abc",
+                return_value=activity_workflow_run_id,
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.S3BatchWriter",
             ) as mock_s3_writer_cls,
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.PostgresProducer",
-            ),
+            ) as mock_producer_cls,
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.DeltaTableRef"
             ),
@@ -180,11 +200,14 @@ class TestAttemptScopedRunUuid:
                 shutdown_monitor=MagicMock(),
                 resumable_source_manager=None,
                 models=ImportJobModels(job=mock_job, schema=mock_schema, source=mock_source, table=None),
+                **run_kwargs,  # type: ignore[arg-type]
             )
 
         assert pipeline._attempt == 3
         mock_s3_writer_cls.assert_called_once()
         assert mock_s3_writer_cls.call_args[0][3] == "wfrun-abc-a3"
+        producer_kwargs = mock_producer_cls.call_args.kwargs
+        assert (producer_kwargs["workflow_id"], producer_kwargs["workflow_run_id"]) == expected_workflow_ids
 
     @pytest.mark.asyncio
     async def test_skips_reset_table_on_retry(self) -> None:
@@ -921,6 +944,29 @@ def _runnable_pipeline(manager: ResumableSourceManager[_Cursor], items) -> Pipel
     return pipeline
 
 
+def _shut_down_after_the_second_batch(pipeline: PipelineV3, monitor_kind: str) -> None:
+    """Make the shutdown check after the second staged batch raise, with either monitor a run can get."""
+    if monitor_kind == "temporal":
+        shutdown = WorkerShuttingDownError("id", "type", "queue", 1, "workflow", "workflow_type")
+        cast(MagicMock, pipeline._shutdown_monitor).raise_if_is_worker_shutdown.side_effect = _raise_on_second_call(
+            shutdown
+        )
+        return
+
+    event = asyncio.Event()
+    pipeline._shutdown_monitor = EventShutdownMonitor(
+        event,
+        activity_id="job-1",
+        activity_type="sync.extract",
+        task_queue="warehouse-extract",
+        attempt=1,
+        workflow_id="wf-1",
+        workflow_type="external-data-job",
+    )
+    process_batch = cast(AsyncMock, pipeline._process_batch)
+    process_batch.side_effect = lambda **_kwargs: event.set() if process_batch.await_count == 2 else None
+
+
 def _raise_on_second_call(exc: Exception):
     calls = {"n": 0}
 
@@ -1125,6 +1171,7 @@ class TestShouldCoalesceTables:
 
 
 class TestResumeCursorCommit:
+    @pytest.mark.parametrize("monitor_kind", ["temporal", "event"])
     @pytest.mark.parametrize(
         "stage_before_yield,expected_committed",
         [(True, ["a", "b"]), (False, ["a"])],
@@ -1132,15 +1179,12 @@ class TestResumeCursorCommit:
     )
     @pytest.mark.asyncio
     async def test_cursor_persisted_covers_exactly_the_staged_batches(
-        self, stage_before_yield: bool, expected_committed: list[str]
+        self, stage_before_yield: bool, expected_committed: list[str], monitor_kind: str
     ) -> None:
         redis = MagicMock()
         manager = _manager()
         pipeline = _runnable_pipeline(manager, _table_source(manager, ["a", "b", "c"], stage_before_yield))
-        shutdown = WorkerShuttingDownError("id", "type", "queue", 1, "workflow", "workflow_type")
-        cast(MagicMock, pipeline._shutdown_monitor).raise_if_is_worker_shutdown.side_effect = _raise_on_second_call(
-            shutdown
-        )
+        _shut_down_after_the_second_batch(pipeline, monitor_kind)
 
         await _run_expecting(pipeline, redis, WorkerShuttingDownError)
 

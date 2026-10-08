@@ -128,10 +128,9 @@ def _enrichment_pending(team_id: int, table: DataWarehouseTable | None, schema: 
     return bool(new_columns or table_needs_description)
 
 
-def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID) -> None:
+def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID, *, run_id: str | None) -> None:
     """Fail fast if another run stole the v3 lock during this run's startup window,
     instead of double-writing the Delta table. Best-effort: skipped when Redis is down."""
-    run_id = activity.info().workflow_run_id
     if not run_id:
         return
     holder = get_v3_pipeline_lock_holder(team_id, str(schema_id))
@@ -181,6 +180,8 @@ def _create_job(
     pipeline_version: str,
     billable: bool,
     schema_snapshot: dict[str, Any],
+    workflow_id: str | None,
+    workflow_run_id: str | None,
     destination_ids: list[str] | None = None,
 ) -> ExternalDataJob:
     # A deadlock aborts the INSERT without creating a row, so retrying from scratch is safe. This
@@ -192,8 +193,8 @@ def _create_job(
         schema_id=schema_id,
         status=ExternalDataJob.Status.RUNNING,
         rows_synced=0,
-        workflow_id=activity.info().workflow_id,
-        workflow_run_id=activity.info().workflow_run_id,
+        workflow_id=workflow_id,
+        workflow_run_id=workflow_run_id,
         pipeline_version=pipeline_version,
         billable=billable,
         schema_snapshot=schema_snapshot,
@@ -336,6 +337,22 @@ class CreateExternalDataJobModelActivityOutputs:
 def create_external_data_job_model_activity(
     inputs: CreateExternalDataJobModelActivityInputs,
 ) -> CreateExternalDataJobModelActivityOutputs:
+    info = activity.info()
+    return prepare_run(inputs, workflow_id=info.workflow_id, workflow_run_id=info.workflow_run_id, verify_v3_lock=True)
+
+
+def prepare_run(
+    inputs: CreateExternalDataJobModelActivityInputs,
+    *,
+    workflow_id: str | None,
+    workflow_run_id: str | None,
+    verify_v3_lock: bool,
+) -> CreateExternalDataJobModelActivityOutputs:
+    """Create the job row for one run and answer every pre-extraction question about it.
+
+    `workflow_id` and `workflow_run_id` are stamped on the job row. The finalizer and the loader
+    find the run's job by `workflow_run_id`, and the V3 lock token is the same value.
+    """
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
@@ -358,7 +375,8 @@ def create_external_data_job_model_activity(
 
         source: ExternalDataSource = schema.source
 
-        _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id)
+        if verify_v3_lock:
+            _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id, run_id=workflow_run_id)
 
         destination_ids: list[str] = []
         if is_multi_destination_enabled(inputs.team_id, source.source_type):
@@ -385,6 +403,8 @@ def create_external_data_job_model_activity(
                 pipeline_version=ExternalDataJob.PipelineVersion.V3,
                 billable=inputs.billable,
                 schema_snapshot=schema_snapshot,
+                workflow_id=workflow_id,
+                workflow_run_id=workflow_run_id,
                 destination_ids=destination_ids,
             )
         except IntegrityError:
