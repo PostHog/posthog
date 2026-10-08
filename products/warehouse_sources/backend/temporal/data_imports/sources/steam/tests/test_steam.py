@@ -8,7 +8,11 @@ import time_machine
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
-from requests import HTTPError, Response
+from requests import (
+    ConnectionError as RequestsConnectionError,
+    HTTPError,
+    Response,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.steam import SteamSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.steam.source import SteamSource
@@ -105,7 +109,7 @@ class TestSteam:
         assert ADA not in player_key(TEAM_ID, ADA)
         assert player_key(TEAM_ID, ADA) != player_key(TEAM_ID + 1, ADA)
 
-    def test_a_rejected_key_fails_the_sync_with_a_non_retryable_error(self) -> None:
+    def test_a_rejected_key_fails_the_sync_without_the_key_in_the_error(self) -> None:
         response = _response(403)
         response.reason = "Forbidden"
         response.url = "https://api.steampowered.com/?key=secret-key"
@@ -115,7 +119,17 @@ class TestSteam:
         with pytest.raises(HTTPError) as error:
             _rows("players", session, [ADA])
 
-        assert any(pattern in str(error.value) for pattern in SteamSource().get_non_retryable_errors())
+        assert str(error.value) == "403 Client Error: Forbidden"
+
+    def test_a_connection_failure_keeps_the_key_out_of_the_error(self) -> None:
+        session = MagicMock()
+        session.get.side_effect = RequestsConnectionError("Max retries exceeded with url: /?key=secret-key&steamids=1")
+
+        with patch(f"{MODULE}.make_tracked_session", return_value=session):
+            response = steam_source("secret-key", TEAM_ID, [ADA], "players", MagicMock())
+            with pytest.raises(RequestsConnectionError) as error:
+                list(cast(Iterable[Any], response.items()))
+
         assert "secret-key" not in str(error.value)
 
     @parameterized.expand(
