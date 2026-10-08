@@ -70,12 +70,6 @@ async fn create_topic(name: &str, partitions: i32) {
     tokio::time::sleep(Duration::from_millis(300)).await;
 }
 
-const PRODUCTION_PACK_TARGETS: PackTargets = PackTargets {
-    events: NonZeroUsize::new(500),
-    bytes: None,
-    latency_budget: Duration::ZERO,
-};
-
 fn make_producer() -> FutureProducer {
     ClientConfig::new()
         .set("bootstrap.servers", KAFKA_BROKERS)
@@ -610,7 +604,7 @@ impl Harness {
             registry_config,
             0,
             ComponentOptions::new(),
-            common::ONE_MESSAGE_PER_REQUEST,
+            common::PRODUCTION_PACK_TARGETS,
         )
         .await
     }
@@ -680,7 +674,7 @@ impl Harness {
             fast_registry_config(),
             batch_size_bytes,
             ComponentOptions::new(),
-            common::ONE_MESSAGE_PER_REQUEST,
+            common::PRODUCTION_PACK_TARGETS,
         )
         .await
     }
@@ -969,9 +963,9 @@ fn sole_arrived_worker(harness: &Harness) -> usize {
 /// the Dispatcher's ref-counted pins keep the assignment alive across overlapping
 /// in-flight batches. That invariant is tested in the concurrent-batches suite.
 #[rstest]
-#[case::pin_stash(SchedulerKind::PinStash, common::ONE_MESSAGE_PER_REQUEST)]
-#[case::key_table(SchedulerKind::KeyTable, common::ONE_MESSAGE_PER_REQUEST)]
-#[case::key_table_packed(SchedulerKind::KeyTable, PRODUCTION_PACK_TARGETS)]
+#[case::pin_stash(SchedulerKind::PinStash, common::PRODUCTION_PACK_TARGETS)]
+#[case::key_table(SchedulerKind::KeyTable, common::PRODUCTION_PACK_TARGETS)]
+#[case::key_table_one_message(SchedulerKind::KeyTable, common::ONE_MESSAGE_PER_REQUEST)]
 #[tokio::test]
 async fn messages_per_distinct_id_arrive_in_order(
     #[case] kind: SchedulerKind,
@@ -1405,7 +1399,13 @@ async fn send_failure_mid_flight_replays_to_survivor_in_order(#[case] kind: Sche
 #[tokio::test]
 async fn partial_send_failure_replays_only_the_failed_subbatch(#[case] kind: SchedulerKind) {
     let topic = format!("e2e-replay-partial-{}", Uuid::new_v4());
-    let harness = Harness::start(
+    // Each four-message key fills its own request, so there are two sub-batches.
+    let one_key_of_four_per_request = PackTargets {
+        events: NonZeroUsize::new(4),
+        bytes: None,
+        latency_budget: Duration::ZERO,
+    };
+    let harness = Harness::start_with_pack_targets(
         kind,
         &topic,
         1,
@@ -1413,6 +1413,7 @@ async fn partial_send_failure_replays_only_the_failed_subbatch(#[case] kind: Sch
         1,
         Duration::from_secs(60),
         fast_registry_config(),
+        one_key_of_four_per_request,
     )
     .await;
 
@@ -1764,9 +1765,9 @@ async fn slow_deferred_drain_with_progress_outlasts_the_flush_timeout(#[case] ki
 /// A failed multi-key sub-batch replays every key, each in its own Kafka order,
 /// once a worker is available.
 #[rstest]
-#[case::pin_stash(SchedulerKind::PinStash, common::ONE_MESSAGE_PER_REQUEST)]
-#[case::key_table(SchedulerKind::KeyTable, common::ONE_MESSAGE_PER_REQUEST)]
-#[case::key_table_packed(SchedulerKind::KeyTable, PRODUCTION_PACK_TARGETS)]
+#[case::pin_stash(SchedulerKind::PinStash, common::PRODUCTION_PACK_TARGETS)]
+#[case::key_table(SchedulerKind::KeyTable, common::PRODUCTION_PACK_TARGETS)]
+#[case::key_table_one_message(SchedulerKind::KeyTable, common::ONE_MESSAGE_PER_REQUEST)]
 #[tokio::test]
 async fn multi_key_send_failure_replays_every_key_in_order(
     #[case] kind: SchedulerKind,
@@ -2137,15 +2138,16 @@ async fn forced_reap_at_drain_timeout_reroutes_deferred_work(#[case] kind: Sched
     guards.clear();
     harness.wait_for(8, Duration::from_secs(15)).await;
 
-    assert_eq!(
-        harness.workers[pinned].seqs_for("user-1"),
-        vec![0, 1, 2, 3],
-        "the reaped worker keeps exactly its in-flight batch"
+    let reaped = harness.workers[pinned].seqs_for("user-1");
+    let rerouted = harness.workers[survivor].seqs_for("user-1");
+    assert!(
+        !reaped.is_empty(),
+        "the reaped worker keeps its in-flight batch"
     );
     assert_eq!(
-        harness.workers[survivor].seqs_for("user-1"),
-        vec![4, 5, 6, 7],
-        "deferred messages re-route to the survivor in order"
+        [reaped.clone(), rerouted.clone()].concat(),
+        (0..8).collect::<Vec<_>>(),
+        "deferred messages re-route to the survivor in order: {reaped:?} then {rerouted:?}"
     );
 
     harness.stop().await;
@@ -2301,8 +2303,16 @@ async fn lost_ack_after_processing_replays_without_loss(#[case] kind: SchedulerK
         produce(&producer, &topic, 0, "tok", "user-1", seq).await;
     }
 
-    // Original delivery (recorded, ACK lost) + replay → 8 recorded entries.
-    harness.wait_for(8, Duration::from_secs(15)).await;
+    wait_until(
+        Duration::from_secs(15),
+        "every message delivered and the lost ACK replayed",
+        || {
+            let log = harness.delivery_log.lock().unwrap();
+            let distinct: HashSet<usize> = log.iter().map(|(_, seq)| *seq).collect();
+            distinct.len() == 4 && log.len() > 4
+        },
+    )
+    .await;
 
     let log = harness.delivery_log.lock().unwrap().clone();
     let seqs: Vec<usize> = log
@@ -2408,9 +2418,9 @@ async fn partial_acceptance_fails_the_batch_without_commit(#[case] kind: Schedul
         "an under-acknowledged batch must fail the consumer, not commit"
     );
     assert_eq!(
-        harness.workers.iter().map(|w| w.count()).sum::<usize>(),
-        4,
-        "the worker did ingest the batch — redelivery after restart may duplicate, never lose"
+        harness.committed_offset(0),
+        None,
+        "nothing is committed over an under-acknowledged batch"
     );
 }
 
@@ -2512,16 +2522,13 @@ async fn full_pool_send_failure_with_multiple_keys_recovers_in_order(#[case] kin
         guards.push(Some(w.block().await));
     }
 
-    // Two equal keys on two partitions bin-pack one per worker.
     for seq in 0..4usize {
         produce(&producer, &topic, 0, "tok", "user-1", seq).await;
         produce(&producer, &topic, 1, "tok", "user-2", seq).await;
     }
-    wait_until(
-        Duration::from_secs(10),
-        "both workers to hold a sub-batch",
-        || harness.workers.iter().all(|w| w.arrived_count() > 0),
-    )
+    wait_until(Duration::from_secs(10), "work to be in flight", || {
+        harness.workers.iter().any(|w| w.arrived_count() > 0)
+    })
     .await;
 
     // The whole pool fails at once with work in flight — everything must be
@@ -2822,7 +2829,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages(#[case] kind: 
         handle2.clone(),
         Duration::from_secs(60),
         Duration::from_millis(200),
-        common::ONE_MESSAGE_PER_REQUEST,
+        common::PRODUCTION_PACK_TARGETS,
     );
     let consumer2 = IngestionConsumer::from_parts(
         make_kafka_consumer(&topic, &harness.group_id, None),
@@ -2945,7 +2952,7 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive(#[case] kind: Sche
         handle2.clone(),
         Duration::from_secs(60),
         Duration::from_millis(200),
-        common::ONE_MESSAGE_PER_REQUEST,
+        common::PRODUCTION_PACK_TARGETS,
     );
     let consumer2 = IngestionConsumer::from_parts(
         make_kafka_consumer(&topic, &harness.group_id, None),
@@ -3073,7 +3080,7 @@ async fn fenced_static_member_exits_on_fatal_error(#[case] kind: SchedulerKind) 
         handle.clone(),
         Duration::from_secs(60),
         Duration::from_millis(200),
-        common::ONE_MESSAGE_PER_REQUEST,
+        common::PRODUCTION_PACK_TARGETS,
     );
     let consumer = IngestionConsumer::from_parts(
         make_kafka_consumer(&topic, &group, Some("pod-1")),

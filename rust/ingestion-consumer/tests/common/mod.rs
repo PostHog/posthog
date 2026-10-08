@@ -17,6 +17,12 @@ use ingestion_consumer::routing::Router;
 use ingestion_consumer::scheduler::SchedulerKind;
 use lifecycle::Handle;
 
+pub const PRODUCTION_PACK_TARGETS: PackTargets = PackTargets {
+    events: NonZeroUsize::new(500),
+    bytes: None,
+    latency_budget: Duration::ZERO,
+};
+
 pub const ONE_MESSAGE_PER_REQUEST: PackTargets = PackTargets {
     events: NonZeroUsize::new(1),
     bytes: None,
