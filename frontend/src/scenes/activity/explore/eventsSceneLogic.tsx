@@ -221,7 +221,9 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
 
     urlToAction(({ actions, values }) => {
         const eventsQueryHandler: UrlToActionPayload[keyof UrlToActionPayload] = (_, __, { q: queryParam }): void => {
-            if (!equal(queryParam, values.query)) {
+            // The URL holds the query as JSON, which drops keys set to undefined.
+            // Compare the query in that form, so that the scene's own URL update does not count as a new link.
+            if (!equal(queryParam, JSON.parse(JSON.stringify(values.query)))) {
                 // nothing in the URL
                 if (!queryParam) {
                     // restore from the persisted query if present, else fall back to default

@@ -226,4 +226,42 @@ describe('eventsSceneLogic', () => {
             expect(((logic.values.query as DataTableNode).source as EventsQuery).event).toBe(expectedEvent)
         }
     )
+
+    it('keeps a cleared event when a later edit writes an undefined key', async () => {
+        let flagCallQueries = 0
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const { query } = (await request.json()) as Record<string, any>
+                    if (query.event !== '$feature_flag_called') {
+                        return [200, { results: [] }]
+                    }
+                    flagCallQueries++
+                    return [200, { results: [[LOOKUP_UUID]] }]
+                },
+            },
+        })
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2,
+        })
+        router.actions.push(
+            combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: getEventLookupQuery(LOOKUP_UUID) }).url
+        )
+        await expectLogic(logic).toFinishAllListeners()
+        const named = logic.values.query as DataTableNode
+        const cleared: DataTableNode = { ...named, source: { ...(named.source as EventsQuery), event: '' } }
+        const redated: DataTableNode = {
+            ...cleared,
+            source: { ...(cleared.source as EventsQuery), after: '-24h', before: undefined },
+        }
+
+        logic.actions.setQuery(cleared)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setQuery(redated)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(((logic.values.query as DataTableNode).source as EventsQuery).event).toBe('')
+        expect(flagCallQueries).toBe(1)
+    })
 })
