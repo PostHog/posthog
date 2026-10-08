@@ -1765,13 +1765,11 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
         session.task_run.status = "in_progress"
         await database_sync_to_async(session.task_run.save)(update_fields=["state", "status"])
         initial_state = await database_sync_to_async(before_task_dispatch)(session.task_run.id)
-        assert initial_state is not None
-        session.task_run.state = {**session.task_run.state, **initial_state}
-        await database_sync_to_async(session.task_run.save)(update_fields=["state"])
+        assert initial_state is None
         persisted = await database_sync_to_async(type(session.task_run).objects.get)(pk=session.task_run.pk)
         assert persisted.state is not None
-        assert persisted.state["scout_trial"]["launch_id"] == str(launch.id)
-        assert "scout_trial_private" in persisted.state
+        assert "scout_trial" not in persisted.state
+        assert "scout_trial_private" not in persisted.state
         if task_cancelled or outcome_case == "task_failed_no_message":
             await database_sync_to_async(type(session.task_run).objects.filter(pk=session.task_run.pk).update)(
                 status="cancelled" if task_cancelled else "failed"
@@ -1870,6 +1868,7 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
         assert outcome.task_run_id == replay.task_run_id == str(session.task_run.id)
     assert bridge.metadata is not None
     assert bridge.metadata["scout_trial"]["context_id"] == str(context.id)
+    assert "scout_trial_private" in bridge.metadata
     assert bridge.metadata["reasoning_effort"] == "high"
     export.assert_called_once()
     assert export.call_args.args[0] == f"signals/scout-trials/{ateam.id}/results/{bridge.id}.json"
@@ -1879,6 +1878,7 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
     assert saved_result["task_status"] == ("completed" if final_metrics_failure else outcome.status)
     assert saved_result["token_usage"] == {"input_tokens": 100, "output_tokens": 20}
     assert saved_result["private_state"]["invalid_reason"] == saved_result["invalid_reason"]
+    assert "scout_trial_private" not in saved_result["metadata"]
     assert "skill_body" not in saved_result
     await database_sync_to_async(config.refresh_from_db)()
     assert config.consecutive_failure_count == 4

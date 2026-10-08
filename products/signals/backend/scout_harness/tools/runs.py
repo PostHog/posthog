@@ -30,7 +30,7 @@ import structlog
 from croniter import CroniterError, croniter
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
-from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM, SCOUT_TRIAL_STATE_KEY
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -533,6 +533,7 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
     task_run_id = str(task_run.id) if task_run is not None else None
     error, failure_reason = _derive_failure(task_run)
     metadata = dict(row.metadata or {})
+    metadata.pop(SCOUT_TRIAL_STATE_KEY, None)
     if metadata.pop("scout_trial", None) is not None:
         metadata.pop("triggered_by", None)
     return RunSummary(

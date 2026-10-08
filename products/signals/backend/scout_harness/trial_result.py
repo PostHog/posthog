@@ -20,7 +20,11 @@ from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.models import SignalScoutRun
 from products.signals.backend.scout_harness.trial_launch import TrialLaunch, read_trial_launch
-from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY, ScoutTrialStore
+from products.signals.backend.scout_harness.trial_state import (
+    SCOUT_TRIAL_METADATA_KEY,
+    SCOUT_TRIAL_STATE_KEY,
+    ScoutTrialStore,
+)
 
 MAX_TRIAL_RESULT_BYTES = 4 * 1024 * 1024
 _RUNTIME_FIELDS = ("runtime_adapter", "model", "reasoning_effort", "service_tier")
@@ -155,7 +159,11 @@ def export_trial_result(run: SignalScoutRun, *, status: str, overwrite: bool = T
         "observed_runtime": {field: state.get(field) for field in _RUNTIME_FIELDS},
         "token_usage": state.get("token_usage"),
         "summary": run.summary,
-        "metadata": cast(dict[str, JsonValue], run.metadata),
+        "metadata": {
+            name: value
+            for name, value in cast(dict[str, JsonValue], run.metadata).items()
+            if name != SCOUT_TRIAL_STATE_KEY
+        },
         "private_state": ScoutTrialStore(run).export(),
     }
     content = json.dumps(result)

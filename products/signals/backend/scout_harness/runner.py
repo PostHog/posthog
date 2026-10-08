@@ -18,7 +18,6 @@ from django.utils import timezone
 
 import posthoganalytics
 from croniter import CroniterError, croniter
-from pydantic import JsonValue
 
 from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
@@ -1009,8 +1008,8 @@ async def _spawn_and_run(
         },
     )
 
-    def _create_bridge_row(task_run_id: UUID) -> dict[str, JsonValue] | None:
-        scout_run = _create_run_row(
+    def _create_bridge_row(task_run_id: UUID) -> None:
+        _create_run_row(
             run_id=run_id,
             task_run_id=task_run_id,
             team=team,
@@ -1048,12 +1047,6 @@ async def _spawn_and_run(
                 service_tier=service_tier,
             )
         )
-        if trial is not None:
-            return {
-                SCOUT_TRIAL_METADATA_KEY: (scout_run.metadata or {})[SCOUT_TRIAL_METADATA_KEY],
-                SCOUT_TRIAL_STATE_KEY: initial_trial_state(),
-            }
-        return None
 
     session, result = await MultiTurnSession.start(
         prompt=prompt,
@@ -1393,6 +1386,7 @@ def _create_run_row(
             "context_id": str(trial.context_id),
             "variant": trial.variant,
         }
+        metadata[SCOUT_TRIAL_STATE_KEY] = initial_trial_state()
     # The check a coordinator dispatch was started to answer. `scout-check-record-result` and
     # `scout-report-check-list` read it to tie the check to this run.
     if check_id:
