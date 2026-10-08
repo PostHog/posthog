@@ -60,7 +60,7 @@ def _enforce_caller_holds_scopes(request: Request, scopes: Iterable[str]) -> Non
 def _enforce_gateway_bans(request: Request, team) -> None:
     """A phs_ key reaches the gateway with no user attached, so the user bans that
     other gateway credential paths enforce run here, when the scope is granted."""
-    user = request.user
+    user = cast(User, request.user)
     try:
         refused = security_access_refused(
             SecuritySubject(
