@@ -1920,6 +1920,34 @@
         },
         "feature_flag": "product-business-knowledge"
     },
+    "canvas-action-invoke": {
+        "description": "Run one action verb a canvas declares in `capabilities.posthog.actions`, as the authenticated user, the same way a viewer's click in the canvas would: the write lands in the target product (feature flags, cohorts, error tracking, surveys, workflows, tasks, annotations) with the user's own permissions and is recorded in the canvas's activity log. Read canvas-actions-list first for each verb's payload shape and effect, and do not invoke a verb the canvas does not declare. The credential must also hold the verb's own write scope (for example `feature_flag:write` for `feature_flags.enable`); `canvas:write` alone is refused. Verbs marked destructive disable or stop something — confirm with the user before invoking them. Returns `{verb, result}`; a 409 with `change_request_id` means a team approval policy took the change instead of applying it.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Invoke a canvas action",
+        "title": "Invoke a canvas action",
+        "required_scopes": ["canvas:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "canvas-actions-list": {
+        "description": "List every action verb a canvas may declare and invoke, with its summary, whether it is destructive or starts paid compute, and `usage` docs giving the payload and result shape. Read this before writing a canvas that calls `ph.actions.invoke`, before adding a verb to `capabilities.posthog.actions`, and before calling canvas-action-invoke. The list is the deployed registry, so it is always current.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "List canvas action verbs",
+        "title": "List canvas action verbs",
+        "required_scopes": ["canvas:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "canvas-builds-retrieve": {
         "description": "Read a canvas's build lifecycle: `published_build_id` (the live build), `current_version_id`, and the most recent builds with their status (queued/building/ready/failed) and structured diagnostics. A publish queues a build; poll this until the build you queued is terminal — `ready` (the live pointer advances) or `failed` (fix the error diagnostics and publish again; the last good build stays live). Do not finish a canvas task while its build is still queued or building. A publish or edit response already carries its build status, so call this only when that status was `queued` or `building`.",
         "category": "Canvas",

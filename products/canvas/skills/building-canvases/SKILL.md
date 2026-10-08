@@ -196,7 +196,7 @@ That field is the only valid link to a canvas — never construct one yourself; 
   in `capabilities.posthog.actions`; undeclared or unregistered verbs fail validation and the
   host refuses them at runtime. Wire actions to explicit user gestures (a button the viewer
   clicks), never to load or render. The registry is the source of truth: list it with the
-  `canvases-actions-retrieve` tool and follow each verb's `usage` (payload/result shape,
+  `canvas-actions-list` tool and follow each verb's `usage` (payload/result shape,
   behavior, and the confirmation copy it warrants) before wiring it.
 
 - **`ph.connectors.call(provider, tool, args)`** — read live third-party data (GitHub, or any

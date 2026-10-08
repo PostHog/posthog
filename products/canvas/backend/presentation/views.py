@@ -381,6 +381,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         "view",
         "comments",
         "comment",
+        "actions",
     ]
     scope_object_write_actions = [
         "create",
