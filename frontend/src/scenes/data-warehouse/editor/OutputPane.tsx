@@ -37,7 +37,7 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
-import { PIE_DISPLAY_TYPES } from 'lib/constants'
+import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
@@ -56,10 +56,11 @@ import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
-import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
+import { PartOfWholeChart } from '~/queries/nodes/DataVisualization/Components/Charts/PartOfWholeChart'
 import { SqlBoxPlot } from '~/queries/nodes/DataVisualization/Components/Charts/SqlBoxPlot'
 import { isSqlChartVisualizationType, SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
 import { SqlMetricCard } from '~/queries/nodes/DataVisualization/Components/Charts/SqlMetricCard'
+import { partOfWholeChartData } from '~/queries/nodes/DataVisualization/Components/Charts/sqlPieGraphAdapter'
 import { SqlScatterGraph } from '~/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
@@ -1085,15 +1086,14 @@ function InternalDataTableVisualization(
                 />
             </BindLogic>
         )
-    } else if (PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
-        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        const _yData = seriesBreakdownData.seriesData.length ? seriesBreakdownData.seriesData : yData
+    } else if (PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
+        const pieData = partOfWholeChartData(seriesBreakdownData, xData, yData)
 
         component = (
-            <PieChart
+            <PartOfWholeChart
                 className="p-2"
-                xData={_xData}
-                yData={_yData}
+                xData={pieData.xData}
+                yData={pieData.yData}
                 visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
