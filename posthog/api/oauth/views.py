@@ -5,7 +5,7 @@ import calendar
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import TypedDict, cast
+from typing import Any, TypedDict, cast
 from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
@@ -37,7 +37,7 @@ from oauthlib.common import Request as OauthlibRequest
 from oauthlib.oauth2 import InvalidClientIdError, InvalidGrantError
 from redis.exceptions import RedisError
 from rest_framework import serializers, status
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import AuthenticationFailed, NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -68,7 +68,7 @@ from posthog.api.oauth.metadata import (
     openid_provider_metadata,
     protected_resource_metadata,
 )
-from posthog.auth import SessionAuthentication
+from posthog.auth import IDJagAccessTokenAuthentication, SessionAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.helpers.oauth_pending_connection import (
     PendingOAuthConnection,
@@ -2349,6 +2349,31 @@ class ConfidentialClientOnlyOAuthValidator(OAuthValidator):
         return getattr(request.client, "client_type", None) == AbstractApplication.CLIENT_CONFIDENTIAL
 
 
+def _active_access_token_response(
+    *,
+    scope: str,
+    expires_at: int,
+    is_impersonated: bool,
+    scoped_teams: list[int],
+    scoped_organizations: list[str],
+    application: OAuthApplication | None,
+) -> JsonResponse:
+    """RFC 7662 response for an active access token, whether it is stored or a signed JWT."""
+    data: dict[str, Any] = {
+        "active": True,
+        "token_type": "access_token",
+        "scope": scope,
+        "is_impersonated": is_impersonated,
+        "scoped_teams": scoped_teams,
+        "scoped_organizations": scoped_organizations,
+        "exp": expires_at,
+    }
+    if application:
+        data["client_id"] = application.client_id
+        data["client_name"] = application.name
+    return JsonResponse(data)
+
+
 @method_decorator(csrf_exempt, name="dispatch")
 @method_decorator(login_not_required, name="dispatch")
 class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
@@ -2408,6 +2433,9 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         """
         if self._is_self_introspection(request):
             bearer_token = request.headers.get("Authorization", "")[7:]
+            # An ID-JAG access token has no row to look up; get_token_response verifies it.
+            if IDJagAccessTokenAuthentication.is_id_jag_token(bearer_token):
+                return True, request
             token_checksum = hashlib.sha256(bearer_token.encode("utf-8")).hexdigest()
             try:
                 request.oauth_caller_access_token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
@@ -2452,6 +2480,30 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         client = getattr(request, "oauth_authenticated_client", None)
         return client.client_id if client is not None else None
 
+    def _id_jag_token_response(self, request, token_value: str, credential_client_id: str | None) -> JsonResponse:
+        """An ID-JAG access token is a signed JWT with no row, so it is read from its verified
+        claims. A caller sees it only when the caller is the token itself, or the client the
+        token was issued to."""
+        try:
+            verified = IDJagAccessTokenAuthentication.verify_access_token(token_value)
+        except AuthenticationFailed:
+            return JsonResponse({"active": False}, status=200)
+        if not self._is_self_introspection(request):
+            caller_token = getattr(request, "oauth_caller_access_token", None)
+            caller_client_id = credential_client_id or getattr(
+                getattr(caller_token, "application", None), "client_id", None
+            )
+            if caller_client_id != verified.client_id:
+                return JsonResponse({"active": False}, status=200)
+        return _active_access_token_response(
+            scope=" ".join(verified.scopes),
+            expires_at=verified.expires_at,
+            is_impersonated=False,
+            scoped_teams=[],
+            scoped_organizations=[verified.organization_id],
+            application=OAuthApplication.objects.filter(client_id=verified.client_id).first(),
+        )
+
     def get_token_response(self, request, token_value=None):
         """
         RFC 7662 Token Introspection response.
@@ -2476,6 +2528,9 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         is_client_credentials = not hasattr(request, "resource_owner")
         if is_client_credentials and credential_client_id is None:
             return JsonResponse({"active": False}, status=200)
+
+        if IDJagAccessTokenAuthentication.is_id_jag_token(token_value):
+            return self._id_jag_token_response(request, token_value, credential_client_id)
 
         # The bearer caller is identified by the application its own token belongs to. The
         # `introspection` scope says a caller may introspect, not whose tokens it may read,
@@ -2520,19 +2575,14 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             # `user` is null for a client-credentials grant, which has no resource owner.
             if access_token.user is not None and not access_token.user.is_active:
                 return JsonResponse({"active": False}, status=200)
-            data = {
-                "active": True,
-                "token_type": "access_token",
-                "scope": access_token.scope,
-                "is_impersonated": access_token.impersonated_by_id is not None,
-                "scoped_teams": access_token.scoped_teams or [],
-                "scoped_organizations": access_token.scoped_organizations or [],
-                "exp": int(calendar.timegm(access_token.expires.timetuple())),
-            }
-            if access_token.application:
-                data["client_id"] = access_token.application.client_id
-                data["client_name"] = access_token.application.name
-            return JsonResponse(data)
+            return _active_access_token_response(
+                scope=access_token.scope,
+                expires_at=int(calendar.timegm(access_token.expires.timetuple())),
+                is_impersonated=access_token.impersonated_by_id is not None,
+                scoped_teams=access_token.scoped_teams or [],
+                scoped_organizations=access_token.scoped_organizations or [],
+                application=access_token.application,
+            )
 
         # Fall back to refresh token (lookup by plaintext token — OAuthRefreshToken has
         # no token_checksum field; revoked tokens filtered via revoked__isnull=True)

@@ -19,7 +19,7 @@ from urllib.parse import urlencode
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
 import jwt
@@ -49,6 +49,7 @@ from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User as UserModel
+from posthog.permissions import get_authenticator_client
 from posthog.settings.utils import generate_rsa_private_key_pem
 
 # rsa operations are expensive, keep this at the module-level to avoid slow tests
@@ -1081,6 +1082,18 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
             expected_credential_id,
         )
 
+    def test_flag_context_names_the_client_the_token_was_issued_to(self) -> None:
+        authenticator = IDJagAccessTokenAuthentication()
+        request = RequestFactory().get(
+            "/", HTTP_AUTHORIZATION=f"Bearer {self._mint_access_token(client_id='agent_client_id')}"
+        )
+
+        authenticator.authenticate(request)
+
+        self.assertEqual(
+            get_authenticator_client(authenticator), {"credential_type": "id_jag", "client_id": "agent_client_id"}
+        )
+
     def test_valid_token_authenticates_user(self) -> None:
         token = self._mint_access_token(scope="user:read")
         resp = self._call_authenticated(token)
@@ -1168,6 +1181,26 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         token = jwt.encode(payload, _AS_PRIVATE_KEY_PEM, algorithm="RS256", headers={"typ": ACCESS_TOKEN_TYPE})
         resp = self._call_authenticated(token)
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @parameterized.expand([("valid", 300, True), ("expired", -60, False)])
+    def test_token_can_introspect_itself(self, _name: str, exp_seconds: int, expected_active: bool) -> None:
+        _create_client(_RESOURCE_CLIENT_ID)
+        token = self._mint_access_token(scope="feature_flag:read", exp_seconds=exp_seconds)
+
+        resp = self.client.post(
+            "/oauth/introspect",
+            data={"token": token},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        body = resp.json()
+        self.assertEqual(body["active"], expected_active)
+        if expected_active:
+            self.assertEqual(body["scope"], "feature_flag:read")
+            self.assertEqual(body["scoped_organizations"], [str(self.organization.id)])
+            self.assertEqual(body["client_id"], _RESOURCE_CLIENT_ID)
 
     def test_unknown_user_uuid_rejected(self) -> None:
         token = self._mint_access_token(user_uuid=str(uuid.uuid4()), scope="user:read")
