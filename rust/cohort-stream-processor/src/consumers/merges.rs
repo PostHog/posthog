@@ -12,7 +12,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use lifecycle::Handle;
 use metrics::{counter, histogram};
-use rdkafka::consumer::{CommitMode, StreamConsumer};
+use rdkafka::consumer::{CommitMode, ConsumerContext, StreamConsumer};
 use rdkafka::message::Message;
 use tracing::{debug, info, warn};
 
@@ -244,15 +244,11 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
             }
         }
 
-        // Final sync commit runs before the events consumer's shutdown; workers may still be marking
-        // offsets at this point, but follower offsets are independent.
-        fsync_then_commit(
-            self.dispatcher.handle(),
+        final_commit_after_drain(
             &self.consumer,
             self.tracker(),
-            self.owned_committable_offsets(),
+            &self.dispatcher,
             &self.topic,
-            CommitMode::Sync,
         )
         .await;
         info!(topic = %self.topic, "follower consume loop stopped");
@@ -337,6 +333,61 @@ struct FollowerOutcome<T> {
     messages: Vec<T>,
     deserialize_errors: u64,
     transport_error: bool,
+}
+
+/// How long a follower waits for the events consumer's shutdown drain before its final commit. Kept
+/// below the follower's 30 s graceful-shutdown budget so the commit still runs if the drain stalls.
+const SHUTDOWN_DRAIN_WAIT: Duration = Duration::from_secs(25);
+
+/// A follower's final sync commit. Partition workers apply follower messages and mark the follower
+/// trackers, and the events consumer drains those workers only after this follower stops. So wait
+/// for the drain first, or the commit misses every offset the drain applies.
+pub(crate) async fn final_commit_after_drain<C: ConsumerContext>(
+    consumer: &StreamConsumer<C>,
+    tracker: &OffsetTracker,
+    dispatcher: &EventDispatcher,
+    topic: &str,
+) {
+    let owned = match dispatcher
+        .wait_for_shutdown_drain(SHUTDOWN_DRAIN_WAIT)
+        .await
+    {
+        Some(owned) => {
+            info!(
+                topic,
+                "shutdown drain complete; running final follower commit"
+            );
+            owned
+        }
+        None => {
+            warn!(
+                topic,
+                wait_secs = SHUTDOWN_DRAIN_WAIT.as_secs(),
+                "shutdown drain did not complete in time; committing the offsets applied so far",
+            );
+            dispatcher.owned_partitions()
+        }
+    };
+    let offsets = restrict_to_owned(tracker.committable_offsets(), &owned);
+    let committed = fsync_then_commit(
+        dispatcher.handle(),
+        consumer,
+        tracker,
+        offsets.clone(),
+        topic,
+        CommitMode::Sync,
+    )
+    .await;
+    if committed {
+        info!(topic, offsets = ?offsets, "final follower commit done");
+    } else if offsets.is_empty() {
+        info!(
+            topic,
+            "final follower commit skipped: no committable offsets"
+        );
+    } else {
+        warn!(topic, offsets = ?offsets, "final follower commit failed; these offsets replay on restart");
+    }
 }
 
 /// A tracker's committable offsets restricted to the partitions this pod currently owns.
