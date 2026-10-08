@@ -69,6 +69,14 @@ export const EXIT_NODE_ID = 'exit_node'
 
 export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 
+function withTriggerConfig(workflow: HogFlow, config: TriggerAction['config']): HogFlow {
+    return {
+        ...workflow,
+        trigger: config,
+        actions: workflow.actions.map((action) => (action.type === 'trigger' ? { ...action, config } : action)),
+    }
+}
+
 export const NEW_WORKFLOW: HogFlow = {
     id: 'new',
     name: 'New workflow',
@@ -3163,17 +3171,15 @@ export const workflowLogic = kea<workflowLogicType>([
                             delete (newWorkflow as any).updated_at
                             delete (newWorkflow as any).created_by
 
-                            return newWorkflow
+                            // A link can pair a template with a trigger, e.g. a template opened on the recipient's own event
+                            const templateTriggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
+                            return templateTriggerConfig
+                                ? withTriggerConfig(newWorkflow as HogFlow, templateTriggerConfig)
+                                : newWorkflow
                         }
                         const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
                         if (triggerConfig) {
-                            const prefilled: HogFlow = {
-                                ...NEW_WORKFLOW,
-                                actions: NEW_WORKFLOW.actions.map((action) =>
-                                    action.type === 'trigger' ? { ...action, config: triggerConfig } : action
-                                ),
-                            }
-                            return prefilled
+                            return withTriggerConfig(NEW_WORKFLOW, triggerConfig)
                         }
                         return { ...NEW_WORKFLOW }
                     }
