@@ -9,7 +9,7 @@ export function csvListError(text: string): string | null {
     if (lines.length === 0) {
         return 'The file is empty.'
     }
-    const headers = lines[0].split(',').map((header) => header.trim().replace(/^"|"$/g, '').toLowerCase())
+    const headers = splitCsvRow(lines[0]).map((header) => header.trim().toLowerCase())
     if (headers.length > 1 && !headers.some((header) => SUPPORTED_ID_HEADERS.includes(header))) {
         return 'The file needs a column named email, distinct_id or person_id.'
     }
@@ -17,6 +17,34 @@ export function csvListError(text: string): string | null {
         return 'The file has a header row but no people in it.'
     }
     return null
+}
+
+function splitCsvRow(row: string): string[] {
+    const fields: string[] = []
+    let field = ''
+    let quoted = false
+    for (let i = 0; i < row.length; i++) {
+        const char = row[i]
+        if (quoted) {
+            if (char === '"' && row[i + 1] === '"') {
+                field += '"'
+                i++
+            } else if (char === '"') {
+                quoted = false
+            } else {
+                field += char
+            }
+        } else if (char === '"') {
+            quoted = true
+        } else if (char === ',') {
+            fields.push(field)
+            field = ''
+        } else {
+            field += char
+        }
+    }
+    fields.push(field)
+    return fields
 }
 
 /** Dated, so lists uploaded for the same broadcast stay apart in the cohorts list. */

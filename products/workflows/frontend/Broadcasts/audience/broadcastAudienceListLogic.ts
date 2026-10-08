@@ -7,9 +7,8 @@ import { dayjs } from 'lib/dayjs'
 import { createCohortFormData } from 'scenes/cohorts/cohortUtils'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { CohortType, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, CohortType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import type { AnyPropertyFilter } from '../../../../../frontend/src/types'
 import { BroadcastWizardLogicProps, broadcastWizardLogic } from '../broadcastWizardLogic'
 import { csvListError, defaultListCohortName } from './audienceList'
 
@@ -145,7 +144,13 @@ export const broadcastAudienceListLogic = kea<broadcastAudienceListLogicType>([
                 return
             }
             const csv = values.file!
-            const fileError = csvListError(await csv.text())
+            let fileError: string | null
+            try {
+                fileError = csvListError(await csv.text())
+            } catch (error: any) {
+                actions.createListCohortFinished(`Couldn't read the file: ${error?.message ?? 'unknown error'}`)
+                return
+            }
             if (fileError) {
                 actions.createListCohortFinished(fileError)
                 return
