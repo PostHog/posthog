@@ -51,16 +51,19 @@ def scope_ids_from_source_config(config: SignalSourceTableConfig, source_config:
     return [scope_id.strip() for scope_id in raw]
 
 
+def partition_expression(config: SignalSourceTableConfig) -> str:
+    """The HogQL expression that reads the config's partition field as a datetime."""
+    if config.partition_field_is_datetime_string:
+        return f"parseDateTimeBestEffort({config.partition_field})"
+    return config.partition_field
+
+
 def build_cursor_clause(config: SignalSourceTableConfig, last_synced_at: str | None) -> tuple[str, dict[str, Any]]:
     """The WHERE clause that selects records newer than the last sync, with its placeholders.
 
     Continuous syncs use the previous sync time. The first ever sync looks back a limited window.
     """
-    partition_expr = (
-        f"parseDateTimeBestEffort({config.partition_field})"
-        if config.partition_field_is_datetime_string
-        else config.partition_field
-    )
+    partition_expr = partition_expression(config)
     if last_synced_at is not None:
         return (
             f"{partition_expr} > {{last_synced_at}}",

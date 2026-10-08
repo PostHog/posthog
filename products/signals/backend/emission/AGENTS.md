@@ -57,9 +57,14 @@ Each source defines how to fetch records via its `record_fetcher` on the config:
   Declare the key per source in `contracts.SCOPE_CONFIG_KEYS` and read it from there, as `linear_issues.py` does for Linear team ids: the table stays out of `emission/` so the API serializer validates the same key without importing the emitters.
 - **Grouped warehouse fetcher** (`fetchers/grouped_warehouse.py`) — for high-volume tables that store one row per occurrence (Datadog error spans and logs).
   The generic fetcher has no `GROUP BY`, so it would emit one signal per row.
-  The grouped fetcher reads pages of groups from the noisiest down, drops the groups already in `SignalEmissionRecord`, and stops once it holds `max_records` new groups, so set `record_processed_outputs=True` on the config.
+  The grouped fetcher reads a fixed trailing window of event time (`GROUPED_WINDOW_DAYS`) and ignores `last_synced_at`.
+  That value is the start time of the previous sync job, so a cursor on it would skip rows that a page-capped sync left for the next sync and rows the source indexed late.
+  The window makes re-reading safe because the ledger and the weekly fingerprint deduplicate groups.
+  The grouped fetcher does not read `first_sync_lookback_days`, so leave it at the model default of 7.
+  It reads pages of groups from the noisiest down, drops the groups already in `SignalEmissionRecord`, and stops once it holds `max_records` new groups, so set `record_processed_outputs=True` on the config.
   Hash the group key into `source_id` and keep the weight below 1.0, so one group cannot open a report on its own.
-  Add `week_period(last_seen)` to the hashed key so a group that stays noisy, or returns after a fix, can emit again at most once per week.
+  Add `week_period(last_seen)` to the hashed key so a group that stays noisy, or returns after a fix, can emit at most once per ISO week, and again across a week boundary.
+  The fetcher rejects `scope_field`, because a group has no single scope value.
   The generic fetcher takes an optional `order_by` on the config, so the `max_records` limit keeps the most important records.
 - **Conversations fetcher** (`fetchers/conversations.py`) — queries Django ORM for Postgres tickets + comments.
   Records emission in `SignalEmissionRecord` optimistically at fetch time.

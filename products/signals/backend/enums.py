@@ -168,6 +168,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.BUGSNAG: "Bugsnag",
     SignalSourceProduct.HONEYBADGER: "Honeybadger",
     SignalSourceProduct.RAYGUN: "Raygun",
+    SignalSourceProduct.DATADOG: "Datadog",
     SignalSourceProduct.SNYK: "Snyk",
     SignalSourceProduct.SONARQUBE: "SonarQube",
     SignalSourceProduct.SEMGREP: "Semgrep",
@@ -187,7 +188,6 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.HUBSPOT: "HubSpot",
     SignalSourceProduct.ENGINEERING_ANALYTICS: "Engineering analytics",
     SignalSourceProduct.GOOGLE_SEARCH_CONSOLE: "Google Search Console",
-    SignalSourceProduct.DATADOG: "Datadog",
 }
 
 

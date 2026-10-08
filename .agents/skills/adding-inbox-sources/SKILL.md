@@ -35,8 +35,8 @@ The backend `SignalSourceProduct` choice must ship **before** the Code UI surfac
 the toggle. The Code toggle calls `createSignalSourceConfig({ source_product })`,
 and the Django model rejects a `source_product` that isn't in its choices → 400.
 
-So: **land the posthog/posthog PR(s) first (or at least the enum migration), then
-the posthog/code PR.** When opening both together, note the dependency in the Code
+So: **land the posthog/posthog PR(s) first (or at least the enum value and contract variant),
+then the posthog/code PR.** When opening both together, note the dependency in the Code
 PR description.
 
 ## The setup form: use the dynamic renderer, don't hardcode
@@ -242,7 +242,7 @@ warehouse sources / signals. Clean up the worktree when merged:
 
 - One PR per source per repo (per the request). Title: `feat(data-warehouse): add <Source> as a self-driving inbox source`.
 - Base the PR body on the repo's PR template.
-- Backend PRs first (or the shared enum migration first); Code PR references the backend PR and the deploy-ordering dependency.
+- Backend PRs first (the enum value and contract variant must ship before the Code PR); Code PR references the backend PR and the deploy-ordering dependency.
 - **Backend and desktop PRs stay separate:** `.github/scripts/desktop/check-pr-backend-coupling.sh` fails a PR that touches both `products/signals/backend` and the desktop or agent-contracts paths, unless it has the `desktop-skip-backend-check` label.
 - Follow the `merging-prs` skill to land each PR through the Trunk queue.
 

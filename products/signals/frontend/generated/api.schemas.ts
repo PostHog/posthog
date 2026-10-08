@@ -2132,25 +2132,6 @@ export interface SentryIssueSignalExtraApi {
     firstSeen: string | null
 }
 
-export interface DatadogSignalExtraApi {
-    kind: string
-    severity?: string | null
-    state?: string | null
-    created?: string | null
-    service?: string | null
-    platform?: string | null
-    file_path?: string | null
-    function_name?: string | null
-    error_type?: string | null
-    resource_name?: string | null
-    first_seen?: string | null
-    last_seen?: string | null
-    is_crash?: string | null
-    window_total_count?: string | null
-    window_impacted_users?: string | null
-    occurrences?: string | null
-}
-
 export interface RollbarItemSignalExtraApi {
     level: string | null
     status: string | null
@@ -2181,6 +2162,35 @@ export interface RaygunErrorGroupSignalExtraApi {
     applicationUrl: string | null
     lastOccurredAt: string | null
     createdAt: string | null
+}
+
+export type DatadogSignalExtraKindEnumApi =
+    (typeof DatadogSignalExtraKindEnumApi)[keyof typeof DatadogSignalExtraKindEnumApi]
+
+export const DatadogSignalExtraKindEnumApi = {
+    Incident: 'incident',
+    ErrorTrackingIssue: 'error_tracking_issue',
+    ErrorSpan: 'error_span',
+    ErrorLog: 'error_log',
+} as const
+
+export interface DatadogSignalExtraApi {
+    kind: DatadogSignalExtraKindEnumApi
+    severity?: string | null
+    state?: string | null
+    created?: string | null
+    service?: string | null
+    platform?: string | null
+    file_path?: string | null
+    function_name?: string | null
+    error_type?: string | null
+    resource_name?: string | null
+    first_seen?: string | null
+    last_seen?: string | null
+    is_crash?: string | null
+    window_total_count?: string | null
+    window_impacted_users?: string | null
+    occurrences?: string | null
 }
 
 export interface SnykScannerFindingSignalExtraApi {
@@ -2353,11 +2363,11 @@ export type SignalExtraApi =
     | GiteaIssueSignalExtraApi
     | ShortcutStorySignalExtraApi
     | SentryIssueSignalExtraApi
-    | DatadogSignalExtraApi
     | RollbarItemSignalExtraApi
     | BugsnagErrorSignalExtraApi
     | HoneybadgerFaultSignalExtraApi
     | RaygunErrorGroupSignalExtraApi
+    | DatadogSignalExtraApi
     | SnykScannerFindingSignalExtraApi
     | SonarqubeScannerFindingSignalExtraApi
     | SemgrepScannerFindingSignalExtraApi
@@ -7201,6 +7211,7 @@ export interface ScoutSuggestionRefreshApi {
  * * `bugsnag` - Bugsnag
  * * `honeybadger` - Honeybadger
  * * `raygun` - Raygun
+ * * `datadog` - Datadog
  * * `snyk` - Snyk
  * * `sonarqube` - SonarQube
  * * `semgrep` - Semgrep
@@ -7220,7 +7231,6 @@ export interface ScoutSuggestionRefreshApi {
  * * `hubspot` - HubSpot
  * * `engineering_analytics` - Engineering analytics
  * * `google_search_console` - Google Search Console
- * * `datadog` - Datadog
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -7256,6 +7266,7 @@ export const SignalSourceProductEnumApi = {
     Bugsnag: 'bugsnag',
     Honeybadger: 'honeybadger',
     Raygun: 'raygun',
+    Datadog: 'datadog',
     Snyk: 'snyk',
     Sonarqube: 'sonarqube',
     Semgrep: 'semgrep',
@@ -7275,7 +7286,6 @@ export const SignalSourceProductEnumApi = {
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
     GoogleSearchConsole: 'google_search_console',
-    Datadog: 'datadog',
 } as const
 
 /**

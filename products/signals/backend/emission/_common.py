@@ -72,16 +72,21 @@ def make_flat_emitter(
             source_id=str(record_id),
             description=description,
             weight=1.0,
-            extra=_build_extra(record, extra_fields, json_list_fields),
+            extra=build_extra(record, extra_fields, json_list_fields),
         )
 
     return emitter
 
 
-def _build_extra(
+def clean_text(value: Any) -> str:
+    """A value as stripped text, with `None` as an empty string."""
+    return "" if value is None else str(value).strip()
+
+
+def build_extra(
     record: dict[str, Any],
     extra_fields: tuple[str, ...],
-    json_list_fields: tuple[str, ...],
+    json_list_fields: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Build a deterministic extra dict: every declared field is present, list fields are
     normalized to lists, and scalars are coerced to `str | None` so the payload validates

@@ -1,12 +1,14 @@
 """Signal emitter for datadog `error_tracking_issues` (record kind: issue).
 
-The table has one row per Datadog Error Tracking issue, which already groups errors across APM
-traces, logs and RUM. `first_seen` is an ISO string and never changes, so the time cursor emits
-each issue once, as `sentry_issues.py` does with `firstSeen`.
+The table has one row per Datadog Error Tracking issue, which already groups errors across APM traces, logs and RUM.
+`first_seen` is an ISO string and never changes, so the time cursor emits each issue once, as `sentry_issues.py` does with `firstSeen`.
 """
 
 from typing import Any
 
+from structlog import get_logger
+
+from products.signals.backend.emission._common import build_extra, clean_text
 from products.signals.backend.emission._prompts import ERROR_ACTIONABILITY_PROMPT, ERROR_SUMMARIZATION_PROMPT
 from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
@@ -27,30 +29,29 @@ DATADOG_ERROR_ISSUE_FIELDS = (
     "window_impacted_users",
 )
 
+logger = get_logger(__name__)
+
 _EXTRA_FIELDS = tuple(f for f in DATADOG_ERROR_ISSUE_FIELDS if f not in ("id", "error_message"))
 _TRUE_VALUES = ("true", "1")
-
-
-def _text(value: Any) -> str:
-    return "" if value is None else str(value).strip()
+_MAX_MESSAGE_CHARS = 200
 
 
 def _is_crash(value: Any) -> bool:
-    return _text(value).lower() in _TRUE_VALUES
+    return clean_text(value).lower() in _TRUE_VALUES
 
 
 def _details(record: dict[str, Any]) -> str:
     parts: list[str] = []
-    if service := _text(record.get("service")):
+    if service := clean_text(record.get("service")):
         parts.append(f"Service: {service}")
-    file_path = _text(record.get("file_path"))
-    function_name = _text(record.get("function_name"))
+    file_path = clean_text(record.get("file_path"))
+    function_name = clean_text(record.get("function_name"))
     location = ":".join(part for part in (file_path, function_name) if part)
     if location:
         parts.append(f"Location: {location}")
-    if events := _text(record.get("window_total_count")):
+    if events := clean_text(record.get("window_total_count")):
         parts.append(f"Events: {events}")
-    if users := _text(record.get("window_impacted_users")):
+    if users := clean_text(record.get("window_impacted_users")):
         parts.append(f"Users: {users}")
     if _is_crash(record.get("is_crash")):
         parts.append("Crash")
@@ -59,30 +60,34 @@ def _details(record: dict[str, Any]) -> str:
 
 def datadog_error_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
     try:
-        issue_id = _text(record["id"])
+        issue_id = clean_text(record["id"])
     except KeyError as e:
-        raise ValueError(f"datadog error issue record missing required field {e}") from e
-    error_message = _text(record.get("error_message"))
+        msg = f"datadog error issue record missing required field {e}"
+        logger.exception(msg, team_id=team_id, signals_type="data-import-signals")
+        raise ValueError(msg) from e
     # An issue can have no error type, so the first message line stands in as its title.
-    title = _text(record.get("error_type")) or (error_message.splitlines()[0] if error_message else "")
+    message_line = (clean_text(record.get("error_message")).splitlines() or [""])[0].strip()[:_MAX_MESSAGE_CHARS]
+    title = clean_text(record.get("error_type")) or message_line
     if not issue_id or not title:
+        logger.info(
+            "Ignoring datadog error issue with empty id or title",
+            team_id=team_id,
+            signals_type="data-import-signals",
+        )
         return None
     lines = [title]
-    if error_message and error_message != title:
-        lines.append(error_message)
+    # Datadog's grouped representative message, like Sentry's title; raw span and log messages are excluded as possible personal data.
+    if message_line and message_line != title:
+        lines.append(message_line)
     if details := _details(record):
         lines.append(details)
-    extra: dict[str, Any] = {"kind": "error_tracking_issue"}
-    for field in _EXTRA_FIELDS:
-        value = record.get(field)
-        extra[field] = None if value is None else str(value)
     return SignalEmitterOutput(
         source_product="datadog",
         source_type="issue",
-        source_id=f"error_issue:{issue_id}",
+        source_id=f"error_tracking_issue:{issue_id}",
         description="\n".join(lines),
         weight=1.0,
-        extra=extra,
+        extra={"kind": "error_tracking_issue", **build_extra(record, _EXTRA_FIELDS)},
     )
 
 

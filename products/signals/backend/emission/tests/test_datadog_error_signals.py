@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -7,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from django.utils import timezone
 
 from parameterized import parameterized
+from pydantic import ValidationError
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -28,13 +30,17 @@ from products.signals.backend.emission.datadog_error_logs import (
 from products.signals.backend.emission.datadog_error_spans import (
     DATADOG_ERROR_SPANS_CONFIG,
     datadog_error_span_emitter,
+    datadog_error_span_record_fetcher,
     span_source_id,
 )
+from products.signals.backend.emission.datadog_incidents import datadog_incident_emitter
 from products.signals.backend.emission.fetchers.grouped_warehouse import MAX_GROUP_PAGES, week_period
+from products.signals.backend.emission.registry import SignalSourceTableConfig
 from products.signals.backend.emission.tests.conftest import (
     MOCK_DATADOG_ERROR_ISSUE_RECORD,
     MOCK_DATADOG_ERROR_LOG_RECORD,
     MOCK_DATADOG_ERROR_SPAN_RECORD,
+    MOCK_DATADOG_INCIDENT_RECORD,
 )
 from products.signals.backend.models import SignalEmissionRecord
 
@@ -45,7 +51,7 @@ class TestDatadogErrorIssueEmitter:
 
         assert result is not None
         assert (result.source_product, result.source_type) == ("datadog", "issue")
-        assert result.source_id == "error_issue:issue-1"
+        assert result.source_id == "error_tracking_issue:issue-1"
         assert result.weight == 1.0
         assert result.description == (
             "ConnectionRefusedError\n"
@@ -65,7 +71,22 @@ class TestDatadogErrorIssueEmitter:
             (
                 "empty_type_falls_back_to_first_message_line",
                 {"error_type": "", "error_message": "Disk full\nat writer.py:10"},
-                "Disk full\nDisk full\nat writer.py:10",
+                "Disk full\nService: checkout-api",
+            ),
+            (
+                "empty_type_with_long_message_is_truncated",
+                {"error_type": "", "error_message": "x" * 300},
+                f"{'x' * 200}\nService: checkout-api",
+            ),
+            (
+                "multi_line_message_keeps_only_the_first_line",
+                {"error_type": "OSError", "error_message": "Disk full\nat writer.py:10"},
+                "OSError\nDisk full\nService: checkout-api",
+            ),
+            (
+                "long_message_is_truncated",
+                {"error_type": "OSError", "error_message": "x" * 300},
+                f"OSError\n{'x' * 200}\nService: checkout-api",
             ),
         ]
     )
@@ -119,21 +140,6 @@ class TestDatadogErrorSpanEmitter:
 
         assert datadog_error_span_emitter(team_id=1, record=record) is None
 
-    @parameterized.expand(
-        [
-            ("same_group_new_counts", {"occurrences": 999}, True),
-            ("other_resource", {"resource_name": "GET /orders"}, False),
-            ("other_service", {"service": "billing-api"}, False),
-            ("other_error_type", {"error_type": "ValueError"}, False),
-            ("same_week", {"last_seen": "2026-07-17T09:00:00.000Z"}, True),
-            ("next_week", {"last_seen": "2026-07-22T09:00:00.000Z"}, False),
-        ]
-    )
-    def test_source_id_identifies_the_group(self, _name, overrides, expect_same):
-        changed = {**MOCK_DATADOG_ERROR_SPAN_RECORD, **overrides}
-
-        assert (span_source_id(changed) == span_source_id(MOCK_DATADOG_ERROR_SPAN_RECORD)) is expect_same
-
     def test_source_id_fits_the_ledger_column(self, datadog_error_span_record):
         record = {**datadog_error_span_record, "resource_name": "x" * 5000}
 
@@ -155,21 +161,94 @@ class TestDatadogErrorLogEmitter:
     def test_skips_group_without_message_pattern(self, datadog_error_log_record):
         assert datadog_error_log_emitter(team_id=1, record={**datadog_error_log_record, "message_pattern": ""}) is None
 
-    @parameterized.expand(
-        [
-            ("same_group_new_counts", {"occurrences": 1}, True),
-            ("other_pattern", {"message_pattern": "Refund # failed"}, False),
-            ("other_service", {"service": "billing-api"}, False),
-            ("next_week", {"last_seen": "2026-07-22T09:00:00.000Z"}, False),
-        ]
-    )
-    def test_source_id_identifies_the_group(self, _name, overrides, expect_same):
-        changed = {**MOCK_DATADOG_ERROR_LOG_RECORD, **overrides}
-
-        assert (log_source_id(changed) == log_source_id(MOCK_DATADOG_ERROR_LOG_RECORD)) is expect_same
-
     def test_span_and_log_ids_never_collide(self, datadog_error_span_record, datadog_error_log_record):
         assert span_source_id(datadog_error_span_record) != log_source_id(datadog_error_log_record)
+
+
+class TestDatadogGroupSourceIds:
+    @parameterized.expand(
+        [
+            ("span_same_group_new_counts", span_source_id, MOCK_DATADOG_ERROR_SPAN_RECORD, {"occurrences": 999}, True),
+            ("span_other_resource", span_source_id, MOCK_DATADOG_ERROR_SPAN_RECORD, {"resource_name": "GET /o"}, False),
+            ("span_other_service", span_source_id, MOCK_DATADOG_ERROR_SPAN_RECORD, {"service": "billing-api"}, False),
+            (
+                "span_other_error_type",
+                span_source_id,
+                MOCK_DATADOG_ERROR_SPAN_RECORD,
+                {"error_type": "ValueError"},
+                False,
+            ),
+            (
+                "span_same_week",
+                span_source_id,
+                MOCK_DATADOG_ERROR_SPAN_RECORD,
+                {"last_seen": "2026-07-17T09:00:00.000Z"},
+                True,
+            ),
+            (
+                "span_next_week",
+                span_source_id,
+                MOCK_DATADOG_ERROR_SPAN_RECORD,
+                {"last_seen": "2026-07-22T09:00:00.000Z"},
+                False,
+            ),
+            ("log_same_group_new_counts", log_source_id, MOCK_DATADOG_ERROR_LOG_RECORD, {"occurrences": 1}, True),
+            (
+                "log_other_pattern",
+                log_source_id,
+                MOCK_DATADOG_ERROR_LOG_RECORD,
+                {"message_pattern": "Refund # failed"},
+                False,
+            ),
+            ("log_other_service", log_source_id, MOCK_DATADOG_ERROR_LOG_RECORD, {"service": "billing-api"}, False),
+            (
+                "log_next_week",
+                log_source_id,
+                MOCK_DATADOG_ERROR_LOG_RECORD,
+                {"last_seen": "2026-07-22T09:00:00.000Z"},
+                False,
+            ),
+        ]
+    )
+    def test_source_id_identifies_the_group(self, _name, source_id_fn, base_record, overrides, expect_same):
+        changed = {**base_record, **overrides}
+
+        assert (source_id_fn(changed) == source_id_fn(base_record)) is expect_same
+
+
+class TestDatadogIncidentEmitter:
+    def test_emits_signal_for_valid_incident(self, datadog_incident_record):
+        result = datadog_incident_emitter(team_id=1, record=datadog_incident_record)
+
+        assert result is not None
+        assert (result.source_product, result.source_type) == ("datadog", "issue")
+        assert result.source_id == "incident:abc"
+        assert result.weight == 1.0
+        assert result.description == "Checkout latency\nSeverity: SEV-2, State: active"
+        assert result.extra["kind"] == "incident"
+
+    @parameterized.expand(
+        [
+            ("severity_only", {"state": None}, "Checkout latency\nSeverity: SEV-2"),
+            ("state_only", {"severity": ""}, "Checkout latency\nState: active"),
+            ("neither", {"severity": None, "state": None}, "Checkout latency"),
+        ]
+    )
+    def test_description_names_only_the_set_details(self, _name, overrides, expected):
+        result = datadog_incident_emitter(team_id=1, record={**MOCK_DATADOG_INCIDENT_RECORD, **overrides})
+
+        assert result is not None
+        assert result.description == expected
+
+    @parameterized.expand([("empty_title", {"title": ""}), ("empty_id", {"id": ""}), ("none_id", {"id": None})])
+    def test_skips_incident_without_id_or_title(self, _name, overrides):
+        assert datadog_incident_emitter(team_id=1, record={**MOCK_DATADOG_INCIDENT_RECORD, **overrides}) is None
+
+    def test_missing_id_column_raises(self, datadog_incident_record):
+        del datadog_incident_record["id"]
+
+        with pytest.raises(ValueError, match="missing required field"):
+            datadog_incident_emitter(team_id=1, record=datadog_incident_record)
 
 
 class TestDatadogExtraContract:
@@ -204,6 +283,11 @@ class TestDatadogExtraContract:
                 "error_log",
                 lambda: datadog_error_log_emitter(1, MOCK_DATADOG_ERROR_LOG_RECORD),
                 {"kind", "service", "occurrences", "first_seen", "last_seen"},
+            ),
+            (
+                "incident",
+                lambda: datadog_incident_emitter(1, MOCK_DATADOG_INCIDENT_RECORD),
+                {"kind", "severity", "state", "created"},
             ),
         ]
     )
@@ -346,21 +430,39 @@ class TestGroupedWarehouseRecordFetcher(BaseTest):
 
         assert [r["resource_name"] for r in records] == ["a", "b"]
 
-    @parameterized.expand([("first_sync", None), ("continuous", "2026-07-15T10:00:00+00:00")])
-    def test_query_groups_orders_by_noise_and_applies_cursor(self, _name, last_synced_at):
-        _, query = self._fetch(
-            DATADOG_ERROR_LOGS_CONFIG,
-            [{"service": "checkout-api", "message_pattern": "p", "occurrences": 1}],
-            {**self.context, "table_name": "datadog.error_logs", "last_synced_at": last_synced_at},
-        )
+    def test_query_groups_by_noise_and_ignores_the_sync_cursor(self):
+        where_by_cursor = {}
+        for last_synced_at in (None, "2026-07-15T10:00:00+00:00"):
+            _, query = self._fetch(
+                DATADOG_ERROR_LOGS_CONFIG,
+                [{"service": "checkout-api", "message_pattern": "p", "occurrences": 1}],
+                {**self.context, "table_name": "datadog.error_logs", "last_synced_at": last_synced_at},
+            )
+            assert [g.chain for g in query.group_by or [] if isinstance(g, ast.Field)] == [
+                ["service"],
+                ["message_pattern"],
+            ]
+            assert query.order_by is not None and query.order_by[0].order == "DESC"
+            assert isinstance(query.limit, ast.Constant) and query.limit.value > DATADOG_ERROR_LOGS_CONFIG.max_records
+            collector = _ConstantCollector()
+            collector.visit(query)
+            assert not any(hasattr(value, "year") for value in collector.constants)
+            assert query.where is not None
+            where_by_cursor[last_synced_at] = query.where.to_hogql()
 
-        assert [g.chain for g in query.group_by or [] if isinstance(g, ast.Field)] == [["service"], ["message_pattern"]]
-        assert query.order_by is not None and query.order_by[0].order == "DESC"
-        assert isinstance(query.limit, ast.Constant) and query.limit.value > DATADOG_ERROR_LOGS_CONFIG.max_records
-        collector = _ConstantCollector()
-        collector.visit(query)
-        has_sync_constant = any(hasattr(value, "year") for value in collector.constants)
-        assert has_sync_constant is (last_synced_at is not None)
+        assert len(set(where_by_cursor.values())) == 1
+
+    def test_config_with_a_scope_is_rejected(self):
+        with pytest.raises(ValidationError, match="does not support scope_field"):
+            SignalSourceTableConfig(
+                **{
+                    **DATADOG_ERROR_SPANS_CONFIG.model_dump(),
+                    "emitter": datadog_error_span_emitter,
+                    "record_fetcher": datadog_error_span_record_fetcher,
+                    "scope_field": "service",
+                    "scope_config_key": "datadog_services",
+                }
+            )
 
     def test_returns_nothing_when_the_window_has_no_rows(self):
         records, _ = self._fetch(DATADOG_ERROR_SPANS_CONFIG, [])
@@ -399,3 +501,43 @@ class TestErrorLogMessagePattern(ClickhouseTestMixin, BaseTest):
         )
 
         assert result.results[0][0] == expected
+
+
+def _fetched_where(team: Team, last_synced_at: str | None) -> str:
+    """The WHERE clause the grouped span fetcher sends for a sync with this cursor."""
+    captured: list[Any] = []
+
+    def fake_execute(query, **kwargs):
+        captured.append(query)
+        return MagicMock(results=[], columns=[])
+
+    with patch(
+        "products.signals.backend.emission.fetchers.grouped_warehouse.execute_hogql_query",
+        side_effect=fake_execute,
+    ):
+        DATADOG_ERROR_SPANS_CONFIG.record_fetcher(
+            team,
+            DATADOG_ERROR_SPANS_CONFIG,
+            {"table_name": "datadog.error_spans", "last_synced_at": last_synced_at, "extra": {}},
+        )
+    return captured[0].where.to_hogql()
+
+
+@pytest.mark.django_db
+class TestGroupedWindowClause(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(
+        [
+            # The sync cursor is 12 hours old, so a row from a day ago sits before it and must still be read.
+            ("before_cursor_inside_window", 1, 1),
+            ("outside_window", 3, 0),
+        ]
+    )
+    def test_window_keeps_rows_by_event_time_not_by_sync_cursor(self, _name, age_days, expected_count):
+        where_sql = _fetched_where(self.team, (timezone.now() - timedelta(hours=12)).isoformat())
+        timestamp = (timezone.now() - timedelta(days=age_days)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+        result = execute_hogql_query(
+            f"SELECT count() FROM (SELECT '{timestamp}' AS start_timestamp) WHERE {where_sql}", team=self.team
+        )
+
+        assert result.results[0][0] == expected_count

@@ -106,14 +106,3 @@ def test_config_has_actionability_and_summarization_prompts(source_type, table, 
     assert config is not None
     assert config.actionability_prompt is not None and "{description}" in config.actionability_prompt
     assert config.summarization_prompt is not None and "{description}" in config.summarization_prompt
-
-
-def test_datadog_incident_description_includes_severity_and_state():
-    config = get_signal_config(ExternalDataSourceType.DATADOG.value, "incidents")
-    assert config is not None
-    output = config.emitter(
-        1, {"id": "abc", "title": "Checkout latency", "severity": "SEV-2", "state": "active", "created": None}
-    )
-    assert output is not None
-    assert output.description == "Checkout latency\nSeverity: SEV-2, State: active"
-    assert output.extra["kind"] == "incident"

@@ -266,3 +266,17 @@ MOCK_DATADOG_ERROR_LOG_RECORD: dict = {
 @pytest.fixture
 def datadog_error_log_record() -> dict:
     return {**MOCK_DATADOG_ERROR_LOG_RECORD}
+
+
+MOCK_DATADOG_INCIDENT_RECORD: dict = {
+    "id": "abc",
+    "title": "Checkout latency",
+    "severity": "SEV-2",
+    "state": "active",
+    "created": "2026-07-15T10:00:00.000Z",
+}
+
+
+@pytest.fixture
+def datadog_incident_record() -> dict:
+    return {**MOCK_DATADOG_INCIDENT_RECORD}

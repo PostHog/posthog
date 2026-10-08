@@ -1,16 +1,23 @@
 """Signal emitter for datadog `error_spans` (record kind: issue).
 
-The table holds one row per failed span, so the fetcher groups the new rows by (service, resource,
-error type) and the emitter produces one signal per group, at most once per week. The sync already filters to `status:error` at the
-source, which keeps the table to errors only.
+The table holds one row per failed span.
+The fetcher groups the rows of a trailing window by (service, resource, error type), and the emitter produces one signal per group, at most once per ISO week.
+The fetcher reads a fixed window of event time and ignores `last_synced_at`, because rows that a page-capped sync left behind or that Datadog indexed late would fall before that cursor and never emit.
+The emission ledger and the weekly fingerprint keep re-reading the same rows safe.
+The sync already filters to `status:error` at the source, which keeps the table to errors only.
 """
 
 import hashlib
 from typing import Any
 
+from structlog import get_logger
+
+from products.signals.backend.emission._common import build_extra, clean_text
 from products.signals.backend.emission._prompts import ERROR_ACTIONABILITY_PROMPT, ERROR_SUMMARIZATION_PROMPT
 from products.signals.backend.emission.fetchers.grouped_warehouse import grouped_warehouse_record_fetcher, week_period
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
+
+logger = get_logger(__name__)
 
 DATADOG_ERROR_SPAN_FIELDS = (
     "service",
@@ -34,22 +41,18 @@ _SELECT_SQL = """
 """
 
 
-def _text(value: Any) -> str:
-    return "" if value is None else str(value).strip()
-
-
 def span_source_id(record: dict[str, Any]) -> str:
     # The error type separates two different failures of one resource, and the week lets a fixed error
     # that returns, or one that stays noisy, emit again.
     fingerprint = "|".join(
         (
-            _text(record.get("service")),
-            _text(record.get("resource_name")),
-            _text(record.get("error_type")),
+            clean_text(record.get("service")),
+            clean_text(record.get("resource_name")),
+            clean_text(record.get("error_type")),
             week_period(record.get("last_seen")),
         )
     )
-    return "span:" + hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
+    return "error_span:" + hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
 
 
 datadog_error_span_record_fetcher = grouped_warehouse_record_fetcher(
@@ -61,14 +64,19 @@ datadog_error_span_record_fetcher = grouped_warehouse_record_fetcher(
 
 
 def datadog_error_span_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
-    service = _text(record.get("service"))
-    resource_name = _text(record.get("resource_name"))
+    service = clean_text(record.get("service"))
+    resource_name = clean_text(record.get("resource_name"))
     if not service and not resource_name:
+        logger.info(
+            "Ignoring datadog error span group without service and resource",
+            team_id=team_id,
+            signals_type="data-import-signals",
+        )
         return None
-    occurrences = _text(record.get("occurrences"))
-    first_seen = _text(record.get("first_seen"))
-    last_seen = _text(record.get("last_seen"))
-    error_type = _text(record.get("error_type"))
+    occurrences = clean_text(record.get("occurrences"))
+    first_seen = clean_text(record.get("first_seen"))
+    last_seen = clean_text(record.get("last_seen"))
+    error_type = clean_text(record.get("error_type"))
     where = " on ".join(
         part for part in (f"Error spans in {service}" if service else "Error spans", resource_name) if part
     )
@@ -78,10 +86,6 @@ def datadog_error_span_emitter(team_id: int, record: dict[str, Any]) -> SignalEm
     lines = [summary]
     if error_type:
         lines.append(error_type)
-    extra: dict[str, Any] = {"kind": "error_span"}
-    for field in ("service", "resource_name", "occurrences", "first_seen", "last_seen", "error_type"):
-        value = record.get(field)
-        extra[field] = None if value is None else str(value)
     return SignalEmitterOutput(
         source_product="datadog",
         source_type="issue",
@@ -89,7 +93,7 @@ def datadog_error_span_emitter(team_id: int, record: dict[str, Any]) -> SignalEm
         description="\n".join(lines),
         # Below the report threshold of 1.0, so one noisy group alone cannot open a report.
         weight=0.5,
-        extra=extra,
+        extra={"kind": "error_span", **build_extra(record, DATADOG_ERROR_SPAN_FIELDS)},
     )
 
 
@@ -104,7 +108,6 @@ DATADOG_ERROR_SPANS_CONFIG = SignalSourceTableConfig(
     partition_field_is_datetime_string=True,
     fields=DATADOG_ERROR_SPAN_FIELDS,
     max_records=50,
-    first_sync_lookback_days=1,
     actionability_prompt=ERROR_ACTIONABILITY_PROMPT,
     summarization_prompt=ERROR_SUMMARIZATION_PROMPT,
     description_summarization_threshold_chars=2000,

@@ -104,6 +104,13 @@ class SignalSourceTableConfig(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _validate_scope_is_supported(self) -> SignalSourceTableConfig:
+        # A fetcher that builds its own query sets `supports_scope = False` when it cannot apply a scope.
+        if self.scope_field is not None and getattr(self.record_fetcher, "supports_scope", True) is False:
+            raise ValueError("record_fetcher does not support scope_field")
+        return self
+
+    @model_validator(mode="after")
     def _validate_summarization_pair(self) -> SignalSourceTableConfig:
         has_prompt = self.summarization_prompt is not None
         has_threshold = self.description_summarization_threshold_chars is not None

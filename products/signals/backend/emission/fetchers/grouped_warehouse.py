@@ -9,9 +9,9 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 
-from products.signals.backend.emission.fetchers.data_warehouse import build_cursor_clause, escape_table_name
-from products.signals.backend.emission.registry import RecordFetcher, SignalSourceTableConfig
-from products.signals.backend.models import SignalEmissionRecord
+from products.signals.backend.emission.fetchers.data_warehouse import escape_table_name, partition_expression
+from products.signals.backend.emission.fetchers.emission_ledger import already_emitted_source_ids
+from products.signals.backend.emission.registry import SignalSourceTableConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -21,12 +21,19 @@ logger = structlog.get_logger(__name__)
 GROUP_PAGE_FACTOR = 4
 MAX_GROUP_PAGES = 10
 
+# The fetcher reads a fixed trailing window of event time and ignores `last_synced_at`.
+# That value is the start time of the previous sync job, so a cursor on it would skip rows that a
+# page-capped sync left for the next one, and rows that the source indexed late.
+# The ledger plus the weekly fingerprint make a second read of the same rows safe.
+# The window covers a page-capped sync that resumes on the next run and late-indexed rows.
+GROUPED_WINDOW_DAYS = 2
+
 
 def week_period(value: Any) -> str:
     """ISO year and week of a timestamp, or an empty string when it cannot be read.
 
     Fingerprints carry the period so a group that stays noisy, or returns after a fix, can emit once
-    per week instead of once ever.
+    per ISO week instead of once ever.
     """
     text = "" if value is None else str(value).strip()
     try:
@@ -37,38 +44,47 @@ def week_period(value: Any) -> str:
     return f"{iso.year}-W{iso.week:02d}"
 
 
-def grouped_warehouse_record_fetcher(
-    *,
-    select_sql: str,
-    group_by_sql: str,
-    order_by_sql: str,
-    source_id_for: Callable[[dict[str, Any]], str],
-) -> RecordFetcher:
-    """Build a fetcher that collapses the new rows of a warehouse table into one record per group.
+def grouped_window_clause(config: SignalSourceTableConfig, window_days: int = GROUPED_WINDOW_DAYS) -> str:
+    """The WHERE clause that keeps rows of the trailing `window_days` days of event time."""
+    return f"{partition_expression(config)} > now() - interval {window_days} day"
 
-    High-volume sources (error spans, error logs) store one row per occurrence, so the generic
-    fetcher would emit one signal per occurrence. This fetcher walks the groups from the noisiest
-    down, drops the groups whose `source_id` is already in `SignalEmissionRecord`, and stops once it
-    holds `max_records` new groups. Pair it with `record_processed_outputs=True` on the config so the
-    pipeline writes that ledger.
 
-    `select_sql` aliases must match `config.fields`, because the pipeline builds records from them.
+class GroupedWarehouseRecordFetcher:
+    """A record fetcher that collapses a warehouse table into one record per group.
+
+    A group has no single `scope_field` value, so the config validator rejects a scope on this fetcher.
     """
 
-    def fetcher(team: Team, config: SignalSourceTableConfig, context: dict[str, Any]) -> list[dict[str, Any]]:
+    supports_scope = False
+
+    def __init__(
+        self,
+        *,
+        select_sql: str,
+        group_by_sql: str,
+        order_by_sql: str,
+        source_id_for: Callable[[dict[str, Any]], str],
+        window_days: int,
+    ) -> None:
+        self._select_sql = select_sql
+        self._group_by_sql = group_by_sql
+        self._order_by_sql = order_by_sql
+        self._source_id_for = source_id_for
+        self._window_days = window_days
+
+    def __call__(self, team: Team, config: SignalSourceTableConfig, context: dict[str, Any]) -> list[dict[str, Any]]:
         table_name: str = context["table_name"]
-        last_synced_at: str | None = context.get("last_synced_at")
         extra: dict[str, Any] = context.get("extra", {})
-        cursor_clause, placeholders = build_cursor_clause(config, last_synced_at)
-        where_sql = f"{cursor_clause} AND {config.where_clause}" if config.where_clause else cursor_clause
+        window_sql = grouped_window_clause(config, self._window_days)
+        where_sql = f"{window_sql} AND {config.where_clause}" if config.where_clause else window_sql
         page_size = config.max_records * GROUP_PAGE_FACTOR
         # The group columns break ties, so a group cannot appear on two pages or on none.
-        order_sql = f"{order_by_sql}, {group_by_sql}"
+        order_sql = f"{self._order_by_sql}, {self._group_by_sql}"
         logger.info(
             "Querying grouped records for signal emission",
-            sync_type="continuous" if last_synced_at is not None else "first",
-            last_synced_at=last_synced_at,
             table_name=table_name,
+            where_clause=config.where_clause,
+            window_days=self._window_days,
             max_records=config.max_records,
             page_size=page_size,
             signals_type="data-import-signals",
@@ -77,17 +93,19 @@ def grouped_warehouse_record_fetcher(
         new_records: list[dict[str, Any]] = []
         for page in range(MAX_GROUP_PAGES):
             query = f"""
-                SELECT {select_sql}
+                SELECT {self._select_sql}
                 FROM {escape_table_name(table_name)}
                 WHERE {where_sql}
-                GROUP BY {group_by_sql}
+                GROUP BY {self._group_by_sql}
                 ORDER BY {order_sql}
                 LIMIT {page_size} OFFSET {page * page_size}
             """
             try:
-                parsed = parse_select(query, placeholders=placeholders) if placeholders else parse_select(query)
                 result = execute_hogql_query(
-                    query=parsed, team=team, query_type="EmitSignalsNewRecords", bypass_warehouse_access_control=True
+                    query=parse_select(query),
+                    team=team,
+                    query_type="EmitSignalsNewRecords",
+                    bypass_warehouse_access_control=True,
                 )
             except Exception as e:
                 logger.exception(f"Error querying grouped records: {e}", **extra)
@@ -96,15 +114,8 @@ def grouped_warehouse_record_fetcher(
             if not result.results or not result.columns:
                 break
             records = [dict(zip(result.columns, row)) for row in result.results]
-            source_ids = [source_id_for(record) for record in records]
-            already_emitted = set(
-                SignalEmissionRecord.objects.filter(
-                    team=team,
-                    source_product=config.source_product,
-                    source_type=config.source_type,
-                    source_id__in=source_ids,
-                ).values_list("source_id", flat=True)
-            )
+            source_ids = [self._source_id_for(record) for record in records]
+            already_emitted = already_emitted_source_ids(team, config, source_ids)
             new_records.extend(
                 record for record, source_id in zip(records, source_ids) if source_id not in already_emitted
             )
@@ -112,4 +123,36 @@ def grouped_warehouse_record_fetcher(
                 break
         return new_records[: config.max_records]
 
-    return fetcher
+
+def grouped_warehouse_record_fetcher(
+    *,
+    select_sql: str,
+    group_by_sql: str,
+    order_by_sql: str,
+    source_id_for: Callable[[dict[str, Any]], str],
+    window_days: int = GROUPED_WINDOW_DAYS,
+) -> GroupedWarehouseRecordFetcher:
+    """Build a fetcher that collapses the recent rows of a warehouse table into one record per group.
+
+    High-volume sources (error spans, error logs) store one row per occurrence, so the generic
+    fetcher would emit one signal per occurrence. This fetcher reads the rows of the trailing
+    `window_days` days of event time, walks the groups from the noisiest down, drops the groups whose
+    `source_id` is already in `SignalEmissionRecord`, and stops once it holds `max_records` new
+    groups. Pair it with `record_processed_outputs=True` on the config so the pipeline writes that
+    ledger.
+
+    The fetcher ignores `last_synced_at`. Re-reading rows is safe because the ledger and the weekly
+    fingerprint (see `week_period`) deduplicate groups, so a row that a capped sync skipped or that
+    the source indexed late still gets picked up on a later sync.
+
+    `select_sql` aliases must match `config.fields`, because the pipeline builds records from them.
+    Ordering comes from `order_by_sql`, not from `config.order_by`.
+    The config must not set `scope_field`, because a group has no single scope value.
+    """
+    return GroupedWarehouseRecordFetcher(
+        select_sql=select_sql,
+        group_by_sql=group_by_sql,
+        order_by_sql=order_by_sql,
+        source_id_for=source_id_for,
+        window_days=window_days,
+    )

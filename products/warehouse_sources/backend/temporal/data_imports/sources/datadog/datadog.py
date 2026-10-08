@@ -8,6 +8,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
@@ -316,9 +318,7 @@ def _walk(
         if config.max_pages_per_sync is not None and pages >= config.max_pages_per_sync:
             # Rows arrive oldest first and the pipeline checkpoints the newest cursor value, so the
             # next sync continues where this one stopped instead of losing the rest.
-            logger.warning(
-                f"Datadog: stopped {config.name} after {pages} pages, so rows are still waiting and the next sync continues from here"
-            )
+            logger.warning("datadog.page_cap_reached", endpoint=config.name, pages=pages)
             return
 
         # An empty page is not the end of the walk: the usage endpoints carry their cursor in
@@ -389,7 +389,7 @@ def _epoch_ms_to_iso(value: Any) -> Any:
         dt = datetime.fromtimestamp(int(value) // 1000, UTC).replace(microsecond=(int(value) % 1000) * 1000)
     except (OverflowError, OSError, ValueError):
         return value
-    return dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    return _format_datetime(dt)
 
 
 def _build_search_body(search: DatadogIssueSearchConfig, from_ms: int, to_ms: int) -> dict[str, Any]:
@@ -477,7 +477,7 @@ def _merge_issue_rows(
             existing["first_seen"] = min(existing.get("first_seen") or row["first_seen"], row["first_seen"])
 
 
-@dataclasses.dataclass(frozen=False)
+@frozen(frozen=False)
 class _SearchBudget:
     """Search requests a sync may still start, beyond the one already made for the current window.
 
@@ -501,12 +501,17 @@ def _search_window(
     rows = _join_included(data, search)
     result_count = len(data.get("data") or []) if isinstance(data, dict) else 0
 
+    # Both truncation paths below warn instead of raising, unlike the fan-out limit. The search has no
+    # pagination, so a busy account would otherwise fail every sync. The table can miss some issues
+    # in the window, and the next sync reads the window again.
     if result_count >= search.max_results_per_request:
         if to_ms - from_ms > search.min_window_seconds * 1000:
             if budget.remaining < 2:
                 logger.warning(
-                    f"Datadog error tracking search reached the limit of {search.max_requests_per_sync} requests, "
-                    f"so the window {from_ms} to {to_ms} (epoch ms) is not split and some issues in it are missing"
+                    "datadog.search_request_cap_reached",
+                    max_requests=search.max_requests_per_sync,
+                    from_ms=from_ms,
+                    to_ms=to_ms,
                 )
             else:
                 # The API has no pagination, so a full response may hide issues. Halve the window until
@@ -518,8 +523,10 @@ def _search_window(
                 return
         else:
             logger.warning(
-                f"Datadog error tracking search returned the maximum of {search.max_results_per_request} issues "
-                f"for the smallest window ({from_ms} to {to_ms} epoch ms), so some issues in it are missing"
+                "datadog.search_window_truncated",
+                max_results=search.max_results_per_request,
+                from_ms=from_ms,
+                to_ms=to_ms,
             )
 
     _merge_issue_rows(merged, rows, search)
@@ -542,7 +549,7 @@ def _search_issue_rows(
     # Counts for a split issue only add up across the whole window, so rows are held until every
     # slice has been read. One row per issue keeps this small.
     merged: dict[Any, dict[str, Any]] = {}
-    budget = _SearchBudget(search.max_requests_per_sync - 1)
+    budget = _SearchBudget(remaining=search.max_requests_per_sync - 1)
     _search_window(fetch_page, url, search, from_ms, to_ms, merged, logger, budget)
 
     rows = list(merged.values())

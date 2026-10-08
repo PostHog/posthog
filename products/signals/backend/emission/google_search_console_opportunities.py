@@ -34,6 +34,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 
 from products.signals.backend.emission.fetchers.data_warehouse import escape_table_name
+from products.signals.backend.emission.fetchers.emission_ledger import already_emitted_source_ids
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
 from products.signals.backend.models import SignalEmissionRecord
 
@@ -186,14 +187,7 @@ def google_search_console_record_fetcher(
 
     rows = [dict(zip(result.columns, row)) for row in result.results]
     source_ids = [_source_id(r) for r in rows]
-    already_emitted = set(
-        SignalEmissionRecord.objects.filter(
-            team=team,
-            source_product=config.source_product,
-            source_type=config.source_type,
-            source_id__in=source_ids,
-        ).values_list("source_id", flat=True)
-    )
+    already_emitted = already_emitted_source_ids(team, config, source_ids)
     new_rows = [row for row, source_id in zip(rows, source_ids) if source_id not in already_emitted]
     if not new_rows:
         return []

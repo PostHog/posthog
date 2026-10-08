@@ -155,7 +155,7 @@ Error tracking issues, error spans, and error logs are off by default. Turn them
                 supports_incremental=DATADOG_ENDPOINTS[endpoint].supports_incremental,
                 supports_append=DATADOG_ENDPOINTS[endpoint].supports_incremental,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=DATADOG_ENDPOINTS[endpoint].sync_by_default,
+                should_sync_default=DATADOG_ENDPOINTS[endpoint].should_sync_default,
                 description=(
                     "Limited to your Datadog account's retention window on initial sync"
                     if endpoint in LIMITED_RETENTION_ENDPOINTS

@@ -138,7 +138,7 @@ class DatadogEndpointConfig:
     # because the pipeline checkpoints the highest cursor value and the next sync resumes from it.
     max_pages_per_sync: Optional[int] = None
     # Tables that are off until the user opts in, because they are high volume or need extra scopes.
-    sync_by_default: bool = True
+    should_sync_default: bool = True
 
     @property
     def supports_incremental(self) -> bool:
@@ -279,13 +279,13 @@ DATADOG_ENDPOINTS: dict[str, DatadogEndpointConfig] = {
         # ``first_seen`` never changes for an issue, unlike ``last_seen``.
         partition_key="first_seen",
         default_lookback_days=14,
-        sync_by_default=False,
+        should_sync_default=False,
     ),
     # Error spans only. APM span volume is far too high to sync unfiltered, so the error filter is
     # applied by Datadog. The spans API allows 300 requests per hour, so a sync reads a bounded
     # number of pages and the next sync continues from the checkpointed ``start_timestamp``.
-    # The 1 day lookback matches the signals emitter's first-sync window, so the capped first sync
-    # does not spend its pages on days the emitter never reads.
+    # The 1 day first-sync lookback keeps the capped first sync on the freshest day instead of
+    # spending its pages on older rows. Later syncs continue from the checkpointed timestamp.
     "error_spans": DatadogEndpointConfig(
         name="error_spans",
         path="/api/v2/spans/events",
@@ -302,7 +302,7 @@ DATADOG_ENDPOINTS: dict[str, DatadogEndpointConfig] = {
         sort_param="timestamp",
         default_lookback_days=1,
         max_pages_per_sync=100,
-        sync_by_default=False,
+        should_sync_default=False,
     ),
     # Error-level logs only, for the same volume reason as ``error_spans``. The ``logs`` table
     # stays unfiltered for users who want every log.
@@ -322,7 +322,7 @@ DATADOG_ENDPOINTS: dict[str, DatadogEndpointConfig] = {
         sort_param="timestamp",
         default_lookback_days=1,
         max_pages_per_sync=100,
-        sync_by_default=False,
+        should_sync_default=False,
     ),
     # --- Full refresh ---
     "dashboards": DatadogEndpointConfig(

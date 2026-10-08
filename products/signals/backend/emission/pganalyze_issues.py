@@ -11,8 +11,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 
 from products.signals.backend.emission.fetchers.data_warehouse import escape_table_name
+from products.signals.backend.emission.fetchers.emission_ledger import already_emitted_source_ids
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
-from products.signals.backend.models import SignalEmissionRecord
 
 logger = get_logger(__name__)
 
@@ -176,14 +176,7 @@ def pganalyze_issue_record_fetcher(
         rows = _fetch_issue_page(team, config, context, after_id)
         if not rows:
             break
-        already_emitted = set(
-            SignalEmissionRecord.objects.filter(
-                team=team,
-                source_product=config.source_product,
-                source_type=config.source_type,
-                source_id__in=[str(row["id"]) for row in rows],
-            ).values_list("source_id", flat=True)
-        )
+        already_emitted = already_emitted_source_ids(team, config, [str(row["id"]) for row in rows])
         records.extend(row for row in rows if str(row["id"]) not in already_emitted)
         after_id = str(rows[-1]["id"])
         if len(rows) < ISSUE_PAGE_SIZE:
