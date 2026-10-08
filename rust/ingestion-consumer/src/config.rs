@@ -178,9 +178,10 @@ pub struct Config {
     #[envconfig(from = "INGESTION_PARKED_RETRY_INTERVAL_MS", default = "200")]
     pub parked_retry_interval_ms: u64,
 
-    /// Target request size in events for the key-table packer: an open
-    /// request is sent once it holds this many events. `0` disables the
-    /// event target. Only read under `INGESTION_SCHEDULER=key_table`.
+    /// Target request size in events for the key-table packer: once this many
+    /// events are ready, a free worker slot gets a request at once. `0`
+    /// disables the event target. Only read under
+    /// `INGESTION_SCHEDULER=key_table`.
     #[envconfig(from = "INGESTION_PACK_TARGET_EVENTS", default = "500")]
     pub pack_target_events: usize,
 
@@ -190,11 +191,12 @@ pub struct Config {
     #[envconfig(from = "INGESTION_PACK_TARGET_BYTES", default = "0")]
     pub pack_target_bytes: usize,
 
-    /// How long the key-table packer may hold an open request for more keys
-    /// before it sends the request short of the target (milliseconds). `0`
-    /// (default) holds nothing: each action sends what is ready, packed up to
-    /// the target. At most half of `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`. Only
-    /// read under `INGESTION_SCHEDULER=key_table`.
+    /// How long ready events below the target wait for more, counted from
+    /// when a worker slot is free for them, before the key-table packer sends
+    /// them short of the target (milliseconds). `0` (default) waits for
+    /// nothing: each free slot gets what is ready, packed up to the target.
+    /// At most half of `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`. Only read under
+    /// `INGESTION_SCHEDULER=key_table`.
     #[envconfig(from = "INGESTION_PACK_LATENCY_BUDGET_MS", default = "0")]
     pub pack_latency_budget_ms: u64,
 

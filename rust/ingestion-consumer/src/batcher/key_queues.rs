@@ -52,6 +52,12 @@ pub(super) fn payload_bytes(messages: &[SerializedKafkaMessage]) -> usize {
         .sum()
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ReadySize {
+    pub messages: usize,
+    pub bytes: usize,
+}
+
 pub struct ReadyRun {
     pub class: RequestClass,
     pub run: KeyRun,
@@ -95,15 +101,58 @@ impl KeyState {
     fn is_idle(&self) -> bool {
         self.claim.is_none() && self.retry_at.is_none() && self.queue.is_empty()
     }
+
+    fn ready_run(&self) -> Option<(RequestClass, ReadySize)> {
+        if !self.is_ready() {
+            return None;
+        }
+        let class = self.queue.front()?.class;
+        let size = self
+            .queue
+            .iter()
+            .take_while(|segment| segment.class == class)
+            .fold(ReadySize::default(), |size, segment| ReadySize {
+                messages: size.messages + segment.messages.len(),
+                bytes: size.bytes + segment.bytes,
+            });
+        Some((class, size))
+    }
+}
+
+fn update_ready_sizes(
+    sizes: &mut Vec<(RequestClass, ReadySize)>,
+    before: Option<(RequestClass, ReadySize)>,
+    after: Option<(RequestClass, ReadySize)>,
+) {
+    if let Some((class, size)) = before {
+        if let Some(index) = sizes.iter().position(|(c, _)| *c == class) {
+            let total = &mut sizes[index].1;
+            total.messages = total.messages.saturating_sub(size.messages);
+            total.bytes = total.bytes.saturating_sub(size.bytes);
+            if total.messages == 0 {
+                sizes.remove(index);
+            }
+        }
+    }
+    if let Some((class, size)) = after {
+        match sizes.iter_mut().find(|(c, _)| *c == class) {
+            Some((_, total)) => {
+                total.messages += size.messages;
+                total.bytes += size.bytes;
+            }
+            None => sizes.push((class, size)),
+        }
+    }
 }
 
 #[derive(Default)]
 pub struct KeyQueues {
     /// Seeded per map, because routing keys are customer-chosen.
     keys: HashMap<Arc<str>, KeyState, ahash::RandomState>,
-    /// Can hold stale keys; `take_ready` skips them.
+    /// Can hold stale keys; `take_runs` skips them.
     ready: VecDeque<Arc<str>>,
     waiting: BTreeSet<(Instant, Arc<str>)>,
+    ready_sizes: Vec<(RequestClass, ReadySize)>,
     queued_messages: usize,
     queued_bytes: usize,
     claimed_keys: usize,
@@ -139,9 +188,20 @@ impl KeyQueues {
     }
 
     pub fn has_ready(&self) -> bool {
-        self.ready
-            .iter()
-            .any(|key| self.keys.get(key).is_some_and(KeyState::is_ready))
+        !self.ready_sizes.is_empty()
+    }
+
+    pub fn ready_sizes(&self) -> &[(RequestClass, ReadySize)] {
+        &self.ready_sizes
+    }
+
+    pub fn oldest_ready_class(&self) -> Option<RequestClass> {
+        self.ready.iter().find_map(|key| {
+            self.keys
+                .get(key)
+                .and_then(KeyState::ready_run)
+                .map(|(class, _)| class)
+        })
     }
 
     pub fn push(
@@ -166,12 +226,14 @@ impl KeyQueues {
             None => self.keys.entry(Arc::clone(&routing_key)).or_default(),
         };
         let was_ready = state.is_ready();
+        let before = state.ready_run();
         state.queue.push_back(Segment {
             class,
             queued_at: now,
             bytes,
             messages,
         });
+        update_ready_sizes(&mut self.ready_sizes, before, state.ready_run());
         if !was_ready && state.is_ready() {
             self.ready.push_back(routing_key);
         }
@@ -184,7 +246,9 @@ impl KeyQueues {
             }
             let (_, key) = self.waiting.pop_first().expect("checked non-empty");
             if let Some(state) = self.keys.get_mut(&key) {
+                let before = state.ready_run();
                 state.retry_at = None;
+                update_ready_sizes(&mut self.ready_sizes, before, state.ready_run());
                 if state.is_ready() {
                     self.ready.push_back(key);
                 }
@@ -192,52 +256,71 @@ impl KeyQueues {
         }
     }
 
-    pub fn take_ready(&mut self, now: Instant, limit: usize) -> Vec<ReadyRun> {
-        self.promote_due(now);
-
-        let mut runs = Vec::with_capacity(limit.min(self.ready.len()));
-        while runs.len() < limit {
+    /// Claims ready runs of `class` in ready order until they hold
+    /// `max_messages` messages or `max_bytes` bytes. `0` lifts that limit.
+    /// Ready keys of other classes keep their place.
+    pub fn take_runs(
+        &mut self,
+        class: RequestClass,
+        max_messages: usize,
+        max_bytes: usize,
+    ) -> Vec<ReadyRun> {
+        let reached = |size: ReadySize| {
+            (max_messages > 0 && size.messages >= max_messages)
+                || (max_bytes > 0 && size.bytes >= max_bytes)
+        };
+        let mut taken = ReadySize::default();
+        let mut runs = Vec::new();
+        let mut skipped = Vec::new();
+        while !reached(taken) {
             let Some(key) = self.ready.pop_front() else {
                 break;
             };
             let Some(state) = self.keys.get_mut(&key) else {
                 continue;
             };
-            if !state.is_ready() {
+            let Some((run_class, size)) = state.ready_run() else {
+                continue;
+            };
+            if run_class != class {
+                skipped.push(key);
                 continue;
             }
             let Segment {
-                class,
                 queued_at: first_arrival,
-                mut bytes,
                 mut messages,
+                ..
             } = state.queue.pop_front().expect("a ready key has messages");
             while state
                 .queue
                 .front()
                 .is_some_and(|segment| segment.class == class)
             {
-                let next = state.queue.pop_front().expect("checked");
-                bytes += next.bytes;
-                messages.extend(next.messages);
+                messages.extend(state.queue.pop_front().expect("checked").messages);
             }
-            debug_assert!(self.queued_messages >= messages.len());
-            self.queued_messages = self.queued_messages.saturating_sub(messages.len());
-            self.queued_bytes = self.queued_bytes.saturating_sub(bytes);
+            update_ready_sizes(&mut self.ready_sizes, Some((class, size)), None);
+            debug_assert!(self.queued_messages >= size.messages);
+            self.queued_messages = self.queued_messages.saturating_sub(size.messages);
+            self.queued_bytes = self.queued_bytes.saturating_sub(size.bytes);
             state.claim = Some(Claim {
                 assignment_epoch: class.assignment_epoch,
                 revoked: Vec::new(),
             });
             self.claimed_keys += 1;
+            taken.messages += size.messages;
+            taken.bytes += size.bytes;
             runs.push(ReadyRun {
                 class,
                 run: KeyRun {
                     routing_key: key,
                     messages,
                 },
-                bytes,
+                bytes: size.bytes,
                 first_arrival,
             });
+        }
+        for key in skipped.into_iter().rev() {
+            self.ready.push_front(key);
         }
         runs
     }
@@ -288,6 +371,7 @@ impl KeyQueues {
             }
         }
 
+        update_ready_sizes(&mut self.ready_sizes, None, state.ready_run());
         if state.is_idle() {
             self.keys.remove(&**routing_key);
             return Ok(true);
@@ -306,6 +390,7 @@ impl KeyQueues {
         let mut purged = 0usize;
         let mut purged_bytes = 0usize;
         for (key, state) in self.keys.iter_mut() {
+            let before = state.ready_run();
             if let Some(claim) = &mut state.claim {
                 for revocation in revoked {
                     if !claim.revoked.contains(revocation) {
@@ -335,6 +420,7 @@ impl KeyQueues {
                     }
                 }
             }
+            update_ready_sizes(&mut self.ready_sizes, before, state.ready_run());
         }
         self.queued_messages = self.queued_messages.saturating_sub(purged);
         self.queued_bytes = self.queued_bytes.saturating_sub(purged_bytes);
@@ -368,6 +454,20 @@ mod tests {
         Arc::from(routing_key)
     }
 
+    const FRESH: RequestClass = RequestClass {
+        assignment_epoch: 0,
+        replay: false,
+    };
+
+    fn take_all(queues: &mut KeyQueues, now: Instant) -> Vec<ReadyRun> {
+        queues.promote_due(now);
+        let mut runs = Vec::new();
+        while let Some(class) = queues.oldest_ready_class() {
+            runs.extend(queues.take_runs(class, 0, 0));
+        }
+        runs
+    }
+
     fn claimed(runs: &[ReadyRun]) -> Vec<(&str, Vec<i64>, bool)> {
         runs.iter()
             .map(|run| {
@@ -386,7 +486,7 @@ mod tests {
         let mut queues = KeyQueues::new();
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
         assert_eq!(
-            claimed(&queues.take_ready(now, usize::MAX)),
+            claimed(&take_all(&mut queues, now)),
             vec![("a", vec![1], false)]
         );
 
@@ -397,13 +497,13 @@ mod tests {
             now,
         );
         assert!(
-            queues.take_ready(now, usize::MAX).is_empty(),
+            take_all(&mut queues, now).is_empty(),
             "one run per key is out"
         );
 
         assert_eq!(queues.settle(&key("a"), Vec::new(), None, now), Ok(false));
         assert_eq!(
-            claimed(&queues.take_ready(now, usize::MAX)),
+            claimed(&take_all(&mut queues, now)),
             vec![("a", vec![2, 3], false)]
         );
         assert_eq!(queues.settle(&key("a"), Vec::new(), None, now), Ok(true));
@@ -411,7 +511,7 @@ mod tests {
     }
 
     #[test]
-    fn keys_past_the_take_limit_stay_unclaimed_and_keep_their_turn() {
+    fn keys_past_the_message_limit_stay_unclaimed_and_keep_their_turn() {
         let now = Instant::now();
         let mut queues = KeyQueues::new();
         for routing_key in ["a", "b", "c"] {
@@ -419,14 +519,13 @@ mod tests {
         }
 
         assert_eq!(
-            claimed(&queues.take_ready(now, 1)),
+            claimed(&queues.take_runs(FRESH, 1, 0)),
             vec![("a", vec![1], false)]
         );
-        assert!(queues.take_ready(now, 0).is_empty());
         assert_eq!(queues.claimed_keys(), 1);
         assert_eq!(queues.queued_messages(), 2);
         assert_eq!(
-            claimed(&queues.take_ready(now, usize::MAX)),
+            claimed(&take_all(&mut queues, now)),
             vec![("b", vec![1], false), ("c", vec![1], false)]
         );
     }
@@ -442,7 +541,7 @@ mod tests {
             vec![message("a", 0, 1), message("a", 0, 2)],
             now,
         );
-        queues.take_ready(now, usize::MAX);
+        take_all(&mut queues, now);
         queues.push(key("a"), 0, vec![message("a", 0, 3)], now);
 
         let requeued = vec![message("a", 0, 2)];
@@ -451,20 +550,20 @@ mod tests {
             Ok(false)
         );
         assert!(
-            queues.take_ready(now, usize::MAX).is_empty(),
+            take_all(&mut queues, now).is_empty(),
             "waits for its retry time"
         );
         assert_eq!(queues.next_retry_at(), Some(retry_at));
 
         assert_eq!(
-            claimed(&queues.take_ready(retry_at, usize::MAX)),
+            claimed(&take_all(&mut queues, retry_at)),
             vec![("a", vec![2], true)]
         );
         queues
             .settle(&key("a"), Vec::new(), None, retry_at)
             .expect("claimed");
         assert_eq!(
-            claimed(&queues.take_ready(retry_at, usize::MAX)),
+            claimed(&take_all(&mut queues, retry_at)),
             vec![("a", vec![3], false)]
         );
     }
@@ -476,7 +575,7 @@ mod tests {
         queues.push(key("a"), 1, vec![message("a", 0, 1)], now);
         queues.push(key("a"), 2, vec![message("a", 0, 2)], now);
 
-        let runs = queues.take_ready(now, usize::MAX);
+        let runs = take_all(&mut queues, now);
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].class.assignment_epoch, 1);
         assert_eq!(offsets(&runs[0].run.messages), vec![1]);
@@ -492,7 +591,7 @@ mod tests {
             vec![message("a", 0, 1), message("a", 1, 7)],
             now,
         );
-        queues.take_ready(now, usize::MAX);
+        take_all(&mut queues, now);
         queues.push(key("a"), 0, vec![message("a", 0, 2)], now);
         queues.push(key("b"), 0, vec![message("b", 0, 5)], now);
 
@@ -505,7 +604,7 @@ mod tests {
             .settle(&key("a"), requeued, None, now)
             .expect("claimed");
         assert_eq!(
-            claimed(&queues.take_ready(now, usize::MAX)),
+            claimed(&take_all(&mut queues, now)),
             vec![("a", vec![7], true)],
             "only the message of the kept partition returns"
         );
@@ -516,7 +615,7 @@ mod tests {
         let now = Instant::now();
         let mut queues = KeyQueues::new();
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
-        queues.take_ready(now, usize::MAX);
+        take_all(&mut queues, now);
         queues.push(key("a"), 0, vec![message("a", 1, 7)], now);
         let retry_at = now + Duration::from_millis(100);
         queues
@@ -526,7 +625,7 @@ mod tests {
         queues.purge(&[("events".to_string(), 0)]);
         assert_eq!(queues.next_retry_at(), None);
         assert_eq!(
-            claimed(&queues.take_ready(now, usize::MAX)),
+            claimed(&take_all(&mut queues, now)),
             vec![("a", vec![7], false)]
         );
     }
@@ -577,7 +676,7 @@ mod tests {
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
         queues.push(key("a"), 0, vec![message("a", 0, 2)], now);
         assert_eq!(
-            claimed(&queues.take_ready(now, usize::MAX)),
+            claimed(&take_all(&mut queues, now)),
             vec![("a", vec![1, 2], false)]
         );
     }
@@ -592,7 +691,7 @@ mod tests {
             vec![message("a", 0, 1), message("a", 1, 2)],
             now,
         );
-        queues.take_ready(now, usize::MAX);
+        take_all(&mut queues, now);
         assert_eq!(queues.queued_bytes(), 0);
 
         let requeued = vec![message("a", 0, 1), message("a", 1, 2)];
@@ -612,13 +711,13 @@ mod tests {
         let mut queues = KeyQueues::new();
         let failed = || vec![message("a", 0, 1), message("a", 0, 2)];
         queues.push(key("a"), 0, failed(), now);
-        queues.take_ready(now, usize::MAX);
+        take_all(&mut queues, now);
         queues.push(key("a"), 0, vec![message("a", 0, 3)], now);
         queues
             .settle(&key("a"), failed(), None, now)
             .expect("claimed");
         assert_eq!(
-            claimed(&queues.take_ready(now, usize::MAX)),
+            claimed(&take_all(&mut queues, now)),
             vec![("a", vec![1, 2], true)]
         );
 
@@ -628,14 +727,14 @@ mod tests {
             .expect("claimed");
         assert_eq!(queues.queued_messages(), 4);
         assert_eq!(
-            claimed(&queues.take_ready(now, usize::MAX)),
+            claimed(&take_all(&mut queues, now)),
             vec![("a", vec![1, 2], true)]
         );
         queues
             .settle(&key("a"), Vec::new(), None, now)
             .expect("claimed");
         assert_eq!(
-            claimed(&queues.take_ready(now, usize::MAX)),
+            claimed(&take_all(&mut queues, now)),
             vec![("a", vec![3, 4], false)]
         );
         assert_eq!(queues.settle(&key("a"), Vec::new(), None, now), Ok(true));
@@ -656,11 +755,11 @@ mod tests {
 
         queues.push(key("a"), 0, vec![message("a", 1, 5)], now);
         assert_eq!(
-            claimed(&queues.take_ready(now, usize::MAX)),
+            claimed(&take_all(&mut queues, now)),
             vec![("a", vec![5], false)]
         );
         assert_eq!(queues.claimed_keys(), 1);
-        assert!(queues.take_ready(now, usize::MAX).is_empty());
+        assert!(take_all(&mut queues, now).is_empty());
     }
 
     #[test]
@@ -678,7 +777,7 @@ mod tests {
         assert_eq!(queues.queued_messages(), 1);
         assert_eq!(queues.queued_bytes(), message("a", 1, 2).payload_bytes());
         assert_eq!(
-            claimed(&queues.take_ready(now, usize::MAX)),
+            claimed(&take_all(&mut queues, now)),
             vec![("a", vec![2], false)]
         );
     }
@@ -690,17 +789,69 @@ mod tests {
         let mut queues = KeyQueues::new();
         let spanning = || vec![message("a", 0, 1), message("a", 1, 7)];
         queues.push(key("a"), 0, spanning(), now);
-        queues.take_ready(now, usize::MAX);
+        take_all(&mut queues, now);
         queues
             .settle(&key("a"), spanning(), Some(retry_at), now)
             .expect("claimed");
 
         queues.purge(&[("events".to_string(), 0)]);
         assert_eq!(queues.next_retry_at(), Some(retry_at));
-        assert!(queues.take_ready(now, usize::MAX).is_empty());
+        assert!(take_all(&mut queues, now).is_empty());
         assert_eq!(
-            claimed(&queues.take_ready(retry_at, usize::MAX)),
+            claimed(&take_all(&mut queues, retry_at)),
             vec![("a", vec![7], true)]
+        );
+    }
+
+    #[test]
+    fn ready_sizes_count_each_ready_keys_next_run_only() {
+        let now = Instant::now();
+        let epoch = |assignment_epoch| RequestClass {
+            assignment_epoch,
+            replay: false,
+        };
+        let mut queues = KeyQueues::new();
+        queues.push(key("a"), 1, vec![message("a", 0, 1)], now);
+        queues.push(key("a"), 2, vec![message("a", 0, 2)], now);
+        queues.push(key("b"), 1, vec![message("b", 0, 3)], now);
+        let size = |messages| ReadySize {
+            messages,
+            bytes: message("a", 0, 1).payload_bytes() * messages,
+        };
+        assert_eq!(queues.ready_sizes(), &[(epoch(1), size(2))]);
+
+        queues.take_runs(epoch(1), 0, 0);
+        assert!(!queues.has_ready(), "a's epoch-2 run waits for its claim");
+
+        queues
+            .settle(&key("a"), Vec::new(), None, now)
+            .expect("claimed");
+        assert_eq!(queues.ready_sizes(), &[(epoch(2), size(1))]);
+    }
+
+    #[test]
+    fn a_take_of_one_class_leaves_other_classes_in_their_turn() {
+        let now = Instant::now();
+        let mut queues = KeyQueues::new();
+        queues.push(key("a"), 2, vec![message("a", 0, 1)], now);
+        queues.push(key("b"), 1, vec![message("b", 0, 2)], now);
+        queues.push(key("c"), 2, vec![message("c", 0, 3)], now);
+
+        let older_epoch = RequestClass {
+            assignment_epoch: 1,
+            replay: false,
+        };
+        assert_eq!(
+            claimed(&queues.take_runs(older_epoch, 0, 0)),
+            vec![("b", vec![2], false)]
+        );
+        assert_eq!(
+            queues.oldest_ready_class().map(|c| c.assignment_epoch),
+            Some(2)
+        );
+        assert_eq!(
+            claimed(&take_all(&mut queues, now)),
+            vec![("a", vec![1], false), ("c", vec![3], false)]
         );
     }
 }
