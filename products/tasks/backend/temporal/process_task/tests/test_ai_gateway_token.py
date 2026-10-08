@@ -426,9 +426,13 @@ class TestAiGatewayEnvVars:
         }
         mint.assert_called_once_with(ai_product="signals_scout", team_id=123, user=None)
 
-    def test_unrouted_run_gets_no_token(self, mint_settings):
+    @pytest.mark.parametrize(
+        "origin_product,model",
+        [("loop", None), ("signals_scout", "gpt-6-luna"), ("signals_scout", "openai/gpt-6-luna")],
+    )
+    def test_run_without_an_eligible_route_gets_no_token(self, mint_settings, origin_product, model):
         with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
-            env = ai_gateway_env_vars(team_id=123, origin_product="loop")
+            env = ai_gateway_env_vars(team_id=123, origin_product=origin_product, ai_stage="scout:logs", model=model)
         assert "AI_GATEWAY_TOKEN" not in env
         assert "AI_GATEWAY_PRODUCT" not in env
         assert "AI_GATEWAY_AI_STAGE" not in env
@@ -1265,8 +1269,16 @@ class TestMintRefusalScope:
         refusal = mint_refusal(product, team_id=2, state=None, model="zai-org/glm-5.3", runtime="acp")
         assert refusal == "model_outside_pin"
 
-    def test_unpinned_products_take_any_model(self):
-        assert mint_refusal("signals_scout", team_id=2, state=None, model="zai-org/glm-5.3", runtime="acp") is None
+    @pytest.mark.parametrize(
+        "model,refusal",
+        [
+            ("zai-org/glm-5.3", None),
+            ("gpt-6-luna", "model_api_unsupported"),
+            ("openai/gpt-6-luna", "model_api_unsupported"),
+        ],
+    )
+    def test_unpinned_products_require_a_supported_model_api(self, model, refusal):
+        assert mint_refusal("signals_scout", team_id=2, state=None, model=model, runtime="acp") == refusal
 
     @pytest.mark.parametrize("product", ["review_hog", "signals_scout", "signals_implementation"])
     def test_products_billed_elsewhere_skip_the_credit_check(self, product):

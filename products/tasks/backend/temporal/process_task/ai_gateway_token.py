@@ -39,6 +39,7 @@ from products.tasks.backend.logic.services.gateway_model_pin import (
 )
 from products.tasks.backend.logic.services.run_actor import is_slack_interaction_state
 from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
+from products.tasks.backend.model_catalog import normalize_model_id
 
 if TYPE_CHECKING:
     from posthog.llm.gateway_client import AIGatewayConfig
@@ -174,8 +175,6 @@ def has_slack_provenance(
 
 
 def model_allowed_by_pin(pin: list[str], model: str | None) -> bool:
-    from products.tasks.backend.model_catalog import normalize_model_id  # noqa: PLC0415
-
     return bool(model) and normalize_model_id(model or "") in {normalize_model_id(entry) for entry in pin}
 
 
@@ -246,6 +245,8 @@ def mint_refusal(
     # The Pi harness reads only LLM_GATEWAY_URL.
     if runtime == "pi":
         return "pi_runtime"
+    if model and normalize_model_id(model) == "gpt-6-luna":
+        return "model_api_unsupported"
     # The gateway denies an off-pin model with no fallback.
     if not model_allowed_by_product_pin(ai_product, model):
         return "model_outside_pin"

@@ -222,6 +222,10 @@ worker mints, it also injects `AI_GATEWAY_PRODUCT` and `AI_GATEWAY_AI_STAGE`, na
 the product the token is pinned to, and the agent routes on those in preference to
 what it derives itself. Both are reserved keys: a sandbox environment cannot set them.
 
+Runs that select `gpt-6-luna` (including `openai/gpt-6-luna`) do not mint a scoped
+token and use the Python gateway. The Go gateway serves this model only through
+`/v1/systemone`, which sandbox agents do not use.
+
 When a run lands on the Python gateway unexpectedly, check those two variables first.
 Their absence means no token was minted, so the agent falls back to deriving the
 product from the task run it fetches at boot, which is the path that fails quietly.
