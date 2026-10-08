@@ -334,6 +334,35 @@ def test_dep_manifest_pr_gets_t1_scrutiny_not_t0(monkeypatch: pytest.MonkeyPatch
     assert pipeline.classification["dep_manifests_without_lockfile"] == [manifest]
 
 
+@pytest.mark.parametrize(
+    "filename, touched_paths",
+    [
+        pytest.param(".github/workflows/ci-backend.yml", [], id="github-workflow"),
+        pytest.param(".depot/workflows/ci-backend.yml", [], id="depot-workflow"),
+        pytest.param("docs/ci-backend.yml", [".github/workflows/ci-backend.yml"], id="workflow-renamed-out"),
+        pytest.param(".github/workflows/tests/test_ci.py", [], id="test-named-file-under-workflows"),
+    ],
+)
+def test_exempt_author_workflow_pr_gets_t1_scrutiny_not_t0(
+    monkeypatch: pytest.MonkeyPatch, filename: str, touched_paths: list[str]
+) -> None:
+    # A workflow is .yml, so once the owner-only exemption lifts the deny, the allow-list
+    # would classify it T0 and approve it with no reviewer.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.author_team_slugs = {"team-devex"}
+    pr = _fake_pr(head_sha="abc123")
+    pr.files = [{"filename": filename, "additions": 2, "deletions": 1, "status": "M"}]
+    pr.touched_paths = touched_paths
+    pipeline.pr = pr
+
+    pipeline._classify()
+
+    assert pipeline.classification["deny_categories"] == []
+    assert pipeline.classification["tier"] == "T1-agent"
+
+
 def test_manifest_scripts_edit_hard_denies(monkeypatch: pytest.MonkeyPatch) -> None:
     # The deterministic scan is the first line against scripts/hook edits —
     # when it fires, the PR must land T2-never rather than the LLM-only path.
@@ -450,7 +479,7 @@ def test_wait_refetch_reclassifies_before_review(monkeypatch: pytest.MonkeyPatch
     verdict = pipeline.run()
 
     assert verdict == "REFUSED"
-    assert pipeline.classification["deny_categories"] == ["infra_cicd"]
+    assert pipeline.classification["deny_categories"] == ["ci_workflows"]
 
 
 class _FakeCompleted:

@@ -10,6 +10,7 @@ export const manifest: ProductManifest = {
     name: 'Dashboards',
     urls: {
         dashboards: (): string => '/dashboard',
+        dashboardTemplates: (): string => combineUrl('/dashboard', { templates: '1' }).url,
         dashboard: (id: string | number, highlightInsightId?: string): string =>
             combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
         dashboardTile: (id: string | number, tileId: string | number): string =>
