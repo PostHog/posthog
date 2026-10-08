@@ -355,7 +355,7 @@ class DuckLakeQueryResult:
     query_ms: float | None = None
 
 
-@dataclass
+@frozen
 class DuckLakeTableResult:
     schema_name: str
     table_name: str
